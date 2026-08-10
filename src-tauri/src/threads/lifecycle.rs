@@ -1,0 +1,364 @@
+//! Everything that changes a thread's existence rather than its contents:
+//! renaming, compacting, archiving, deleting, forking, rolling back.
+//!
+//! Each of these has a local-cache consequence as well as an app-server call.
+//! Archiving keeps the search row (flag flipped) so history stays searchable;
+//! deleting removes it.
+
+use serde_json::{json, Value};
+use tauri::{AppHandle, State};
+
+use crate::projects::{bootstrap_cached, bootstrap_inner, thread_search_row, BootstrapData};
+use crate::storage;
+use crate::util::json::arr_or_empty;
+use crate::AppState;
+
+/// How many archived threads the archive view loads at once.
+const ARCHIVED_PAGE: usize = 200;
+
+#[tauri::command]
+pub(crate) async fn rename_thread(
+    thread_id: String,
+    name: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<BootstrapData, String> {
+    let name = name.trim();
+    state
+        .session
+        .request(
+            &app,
+            "thread/name/set",
+            json!({"threadId": thread_id, "name": name}),
+        )
+        .await?;
+    storage::rename_thread_summary(&state.database(), &thread_id, name).await?;
+    storage::rename_thread_search(&state.database(), &thread_id, name).await?;
+    storage::invalidate_thread_detail(&state.database(), &thread_id).await?;
+    // A deliberate rename is final: it stops the auto-namer touching this thread.
+    storage::write_thread_name_source(&state.database(), &thread_id, "user").await?;
+    bootstrap_cached(&state).await
+}
+
+/// Ask Codex to summarise the thread so far and drop the raw history from the
+/// model's context. Compaction runs as a turn, so the result streams back as
+/// ordinary thread events; only the cached projection needs clearing here.
+#[tauri::command]
+pub(crate) async fn compact_thread(
+    thread_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.session.ensure_resumed(&app, &thread_id).await?;
+    storage::invalidate_thread_detail(&state.database(), &thread_id).await?;
+    state
+        .session
+        .request(&app, "thread/compact/start", json!({"threadId": thread_id}))
+        .await?;
+    Ok(())
+}
+
+/// Start a review turn in this thread (`/review`).
+///
+/// `target` is the app-server's `ReviewTarget` as the picker built it —
+/// `uncommittedChanges`, `baseBranch`, `commit`, or the free-form `custom` that
+/// `/review <instructions>` sends — and is forwarded untouched. It falls back to
+/// the uncommitted changes when the caller names no target at all. Like
+/// compaction this runs as a turn, so results stream back as ordinary thread
+/// events.
+///
+/// The response's turn is handed back rather than dropped: a review emits no
+/// `turn/started`, so this is the only place the app learns the turn's id, and
+/// Stop needs it to name the turn it is interrupting.
+#[tauri::command]
+pub(crate) async fn start_review(
+    thread_id: String,
+    target: Option<Value>,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    state.session.ensure_resumed(&app, &thread_id).await?;
+    let target = target
+        .filter(|target| target.is_object())
+        .unwrap_or_else(|| json!({"type": "uncommittedChanges"}));
+    let response = state
+        .session
+        .request(
+            &app,
+            "review/start",
+            json!({"threadId": thread_id, "target": target}),
+        )
+        .await?;
+    response
+        .get("turn")
+        .cloned()
+        .ok_or_else(|| "Codex returned no turn data".to_string())
+}
+
+/// Set or update the goal for a long-running task (`/goal <objective>`).
+/// Only the fields given change; the app-server keeps the rest of the goal.
+#[tauri::command]
+pub(crate) async fn thread_goal_set(
+    thread_id: String,
+    objective: Option<String>,
+    status: Option<String>,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    state.session.ensure_resumed(&app, &thread_id).await?;
+    let mut params = json!({"threadId": thread_id});
+    if let Some(objective) = objective {
+        params["objective"] = json!(objective);
+    }
+    if let Some(status) = status {
+        params["status"] = json!(status);
+    }
+    let response = state.session.request(&app, "thread/goal/set", params).await?;
+    response
+        .get("goal")
+        .cloned()
+        .ok_or_else(|| "Codex returned no goal".to_string())
+}
+
+/// Read the thread's goal, if one is set (`/goal` with no argument).
+#[tauri::command]
+pub(crate) async fn thread_goal_get(
+    thread_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    state.session.ensure_resumed(&app, &thread_id).await?;
+    let response = state
+        .session
+        .request(&app, "thread/goal/get", json!({"threadId": thread_id}))
+        .await?;
+    Ok(response.get("goal").cloned().unwrap_or(Value::Null))
+}
+
+/// Drop the thread's goal (`/goal clear`).
+#[tauri::command]
+pub(crate) async fn thread_goal_clear(
+    thread_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.session.ensure_resumed(&app, &thread_id).await?;
+    state
+        .session
+        .request(&app, "thread/goal/clear", json!({"threadId": thread_id}))
+        .await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn invalidate_thread_cache(
+    thread_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    storage::invalidate_thread_detail(&state.database(), &thread_id).await
+}
+
+/// Drop a thread from the sidebar's local state. Shared by archive and delete,
+/// which differ only in what they do to the search index.
+async fn remove_thread_locally(state: &AppState, thread_id: &str) -> Result<(), String> {
+    let mut store = storage::read_store(&state.database()).await?;
+    if store.pinned_threads.iter().any(|id| id == thread_id) {
+        store.pinned_threads.retain(|id| id != thread_id);
+        storage::write_store(&state.database(), &store).await?;
+    }
+    storage::delete_thread_summary(&state.database(), thread_id).await?;
+    storage::invalidate_thread_detail(&state.database(), thread_id).await
+}
+
+#[tauri::command]
+pub(crate) async fn archive_thread(
+    thread_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<BootstrapData, String> {
+    state
+        .session
+        .request(&app, "thread/archive", json!({"threadId": thread_id}))
+        .await?;
+    // Archiving keeps the thread searchable; the search row flips its flag
+    // instead of being deleted.
+    storage::set_thread_search_archived(&state.database(), &thread_id, true).await?;
+    remove_thread_locally(&state, &thread_id).await?;
+    bootstrap_cached(&state).await
+}
+
+#[tauri::command]
+pub(crate) async fn unarchive_thread(
+    thread_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<BootstrapData, String> {
+    state
+        .session
+        .request(&app, "thread/unarchive", json!({"threadId": thread_id}))
+        .await?;
+    storage::set_thread_search_archived(&state.database(), &thread_id, false).await?;
+    // A full bootstrap, not a cached one: the thread has to come back from the
+    // app-server's active listing before it can reappear in the sidebar.
+    bootstrap_inner(&app, &state).await
+}
+
+#[tauri::command]
+pub(crate) async fn delete_thread(
+    thread_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<BootstrapData, String> {
+    state
+        .session
+        .request(&app, "thread/delete", json!({"threadId": thread_id}))
+        .await?;
+    storage::delete_thread_search(&state.database(), &thread_id).await?;
+    // Archiving keeps the journal (unarchiving expects its transcript back);
+    // deleting is the one path that owns dropping it.
+    storage::delete_thread_items(&state.database(), &thread_id).await?;
+    storage::delete_turn_settings(&state.database(), &thread_id).await?;
+    storage::delete_agent_runs(&state.database(), &thread_id).await?;
+    remove_thread_locally(&state, &thread_id).await?;
+    storage::unassign_thread_workspace(&state.database(), &thread_id).await?;
+    bootstrap_cached(&state).await
+}
+
+#[tauri::command]
+pub(crate) async fn list_archived_threads(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let response = state
+        .session
+        .request(
+            &app,
+            "thread/list",
+            json!({
+                "limit": ARCHIVED_PAGE,
+                "sortKey": "updated_at",
+                "sortDirection": "desc",
+                "archived": true
+            }),
+        )
+        .await?;
+    index_archived_search(&state, &response).await;
+    Ok(response)
+}
+
+/// Mirror an archived `thread/list` response into the local search index so
+/// archived history is searchable alongside active threads. Best-effort: a
+/// failure here must not stop the archive view from rendering.
+async fn index_archived_search(state: &AppState, response: &Value) {
+    let rows: Vec<_> = arr_or_empty(response, "data")
+        .iter()
+        .filter_map(|thread| thread_search_row(thread, true))
+        .collect();
+    let _ = storage::upsert_thread_search(&state.database(), &rows).await;
+}
+
+#[tauri::command]
+pub(crate) async fn list_models(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    state
+        .session
+        .request(
+            &app,
+            "model/list",
+            json!({"limit": 100, "includeHidden": true}),
+        )
+        .await
+}
+
+/// Drop the last `num_turns` turns from a thread, in place. Unlike forking,
+/// this keeps the thread id — which is what editing a past message wants: the
+/// conversation rewinds instead of branching into a second sidebar entry.
+#[tauri::command]
+pub(crate) async fn rollback_thread(
+    thread_id: String,
+    num_turns: u32,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    state.session.ensure_resumed(&app, &thread_id).await?;
+    let response = state
+        .session
+        .request(
+            &app,
+            "thread/rollback",
+            json!({"threadId": thread_id, "numTurns": num_turns}),
+        )
+        .await?;
+    // After the rollback, so the truncated history can't be served from a
+    // detail row written before it.
+    storage::invalidate_thread_detail(&state.database(), &thread_id).await?;
+    let thread = response
+        .get("thread")
+        .cloned()
+        .ok_or_else(|| "Codex returned no thread after rollback".to_string())?;
+    // The journal is merged into every read, so it has to forget the turns the
+    // rollback dropped or they would reappear under the truncated history.
+    let kept = turn_ids(&thread);
+    storage::retain_thread_turns(&state.database(), &thread_id, &kept).await?;
+    storage::retain_turn_settings(&state.database(), &thread_id, &kept).await?;
+    storage::retain_agent_runs(&state.database(), &thread_id, &kept).await?;
+    Ok(thread)
+}
+
+fn turn_ids(thread: &Value) -> Vec<String> {
+    arr_or_empty(thread, "turns")
+        .iter()
+        .filter_map(|turn| crate::util::json::str_at(turn, "id").map(str::to_string))
+        .collect()
+}
+
+#[tauri::command]
+pub(crate) async fn fork_thread(
+    thread_id: String,
+    before_turn_id: Option<String>,
+    last_turn_id: Option<String>,
+    cwd: Option<String>,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let mut params = json!({"threadId": thread_id});
+    // An explicit cwd is the existing "Move to worktree" operation. It must
+    // leave the virtual workspace instead of having its next turn overridden
+    // back to the workspace hub.
+    let inherits_workspace = cwd.as_deref().is_none_or(|cwd| cwd.trim().is_empty());
+    if let Some(before_turn_id) = before_turn_id {
+        params["beforeTurnId"] = json!(before_turn_id);
+    }
+    if let Some(last_turn_id) = last_turn_id {
+        params["lastTurnId"] = json!(last_turn_id);
+    }
+    // "Move to worktree" forks the thread onto a new working directory. The
+    // fork carries the full history (whose turns keep their original cwd) while
+    // subsequent turns run in `cwd`.
+    if let Some(cwd) = cwd.filter(|cwd| !cwd.trim().is_empty()) {
+        params["cwd"] = json!(cwd);
+    }
+    let response = state.session.request(&app, "thread/fork", params).await?;
+    let thread = response
+        .get("thread")
+        .cloned()
+        .ok_or_else(|| "Codex returned no forked thread".to_string())?;
+    if let Some(id) = crate::util::json::str_at(&thread, "id") {
+        state.session.mark_resumed(&app, id).await?;
+        // The fork carries the parent's history, so it needs the parent's
+        // journal too — otherwise the copy loses every command that ran.
+        storage::copy_thread_items(&state.database(), &thread_id, id).await?;
+        storage::copy_turn_settings(&state.database(), &thread_id, id).await?;
+        storage::copy_agent_runs(&state.database(), &thread_id, id).await?;
+        if inherits_workspace {
+            if let Some(workspace_id) =
+                storage::workspace_for_thread(&state.database(), &thread_id).await?
+            {
+                storage::assign_thread_workspace(&state.database(), id, &workspace_id).await?;
+            }
+        }
+    }
+    Ok(thread)
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Pingex Dev",
+  "identifier": "codes.pingu.pingex.dev",
+  "app": {
+    "windows": [
+      {
+        "title": "Pingex (dev)"
+      }
+    ]
+  }
+}

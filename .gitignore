@@ -1,0 +1,7 @@
+node_modules
+dist
+.DS_Store
+src-tauri/target
+/playwright-report/
+/test-results/
+/demo/screenshots/

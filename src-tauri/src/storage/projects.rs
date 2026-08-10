@@ -1,0 +1,115 @@
+//! The project list and pinned threads — the small, hand-curated part of the
+//! sidebar. Written as a whole `Store` rather than row-by-row because callers
+//! read it, mutate it in memory, and write it back.
+
+use serde::{Deserialize, Serialize};
+use turso::{params, Database};
+
+use super::db;
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StoredProject {
+    pub(crate) path: String,
+    #[serde(default)]
+    pub(crate) name: Option<String>,
+    #[serde(default)]
+    pub(crate) pinned: bool,
+    #[serde(default)]
+    pub(crate) archived: bool,
+}
+
+#[derive(Default, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub(crate) struct Store {
+    pub(crate) projects: Vec<StoredProject>,
+    pub(crate) pinned_threads: Vec<String>,
+}
+
+pub(crate) async fn read_store(database: &Database) -> Result<Store, String> {
+    let connection = db::conn(database)?;
+    let projects = db::rows(
+        &connection,
+        "SELECT path, name, pinned, archived FROM projects ORDER BY pinned DESC, rowid",
+        (),
+        |row| {
+            Ok(StoredProject {
+                path: db::text(row, 0)?,
+                name: db::opt_text(row, 1)?,
+                pinned: db::flag(row, 2)?,
+                archived: db::flag(row, 3)?,
+            })
+        },
+    )
+    .await?;
+    let pinned_threads = db::rows(
+        &connection,
+        "SELECT thread_id FROM pinned_threads ORDER BY rowid",
+        (),
+        |row| db::text(row, 0),
+    )
+    .await?;
+    Ok(Store {
+        projects,
+        pinned_threads,
+    })
+}
+
+pub(crate) async fn write_store(database: &Database, store: &Store) -> Result<(), String> {
+    let connection = db::conn(database)?;
+    let transaction = connection
+        .unchecked_transaction()
+        .await
+        .map_err(db::db_error)?;
+    db::exec(&transaction, "DELETE FROM projects", ()).await?;
+    db::exec(&transaction, "DELETE FROM pinned_threads", ()).await?;
+    for project in &store.projects {
+        db::exec(
+            &transaction,
+            "INSERT INTO projects(path, name, pinned, archived) VALUES (?, ?, ?, ?)",
+            params![
+                project.path.clone(),
+                project.name.clone(),
+                i64::from(project.pinned),
+                i64::from(project.archived)
+            ],
+        )
+        .await?;
+    }
+    for thread_id in &store.pinned_threads {
+        db::exec(
+            &transaction,
+            "INSERT INTO pinned_threads(thread_id) VALUES (?)",
+            (thread_id.clone(),),
+        )
+        .await?;
+    }
+    transaction.commit().await.map_err(db::db_error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::open;
+
+    #[tokio::test]
+    async fn round_trips_projects_and_pinned_threads() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = open(directory.path()).await.unwrap();
+        let store = Store {
+            projects: vec![StoredProject {
+                path: "/tmp/project".into(),
+                name: Some("Project".into()),
+                pinned: true,
+                archived: true,
+            }],
+            pinned_threads: vec!["thread-1".into()],
+        };
+        write_store(&database, &store).await.unwrap();
+        assert_eq!(read_store(&database).await.unwrap(), store);
+
+        // Writing replaces wholesale rather than accumulating.
+        write_store(&database, &Store::default()).await.unwrap();
+        assert_eq!(read_store(&database).await.unwrap(), Store::default());
+    }
+}

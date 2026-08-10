@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Pingex",
+  "version": "0.1.0",
+  "identifier": "codes.pingu.pingex",
+  "build": {
+    "beforeDevCommand": "deno task frontend:dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "deno task build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Pingex",
+        "width": 1180,
+        "height": 760,
+        "minWidth": 820,
+        "minHeight": 560,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": { "enable": true, "scope": ["$HOME/**"] }
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["codex"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+  }
+}
