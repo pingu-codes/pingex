@@ -95,6 +95,9 @@ export function upsertItem(turns: Turn[], turnId: string, incoming: ThreadItem):
   else turn.items.push(incoming);
 }
 
+/** Shown while Codex deliberately stalls the stream to check a response. */
+export const BUFFERING_NOTICE = "Checking the response before showing it…";
+
 export interface ApplyOutcome {
   /** Set when the stream reported an error message to surface. */
   streamError?: string;
@@ -104,6 +107,8 @@ export interface ApplyOutcome {
    * `streamError` so a turn that recovers does not look like it failed.
    */
   notice?: string;
+  /** Safety buffering stopped; the buffering notice no longer applies. */
+  bufferingEnded?: boolean;
   /** A turn finished; the caller should invalidate the thread cache. */
   turnCompleted?: boolean;
   /** A collab tool call landed; the caller should refresh subagents. */
@@ -254,9 +259,12 @@ export function applyThreadEvent(thread: ThreadDetail, { method, params }: Codex
       outcome.notice = `Switched from ${params.fromModel} to ${params.toModel}.`;
       break;
     // A deliberate stall while the response is checked. Only announced when
-    // Codex asks for it, since it is otherwise invisible and looks like a hang.
+    // Codex asks for it, since it is otherwise invisible and looks like a hang
+    // — and withdrawn again when the stall ends, since it describes a state
+    // rather than an event.
     case "model/safetyBuffering/updated":
-      if (params.showBufferingUi) outcome.notice = "Checking the response before showing it…";
+      if (params.showBufferingUi) outcome.notice = BUFFERING_NOTICE;
+      else outcome.bufferingEnded = true;
       break;
     // Hooks are the user's own code. A successful run is not worth mentioning;
     // one that failed or blocked the turn very much is, because nothing else in

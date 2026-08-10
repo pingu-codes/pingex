@@ -350,6 +350,8 @@ describe("applyThreadEvent — notices", () => {
       params: { threadId: "t", showBufferingUi: false },
     });
     expect(quiet.notice).toBeUndefined();
+    expect(quiet.bufferingEnded).toBe(true);
+    expect(shown.bufferingEnded).toBeUndefined();
   });
 });
 

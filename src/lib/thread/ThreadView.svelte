@@ -54,7 +54,7 @@ import QuestionCard from "$lib/thread/QuestionCard.svelte";
 import ReasoningBlock from "$lib/thread/ReasoningBlock.svelte";
 import RewindThreadDialog from "$lib/thread/RewindThreadDialog.svelte";
 import TurnPlanCard from "$lib/thread/TurnPlanCard.svelte";
-import { applyThreadEvent, ensureTurn, finalizeRunningTurns, upsertItem } from "$lib/thread/threadStream";
+import { applyThreadEvent, BUFFERING_NOTICE, ensureTurn, finalizeRunningTurns, upsertItem } from "$lib/thread/threadStream";
 import {
   completedSegmentKey,
   segmentKey,
@@ -360,6 +360,9 @@ function handleEvent(event: CodexEvent) {
   const outcome = applyThreadEvent(thread, event);
   if (outcome.streamError) streamError = outcome.streamError;
   if (outcome.notice) notice = outcome.notice;
+  // The buffering notice describes an ongoing stall; once the stall ends — or
+  // the turn does — it would just read as a hang, so take it down.
+  if ((outcome.bufferingEnded || outcome.turnCompleted) && notice === BUFFERING_NOTICE) notice = null;
   // Compaction runs as a turn, so its end — however it ends — releases the meter.
   if (outcome.turnCompleted) compacting = false;
   if (outcome.turnCompleted && liveThreadId) invalidateThreadCache(liveThreadId).catch(() => {});

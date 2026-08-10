@@ -187,16 +187,45 @@ describe("FloatingMenu", () => {
       expect(onOpenProcess).toHaveBeenCalledWith(expect.objectContaining({ key: "t:c1" }));
     });
 
-    it("marks a process from another thread and shows its exit code once finished", () => {
+    it("marks a process from another thread and shows its exit code once finished", async () => {
+      const user = userEvent.setup();
       setup({
         processes: [process({ key: "o:c2", threadId: "o", status: "completed", exitCode: 0 })],
         currentThreadId: "t",
       });
 
+      // Finished processes are hidden until the Finished chip is toggled on.
+      expect(screen.getByText("No matching processes.")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Finished" }));
+
       const row = screen.getByRole("button", { name: "Open process sleep 60" });
       expect(row).toHaveTextContent("Finished");
       expect(row).toHaveTextContent("exit 0");
       expect(row).toHaveTextContent("other thread");
+    });
+
+    it("filters processes with the state chips, showing only active by default", async () => {
+      const user = userEvent.setup();
+      setup({
+        processes: [
+          process(),
+          process({ key: "t:c2", itemId: "c2", command: "npm test", status: "completed", exitCode: 0 }),
+          process({ key: "t:c3", itemId: "c3", command: "bad cmd", status: "failed", exitCode: 1 }),
+        ],
+        currentThreadId: "t",
+      });
+
+      expect(screen.getByRole("button", { name: "Open process sleep 60" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Open process npm test" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Open process bad cmd" })).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Failed" }));
+      expect(screen.getByRole("button", { name: "Open process bad cmd" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Open process npm test" })).not.toBeInTheDocument();
+
+      // Toggling Active off hides the running process again.
+      await user.click(screen.getByRole("button", { name: "Active" }));
+      expect(screen.queryByRole("button", { name: "Open process sleep 60" })).not.toBeInTheDocument();
     });
   });
 });

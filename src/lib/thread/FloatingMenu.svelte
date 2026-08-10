@@ -140,6 +140,18 @@ const orderedProcesses = $derived(
 const processState = (status: RunningProcess["status"]) =>
   status === "running" ? "Active" : status === "failed" ? "Failed" : status === "interrupted" ? "Stopped" : "Finished";
 
+// Chips filter the process list; only Active is on by default so a long
+// history of finished commands doesn't bury the ones still running.
+const processFilterOptions = ["Active", "Finished", "Failed"] as const;
+type ProcessFilter = (typeof processFilterOptions)[number];
+let processFilters = $state<Record<ProcessFilter, boolean>>({ Active: true, Finished: false, Failed: false });
+// Stopped (interrupted) commands are done running, so they live under Finished.
+const processFilterBucket = (state: string): ProcessFilter =>
+  state === "Active" ? "Active" : state === "Failed" ? "Failed" : "Finished";
+const visibleProcesses = $derived(
+  orderedProcesses.filter((process) => processFilters[processFilterBucket(processState(process.status))]),
+);
+
 const stateClass = (state: string) =>
   state === "Active" ? "text-success-500" : state === "Failed" ? "text-error-500" : "text-surface-500";
 
@@ -206,7 +218,8 @@ function closeDropdown() {
   </div>
 
   {#if panel}
-    <div class="card absolute right-0 top-11 z-40 w-[270px] border border-surface-200-800 bg-surface-50-950 p-2 shadow-xl" role="menu" aria-label="Thread overview panel">
+    <!-- max-height keeps the panel on-screen with lots of content; it scrolls instead. -->
+    <div class="card absolute right-0 top-11 z-40 max-h-[calc(100vh-6rem)] w-[270px] overflow-y-auto border border-surface-200-800 bg-surface-50-950 p-2 shadow-xl" role="menu" aria-label="Thread overview panel">
       <div class="flex items-center px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-surface-500">
         <span class="flex-1">Usage</span>
         {#if cost}<span class="normal-case tracking-normal">{cost} est.</span>{/if}
@@ -363,8 +376,26 @@ function closeDropdown() {
       {#if processes.length === 0}
         <p class="px-2 py-1 text-xs text-surface-500">No commands run yet.</p>
       {:else}
+        <div class="flex gap-1 px-1 pb-1.5">
+          {#each processFilterOptions as filter (filter)}
+            <button
+              onclick={() => {
+                processFilters[filter] = !processFilters[filter];
+              }}
+              aria-pressed={processFilters[filter]}
+              class="rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors {processFilters[filter]
+                ? 'border-primary-500/40 bg-primary-500/15 text-primary-500'
+                : 'border-surface-200-800 text-surface-500 hover:preset-tonal'}"
+            >
+              {filter}
+            </button>
+          {/each}
+        </div>
+        {#if visibleProcesses.length === 0}
+          <p class="px-2 py-1 text-xs text-surface-500">No matching processes.</p>
+        {/if}
         <div class="max-h-52 overflow-y-auto">
-          {#each orderedProcesses as process (process.key)}
+          {#each visibleProcesses as process (process.key)}
             {@const state = processState(process.status)}
             <button
               onclick={() => onOpenProcess(process)}
