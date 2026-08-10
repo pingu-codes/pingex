@@ -642,29 +642,63 @@ export function caretOffset(root: HTMLElement): number | null {
 
 /** Places the caret at a flattened offset in freshly rendered content. */
 export function placeCaretAtOffset(root: HTMLElement, target: number): void {
-  let remaining = target;
-  for (const node of root.childNodes) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const length = node.textContent?.length ?? 0;
-      if (remaining <= length) {
-        placeCaretIn(node as Text, remaining);
-        return;
+  const place = (): void => {
+    let remaining = target;
+    for (const node of root.childNodes) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const length = node.textContent?.length ?? 0;
+        if (remaining <= length) {
+          placeCaretIn(node as Text, remaining);
+          return;
+        }
+        remaining -= length;
+      } else {
+        if (remaining === 0) {
+          placeCaretBesideNode(node, "before");
+          return;
+        }
+        remaining -= 1;
       }
-      remaining -= length;
-    } else {
-      if (remaining === 0) {
-        placeCaretBesideNode(node, "before");
-        return;
-      }
-      remaining -= 1;
     }
-  }
-  const range = document.createRange();
-  range.selectNodeContents(root);
-  range.collapse(false);
+    const range = document.createRange();
+    range.selectNodeContents(root);
+    range.collapse(false);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  };
+  place();
+  scrollCaretIntoView(root);
+}
+
+/**
+ * Scrolls the editor so the caret is visible again. Re-rendering replaces the
+ * root's children, which resets its scrollTop to 0 — without this, every
+ * Shift+Enter, paste or undo in a scrolled composer jumps the view to the top.
+ */
+function scrollCaretIntoView(root: HTMLElement): void {
   const selection = window.getSelection();
-  selection?.removeAllRanges();
-  selection?.addRange(range);
+  if (!selection?.rangeCount) return;
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed || !root.contains(range.startContainer)) return;
+  let rect: DOMRect | null = range.getClientRects()[0] ?? null;
+  if (!rect || rect.height === 0) {
+    // A caret in an empty text node (chip padding) or after a trailing <br>
+    // has no box of its own; measure a probe character there instead. The
+    // probe is emptied rather than removed so the caret can stay in it —
+    // empty text nodes are already part of this editor's normal shape.
+    const probe = document.createTextNode("​");
+    range.insertNode(probe);
+    const probeRange = document.createRange();
+    probeRange.selectNodeContents(probe);
+    rect = probeRange.getBoundingClientRect();
+    probe.data = "";
+    placeCaretIn(probe);
+  }
+  if (!rect) return;
+  const box = root.getBoundingClientRect();
+  if (rect.bottom > box.bottom) root.scrollTop += rect.bottom - box.bottom;
+  else if (rect.top < box.top) root.scrollTop -= box.top - rect.top;
 }
 
 /** Explodes parts into one entry per caret unit: a character or a whole chip. */

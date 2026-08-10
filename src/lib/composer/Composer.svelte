@@ -248,8 +248,12 @@ let inputHeight = $state(loadSize("layout.composerHeight", 60, 36, MAX_INPUT_HEI
 function autogrow() {
   const element = editor;
   if (!element) return;
+  // Collapsing to "auto" to measure resets scrollTop; put it back afterwards
+  // (the browser clamps it if the content shrank).
+  const scrollTop = element.scrollTop;
   element.style.height = "auto";
   element.style.height = `${Math.min(Math.max(element.scrollHeight, inputHeight), MAX_INPUT_HEIGHT)}px`;
+  element.scrollTop = scrollTop;
 }
 
 $effect(() => {
