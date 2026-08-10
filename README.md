@@ -2,9 +2,24 @@
 
 Pingex is a custom desktop frontend/GUI for [Codex](https://github.com/openai/codex) and its app-server interface powered by Tauri and Svelte. We aim to be a feature complete reimplementation of OpenAI's proprietary desktop app alongside adding some features!
 
+Thanks to tauri and its rust backend I find Pingex is far less ram / CPU hungry and much quicker.
+
 Pingex is not affiliated with, endorsed by, or sponsored by OpenAI. “OpenAI” and “Codex” are trademarks of their respective owners.
 
 > This project is largely LLM generated so expect some slop (I wouldn't have the free time to have created this without my LLM overlords).
+
+## Screenshots
+
+![Thread overview](demo/screenshots/dark/07-thread-overview.png)
+
+![Worktrees](demo/screenshots/dark/18-worktrees.png)
+
+## Features
+
+Pingex covers the core Codex desktop experience — threads with reasoning and command output, diff panels, reviews, slash commands, model and permission pickers, quick chat, and archived-thread search — and adds a few things on top of the basic app:
+
+- **Better subagent control** — spawn and inspect subagents directly, with dedicated views for each subagent's thread and side questions.
+- **Multi-project workspaces** — manage several projects side by side, with per-project details, workspace-wide search, and git worktree support for running parallel work in isolation.
 
 ## Requirements
 
