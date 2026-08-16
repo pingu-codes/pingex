@@ -52,6 +52,7 @@ import ProjectDetail from "$lib/panels/ProjectDetail.svelte";
 import ReviewView from "$lib/review/ReviewView.svelte";
 import { revealInFinder } from "$lib/services/api";
 import { closeSettings, openSettings, settingsNav } from "$lib/services/settingsNav.svelte";
+import ThreadDebugPopover from "$lib/thread/ThreadDebugPopover.svelte";
 import ThreadHeader from "$lib/thread/ThreadHeader.svelte";
 import ThreadView from "$lib/thread/ThreadView.svelte";
 import { dragRegion } from "$lib/utils/dragRegion";
@@ -133,7 +134,8 @@ init();
             <ArrowLeft size={15} />
           </TooltipButton>
         {/if}
-        <div class="pointer-events-none min-w-0">
+        <ThreadDebugPopover {thread} codexHome={codexHome()}>
+        <div class="min-w-0">
         <div class="truncate text-sm font-medium" title={thread?.title ?? project?.name ?? "Home"}>
           {#if thread?.parentThreadId}
             Subagent · {thread.agentNickname ?? thread.agentRole ?? thread.title}
@@ -143,6 +145,7 @@ init();
         </div>
         {#if project}<div class="truncate text-[10px] text-surface-500">{project.path}</div>{/if}
         </div>
+        </ThreadDebugPopover>
       </div>
       <div class="flex shrink-0 items-center gap-2">
         {#if (view.threadId || view.draftCwd) && !view.worktreesPath}
