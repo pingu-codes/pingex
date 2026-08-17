@@ -1131,8 +1131,8 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
       currentThreadId={liveThreadId}
       {contextStats}
       costUsd={estimateCost(tokenUsage, activeModel)}
-      onOpenFinder={() => revealInFinder(workspaceId ? cwd : (thread?.cwd || cwd)).catch(() => {})}
-      onOpenZed={() => openInZed(workspaceId ? cwd : (thread?.cwd || cwd)).catch((cause) => (streamError = cause instanceof Error ? cause.message : String(cause)))}
+      onOpenFinder={() => revealInFinder(thread?.cwd || cwd).catch(() => {})}
+      onOpenZed={() => openInZed(thread?.cwd || cwd).catch((cause) => (streamError = cause instanceof Error ? cause.message : String(cause)))}
       onShowPlan={() => (panelView = latestPlan ? { kind: "plan", text: latestPlan } : panelView)}
       onShowSources={() => (panelView = { kind: "sources", queries: sourceQueries })}
       onShowSideQuestions={() => (panelView = { kind: "side" })}
