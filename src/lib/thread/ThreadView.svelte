@@ -1,6 +1,5 @@
 <script lang="ts">
 import { ChevronRight, X } from "@lucide/svelte";
-import { planText } from "$lib/thread/planText";
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
@@ -18,6 +17,7 @@ import {
   gitWorktreeAdd,
   interruptTurn,
   invalidateThreadCache,
+  isQueueUnsupported,
   killAgentRun,
   listAgentRuns,
   listSubagents,
@@ -55,7 +55,9 @@ import FloatingMenu from "$lib/thread/FloatingMenu.svelte";
 import { collectFileChanges } from "$lib/thread/fileChanges";
 import { cwdBelongsTo } from "$lib/thread/handoff";
 import { adoptLive, releaseLive, trackLive } from "$lib/thread/liveThreads.svelte";
+import { planText } from "$lib/thread/planText";
 import QuestionCard from "$lib/thread/QuestionCard.svelte";
+import { isClientQueued, isLocalOnly, localId, mergeQueue, pendingId } from "$lib/thread/queueEntries";
 import ReasoningBlock from "$lib/thread/ReasoningBlock.svelte";
 import RewindThreadDialog from "$lib/thread/RewindThreadDialog.svelte";
 import TurnPlanCard from "$lib/thread/TurnPlanCard.svelte";
@@ -448,19 +450,24 @@ async function ensureLiveThread(): Promise<string> {
   return created.id;
 }
 
-async function send(input: UserInputPart[], options?: TurnOptions) {
-  if (!thread) return;
+/** Returns whether the message is accounted for — started as a turn or safely
+ *  queued. `false` means it reached nothing, so a caller holding the only copy
+ *  (see `drain`) must put it back. */
+async function send(input: UserInputPart[], options?: TurnOptions): Promise<boolean> {
+  if (!thread) return false;
   if (activeTurn || starting) {
     // Codex is mid-turn: park the message on the server-side queue and send it
     // once the turn ends (completed or interrupted via Stop/Esc).
     enqueue(input, options);
-    return;
+    return true;
   }
   const text = input
     .filter((part) => part.type === "text")
     .map((part) => part.text ?? "")
     .join("");
   streamError = null;
+  // Sending again is the retry for a drain that failed, so let the queue move.
+  drainBlocked = false;
   const localTurnId = `local-${Date.now()}`;
   try {
     const isFirstMessage = !liveThreadId;
@@ -493,9 +500,11 @@ async function send(input: UserInputPart[], options?: TurnOptions) {
     // Name the thread off its opening message so the sidebar shows a title
     // rather than a truncated prompt while the turn runs.
     if (isFirstMessage && text.trim()) requestAutoName(id, "seed", text);
+    return true;
   } catch (cause) {
     thread.turns = thread.turns.filter((candidate) => candidate.id !== localTurnId);
     streamError = cause instanceof Error ? cause.message : String(cause);
+    return false;
   } finally {
     starting = false;
     pendingTurnStart = null;
@@ -561,7 +570,9 @@ function strandedContext(item: ThreadItem, turnId: string) {
   return {
     threadId: liveThreadId,
     turnId,
-    onResume: (text: string) => send([{ type: "text", text }]),
+    onResume: async (text: string) => {
+      await send([{ type: "text", text }]);
+    },
     onAnswered: (answered: ThreadItem) => thread && upsertItem(thread.turns, turnId, answered),
   };
 }
@@ -576,23 +587,38 @@ const showTypingIndicator = $derived.by(() => {
   return !(last?.type === "agentMessage" && last.streaming);
 });
 
-/** Park a message on the server-side queue, rendering it optimistically. */
+/** Park a message on the server-side queue, rendering it optimistically.
+ *
+ *  A failure here never drops the message: the entry stays in `queued` as a
+ *  local-only one and still drains when the turn finishes. The server queue is
+ *  durable and visible to other clients where the local one is not, so the loss
+ *  is persistence, not the message. */
 async function enqueue(input: UserInputPart[], options?: TurnOptions) {
   const threadIdAtAdd = liveThreadId;
   const clientUserMessageId = crypto.randomUUID();
   if (options) queuedOptions.set(clientUserMessageId, options);
-  const optimistic: QueuedSubmission = { id: `pending-${clientUserMessageId}`, input, clientUserMessageId };
+  // Draft thread: there is nothing to queue against yet, so it is local from
+  // the start and drains once the thread exists.
+  const id = threadIdAtAdd ? pendingId(clientUserMessageId) : localId(clientUserMessageId);
+  const optimistic: QueuedSubmission = { id, input, clientUserMessageId };
   queued.push(optimistic);
-  if (!threadIdAtAdd) return; // Draft thread: the queue drains locally once it exists.
+  if (!threadIdAtAdd) return;
   queueMutations++;
   try {
     const submission = await queueAdd(threadIdAtAdd, input, clientUserMessageId);
     const index = queued.findIndex((entry) => entry.id === optimistic.id);
     if (index >= 0) queued[index] = submission;
   } catch (cause) {
-    queued = queued.filter((entry) => entry.id !== optimistic.id);
-    queuedOptions.delete(clientUserMessageId);
-    streamError = cause instanceof Error ? cause.message : String(cause);
+    const index = queued.findIndex((entry) => entry.id === optimistic.id);
+    if (index >= 0) queued[index] = { ...optimistic, id: localId(clientUserMessageId) };
+    // An unsupported queue is a property of this Codex, not something that went
+    // wrong — the chip says "Queued locally" and that is the whole story. Other
+    // failures (a full queue, a lost thread) are worth a word, but as a notice:
+    // nothing ended the turn, and the message is still going to send.
+    if (!isQueueUnsupported(cause)) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      notice = `Queued in this window only — Codex could not hold it (${message}). It will send when this turn finishes.`;
+    }
   } finally {
     queueMutations--;
   }
@@ -602,7 +628,7 @@ async function enqueue(input: UserInputPart[], options?: TurnOptions) {
 async function removeQueued(entry: QueuedSubmission) {
   queued = queued.filter((candidate) => candidate.id !== entry.id);
   queuedOptions.delete(entry.clientUserMessageId);
-  if (!liveThreadId || entry.id.startsWith("pending-")) return;
+  if (!liveThreadId || isClientQueued(entry)) return;
   queueMutations++;
   try {
     await queueDelete(liveThreadId, entry.id);
@@ -619,33 +645,40 @@ function refreshQueue(id: string) {
   queueList(id)
     .then((items) => {
       if (id !== liveThreadId || queueMutations > 0) return;
-      // Keep optimistic entries the server does not know about yet.
-      const pending = queued.filter((entry) => entry.id.startsWith("pending-"));
-      queued = [
-        ...items,
-        ...pending.filter((entry) => !items.some((item) => item.clientUserMessageId === entry.clientUserMessageId)),
-      ];
+      // Keeps the client-only entries the server does not know about — both the
+      // ones still in flight and the ones it will never hold.
+      queued = mergeQueue(items, queued);
     })
     .catch(() => {});
 }
 
 let draining = $state(false);
+/** Set when a drain put its message back, because nothing else in the effect's
+ *  guard would have changed — without this the retry fires again immediately
+ *  and spins. Cleared when the user next sends, which is also the retry. */
+let drainBlocked = $state(false);
 $effect(() => {
-  if (draining || activeTurn || starting || loading || queued.length === 0) return;
+  if (draining || drainBlocked || activeTurn || starting || loading || queued.length === 0) return;
   const next = queued[0];
   if (next) drain(next);
 });
 
 /** Run the head of the queue: take it off the server, then send it through the
  *  normal turn path so its options (which the server queue cannot hold) and the
- *  optimistic bubble behave exactly like a direct send. */
+ *  optimistic bubble behave exactly like a direct send.
+ *
+ *  Between the removal and the send this holds the only copy of the message, so
+ *  a failed send puts it back rather than dropping it. */
 async function drain(next: QueuedSubmission) {
   draining = true;
+  const options = queuedOptions.get(next.clientUserMessageId);
   try {
     await removeQueued(next);
-    const options = queuedOptions.get(next.clientUserMessageId);
     queuedOptions.delete(next.clientUserMessageId);
-    await send(next.input, options);
+    if (await send(next.input, options)) return;
+    if (options) queuedOptions.set(next.clientUserMessageId, options);
+    queued = [{ ...next, id: localId(next.clientUserMessageId) }, ...queued];
+    drainBlocked = true;
   } finally {
     draining = false;
   }
@@ -1155,7 +1188,14 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
     <div class="mx-auto w-full max-w-3xl space-y-1 px-6 pb-2">
       {#each queued as entry (entry.id)}
         <div class="flex items-center gap-2 rounded-lg border border-surface-200-800 bg-surface-100-900 px-3 py-1.5 text-xs text-surface-600-400">
-          <span class="shrink-0 font-medium text-surface-500">Queued</span>
+          <span
+            class="shrink-0 font-medium text-surface-500"
+            title={isLocalOnly(entry)
+              ? "Held in this window only — this Codex version can't save queued messages."
+              : undefined}
+          >
+            {isLocalOnly(entry) ? "Queued locally" : "Queued"}
+          </span>
           <span class="min-w-0 flex-1 truncate">{queuedPreview(entry.input)}</span>
           <TooltipButton
             label="Remove queued message"

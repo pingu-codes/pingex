@@ -13,6 +13,7 @@
  */
 import { invalidateThreadCache, queueList } from "$lib/services/api";
 import { activeTurns, type CodexEvent, setThreadHandler } from "$lib/services/codexEvents.svelte";
+import { mergeQueue } from "$lib/thread/queueEntries";
 import { applyThreadEvent } from "$lib/thread/threadStream";
 import type { QueuedSubmission, SubagentPolicy, ThreadDetail, TurnOptions } from "$lib/types";
 
@@ -74,7 +75,9 @@ function onEvent(event: CodexEvent) {
     queueList(id)
       .then((items) => {
         const current = live[id];
-        if (current && id !== openThreadId) current.queued = items;
+        // Merged, not replaced: a retained thread can be holding entries the
+        // server has never seen, and a re-list must not swallow them.
+        if (current && id !== openThreadId) current.queued = mergeQueue(items, current.queued);
       })
       .catch(() => {});
     return;

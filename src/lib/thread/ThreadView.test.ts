@@ -20,6 +20,9 @@ const mocks = vi.hoisted(() => ({
   gitBranches: vi.fn(),
   startReview: vi.fn(),
   interruptTurn: vi.fn(),
+  queueAdd: vi.fn(),
+  queueDelete: vi.fn(),
+  queueList: vi.fn(),
   handlers: [] as ThreadEventHandler[],
   setThreadHandler: vi.fn((handler: ThreadEventHandler) => {
     mocks.handlers.push(handler);
@@ -65,11 +68,11 @@ vi.mock("$lib/services/api", () => ({
   listAgentRuns: vi.fn().mockResolvedValue([]),
   killAgentRun: vi.fn().mockResolvedValue(undefined),
   openInZed: vi.fn(),
-  queueAdd: vi.fn().mockImplementation((_threadId, input, clientUserMessageId) =>
-    Promise.resolve({ id: `q-${clientUserMessageId}`, input, clientUserMessageId }),
-  ),
-  queueDelete: vi.fn().mockResolvedValue(true),
-  queueList: vi.fn().mockResolvedValue([]),
+  isQueueUnsupported: (cause: unknown) =>
+    (cause instanceof Error ? cause.message : String(cause)).startsWith("codex-queue-unsupported"),
+  queueAdd: mocks.queueAdd,
+  queueDelete: mocks.queueDelete,
+  queueList: mocks.queueList,
   readThread: mocks.readThread,
   removeSideQuestion: vi.fn(),
   respondUserInput: vi.fn(),
@@ -139,7 +142,18 @@ function seedComposerPrefs() {
   savePrefs({ ...loadPrefs(), model: "gpt-5.2-codex", permissionPreset: "auto" });
 }
 
-beforeEach(seedComposerPrefs);
+beforeEach(() => {
+  seedComposerPrefs();
+  mocks.queueAdd.mockReset();
+  mocks.queueDelete.mockReset();
+  mocks.queueList.mockReset();
+  // A working server queue by default; the tests that care override these.
+  mocks.queueAdd.mockImplementation((_threadId, input, clientUserMessageId) =>
+    Promise.resolve({ id: `q-${clientUserMessageId}`, input, clientUserMessageId }),
+  );
+  mocks.queueDelete.mockResolvedValue(true);
+  mocks.queueList.mockResolvedValue([]);
+});
 
 describe("ThreadView completed work", () => {
   beforeEach(() => {
@@ -815,6 +829,116 @@ describe("ThreadView switching between working threads", () => {
     await screen.findByText("Final answer");
 
     expect(mocks.invalidateThreadCache).toHaveBeenCalledWith("thread-1");
+  });
+});
+
+describe("ThreadView queueing when Codex cannot hold the queue", () => {
+  const composerLabel = "Message Codex… (@ to attach files, / for commands)";
+  const unsupported = new Error("codex-queue-unsupported: this Codex version is older than the thread/queue APIs");
+
+  beforeEach(() => {
+    resetLiveThreads();
+    mocks.readThread.mockReset();
+    mocks.startTurn.mockReset();
+    mocks.handlers = [];
+    mocks.activeTurns.list = ["thread-1"];
+    mocks.startTurn.mockResolvedValue({ id: "turn-2", status: "inProgress" });
+  });
+
+  const emit = (method: string, params: Record<string, unknown>) => {
+    for (const handler of [...mocks.handlers]) handler({ method, params });
+  };
+
+  /** Render thread-1 mid-turn, so anything typed is queued rather than sent. */
+  async function renderWorking() {
+    mocks.readThread.mockResolvedValue(
+      detail({
+        id: "turn-1",
+        status: "inProgress",
+        items: [{ id: "user-1", type: "userMessage", content: [{ type: "text", text: "Do the work" }] }],
+      }),
+    );
+    render(ThreadView, { threadId: "thread-1", cwd: "/projects/example" });
+    return screen.findByRole("button", { name: "Stop" });
+  }
+
+  /** End the live turn, which is what lets the queue drain. */
+  function finishTurn() {
+    mocks.activeTurns.list = [];
+    emit("turn/completed", { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } });
+  }
+
+  it("keeps the message and says it is only held here", async () => {
+    const user = userEvent.setup();
+    mocks.queueAdd.mockRejectedValue(unsupported);
+    await renderWorking();
+
+    await user.type(screen.getByRole("textbox", { name: composerLabel }), "Then do this{Enter}");
+
+    expect(await screen.findByText("Queued locally")).toBeVisible();
+    expect(screen.getByText("Then do this")).toBeVisible();
+    // An old Codex is not an error, so nothing red and nothing to read.
+    expect(screen.queryByText(/codex-queue-unsupported/)).not.toBeInTheDocument();
+  });
+
+  it("still sends the held message once the turn finishes", async () => {
+    const user = userEvent.setup();
+    mocks.queueAdd.mockRejectedValue(unsupported);
+    await renderWorking();
+    await user.type(screen.getByRole("textbox", { name: composerLabel }), "Then do this{Enter}");
+    await screen.findByText("Queued locally");
+
+    finishTurn();
+
+    await vi.waitFor(() =>
+      expect(mocks.startTurn).toHaveBeenCalledWith(
+        "thread-1",
+        [{ type: "text", text: "Then do this" }],
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("drains messages held here in the order they were typed", async () => {
+    const user = userEvent.setup();
+    mocks.queueAdd.mockRejectedValue(unsupported);
+    await renderWorking();
+    const composer = screen.getByRole("textbox", { name: composerLabel });
+    await user.type(composer, "First{Enter}");
+    await user.type(composer, "Second{Enter}");
+    await vi.waitFor(() => expect(screen.getAllByText("Queued locally")).toHaveLength(2));
+
+    finishTurn();
+
+    await vi.waitFor(() => expect(mocks.startTurn).toHaveBeenCalled());
+    expect(mocks.startTurn.mock.calls[0][1]).toEqual([{ type: "text", text: "First" }]);
+  });
+
+  it("explains a queue that exists but refused, without losing the message", async () => {
+    const user = userEvent.setup();
+    mocks.queueAdd.mockRejectedValue(new Error("queue cannot contain more than 100 submissions"));
+    await renderWorking();
+
+    await user.type(screen.getByRole("textbox", { name: composerLabel }), "One too many{Enter}");
+
+    expect(await screen.findByText(/queue cannot contain more than 100 submissions/)).toBeVisible();
+    expect(screen.getByText("Queued locally")).toBeVisible();
+    expect(screen.getByText("One too many")).toBeVisible();
+  });
+
+  it("does not let a server listing drop a message only this window has", async () => {
+    const user = userEvent.setup();
+    mocks.queueAdd.mockRejectedValue(unsupported);
+    await renderWorking();
+    await user.type(screen.getByRole("textbox", { name: composerLabel }), "Mine alone{Enter}");
+    await screen.findByText("Queued locally");
+
+    // Another client changed the server queue; ours is not in it.
+    mocks.queueList.mockResolvedValue([]);
+    emit("thread/queue/changed", { threadId: "thread-1" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(screen.getByText("Mine alone")).toBeVisible();
   });
 });
 

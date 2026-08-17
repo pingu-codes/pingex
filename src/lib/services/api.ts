@@ -499,6 +499,19 @@ export async function readThreadUsage(threadId: string): Promise<ThreadUsage | n
   return response.threadUsage ?? null;
 }
 
+/** Prefix the Rust side puts on a queue error when this Codex has no usable
+ *  server queue — too old for `thread/queue/*`, missing the experimental
+ *  capability, or running without a queue database. Kept in step with
+ *  `QUEUE_UNSUPPORTED` in `src-tauri/src/threads/queue.rs`. */
+export const QUEUE_UNSUPPORTED = "codex-queue-unsupported";
+
+/** Whether a rejected queue call means "this Codex cannot queue at all", as
+ *  opposed to an ordinary failure of a queue that does work. */
+export function isQueueUnsupported(cause: unknown): boolean {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return message.startsWith(QUEUE_UNSUPPORTED);
+}
+
 export async function queueList(threadId: string): Promise<QueuedSubmission[]> {
   if (!isTauri()) return [...previewQueue(threadId)];
   const submissions: QueuedSubmission[] = [];

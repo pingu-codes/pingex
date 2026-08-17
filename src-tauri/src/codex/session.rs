@@ -35,6 +35,11 @@ struct MainSession {
 /// rest to the frontend.
 struct MainSessionSink {
     resumed: Mutex<HashMap<String, Value>>,
+    /// Why this child refused `thread/queue/*`, once it has. Lives on the sink
+    /// rather than on [`CodexSession`] so that replacing the child — a binary
+    /// override, a home switch, a crash respawn — forgets it structurally,
+    /// with no reset code to keep in step. See `threads::queue`.
+    queue_unsupported: Mutex<Option<String>>,
     /// Journaling and per-turn stream bookkeeping, shared with every subagent's
     /// sink so both keep the same record of what streamed.
     journal: TurnJournal,
@@ -45,6 +50,7 @@ impl MainSessionSink {
     fn new(app: AppHandle) -> Self {
         Self {
             resumed: Mutex::new(HashMap::new()),
+            queue_unsupported: Mutex::new(None),
             journal: TurnJournal::new(app.clone()),
             app,
         }
@@ -308,6 +314,37 @@ impl CodexSession {
             .map_err(|_| "Codex resumed lock was poisoned".to_string())?
             .insert(thread_id.to_string(), response.clone());
         Ok(response)
+    }
+
+    /// Why the live child refuses `thread/queue/*`, if it has already said so.
+    /// `None` means "not yet known to be unsupported" — worth trying.
+    pub(crate) async fn queue_unsupported(
+        &self,
+        app: &AppHandle,
+    ) -> Result<Option<String>, String> {
+        let (_, sink) = self.session(app).await?;
+        let reason = sink
+            .queue_unsupported
+            .lock()
+            .map_err(|_| "Codex queue support lock was poisoned".to_string())?
+            .clone();
+        Ok(reason)
+    }
+
+    /// Remember that the live child has no usable server-side queue, so later
+    /// calls can short-circuit instead of paying a round trip to be refused.
+    pub(crate) async fn mark_queue_unsupported(
+        &self,
+        app: &AppHandle,
+        reason: &str,
+    ) -> Result<(), String> {
+        let (_, sink) = self.session(app).await?;
+        *sink
+            .queue_unsupported
+            .lock()
+            .map_err(|_| "Codex queue support lock was poisoned".to_string())? =
+            Some(reason.to_string());
+        Ok(())
     }
 
     /// Record that a thread is already live in the session (e.g. one we just

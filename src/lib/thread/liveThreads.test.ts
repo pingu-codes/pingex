@@ -98,7 +98,9 @@ describe("liveThreads", () => {
   });
 
   it("re-lists a retained thread's queue when the server says it changed", async () => {
-    mocks.queueList.mockResolvedValue([{ id: "q1", input: [{ type: "text", text: "next" }], clientUserMessageId: "c1" }]);
+    mocks.queueList.mockResolvedValue([
+      { id: "q1", input: [{ type: "text", text: "next" }], clientUserMessageId: "c1" },
+    ]);
     leaveWorking("thread-a");
     trackLive("thread-b", detail("thread-b"));
 
@@ -107,6 +109,26 @@ describe("liveThreads", () => {
 
     expect(mocks.queueList).toHaveBeenCalledWith("thread-a");
     expect(adoptLive("thread-a")?.queued).toHaveLength(1);
+  });
+
+  it("does not let a re-list swallow a queue this window is holding alone", async () => {
+    // On a Codex without the server queue the entry only exists here, so a
+    // listing that does not mention it must merge, not replace.
+    mocks.queueList.mockResolvedValue([
+      { id: "q1", input: [{ type: "text", text: "server" }], clientUserMessageId: "c1" },
+    ]);
+    trackLive("thread-a", detail("thread-a"));
+    mocks.activeTurns.list.push("thread-a");
+    releaseLive("thread-a", {
+      ...idle,
+      queued: [{ id: "local-c2", input: [{ type: "text", text: "mine" }], clientUserMessageId: "c2" }],
+    });
+    trackLive("thread-b", detail("thread-b"));
+
+    emit("thread/queue/changed", { threadId: "thread-a" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(adoptLive("thread-a")?.queued.map((entry) => entry.id)).toEqual(["q1", "local-c2"]);
   });
 
   it("invalidates the stale detail cache when a background turn ends", async () => {
