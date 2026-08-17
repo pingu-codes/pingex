@@ -282,7 +282,7 @@ describe("Composer", () => {
     const hit = await screen.findByRole("option", { name: /utils\.ts/ });
     await user.click(hit);
 
-    expect(screen.getByText("@utils.ts")).toBeInTheDocument();
+    expect(screen.getByText("utils.ts")).toBeInTheDocument();
     await user.type(textarea, "explain this{Enter}");
     expect(onSend).toHaveBeenCalledWith(
       [
@@ -310,13 +310,19 @@ describe("Composer", () => {
     );
   });
 
-  it("removes an inline attachment chip", async () => {
+  it("removes an inline mention chip with Backspace", async () => {
+    // Chips carry no × button: Backspace beside one is the only way out.
     const user = userEvent.setup();
     const { textarea } = setup({ cwd: "/proj" });
 
     await user.type(textarea, "@util");
     await user.click(await screen.findByRole("option", { name: /utils\.ts/ }));
-    await user.click(screen.getByRole("button", { name: "Remove utils.ts" }));
+    const chip = textarea.querySelector("[data-mention-path]") as HTMLElement;
+    expect(chip).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /^Remove/ })).toBeNull();
+
+    placeCaretBesideChip(chip, "after");
+    await fireEvent.keyDown(textarea, { key: "Backspace" });
 
     expect(textarea.querySelector("[data-mention-path]")).toBeNull();
   });

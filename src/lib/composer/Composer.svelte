@@ -36,6 +36,7 @@ import {
   insertMentionChip,
   insertSkillChip,
   moveCaretToLineEdge,
+  moveCaretToWordEdge,
   moveCaretVertically,
   normaliseEditorDom,
   normaliseParts,
@@ -615,7 +616,7 @@ function closePickers() {
 function insertMention(mention: Mention) {
   const range = mentionRange;
   if (!range) return;
-  insertMentionChip(range, mention, removeMention);
+  insertMentionChip(range, mention);
   parts = editor ? readParts(editor) : parts;
   mentionQuery = null;
   editor?.focus();
@@ -624,7 +625,7 @@ function insertMention(mention: Mention) {
 function insertSkill(skill: SkillSummary) {
   const range = skillRange;
   if (!range) return;
-  insertSkillChip(range, skill.name, skillLabel(skill), removeMention);
+  insertSkillChip(range, skill.name, skill.path, skillLabel(skill));
   parts = editor ? readParts(editor) : parts;
   skillQuery = null;
   editor?.focus();
@@ -685,7 +686,6 @@ const thumbSrc = (part: AttachmentPart): string | null => {
 };
 
 const chipHandlers: AttachmentChipHandlers = {
-  onRemove: removeMention,
   onRetry: (id) => {
     const source = sources.get(id);
     if (source) void stageSource(id, source, false);
@@ -933,18 +933,18 @@ function onKeydown(event: KeyboardEvent) {
       return;
     }
   }
-  if (
-    (event.key === "ArrowLeft" || event.key === "ArrowRight") &&
-    !event.shiftKey &&
-    !event.altKey &&
-    !event.ctrlKey &&
-    editor
-  ) {
+  if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && !event.shiftKey && !event.ctrlKey && editor) {
     const direction = event.key === "ArrowLeft" ? "back" : "forward";
+    // WebKit's native Cmd/Option+Arrow stalls at contenteditable=false chips.
+    // Meta first, so Cmd+Option+Arrow keeps line semantics.
     if (event.metaKey) {
-      // WebKit's native Cmd+Arrow stalls at contenteditable=false chips.
       event.preventDefault();
       moveCaretToLineEdge(editor, direction);
+      return;
+    }
+    if (event.altKey) {
+      event.preventDefault();
+      moveCaretToWordEdge(editor, direction);
       return;
     }
     const selection = window.getSelection();

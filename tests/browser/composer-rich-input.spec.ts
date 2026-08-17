@@ -67,7 +67,7 @@ test("renders a mention chip inline with the label and file icon", async ({ page
   await insertUtilsMention(page, composer);
   const chip = composer.locator("[data-mention-path]");
   await expect(chip).toHaveCount(1);
-  await expect(chip).toContainText("@utils.ts");
+  await expect(chip).toContainText("utils.ts");
   await expect(chip).toHaveAttribute("data-mention-path", /utils\.ts$/);
 });
 
@@ -81,10 +81,9 @@ test("preserves multiple chips and surrounding text in order", async ({ page }) 
 
   const chips = composer.locator("[data-mention-path]");
   await expect(chips).toHaveCount(2);
-  await expect(chips.nth(0)).toContainText("@utils.ts");
-  await expect(chips.nth(1)).toContainText("@api.ts");
-  // Chips carry a trailing "×" remove button in their text content.
-  await expect(composer).toContainText("before @utils.ts× middle @api.ts× after");
+  await expect(chips.nth(0)).toContainText("utils.ts");
+  await expect(chips.nth(1)).toContainText("api.ts");
+  await expect(composer).toContainText("before utils.ts middle api.ts after");
 });
 
 test("Backspace removes a chip atomically, adjacent text untouched", async ({ page }) => {
@@ -129,7 +128,7 @@ test("ArrowRight from just before a chip skips fully over it in one step", async
 
   // A single ArrowRight jumped past the whole chip: "X" landed right after it,
   // not inside/on it.
-  await expect(composer).toContainText("before @utils.ts×Xafter");
+  await expect(composer).toContainText("before utils.tsXafter");
 });
 
 test("Cmd+ArrowRight (line-edge) hops over a chip in one step", async ({ page }) => {
@@ -142,7 +141,62 @@ test("Cmd+ArrowRight (line-edge) hops over a chip in one step", async ({ page })
   await composer.press("Meta+ArrowRight");
   await composer.pressSequentially("X");
 
-  await expect(composer).toContainText("before @utils.ts×afterX");
+  await expect(composer).toContainText("before utils.tsafterX");
+});
+
+test("Cmd+ArrowRight crosses a skill chip, not just a mention chip", async ({ page }) => {
+  // Skill chips were invisible to the chip-crossing helpers, so Cmd+ArrowRight
+  // parked the caret against one and went no further.
+  const composer = await newComposer(page);
+  await composer.pressSequentially("before $code");
+  await page.getByRole("option", { name: /code-reviewer/ }).click();
+  await composer.pressSequentially("after");
+
+  await composer.evaluate((root) => {
+    const chip = root.querySelector<HTMLElement>("[data-skill-name]");
+    if (!chip) throw new Error("no skill chip in composer");
+    const range = document.createRange();
+    range.setStartBefore(chip);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  });
+  await composer.press("Meta+ArrowRight");
+  await composer.pressSequentially("X");
+
+  await expect(composer).toContainText("afterX");
+  await expect(composer.locator("[data-skill-name]")).toHaveCount(1);
+});
+
+test("Option+ArrowRight steps over a chip as a single word", async ({ page }) => {
+  const composer = await newComposer(page);
+  await composer.pressSequentially("before ");
+  await insertUtilsMention(page, composer);
+  await composer.pressSequentially(" tail");
+
+  await placeCaretBesideChip(composer, "before");
+  await composer.press("Alt+ArrowRight");
+  await composer.pressSequentially("X");
+
+  // One Option+ArrowRight takes the whole chip, landing right after it rather
+  // than stalling against it or walking into the middle of its label.
+  await expect(composer).toContainText("before utils.tsX tail");
+});
+
+test("Option+ArrowLeft steps back over a chip as a single word", async ({ page }) => {
+  const composer = await newComposer(page);
+  await composer.pressSequentially("before ");
+  await insertUtilsMention(page, composer);
+
+  await placeCaretBesideChip(composer, "after");
+  await composer.press("Alt+ArrowLeft");
+  await composer.pressSequentially("X");
+
+  // Lands just before the chip, keeping the space — the same span
+  // Option+Backspace would have taken.
+  await expect(composer).toContainText("before X");
+  await expect(composer.locator("[data-mention-path]")).toHaveCount(1);
 });
 
 test("Cmd+Backspace (delete-to-line-edge) deletes through a chip in one keystroke", async ({ page }) => {
@@ -229,7 +283,7 @@ test("ArrowRight crosses a Shift+Enter break typed just before a chip", async ({
   // own handling, both ArrowRights are silently swallowed and "X" lands back
   // inside "hello " instead of after the chip.
   await expect(composer).toContainText("hello");
-  await expect(composer).toContainText("@utils.ts×X");
+  await expect(composer).toContainText("utils.tsX");
 });
 
 test("ArrowDown crosses a Shift+Enter break typed just before a chip", async ({ page }) => {
@@ -251,7 +305,7 @@ test("ArrowDown crosses a Shift+Enter break typed just before a chip", async ({ 
   // does nothing at all. "hello "'s column (6) overshoots the chip's line
   // (length 1), so the caret should land past the chip, not stuck above it.
   await expect(composer).toContainText("hello");
-  await expect(composer).toContainText("@utils.ts×X");
+  await expect(composer).toContainText("utils.tsX");
 });
 
 test("ArrowDown from the middle of the line above lands past the chip, not stuck", async ({ page }) => {
@@ -276,7 +330,7 @@ test("ArrowDown from the middle of the line above lands past the chip, not stuck
   await composer.pressSequentially("X");
 
   await expect(composer).toContainText("this is a fairly long first line of text");
-  await expect(composer).toContainText("@utils.ts×X");
+  await expect(composer).toContainText("utils.tsX");
 });
 
 test("attachment chip staging→ready lifecycle via the browser file input", async ({ page }) => {
@@ -292,7 +346,7 @@ test("attachment chip staging→ready lifecycle via the browser file input", asy
   await expect(chip.getByText(/^\d+(\.\d+)? (B|KB|MB)$/)).toBeVisible();
 });
 
-test("removing a chip via its × button leaves no console errors", async ({ page }) => {
+test("a chip carries no remove button — Backspace is the only way out", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(String(error)));
   page.on("console", (message) => {
@@ -306,9 +360,30 @@ test("removing a chip via its × button leaves no console errors", async ({ page
   const chip = composer.locator("[data-mention-path]");
   await expect(chip).toHaveCount(1);
   await chip.hover();
-  await chip.getByRole("button", { name: /Remove/ }).click();
+  await expect(chip.getByRole("button")).toHaveCount(0);
+
+  await placeCaretBesideChip(composer, "after");
+  await composer.press("Backspace");
   await expect(chip).toHaveCount(0);
+  await expect(composer).toContainText("keep");
   expect(errors).toEqual([]);
+});
+
+test("a chip does not make its line taller than a line of plain text", async ({ page }) => {
+  const composer = await newComposer(page);
+  await composer.pressSequentially("plain line");
+  await placeCaretAtEndOfFirstText(composer);
+  await composer.press("Shift+Enter");
+  await insertUtilsMention(page, composer);
+  await composer.pressSequentially(" chip line");
+
+  const chip = composer.locator("[data-mention-path]");
+  const chipHeight = await chip.evaluate((node) => node.getBoundingClientRect().height);
+  const lineHeight = await composer.evaluate((root) => Number.parseFloat(getComputedStyle(root).lineHeight));
+
+  // The chip has to fit inside the editor's line box, or every line holding
+  // one grows and the composer jitters as chips are inserted and removed.
+  expect(chipHeight).toBeLessThanOrEqual(lineHeight);
 });
 
 test("sends a message with a mention and a skill chip, echoed correctly in the transcript", async ({ page }) => {
@@ -336,7 +411,7 @@ test("draft persistence restores chips after a reload", async ({ page }) => {
   await page.reload();
   await loadPreview(page);
   const restored = await newComposer(page);
-  await expect(restored.locator("[data-mention-path]")).toContainText("@utils.ts");
+  await expect(restored.locator("[data-mention-path]")).toContainText("utils.ts");
   await expect(restored).toContainText("remember");
   await expect(restored).toContainText("please");
 });
@@ -368,7 +443,7 @@ test("pressing a picker row still selects it, rather than the press dismissing t
   const composer = await newComposer(page);
   await insertUtilsMention(page, composer);
 
-  await expect(composer.locator("[data-mention-path]")).toContainText("@utils.ts");
+  await expect(composer.locator("[data-mention-path]")).toContainText("utils.ts");
   await expect(page.getByRole("listbox", { name: "Attach a project file or folder" })).toHaveCount(0);
 });
 

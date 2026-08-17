@@ -3,6 +3,7 @@ import {
   type AttachmentPart,
   buildTurnInput,
   type ComposerPart,
+  caretOffset,
   chipBesideCaret,
   deleteLineBreak,
   deleteToLineEdge,
@@ -12,7 +13,9 @@ import {
   insertAttachmentChip,
   insertLineBreak,
   moveCaretToLineEdge,
+  moveCaretToWordEdge,
   normaliseEditorDom,
+  placeCaretAtOffset,
   placeCaretBesideChip,
   readParts,
   renderParts,
@@ -25,7 +28,7 @@ function chipNode(name = "utils.ts"): HTMLElement {
   chip.contentEditable = "false";
   chip.dataset.mentionPath = `/proj/src/lib/${name}`;
   chip.dataset.mentionName = name;
-  chip.textContent = `@${name}`;
+  chip.textContent = name;
   return chip;
 }
 
@@ -98,6 +101,42 @@ describe("chipBesideCaret", () => {
 
     expect(chipBesideCaret("forward", range)).toBeNull();
   });
+
+  it("recognises a skill chip, not just mentions and attachments", () => {
+    const chip = document.createElement("span");
+    chip.contentEditable = "false";
+    chip.dataset.skillName = "browser-use:browser";
+    chip.dataset.skillLabel = "Browser";
+    chip.textContent = "Browser";
+    const text = document.createTextNode("use ");
+    editorWith(text, chip);
+
+    expect(chipBesideCaret("forward", caret(text, 4))).toBe(chip);
+  });
+});
+
+describe("caretOffset", () => {
+  it("counts every chip type as one unit", () => {
+    const editor = editorWith();
+    renderPartsWith(
+      editor,
+      [
+        { type: "text", text: "a " },
+        { type: "skill", name: "browser", path: "/s", label: "Browser" },
+        { type: "text", text: " b" },
+      ],
+      noopHandlers,
+    );
+    placeCaretAtOffset(editor, 5);
+
+    // "a " + chip + " b" is 5 units, so 5 is the very end.
+    expect(caretOffset(editor)).toBe(5);
+    expect(readParts(editor)).toEqual([
+      { type: "text", text: "a " },
+      { type: "skill", name: "browser", path: "/s", label: "Browser" },
+      { type: "text", text: " b" },
+    ]);
+  });
 });
 
 describe("placeCaretBesideChip", () => {
@@ -118,19 +157,32 @@ describe("placeCaretBesideChip", () => {
 });
 
 describe("moveCaretToLineEdge", () => {
-  it("moves the caret past a trailing chip to the editor edge", () => {
+  // jsdom has no Selection.modify, so these exercise the parts-model fallback
+  // — which is also what runs in the browser when native motion refuses to
+  // move at all, the case that left Cmd+Right dead beside a chip.
+  it("moves the caret past a trailing chip to the end of the line", () => {
     const text = document.createTextNode("see ");
     const chip = chipNode();
-    const editor = editorWith(text, chip, document.createTextNode(""));
+    const tail = document.createTextNode("");
+    const editor = editorWith(text, chip, tail);
     const selection = window.getSelection();
     selection?.removeAllRanges();
     selection?.addRange(caret(text, 0));
 
     moveCaretToLineEdge(editor, "forward");
-    const range = selection?.getRangeAt(0);
-    expect(range?.collapsed).toBe(true);
-    expect(range?.startContainer).toBe(editor);
-    expect(range?.startOffset).toBe(editor.childNodes.length);
+    expect(caretOffset(editor)).toBe(5); // "see " + the chip
+  });
+
+  it("stops at the line's own edge rather than the editor's", () => {
+    const editor = editorWith();
+    renderPartsWith(editor, [{ type: "text", text: "one\ntwo\nthree" }], noopHandlers);
+    placeCaretAtOffset(editor, 5); // inside "two"
+
+    moveCaretToLineEdge(editor, "forward");
+    expect(caretOffset(editor)).toBe(7); // end of "two", not end of "three"
+
+    moveCaretToLineEdge(editor, "back");
+    expect(caretOffset(editor)).toBe(4); // start of "two", not start of "one"
   });
 
   it("does nothing when the selection is outside the editor", () => {
@@ -145,6 +197,52 @@ describe("moveCaretToLineEdge", () => {
     const range = selection?.getRangeAt(0);
     expect(range?.startContainer).toBe(outside);
     expect(range?.startOffset).toBe(3);
+  });
+});
+
+describe("moveCaretToWordEdge", () => {
+  const mention: ComposerPart = { type: "mention", name: "utils.ts", path: "/proj/src/utils.ts" };
+  // "see " + chip + " now" — the chip is unit 4.
+  const withChip = (): HTMLElement => {
+    const editor = editorWith();
+    renderPartsWith(editor, [{ type: "text", text: "see " }, mention, { type: "text", text: " now" }], noopHandlers);
+    return editor;
+  };
+
+  it("treats a chip as one word going forward", () => {
+    const editor = withChip();
+    placeCaretAtOffset(editor, 0);
+
+    moveCaretToWordEdge(editor, "forward");
+    expect(caretOffset(editor)).toBe(3); // end of "see"
+
+    moveCaretToWordEdge(editor, "forward");
+    expect(caretOffset(editor)).toBe(5); // past the chip, whitespace included
+
+    moveCaretToWordEdge(editor, "forward");
+    expect(caretOffset(editor)).toBe(9); // end of "now"
+  });
+
+  it("treats a chip as one word going back", () => {
+    const editor = withChip();
+    placeCaretAtOffset(editor, 9);
+
+    moveCaretToWordEdge(editor, "back");
+    expect(caretOffset(editor)).toBe(6); // start of "now"
+
+    moveCaretToWordEdge(editor, "back");
+    expect(caretOffset(editor)).toBe(4); // before the chip
+
+    moveCaretToWordEdge(editor, "back");
+    expect(caretOffset(editor)).toBe(0); // start of "see"
+  });
+
+  it("stays put at the end of the content", () => {
+    const editor = withChip();
+    placeCaretAtOffset(editor, 9);
+
+    moveCaretToWordEdge(editor, "forward");
+    expect(caretOffset(editor)).toBe(9);
   });
 });
 
@@ -178,7 +276,7 @@ describe("readParts line breaks", () => {
 
   it("round-trips a trailing newline through renderParts", () => {
     const editor = editorWith();
-    renderParts(editor, [{ type: "text", text: "hello\n" }], () => {});
+    renderParts(editor, [{ type: "text", text: "hello\n" }]);
     expect(readParts(editor)).toEqual([{ type: "text", text: "hello\n" }]);
   });
 });
@@ -202,7 +300,7 @@ describe("deleteLineBreak", () => {
 
   it("takes exactly one break out of a doubled line break", () => {
     const editor = editorWith();
-    renderParts(editor, [{ type: "text", text: "one\n\ntwo" }], () => {});
+    renderParts(editor, [{ type: "text", text: "one\n\ntwo" }]);
     const tail = [...editor.childNodes].find((node) => node.textContent === "two") as Text;
     select(tail, 0);
 
@@ -211,7 +309,7 @@ describe("deleteLineBreak", () => {
 
   it("deletes the break ahead of the caret on a forward delete", () => {
     const editor = editorWith();
-    renderParts(editor, [{ type: "text", text: "one\ntwo" }], () => {});
+    renderParts(editor, [{ type: "text", text: "one\ntwo" }]);
     const head = editor.firstChild as Text;
     select(head, 3);
 
@@ -220,7 +318,7 @@ describe("deleteLineBreak", () => {
 
   it("leaves ordinary character deletes to the browser", () => {
     const editor = editorWith();
-    renderParts(editor, [{ type: "text", text: "one\ntwo" }], () => {});
+    renderParts(editor, [{ type: "text", text: "one\ntwo" }]);
     const head = editor.firstChild as Text;
     select(head, 2);
 
@@ -412,7 +510,7 @@ describe("renderParts", () => {
       { type: "text", text: " and\nthe next line" },
     ];
 
-    renderParts(editor, parts, () => {});
+    renderParts(editor, parts);
 
     const chip = editor.querySelector<HTMLElement>("[data-mention-path]");
     expect(chip?.dataset.mentionPath).toBe("/proj/src/lib");
@@ -422,7 +520,7 @@ describe("renderParts", () => {
   it("replaces any previous content", () => {
     const editor = editorWith(document.createTextNode("old text"), chipNode());
 
-    renderParts(editor, [{ type: "text", text: "new" }], () => {});
+    renderParts(editor, [{ type: "text", text: "new" }]);
 
     expect(readParts(editor)).toEqual([{ type: "text", text: "new" }]);
   });
@@ -440,7 +538,7 @@ const readyAttachment = (over: Partial<AttachmentPart> = {}): AttachmentPart => 
   ...over,
 });
 
-const noopHandlers = { onRemove: () => {}, onRetry: () => {} };
+const noopHandlers = { onRetry: () => {} };
 
 describe("attachment parts", () => {
   it("round-trips a mixed text/mention/attachment sequence in order", () => {
@@ -601,13 +699,13 @@ describe("buildTurnInput", () => {
     const input = buildTurnInput(
       [
         { type: "text", text: "use " },
-        { type: "skill", name: "browser-use:browser", label: "Browser" },
+        { type: "skill", name: "browser-use:browser", path: "/skills/browser/SKILL.md", label: "Browser" },
       ],
       "/proj",
     );
     expect(input).toEqual([
       { type: "text", text: "use " },
-      { type: "skill", name: "browser-use:browser" },
+      { type: "skill", name: "browser-use:browser", path: "/skills/browser/SKILL.md" },
     ]);
   });
 });
@@ -615,7 +713,7 @@ describe("buildTurnInput", () => {
 describe("hasSendableContent", () => {
   it("treats a lone skill chip as sendable", () => {
     // "$browser" with no prose is a legitimate turn.
-    expect(hasSendableContent([{ type: "skill", name: "browser", label: "Browser" }])).toBe(true);
+    expect(hasSendableContent([{ type: "skill", name: "browser", path: "/s", label: "Browser" }])).toBe(true);
   });
 
   it("is true for text, mentions, or a ready attachment; false otherwise", () => {

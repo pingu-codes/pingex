@@ -22,12 +22,11 @@ export interface AttachmentPart {
 export type ComposerPart =
   | { type: "text"; text: string }
   | { type: "mention"; name: string; path: string }
-  | { type: "skill"; name: string; label: string }
+  | { type: "skill"; name: string; path: string; label: string }
   | AttachmentPart;
 
 /** Callbacks wired into every attachment chip's controls. */
 export interface AttachmentChipHandlers {
-  onRemove: (chip: HTMLElement) => void;
   onRetry: (id: string) => void;
   /** Resolves an image chip's thumbnail src (asset URL / blob), or null. */
   thumbSrc?: (part: AttachmentPart) => string | null;
@@ -87,7 +86,14 @@ export function readParts(root: HTMLElement): ComposerPart[] {
     }
     if (node instanceof HTMLElement && node.dataset.skillName) {
       const name = node.dataset.skillName;
-      return [{ type: "skill", name, label: node.dataset.skillLabel ?? name }];
+      return [
+        {
+          type: "skill",
+          name,
+          path: node.dataset.skillPath ?? "",
+          label: node.dataset.skillLabel ?? name,
+        },
+      ];
     }
     if (node.nodeName === "BR") return isFillerBreak(node) ? [] : [{ type: "text", text: "\n" }];
     return childParts(node);
@@ -128,7 +134,7 @@ export function buildTurnInput(parts: ComposerPart[], cwd = ""): UserInputPart[]
     } else if (part.type === "mention") {
       input.push({ type: "text", text: `[${part.name}](${relativeMentionPath(part.path, cwd)})` });
     } else if (part.type === "skill") {
-      input.push({ type: "skill", name: part.name });
+      input.push({ type: "skill", name: part.name, path: part.path });
     } else if (part.type === "attachment" && part.state === "ready") {
       if (part.kind === "image") {
         input.push({ type: "localImage", path: part.path });
@@ -213,28 +219,38 @@ export function detectQueries(root: HTMLElement, cwd: string): DetectedQueries |
   return empty;
 }
 
-function buildMentionChip(mention: Mention, onRemove: (chip: HTMLElement) => void): HTMLElement {
+/**
+ * Shared shape for every chip: a quiet inline tag on a neutral surface, with
+ * only its icon carrying colour.
+ *
+ * The fixed `h-5` (20px) and `leading-none` keep a chip inside the editor's
+ * 24px `leading-6` line box, so a line holding one is exactly as tall as a line
+ * of plain text. `align-middle` rather than `align-baseline` for the same
+ * reason: an `inline-flex` baseline-aligns on its *inner* first-line baseline,
+ * which hangs the box below the surrounding text and grows the line.
+ */
+const CHIP_SHAPE =
+  "mx-0.5 inline-flex h-5 max-w-[16rem] select-none items-center gap-1 rounded-md px-1.5 align-middle text-[0.8125rem] leading-none";
+const CHIP_CLASS = `${CHIP_SHAPE} bg-surface-200-800`;
+
+/** Chips have no remove control: Backspace/Delete beside one takes the lot. */
+function buildMentionChip(mention: Mention): HTMLElement {
   const chip = document.createElement("span");
   chip.contentEditable = "false";
   chip.dataset.mentionPath = mention.path;
   chip.dataset.mentionName = mention.name;
-  chip.className =
-    "group/chip mx-1 inline-flex select-none items-center gap-1.5 rounded-full bg-primary-500/15 py-1 pl-2 pr-1.5 align-baseline text-xs font-medium text-primary-700-300 transition-all duration-150 hover:bg-primary-500/25 hover:shadow-sm";
+  chip.className = CHIP_CLASS;
   chip.title = mention.path;
   const glyph = iconForPath(mention.name, mention.path);
   const icon = document.createElement("span");
   icon.className = `grid shrink-0 place-items-center ${glyph.class}`;
   icon.innerHTML = fileIconSvg(glyph, "size-3.5 shrink-0");
   const label = document.createElement("span");
-  label.textContent = `@${mention.name}`;
-  const remove = document.createElement("button");
-  remove.type = "button";
-  remove.ariaLabel = `Remove ${mention.name}`;
-  remove.className =
-    "grid size-4 place-items-center rounded-full text-[10px] opacity-0 transition-opacity hover:bg-primary-500/25 focus-visible:opacity-100 group-hover/chip:opacity-100";
-  remove.textContent = "×";
-  remove.addEventListener("click", () => onRemove(chip));
-  chip.append(icon, label, remove);
+  label.className = "min-w-0 truncate";
+  // No `@`: the file glyph already says this is a path, and the prefix was
+  // display-only — the dataset, `readParts` and the wire format never had it.
+  label.textContent = mention.name;
+  chip.append(icon, label);
   return chip;
 }
 
@@ -261,8 +277,8 @@ function placeCaretIn(node: Text, offset = 0): void {
 }
 
 /** Replaces the active mention query with a non-editable chip and places the caret after it. */
-export function insertMentionChip(range: Range, mention: Mention, onRemove: (chip: HTMLElement) => void): void {
-  const chip = buildMentionChip(mention, onRemove);
+export function insertMentionChip(range: Range, mention: Mention): void {
+  const chip = buildMentionChip(mention);
   range.deleteContents();
   range.insertNode(chip);
   placeCaretIn(padChip(chip));
@@ -273,40 +289,29 @@ export function insertMentionChip(range: Range, mention: Mention, onRemove: (chi
  * the friendlier `label` (a plugin's `interface.displayName` when it has one),
  * since `browser-use:browser` is not what the user picked by eye.
  */
-function buildSkillChip(name: string, label: string, onRemove: (chip: HTMLElement) => void): HTMLElement {
+function buildSkillChip(name: string, path: string, label: string): HTMLElement {
   const chip = document.createElement("span");
   chip.contentEditable = "false";
   chip.dataset.skillName = name;
+  chip.dataset.skillPath = path;
   chip.dataset.skillLabel = label;
-  chip.className =
-    "group/chip mx-1 inline-flex select-none items-center gap-1.5 rounded-full bg-tertiary-500/15 py-1 pl-2 pr-1.5 align-baseline text-xs font-medium text-tertiary-700-300 transition-all duration-150 hover:bg-tertiary-500/25 hover:shadow-sm";
+  chip.className = CHIP_CLASS;
   chip.title = name;
   const icon = document.createElement("span");
-  icon.className = "grid shrink-0 place-items-center";
+  icon.className = "grid shrink-0 place-items-center text-tertiary-500";
   // Sparkles, matching how a skill renders in the transcript.
   icon.innerHTML =
     '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5 shrink-0"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>';
   const text = document.createElement("span");
+  text.className = "min-w-0 truncate";
   text.textContent = label;
-  const remove = document.createElement("button");
-  remove.type = "button";
-  remove.ariaLabel = `Remove ${label}`;
-  remove.className =
-    "grid size-4 place-items-center rounded-full text-[10px] opacity-0 transition-opacity hover:bg-tertiary-500/25 focus-visible:opacity-100 group-hover/chip:opacity-100";
-  remove.textContent = "×";
-  remove.addEventListener("click", () => onRemove(chip));
-  chip.append(icon, text, remove);
+  chip.append(icon, text);
   return chip;
 }
 
 /** Replaces the active `$` query with a non-editable skill chip. */
-export function insertSkillChip(
-  range: Range,
-  name: string,
-  label: string,
-  onRemove: (chip: HTMLElement) => void,
-): void {
-  const chip = buildSkillChip(name, label, onRemove);
+export function insertSkillChip(range: Range, name: string, path: string, label: string): void {
+  const chip = buildSkillChip(name, path, label);
   range.deleteContents();
   range.insertNode(chip);
   placeCaretIn(padChip(chip));
@@ -332,19 +337,17 @@ function buildAttachmentChip(part: AttachmentPart, handlers: AttachmentChipHandl
   chip.dataset.attachment = JSON.stringify({ ...part, type: "attachment" });
   const failed = part.state === "failed";
   const staging = part.state === "staging";
-  chip.className = `mx-1 inline-flex max-w-[16rem] select-none items-center gap-1.5 rounded-lg py-1 pl-1.5 pr-1 align-baseline text-xs ${
-    failed ? "bg-error-500/15 text-error-700-300" : "bg-surface-200-800"
-  }`;
+  chip.className = failed ? `${CHIP_SHAPE} bg-error-500/15 text-error-700-300` : CHIP_CLASS;
   chip.title = failed ? `Failed to attach ${part.filename}` : part.filename;
 
   const lead = document.createElement("span");
-  lead.className = "grid size-5 shrink-0 place-items-center overflow-hidden rounded";
+  lead.className = "grid size-4 shrink-0 place-items-center overflow-hidden rounded";
   const thumb = part.kind === "image" && !failed ? handlers.thumbSrc?.(part) : null;
   if (thumb) {
     const image = document.createElement("img");
     image.src = thumb;
     image.alt = part.filename;
-    image.className = "size-5 rounded object-cover";
+    image.className = "size-4 rounded object-cover";
     lead.append(image);
   } else if (staging) {
     lead.textContent = "⏳";
@@ -377,13 +380,6 @@ function buildAttachmentChip(part: AttachmentPart, handlers: AttachmentChipHandl
     chip.append(retry);
   }
 
-  const remove = document.createElement("button");
-  remove.type = "button";
-  remove.ariaLabel = `Remove ${part.filename}`;
-  remove.className = "grid size-4 shrink-0 place-items-center rounded-full text-[10px] hover:bg-surface-300-700";
-  remove.textContent = "×";
-  remove.addEventListener("click", () => handlers.onRemove(chip));
-  chip.append(remove);
   return chip;
 }
 
@@ -415,8 +411,8 @@ export function updateAttachmentChip(
 }
 
 /** Rebuilds the contenteditable DOM from composer parts (e.g. a restored draft). */
-export function renderParts(root: HTMLElement, parts: ComposerPart[], onRemove: (chip: HTMLElement) => void): void {
-  renderPartsWith(root, parts, { onRemove, onRetry: () => {} });
+export function renderParts(root: HTMLElement, parts: ComposerPart[]): void {
+  renderPartsWith(root, parts, { onRetry: () => {} });
 }
 
 /** Like `renderParts` but with full attachment handlers (thumbnails, retry). */
@@ -426,8 +422,8 @@ export function renderPartsWith(root: HTMLElement, parts: ComposerPart[], handle
     if (part.type === "attachment" || part.type === "mention" || part.type === "skill") {
       let chip: HTMLElement;
       if (part.type === "attachment") chip = buildAttachmentChip(part, handlers);
-      else if (part.type === "mention") chip = buildMentionChip(part, handlers.onRemove);
-      else chip = buildSkillChip(part.name, part.label, handlers.onRemove);
+      else if (part.type === "mention") chip = buildMentionChip(part);
+      else chip = buildSkillChip(part.name, part.path, part.label);
       root.append(chip);
       padChip(chip);
       continue;
@@ -470,7 +466,20 @@ function solidSibling(node: Node, direction: "back" | "forward"): Node | null {
 }
 
 const asChip = (node: Node | null | undefined): HTMLElement | null =>
-  node instanceof HTMLElement && (node.dataset.mentionPath || node.dataset.attachmentId) ? node : null;
+  node instanceof HTMLElement && (node.dataset.mentionPath || node.dataset.attachmentId || node.dataset.skillName)
+    ? node
+    : null;
+
+/** The chip a node sits inside, if the caret has landed within one's label. */
+function chipContaining(node: Node, root: HTMLElement): HTMLElement | null {
+  let current: Node | null = node;
+  while (current && current !== root) {
+    const chip = asChip(current);
+    if (chip) return chip;
+    current = current.parentNode;
+  }
+  return null;
+}
 
 /**
  * Returns the mention chip immediately beside a collapsed caret in the given
@@ -615,7 +624,7 @@ export function caretOffset(root: HTMLElement): number | null {
       else total += length;
       return;
     }
-    if (node instanceof HTMLElement && (node.dataset.mentionPath || node.dataset.attachmentId)) {
+    if (asChip(node)) {
       total += 1;
       return;
     }
@@ -628,7 +637,9 @@ export function caretOffset(root: HTMLElement): number | null {
     const limit = node === container ? Math.min(offset, children.length) : children.length;
     for (let index = 0; index < limit; index += 1) {
       const child = children[index];
-      if (isEmptyText(child)) continue;
+      // Empty text nodes carry no offset of their own, but the caret does sit
+      // in them — they are what pads every chip — so never skip the container.
+      if (isEmptyText(child) && child !== container) continue;
       if (previous && (isBlock(child) || isBlock(previous))) total += 1;
       visit(child);
       if (found !== null) return;
@@ -681,6 +692,8 @@ function scrollCaretIntoView(root: HTMLElement): void {
   if (!selection?.rangeCount) return;
   const range = selection.getRangeAt(0);
   if (!range.collapsed || !root.contains(range.startContainer)) return;
+  // No Range layout (e.g. jsdom): nothing is scrollable there either.
+  if (typeof range.getClientRects !== "function") return;
   let rect: DOMRect | null = range.getClientRects()[0] ?? null;
   if (!rect || rect.height === 0) {
     // A caret in an empty text node (chip padding) or after a trailing <br>
@@ -713,6 +726,54 @@ function toUnits(parts: ComposerPart[]): (string | ComposerPart)[] {
 
 function fromUnits(units: (string | ComposerPart)[]): ComposerPart[] {
   return normaliseParts(units.map((unit) => (typeof unit === "string" ? { type: "text", text: unit } : unit)));
+}
+
+type Units = (string | ComposerPart)[];
+
+/** Offset of the start/end of the line `caret` sits on, in flattened units. */
+function lineEdgeOffset(units: Units, caret: number, direction: "back" | "forward"): number {
+  let edge = caret;
+  if (direction === "back") while (edge > 0 && units[edge - 1] !== "\n") edge -= 1;
+  else while (edge < units.length && units[edge] !== "\n") edge += 1;
+  return edge;
+}
+
+const isSpaceUnit = (unit: string | ComposerPart) => typeof unit === "string" && unit !== "\n" && /\s/.test(unit);
+const isWordUnit = (unit: string | ComposerPart) => typeof unit === "string" && unit !== "\n" && !/\s/.test(unit);
+
+/**
+ * Offset of the far side of the "word" beside the caret, in flattened units,
+ * plus whether reaching it crossed a chip.
+ *
+ * A chip counts as one whole word, consumed together with any whitespace
+ * skipped to reach it — matching how word motion already treats a run of
+ * whitespace-then-word as a single step.
+ */
+function wordEdgeOffset(
+  units: Units,
+  caret: number,
+  direction: "back" | "forward",
+): { offset: number; crossesChip: boolean } {
+  let edge = caret;
+  let crossesChip = false;
+  if (direction === "back") {
+    while (edge > 0 && isSpaceUnit(units[edge - 1])) edge -= 1;
+    if (edge > 0 && typeof units[edge - 1] !== "string") {
+      edge -= 1;
+      crossesChip = true;
+    } else {
+      while (edge > 0 && isWordUnit(units[edge - 1])) edge -= 1;
+    }
+  } else {
+    while (edge < units.length && isSpaceUnit(units[edge])) edge += 1;
+    if (edge < units.length && typeof units[edge] !== "string") {
+      edge += 1;
+      crossesChip = true;
+    } else {
+      while (edge < units.length && isWordUnit(units[edge])) edge += 1;
+    }
+  }
+  return { offset: edge, crossesChip };
 }
 
 /**
@@ -782,10 +843,9 @@ export function deleteToLineEdge(
   const caret = caretOffset(root);
   if (caret === null) return null;
   const units = toUnits(readParts(root));
-  let start = caret;
-  let end = caret;
-  if (direction === "back") while (start > 0 && units[start - 1] !== "\n") start -= 1;
-  else while (end < units.length && units[end] !== "\n") end += 1;
+  const edge = lineEdgeOffset(units, caret, direction);
+  const start = direction === "back" ? edge : caret;
+  const end = direction === "back" ? caret : edge;
   if (start === end) return null;
   units.splice(start, end - start);
   const parts = fromUnits(units);
@@ -815,29 +875,9 @@ export function deleteToWordEdge(
   const caret = caretOffset(root);
   if (caret === null) return null;
   const units = toUnits(readParts(root));
-  const isSpace = (unit: string | ComposerPart) => typeof unit === "string" && unit !== "\n" && /\s/.test(unit);
-  const isWordChar = (unit: string | ComposerPart) => typeof unit === "string" && unit !== "\n" && !/\s/.test(unit);
-
-  let start = caret;
-  let end = caret;
-  let crossesChip = false;
-  if (direction === "back") {
-    while (start > 0 && isSpace(units[start - 1])) start -= 1;
-    if (start > 0 && typeof units[start - 1] !== "string") {
-      start -= 1;
-      crossesChip = true;
-    } else {
-      while (start > 0 && isWordChar(units[start - 1])) start -= 1;
-    }
-  } else {
-    while (end < units.length && isSpace(units[end])) end += 1;
-    if (end < units.length && typeof units[end] !== "string") {
-      end += 1;
-      crossesChip = true;
-    } else {
-      while (end < units.length && isWordChar(units[end])) end += 1;
-    }
-  }
+  const { offset, crossesChip } = wordEdgeOffset(units, caret, direction);
+  const start = direction === "back" ? offset : caret;
+  const end = direction === "back" ? caret : offset;
   if (!crossesChip || start === end) return null;
   units.splice(start, end - start);
   const parts = fromUnits(units);
@@ -857,7 +897,7 @@ const isUnpadded = (chip: Element): boolean =>
  */
 function needsFlattening(root: HTMLElement): boolean {
   if (root.querySelector("div,p")) return true;
-  return [...root.querySelectorAll("[data-mention-path],[data-attachment-id]")].some(
+  return [...root.querySelectorAll("[data-mention-path],[data-attachment-id],[data-skill-name]")].some(
     (chip) => chip.parentNode !== root || isUnpadded(chip),
   );
 }
@@ -886,31 +926,109 @@ export function normaliseEditorDom(root: HTMLElement, handlers: AttachmentChipHa
   return parts;
 }
 
+/** Where an edge-seeking motion should land, as a flattened unit offset. */
+type EdgeOffset = (units: Units, caret: number, direction: "back" | "forward") => number;
+
 /**
- * Moves the caret to the start/end of the current visual line (Cmd+Arrow on
- * macOS), hopping over any chip the native lineboundary movement stalls at.
+ * Moves the caret to an edge computed from the parts model, ignoring the
+ * browser entirely. Returns whether it moved. Only hard line breaks are known
+ * here, so this is a fallback for when native motion refuses to move at all —
+ * not a replacement for it, which would lose soft-wrap awareness.
  */
-export function moveCaretToLineEdge(editor: HTMLElement, direction: "back" | "forward"): void {
+function moveCaretByModel(root: HTMLElement, direction: "back" | "forward", edgeOffset: EdgeOffset): boolean {
+  const caret = caretOffset(root);
+  if (caret === null) return false;
+  const target = edgeOffset(toUnits(readParts(root)), caret, direction);
+  if (target === caret) return false;
+  placeCaretAtOffset(root, target);
+  return true;
+}
+
+/**
+ * Moves the caret to the edge of the current line or word, crossing any chip
+ * the native motion stalls at.
+ *
+ * WebKit will not move a caret across a `contenteditable=false` element, so
+ * `Selection.modify` either parks the caret beside the chip or drops it inside
+ * the chip's own label — and sometimes refuses to move at all. Each hop
+ * therefore checks both, steps the caret out past the chip by hand, and asks
+ * for the motion again; when nothing at all worked, the parts model has the
+ * final say so a `preventDefault`ed keystroke is never a no-op.
+ */
+function moveCaretToEdge(
+  editor: HTMLElement,
+  direction: "back" | "forward",
+  granularity: "lineboundary" | "word",
+  edgeOffset: EdgeOffset,
+): void {
   const selection = window.getSelection();
   if (!selection?.rangeCount || !editor.contains(selection.getRangeAt(0).startContainer)) return;
   if (typeof selection.modify !== "function") {
-    // No Selection.modify (e.g. jsdom): fall back to the editor's edge.
-    const range = document.createRange();
-    range.selectNodeContents(editor);
-    range.collapse(direction === "back");
-    selection.removeAllRanges();
-    selection.addRange(range);
+    // No Selection.modify (e.g. jsdom): the parts model is all there is.
+    moveCaretByModel(editor, direction, edgeOffset);
     return;
   }
+  const side = direction === "back" ? "before" : "after";
+  const start = selection.getRangeAt(0);
+  const startNode = start.startContainer;
+  const startOffset = start.startOffset;
+  let previousNode = startNode;
+  let previousOffset = startOffset;
+
   for (let hops = 0; hops < 50; hops += 1) {
-    selection.modify("move", direction === "back" ? "backward" : "forward", "lineboundary");
-    const range = selection.getRangeAt(0);
-    const chip = chipBesideCaret(direction, range);
-    if (!chip) return;
-    const beforeNode = range.startContainer;
-    const beforeOffset = range.startOffset;
-    placeCaretBesideChip(chip, direction === "back" ? "before" : "after");
-    const moved = selection.getRangeAt(0);
-    if (moved.startContainer === beforeNode && moved.startOffset === beforeOffset) return;
+    selection.modify("move", direction === "back" ? "backward" : "forward", granularity);
+    let range = selection.getRangeAt(0);
+    // Landed inside a chip's label: step out to the far side of the chip.
+    const inside = chipContaining(range.startContainer, editor);
+    if (inside) {
+      placeCaretBesideChip(inside, side);
+      range = selection.getRangeAt(0);
+    }
+    const beside = chipBesideCaret(direction, range);
+    if (beside) placeCaretBesideChip(beside, side);
+
+    const now = selection.getRangeAt(0);
+    const stuck = now.startContainer === previousNode && now.startOffset === previousOffset;
+    previousNode = now.startContainer;
+    previousOffset = now.startOffset;
+    if (stuck) break;
+    // No chip in the way means the native motion reached the edge cleanly.
+    if (!inside && !beside) break;
   }
+
+  if (previousNode === startNode && previousOffset === startOffset) {
+    moveCaretByModel(editor, direction, edgeOffset);
+  }
+}
+
+/**
+ * Moves the caret to the start/end of the current visual line (Cmd+Arrow on
+ * macOS), hopping over any chip the native lineboundary motion stalls at.
+ */
+export function moveCaretToLineEdge(editor: HTMLElement, direction: "back" | "forward"): void {
+  moveCaretToEdge(editor, direction, "lineboundary", lineEdgeOffset);
+}
+
+/**
+ * Moves the caret one word left/right (Option+Arrow on macOS), treating each
+ * chip as a single word.
+ *
+ * WebKit's own word motion does not stall at a chip so much as look straight
+ * through it: from just before one, Option+Right lands past the *next* real
+ * word, leaving no way to stop beside the chip. So when the model says a chip
+ * is what the step would cross, the model wins — which is also what
+ * `deleteToWordEdge` does, keeping Option+Right and Option+Backspace agreed on
+ * where a word ends. Everywhere else the browser's own word rules (punctuation,
+ * non-Latin scripts) beat anything reimplemented here.
+ */
+export function moveCaretToWordEdge(editor: HTMLElement, direction: "back" | "forward"): void {
+  const caret = caretOffset(editor);
+  if (caret !== null) {
+    const { offset, crossesChip } = wordEdgeOffset(toUnits(readParts(editor)), caret, direction);
+    if (crossesChip && offset !== caret) {
+      placeCaretAtOffset(editor, offset);
+      return;
+    }
+  }
+  moveCaretToEdge(editor, direction, "word", (units, at, dir) => wordEdgeOffset(units, at, dir).offset);
 }
