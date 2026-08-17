@@ -17,6 +17,7 @@
 use serde_json::{json, Value};
 use tauri::{AppHandle, State};
 
+use crate::codex::requests;
 use crate::projects::{bootstrap_cached, strip_mention_markup, BootstrapData};
 use crate::settings::prefs;
 use crate::storage;
@@ -25,7 +26,7 @@ use crate::AppState;
 
 /// Instructions for the naming thread. It never sees the project's own
 /// instructions or tools — it reads text and answers with a phrase.
-const NAMER_INSTRUCTIONS: &str = "\
+pub const NAMER_INSTRUCTIONS: &str = "\
 You name conversations. You are given the opening of a chat between a user and \
 a coding agent. Reply with a title for it and nothing else.
 
@@ -147,14 +148,7 @@ async fn generate_title(
 ) -> Option<String> {
     let started = state
         .session
-        .request(
-            app,
-            "thread/start",
-            json!({
-                "cwd": std::env::temp_dir().display().to_string(),
-                "developerInstructions": NAMER_INSTRUCTIONS,
-            }),
-        )
+        .send(app, requests::namer_thread_start(NAMER_INSTRUCTIONS))
         .await
         .ok()?;
     let namer_id = str_at(started.get("thread")?, "id")?.to_string();
@@ -162,7 +156,7 @@ async fn generate_title(
     let title = run_naming_turn(&namer_id, seed, model, app, state).await;
     let _ = state
         .session
-        .request(app, "thread/delete", json!({"threadId": namer_id}))
+        .send(app, requests::thread_delete(&namer_id))
         .await;
     title
 }
@@ -174,19 +168,9 @@ async fn run_naming_turn(
     app: &AppHandle,
     state: &State<'_, AppState>,
 ) -> Option<String> {
-    let mut params = json!({
-        "threadId": namer_id,
-        "input": [{"type": "text", "text": format!("Name this conversation:\n\n{seed}")}],
-        "effort": "low",
-        "approvalPolicy": "never",
-        "sandboxPolicy": {"type": "readOnly"},
-    });
-    if let Some(model) = model {
-        params["model"] = json!(model);
-    }
     let response = state
         .session
-        .request(app, "turn/start", params)
+        .send(app, requests::naming_turn(namer_id, seed, model))
         .await
         .ok()?;
 
@@ -210,11 +194,7 @@ async fn await_reply(
         tokio::time::sleep(POLL_INTERVAL).await;
         let response = state
             .session
-            .request(
-                app,
-                "thread/read",
-                json!({"threadId": namer_id, "includeTurns": true}),
-            )
+            .send(app, requests::thread_read(namer_id))
             .await
             .ok()?;
         if let Some(text) = response.get("thread").and_then(reply_text) {

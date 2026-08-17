@@ -10,6 +10,7 @@
 use serde_json::{json, Value};
 use tauri::{AppHandle, State};
 
+use crate::codex::requests;
 use crate::storage::{self, JournaledItem, TurnSettings, UserInputAnswer};
 use crate::util::json::str_at;
 use crate::AppState;
@@ -38,11 +39,7 @@ pub(crate) async fn read_thread(
     }
     let response = state
         .session
-        .request(
-            &app,
-            "thread/read",
-            json!({"threadId": thread_id, "includeTurns": true}),
-        )
+        .send(&app, requests::thread_read(&thread_id))
         .await?;
     let mut detail = response
         .get("thread")

@@ -60,18 +60,18 @@ pub(crate) struct McpServerSummary {
 /// enabled state are available.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SkillSummary {
+pub struct SkillSummary {
     /// Possibly namespaced, e.g. `browser-use:browser`.
-    pub(crate) name: String,
-    pub(crate) path: String,
+    pub name: String,
+    pub path: String,
     /// `"user"` or `"system"`, as reported by `skills/list`.
-    pub(crate) scope: String,
+    pub scope: String,
     /// The `SKILL.md` description — what the model matches against.
-    pub(crate) description: Option<String>,
-    pub(crate) enabled: bool,
+    pub description: Option<String>,
+    pub enabled: bool,
     /// Presentation overrides from a plugin-provided skill's `interface` block.
-    pub(crate) display_name: Option<String>,
-    pub(crate) short_description: Option<String>,
+    pub display_name: Option<String>,
+    pub short_description: Option<String>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]

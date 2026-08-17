@@ -83,12 +83,12 @@ pub(crate) fn resolve_in(binary: &Path, path_env: Option<&str>) -> Option<PathBu
         .find(|candidate| is_executable(candidate))
 }
 
-pub(crate) fn resolve(binary: &Path) -> Option<PathBuf> {
+pub fn resolve(binary: &Path) -> Option<PathBuf> {
     resolve_in(binary, std::env::var("PATH").ok().as_deref())
 }
 
 /// Why a binary could not be used, phrased for the picker and settings form.
-pub(crate) fn missing_message(binary: &Path) -> String {
+pub fn missing_message(binary: &Path) -> String {
     let raw = binary.display().to_string();
     if raw.contains('/') || raw.starts_with('~') {
         format!("No executable Codex CLI at {raw}. Enter the full path to your codex binary.")

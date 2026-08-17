@@ -44,6 +44,19 @@ mod util;
 mod workspaces;
 
 use codex::CodexSession;
+
+/// The pieces the live end-to-end suite (`tests/live_codex.rs`) replays against
+/// a real `codex` binary: the exact request payloads the app sends and the
+/// parsers it reads responses with. Not an API for anything else.
+pub mod e2e {
+    pub use crate::agents::supervisor::{collect_model_ids, sandbox_tag, AGENT_PREAMBLE};
+    pub use crate::agents::tools::{specs as agent_tool_specs, DELEGATION_POLICY};
+    pub use crate::codex::binary::{missing_message, resolve as resolve_codex_binary};
+    pub use crate::codex::requests;
+    pub use crate::integrations::app_server::parse_skills;
+    pub use crate::integrations::SkillSummary;
+    pub use crate::threads::autoname::NAMER_INSTRUCTIONS;
+}
 use util::time::unix_secs;
 
 #[derive(Clone)]

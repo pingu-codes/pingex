@@ -17,6 +17,7 @@ use tokio::sync::watch;
 use crate::agents::tools;
 use crate::codex::child::{spawn_child, ChildSink, CodexChild};
 use crate::codex::journal::TurnJournal;
+use crate::codex::requests;
 use crate::settings::prefs::AgentSettings;
 use crate::storage::{self, AgentRunRow};
 use crate::util::time::unix_millis;
@@ -535,13 +536,10 @@ pub(crate) async fn spawn_agent(
     // No `dynamicTools` for the child: an agent that could spawn agents is a
     // fork bomb one prompt away.
     let started = child
-        .request(
-            "thread/start",
-            json!({
-                "cwd": cwd.display().to_string(),
-                "developerInstructions": AGENT_PREAMBLE,
-            }),
-        )
+        .send(requests::agent_thread_start(
+            &cwd.display().to_string(),
+            AGENT_PREAMBLE,
+        ))
         .await;
     let child_thread_id = match started {
         Ok(response) => response
@@ -563,12 +561,6 @@ pub(crate) async fn spawn_agent(
         *slot = Some(child_thread_id.clone());
     }
 
-    let mut params = json!({
-        "threadId": child_thread_id,
-        "input": [{"type": "text", "text": prompt}],
-        "approvalPolicy": "never",
-        "sandboxPolicy": {"type": sandbox_tag(&sandbox)},
-    });
     // An unusable model is only rejected once inference starts, which kills the
     // agent outright — and the model picks this string, so "use the luna
     // subagents" becomes `model: "luna"`. Drop what the account cannot run and
@@ -577,12 +569,13 @@ pub(crate) async fn spawn_agent(
         Some(requested) => usable_model(&child, requested).await,
         None => None,
     };
-    if let Some(model) = &model {
-        params["model"] = json!(model);
-    }
-    if let Some(effort) = &args.effort {
-        params["effort"] = json!(effort);
-    }
+    let request = requests::agent_turn(
+        &child_thread_id,
+        &prompt,
+        sandbox_tag(&sandbox),
+        model.as_deref(),
+        args.effort.as_deref(),
+    );
     // Record what the agent is really running on, not what was asked for.
     let _ = storage::update_agent_run(
         &state.database(),
@@ -594,7 +587,7 @@ pub(crate) async fn spawn_agent(
         None,
     )
     .await;
-    match child.request("turn/start", params).await {
+    match child.send(request).await {
         Ok(response) => {
             let turn_id = response
                 .get("turn")
@@ -652,10 +645,7 @@ fn spawn_deadline(app: AppHandle, run: Arc<AgentRun>, timeout_seconds: u64) {
 /// point, while the parent's thread is mid-turn, blocked waiting for the very
 /// tool call this is serving.
 async fn usable_model(child: &Arc<CodexChild>, requested: &str) -> Option<String> {
-    let response = child
-        .request("model/list", json!({"limit": 100, "includeHidden": true}))
-        .await
-        .ok()?;
+    let response = child.send(requests::model_list(100, true)).await.ok()?;
     let known = collect_model_ids(&response);
     // An empty list means the lookup told us nothing, not that no model is
     // valid — passing the request through is better than silently ignoring it.
@@ -666,7 +656,7 @@ async fn usable_model(child: &Arc<CodexChild>, requested: &str) -> Option<String
 }
 
 /// Model ids out of a `model/list` response.
-pub(crate) fn collect_model_ids(response: &Value) -> Vec<String> {
+pub fn collect_model_ids(response: &Value) -> Vec<String> {
     response
         .get("data")
         .or_else(|| response.get("models"))
@@ -681,7 +671,7 @@ pub(crate) fn collect_model_ids(response: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn sandbox_tag(sandbox: &str) -> &'static str {
+pub fn sandbox_tag(sandbox: &str) -> &'static str {
     match sandbox {
         "read-only" => "readOnly",
         _ => "workspaceWrite",
@@ -716,14 +706,7 @@ pub(crate) async fn send_input(
         return Err("That agent is still working; wait for it before sending more input.".into());
     }
     let response = child
-        .request(
-            "turn/start",
-            json!({
-                "threadId": thread_id,
-                "input": [{"type": "text", "text": text}],
-                "approvalPolicy": "never",
-            }),
-        )
+        .send(requests::agent_followup(&thread_id, text))
         .await?;
     if let Ok(mut slot) = run.current_turn_id.lock() {
         *slot = response
@@ -758,10 +741,7 @@ pub(crate) async fn kill(app: &AppHandle, run: &Arc<AgentRun>, reason: Option<&s
         // case kill exists for.
         let _ = tokio::time::timeout(
             std::time::Duration::from_secs(2),
-            child.request(
-                "turn/interrupt",
-                json!({"threadId": thread_id, "turnId": turn_id}),
-            ),
+            child.send(requests::turn_interrupt(&thread_id, &turn_id)),
         )
         .await;
     }
@@ -775,7 +755,7 @@ pub(crate) async fn kill(app: &AppHandle, run: &Arc<AgentRun>, reason: Option<&s
 }
 
 /// The developer instructions every spawned agent starts with.
-const AGENT_PREAMBLE: &str = "\
+pub const AGENT_PREAMBLE: &str = "\
 You are a background agent spawned by Pingex to carry out one task.
 
 You are running on your own, with no user watching: nobody can answer a \

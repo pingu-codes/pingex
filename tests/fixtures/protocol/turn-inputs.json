@@ -1,0 +1,109 @@
+[
+  {
+    "name": "text",
+    "via": "parts",
+    "input": [
+      {
+        "type": "text",
+        "text": "Reply with exactly PONG"
+      }
+    ],
+    "expectReply": "PONG"
+  },
+  {
+    "name": "skill-chip-from-picker",
+    "via": "dom",
+    "input": [
+      {
+        "type": "text",
+        "text": "Please "
+      },
+      {
+        "type": "skill",
+        "name": "e2e-skill",
+        "path": "${SKILL_PATH}"
+      },
+      {
+        "type": "text",
+        "text": " use the skill and reply as it instructs."
+      }
+    ],
+    "expectReply": "E2E-SKILL-OK"
+  },
+  {
+    "name": "skill-restored-from-draft",
+    "via": "draft",
+    "input": [
+      {
+        "type": "skill",
+        "name": "e2e-skill",
+        "path": "${SKILL_PATH}"
+      },
+      {
+        "type": "text",
+        "text": " follow the skill."
+      }
+    ],
+    "expectReply": "E2E-SKILL-OK"
+  },
+  {
+    "name": "mention",
+    "via": "parts",
+    "input": [
+      {
+        "type": "text",
+        "text": "Read "
+      },
+      {
+        "type": "text",
+        "text": "[MARKER.md](MARKER.md)"
+      },
+      {
+        "type": "text",
+        "text": " and reply with only the token it contains."
+      }
+    ],
+    "expectReply": "MENTION-OK"
+  },
+  {
+    "name": "local-image",
+    "via": "parts",
+    "input": [
+      {
+        "type": "text",
+        "text": "An image is attached. Reply with exactly IMG-OK."
+      },
+      {
+        "type": "localImage",
+        "path": "${IMAGE_PATH}"
+      }
+    ],
+    "expectReply": "IMG-OK"
+  },
+  {
+    "name": "file-attachment",
+    "via": "parts",
+    "input": [
+      {
+        "type": "text",
+        "text": "Read the attached file and reply with only the token it contains."
+      },
+      {
+        "type": "text",
+        "text": "\n[Attached file: MARKER.md — ${CWD}/MARKER.md]\n"
+      }
+    ],
+    "expectReply": "MENTION-OK"
+  },
+  {
+    "name": "staging-attachment-dropped",
+    "via": "parts",
+    "input": [
+      {
+        "type": "text",
+        "text": "Reply with exactly PONG"
+      }
+    ],
+    "expectReply": "PONG"
+  }
+]

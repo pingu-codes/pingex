@@ -1,12 +1,14 @@
 //! Starting threads and running turns, plus the two things a running turn asks
 //! back of the user: approvals and `request_user_input` questions.
 
-use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 use tauri::{AppHandle, State};
 
+use crate::codex::requests;
 use crate::util::json::str_at;
 use crate::{storage, workspaces, AppState};
+
+pub(crate) use crate::codex::requests::TurnOptions;
 
 #[tauri::command]
 pub(crate) async fn start_thread(
@@ -30,10 +32,6 @@ pub(crate) async fn start_thread(
         .or(cwd)
         .filter(|cwd| !cwd.trim().is_empty())
         .ok_or("Choose a project directory before starting a thread")?;
-    let mut params = json!({"cwd": cwd});
-    if let Some(workspace) = &workspace {
-        params["runtimeWorkspaceRoots"] = json!(workspace.roots);
-    }
     let mut instructions = storage::read_instructions_for_cwd(&state.database(), &cwd)
         .await?
         .unwrap_or_default();
@@ -51,17 +49,18 @@ pub(crate) async fn start_thread(
         crate::settings::prefs::read_agent_settings(&crate::settings::prefs::settings_path())
             .enabled
     });
+    let mut dynamic_tools = None;
     if app_subagents {
         // Fetched here, while nothing is in flight, so the spawn tool can offer
         // the real slugs as an enum. Best effort: an unavailable list leaves the
         // field free-form rather than blocking the tools entirely.
         let models = state
             .session
-            .request(&app, "model/list", json!({"limit": 100}))
+            .send(&app, requests::model_list(100, false))
             .await
             .map(|response| crate::agents::supervisor::collect_model_ids(&response))
             .unwrap_or_default();
-        params["dynamicTools"] = crate::agents::tools::specs(&models);
+        dynamic_tools = Some(crate::agents::tools::specs(&models));
         // Codex's built-in subagents cannot be switched off, so the delegation
         // policy is what actually steers the model onto ours.
         if !instructions.is_empty() {
@@ -69,10 +68,20 @@ pub(crate) async fn start_thread(
         }
         instructions.push_str(crate::agents::tools::DELEGATION_POLICY);
     }
-    if !instructions.is_empty() {
-        params["developerInstructions"] = json!(instructions);
-    }
-    let response = state.session.request(&app, "thread/start", params).await?;
+    let response = state
+        .session
+        .send(
+            &app,
+            requests::thread_start(
+                &cwd,
+                workspace
+                    .as_ref()
+                    .map(|workspace| workspace.roots.as_slice()),
+                Some(&instructions),
+                dynamic_tools,
+            ),
+        )
+        .await?;
     let thread = response
         .get("thread")
         .cloned()
@@ -91,57 +100,6 @@ pub(crate) async fn start_thread(
     Ok(thread)
 }
 
-/// Per-turn overrides the composer can set. All optional: an absent field means
-/// "keep whatever the thread already resolved to".
-#[derive(Default, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub(crate) struct TurnOptions {
-    model: Option<String>,
-    effort: Option<String>,
-    approval_policy: Option<String>,
-    sandbox_mode: Option<String>,
-    collaboration_mode: Option<Value>,
-    subagent_model_policy: Option<Value>,
-    subagent_reasoning_effort_policy: Option<Value>,
-    /// What the composer resolved this turn to run on, including the defaults
-    /// it did not have to override. Recorded locally so the transcript can say
-    /// what produced each reply; never sent to Codex.
-    resolved_model: Option<String>,
-    resolved_effort: Option<String>,
-}
-
-fn apply_turn_options(params: &mut Value, options: TurnOptions) {
-    if let Some(model) = options.model {
-        params["model"] = json!(model);
-    }
-    if let Some(effort) = options.effort {
-        params["effort"] = json!(effort);
-    }
-    if let Some(policy) = options.approval_policy {
-        params["approvalPolicy"] = json!(policy);
-    }
-    // The UI uses kebab-case names; the protocol expects camelCase tags. An
-    // unrecognised mode is dropped rather than guessed at.
-    let sandbox_type = match options.sandbox_mode.as_deref() {
-        Some("read-only") => Some("readOnly"),
-        Some("workspace-write") => Some("workspaceWrite"),
-        Some("danger-full-access") => Some("dangerFullAccess"),
-        _ => None,
-    };
-    if let Some(sandbox_type) = sandbox_type {
-        params["sandboxPolicy"] = json!({"type": sandbox_type});
-    }
-    if let Some(mode) = options.collaboration_mode {
-        params["collaborationMode"] = mode;
-    }
-    if let Some(policy) = options.subagent_model_policy {
-        params["subagentModelPolicy"] = policy;
-    }
-    if let Some(policy) = options.subagent_reasoning_effort_policy {
-        params["subagentReasoningEffortPolicy"] = policy;
-    }
-}
-
 #[tauri::command]
 pub(crate) async fn start_turn(
     thread_id: String,
@@ -152,30 +110,30 @@ pub(crate) async fn start_turn(
 ) -> Result<Value, String> {
     state.session.ensure_resumed(&app, &thread_id).await?;
     storage::invalidate_thread_detail(&state.database(), &thread_id).await?;
-    let mut params = json!({"threadId": thread_id, "input": input});
-    let mut resolved = (None, None);
-    if let Some(options) = options {
-        resolved = (
-            options.resolved_model.clone(),
-            options.resolved_effort.clone(),
-        );
-        apply_turn_options(&mut params, options);
-    }
+    let resolved = options
+        .as_ref()
+        .map(|options| {
+            (
+                options.resolved_model.clone(),
+                options.resolved_effort.clone(),
+            )
+        })
+        .unwrap_or_default();
+    let mut request = requests::turn_start(&thread_id, input, options);
     if let Some(workspace_id) = storage::workspace_for_thread(&state.database(), &thread_id).await?
     {
         let workspace = workspaces::runtime_for_workspace(&state, &workspace_id).await?;
-        // Membership is authoritative: the frontend cannot silently widen or
-        // retain stale roots after a workspace was edited.
-        params["cwd"] = json!(workspace.cwd);
-        params["runtimeWorkspaceRoots"] = json!(workspace.roots);
+        requests::apply_workspace_params(
+            &mut request.params,
+            &workspace.cwd,
+            &workspace.roots,
+            &workspace.context,
+        );
         // The workspace hub is where this turn actually runs, so it is also
         // what bounds any agent the turn spawns.
         state.agents.remember_cwd(&thread_id, &workspace.cwd);
-        params["additionalContext"] = json!({
-            "pingex_workspace": {"kind": "application", "value": workspace.context}
-        });
     }
-    let response = state.session.request(&app, "turn/start", params).await?;
+    let response = state.session.send(&app, request).await?;
     let turn = response
         .get("turn")
         .cloned()
@@ -229,11 +187,7 @@ pub(crate) async fn interrupt_turn(
     for attempt in 0..2 {
         let error = match state
             .session
-            .request(
-                &app,
-                "turn/interrupt",
-                json!({"threadId": thread_id, "turnId": turn_id}),
-            )
+            .send(&app, requests::turn_interrupt(&thread_id, &turn_id))
             .await
         {
             Ok(_) => return Ok(()),
@@ -260,7 +214,7 @@ pub(crate) async fn respond_approval(
 ) -> Result<(), String> {
     state
         .session
-        .respond(request_id, json!({"decision": decision}))
+        .respond(request_id, requests::approval_result(&decision))
         .await
 }
 
@@ -321,7 +275,7 @@ pub(crate) async fn respond_user_input(
     if let Some(request_id) = request_id {
         state
             .session
-            .respond(request_id, json!({"answers": answers}))
+            .respond(request_id, requests::user_input_result(answers))
             .await?;
     }
     // Codex's thread/read projection has no item for request_user_input, so the
@@ -339,6 +293,8 @@ pub(crate) async fn respond_user_input(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use requests::apply_turn_options;
+    use serde_json::json;
 
     #[test]
     fn maps_supported_turn_options() {

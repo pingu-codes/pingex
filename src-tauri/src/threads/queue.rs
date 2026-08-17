@@ -4,9 +4,10 @@
 //! `thread/queue/start` errors if a turn is already running, so the frontend
 //! drives one start per idle transition.
 
-use serde_json::{json, Value};
+use serde_json::Value;
 use tauri::{AppHandle, State};
 
+use crate::codex::requests;
 use crate::AppState;
 
 #[tauri::command]
@@ -20,14 +21,9 @@ pub(crate) async fn queue_add(
     state.session.ensure_resumed(&app, &thread_id).await?;
     state
         .session
-        .request(
+        .send(
             &app,
-            "thread/queue/add",
-            json!({
-                "threadId": thread_id,
-                "input": input,
-                "clientUserMessageId": client_user_message_id,
-            }),
+            requests::queue_add(&thread_id, input, &client_user_message_id),
         )
         .await
 }
@@ -42,11 +38,7 @@ pub(crate) async fn queue_list(
     state.session.ensure_resumed(&app, &thread_id).await?;
     state
         .session
-        .request(
-            &app,
-            "thread/queue/list",
-            json!({"threadId": thread_id, "cursor": cursor}),
-        )
+        .send(&app, requests::queue_list(&thread_id, cursor.as_deref()))
         .await
 }
 
@@ -61,14 +53,9 @@ pub(crate) async fn queue_update(
     state.session.ensure_resumed(&app, &thread_id).await?;
     state
         .session
-        .request(
+        .send(
             &app,
-            "thread/queue/update",
-            json!({
-                "threadId": thread_id,
-                "queuedSubmissionId": queued_submission_id,
-                "input": input,
-            }),
+            requests::queue_update(&thread_id, &queued_submission_id, input),
         )
         .await
 }
@@ -83,10 +70,9 @@ pub(crate) async fn queue_delete(
     state.session.ensure_resumed(&app, &thread_id).await?;
     state
         .session
-        .request(
+        .send(
             &app,
-            "thread/queue/delete",
-            json!({"threadId": thread_id, "queuedSubmissionId": queued_submission_id}),
+            requests::queue_delete(&thread_id, &queued_submission_id),
         )
         .await
 }
@@ -101,10 +87,9 @@ pub(crate) async fn queue_reorder(
     state.session.ensure_resumed(&app, &thread_id).await?;
     state
         .session
-        .request(
+        .send(
             &app,
-            "thread/queue/reorder",
-            json!({"threadId": thread_id, "queuedSubmissionIds": queued_submission_ids}),
+            requests::queue_reorder(&thread_id, &queued_submission_ids),
         )
         .await
 }
@@ -119,10 +104,9 @@ pub(crate) async fn queue_start(
     state.session.ensure_resumed(&app, &thread_id).await?;
     state
         .session
-        .request(
+        .send(
             &app,
-            "thread/queue/start",
-            json!({"threadId": thread_id, "queuedSubmissionId": queued_submission_id}),
+            requests::queue_start(&thread_id, queued_submission_id.as_deref()),
         )
         .await
 }

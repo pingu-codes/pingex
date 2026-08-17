@@ -108,6 +108,14 @@ impl CodexChild {
         self.try_request(method, params).await.map_err(Into::into)
     }
 
+    /// Send a prebuilt [`crate::codex::requests::Request`].
+    pub(crate) async fn send(
+        &self,
+        request: crate::codex::requests::Request,
+    ) -> Result<Value, String> {
+        self.request(request.method, request.params).await
+    }
+
     /// As [`CodexChild::request`], but distinguishing a request that never left
     /// this process from one that may already be executing on the other side.
     /// Only the former is safe to resend.
@@ -284,7 +292,10 @@ pub(crate) async fn spawn_child(
         .map_err(|error| format!("Could not start {}: {error}", program.display()))?;
 
     let stdin = process.stdin.take().ok_or("Codex stdin was unavailable")?;
-    let stdout = process.stdout.take().ok_or("Codex stdout was unavailable")?;
+    let stdout = process
+        .stdout
+        .take()
+        .ok_or("Codex stdout was unavailable")?;
     let stderr = process.stderr.take();
     let stderr_tail = Arc::new(Mutex::new(VecDeque::new()));
     if let Some(stderr) = stderr {
@@ -316,14 +327,8 @@ pub(crate) async fn spawn_child(
         .lock()
         .map_err(|_| "Codex pending lock was poisoned".to_string())?
         .insert(0, sender);
-    child.write_line(&json!({
-        "id": 0,
-        "method": "initialize",
-        "params": {
-            "clientInfo": {"name": client_name, "title": "Pingex", "version": env!("CARGO_PKG_VERSION")},
-            "capabilities": {"experimentalApi": true},
-        },
-    }))?;
+    let init = crate::codex::requests::initialize(client_name);
+    child.write_line(&json!({"id": 0, "method": init.method, "params": init.params}))?;
     child.write_line(&json!({"method": "initialized", "params": {}}))?;
 
     let reader_child = child.clone();

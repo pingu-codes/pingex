@@ -240,6 +240,15 @@ impl CodexSession {
         Ok(pair)
     }
 
+    /// Send a prebuilt [`requests::Request`].
+    pub(crate) async fn send(
+        &self,
+        app: &AppHandle,
+        request: crate::codex::requests::Request,
+    ) -> Result<Value, String> {
+        self.request(app, request.method, request.params).await
+    }
+
     pub(crate) async fn request(
         &self,
         app: &AppHandle,
@@ -291,7 +300,7 @@ impl CodexSession {
             }
         }
         let response = self
-            .request(app, "thread/resume", json!({"threadId": thread_id}))
+            .send(app, crate::codex::requests::thread_resume(thread_id))
             .await?;
         let (_, sink) = self.session(app).await?;
         sink.resumed

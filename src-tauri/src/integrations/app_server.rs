@@ -21,10 +21,11 @@
 //! the frontend rather than restating large, fast-moving structs in Rust. The
 //! exception is `fetch_skills`, which the typed `IntegrationsList` needs.
 
-use serde_json::{json, Value};
+use serde_json::Value;
 use tauri::{AppHandle, State};
 
 use super::SkillSummary;
+use crate::codex::requests;
 use crate::AppState;
 
 #[tauri::command]
@@ -34,7 +35,7 @@ pub(crate) async fn list_mcp_server_status(
 ) -> Result<Value, String> {
     state
         .session
-        .request(&app, "mcpServerStatus/list", json!({}))
+        .send(&app, requests::mcp_server_status_list())
         .await
 }
 
@@ -49,7 +50,7 @@ pub(crate) async fn mcp_oauth_login(
 ) -> Result<Value, String> {
     state
         .session
-        .request(&app, "mcpServer/oauth/login", json!({ "name": name }))
+        .send(&app, requests::mcp_oauth_login(&name))
         .await
 }
 
@@ -70,10 +71,7 @@ pub(crate) async fn reload_mcp_config(
     app: &AppHandle,
     state: &State<'_, AppState>,
 ) -> Result<Value, String> {
-    state
-        .session
-        .request(app, "config/mcpServer/reload", json!({}))
-        .await
+    state.session.send(app, requests::mcp_config_reload()).await
 }
 
 #[tauri::command]
@@ -82,10 +80,7 @@ pub(crate) async fn list_skills_for(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    state
-        .session
-        .request(&app, "skills/list", json!({ "cwds": cwds }))
-        .await
+    state.session.send(&app, requests::skills_list(&cwds)).await
 }
 
 /// Enable or disable a skill by name. `skills/config/write` requires exactly
@@ -99,11 +94,7 @@ pub(crate) async fn set_skill_enabled(
 ) -> Result<Value, String> {
     state
         .session
-        .request(
-            &app,
-            "skills/config/write",
-            json!({ "name": name, "enabled": enabled }),
-        )
+        .send(&app, requests::skill_config_write(&name, enabled))
         .await
 }
 
@@ -119,10 +110,7 @@ pub(crate) async fn fetch_skills(
     state: &State<'_, AppState>,
     cwds: Vec<String>,
 ) -> Vec<SkillSummary> {
-    let response = state
-        .session
-        .request(app, "skills/list", json!({ "cwds": cwds }))
-        .await;
+    let response = state.session.send(app, requests::skills_list(&cwds)).await;
     let Ok(value) = response else {
         return Vec::new();
     };
@@ -131,7 +119,7 @@ pub(crate) async fn fetch_skills(
 
 /// Pure over the `skills/list` response so it can be unit-tested without a
 /// running Codex.
-pub(crate) fn parse_skills(response: &Value) -> Vec<SkillSummary> {
+pub fn parse_skills(response: &Value) -> Vec<SkillSummary> {
     let Some(groups) = response.get("data").and_then(Value::as_array) else {
         return Vec::new();
     };
@@ -174,6 +162,7 @@ fn string_at(value: &Value, key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn parses_skills_with_interface_metadata() {

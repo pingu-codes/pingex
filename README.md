@@ -49,7 +49,7 @@ deno task rust:lint -- -D warnings
 deno task rust:test
 ```
 
-Browser preview coverage is available through `deno task test:e2e:install` followed by `deno task test:e2e`.
+Browser preview coverage is available through `deno task test:e2e:install` followed by `deno task test:e2e`. `deno task test:e2e:codex` drives the installed `codex` binary end-to-end with a real model (opt-in; see CONTRIBUTING.md).
 
 ## Local build
 

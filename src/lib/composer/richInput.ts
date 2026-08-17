@@ -1,5 +1,5 @@
 import { detectSlashQuery } from "$lib/composer/slashCommands";
-import type { Mention, UserInputPart } from "$lib/types";
+import type { Mention, TurnInputItem } from "$lib/types";
 import { fileIconFor, fileIconSvg, iconForPath } from "$lib/utils/fileIcons";
 import { relativeMentionPath } from "$lib/utils/mentions";
 
@@ -123,11 +123,12 @@ export function readParts(root: HTMLElement): ComposerPart[] {
  * not one: its `path` is a connector/plugin target (`app://…`, `plugin://…`), so
  * a filesystem path resolves to nothing and is dropped without an error.
  *
- * Skills, by contrast, do have a native item — `{type:"skill", name}` — so they
- * go out as themselves rather than as text.
+ * Skills, by contrast, do have a native item — `{type:"skill", name, path}` —
+ * so they go out as themselves rather than as text. (`path` is required by the
+ * server; `TurnInputItem` makes leaving it out a type error.)
  */
-export function buildTurnInput(parts: ComposerPart[], cwd = ""): UserInputPart[] {
-  const input: UserInputPart[] = [];
+export function buildTurnInput(parts: ComposerPart[], cwd = ""): TurnInputItem[] {
+  const input: TurnInputItem[] = [];
   for (const part of parts) {
     if (part.type === "text") {
       input.push({ type: "text", text: part.text });

@@ -55,11 +55,11 @@ pub(crate) fn owns(params: &Value) -> bool {
 /// `turn/start` accepts and the provider then rejects mid-stream, killing the
 /// agent. An empty list leaves the field free-form rather than blocking every
 /// model, since not knowing the list is not the same as there being none.
-pub(crate) fn specs(model_ids: &[String]) -> Value {
+pub fn specs(model_ids: &[String]) -> Value {
     let mut model_property = json!({
         "type": "string",
         "description": "An exact model slug. Omit unless you know it: a nickname, \
-an agent name, or a description is not a model.",
+    an agent name, or a description is not a model.",
     });
     if !model_ids.is_empty() {
         model_property["enum"] = json!(model_ids);
@@ -77,10 +77,10 @@ the agent uses the default."
             "type": "function",
             "name": SPAWN,
             "description": "Spawn a background agent in its own separate Codex process to work \
-on a task independently. Returns immediately with an agentId so several agents can run at once — \
-spawn all of them first, then call pingex_wait_agents once with every id. The agent starts with a \
-completely fresh context and can see nothing from this conversation, so `prompt` must be \
-self-contained.",
+    on a task independently. Returns immediately with an agentId so several agents can run at once — \
+    spawn all of them first, then call pingex_wait_agents once with every id. The agent starts with a \
+    completely fresh context and can see nothing from this conversation, so `prompt` must be \
+    self-contained.",
             "deferLoading": false,
             "inputSchema": {
                 "type": "object",
@@ -96,7 +96,7 @@ self-contained.",
                     "cwd": {
                         "type": "string",
                         "description": "Working directory, absolute or relative to the parent's \
-working directory. Must stay inside it. Defaults to the parent's."
+    working directory. Must stay inside it. Defaults to the parent's."
                     },
                     "model": null,
                     "effort": {"type": "string", "enum": EFFORTS, "description": "Reasoning effort."},
@@ -104,7 +104,7 @@ working directory. Must stay inside it. Defaults to the parent's."
                         "type": "string",
                         "enum": ["read-only", "workspace-write"],
                         "description": "Narrower than the user's configured ceiling only; a wider \
-request is clamped down to it."
+    request is clamped down to it."
                     },
                     "files": {
                         "type": "array",
@@ -120,8 +120,8 @@ request is clamped down to it."
             "type": "function",
             "name": WAIT,
             "description": "Wait for agents spawned with pingex_spawn_agent and collect their \
-results. Pass every id you are waiting on in one call. If it returns with an agent still running, \
-that is a timeout, not a failure — call again with the ids that have not finished.",
+    results. Pass every id you are waiting on in one call. If it returns with an agent still running, \
+    that is a timeout, not a failure — call again with the ids that have not finished.",
             "deferLoading": false,
             "inputSchema": {
                 "type": "object",
@@ -140,7 +140,7 @@ that is a timeout, not a failure — call again with the ids that have not finis
             "type": "function",
             "name": SEND_INPUT,
             "description": "Send a follow-up message to an agent that has finished its current \
-turn, continuing its existing conversation. Use pingex_wait_agents afterwards to collect the reply.",
+    turn, continuing its existing conversation. Use pingex_wait_agents afterwards to collect the reply.",
             "deferLoading": false,
             "inputSchema": {
                 "type": "object",
@@ -156,7 +156,7 @@ turn, continuing its existing conversation. Use pingex_wait_agents afterwards to
             "type": "function",
             "name": KILL,
             "description": "Stop an agent and kill its process. Use this for an agent that is \
-stuck or no longer needed; its partial output is kept.",
+    stuck or no longer needed; its partial output is kept.",
             "deferLoading": false,
             "inputSchema": {
                 "type": "object",
@@ -180,7 +180,7 @@ stuck or no longer needed; its partial output is kept.",
 /// the app's agents the ones that actually run is to say so in the thread's
 /// developer instructions. Verified to hold even for prompts that explicitly
 /// ask for a subagent.
-pub(crate) const DELEGATION_POLICY: &str = "\
+pub const DELEGATION_POLICY: &str = "\
 # Delegation policy
 
 This session runs inside Pingex, which manages background agents itself.
@@ -492,8 +492,8 @@ mod tests {
 
     #[test]
     fn drops_an_effort_it_does_not_recognise() {
-        let args = parse_spawn_args(&json!({"name": "a", "prompt": "go", "effort": "ultra"}))
-            .unwrap();
+        let args =
+            parse_spawn_args(&json!({"name": "a", "prompt": "go", "effort": "ultra"})).unwrap();
         assert_eq!(args.effort, None);
     }
 
@@ -532,7 +532,10 @@ mod tests {
     #[test]
     fn the_sandbox_ceiling_can_be_narrowed_but_never_widened() {
         assert_eq!(clamp_sandbox(None, "workspace-write"), "workspace-write");
-        assert_eq!(clamp_sandbox(Some("read-only"), "workspace-write"), "read-only");
+        assert_eq!(
+            clamp_sandbox(Some("read-only"), "workspace-write"),
+            "read-only"
+        );
         // Asking for more than the ceiling gets the ceiling.
         assert_eq!(
             clamp_sandbox(Some("workspace-write"), "read-only"),
@@ -599,7 +602,10 @@ mod tests {
         assert_eq!(wait_timeout_seconds(None), DEFAULT_WAIT_SECONDS);
         assert_eq!(wait_timeout_seconds(Some(0.0)), DEFAULT_WAIT_SECONDS);
         assert_eq!(wait_timeout_seconds(Some(-5.0)), DEFAULT_WAIT_SECONDS);
-        assert_eq!(wait_timeout_seconds(Some(f64::INFINITY)), DEFAULT_WAIT_SECONDS);
+        assert_eq!(
+            wait_timeout_seconds(Some(f64::INFINITY)),
+            DEFAULT_WAIT_SECONDS
+        );
         assert_eq!(wait_timeout_seconds(Some(30.0)), 30);
         assert_eq!(wait_timeout_seconds(Some(99_999.0)), MAX_WAIT_SECONDS);
     }

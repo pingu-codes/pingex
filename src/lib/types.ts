@@ -109,6 +109,24 @@ export type MenuAction =
   | "fork"
   | "openDetails";
 
+/**
+ * One item of a `turn/start` input as the app-server defines it
+ * (`app-server-protocol` v2 `UserInput`, `text_elements` defaulted server-side).
+ * Deliberately strict: a `skill` without a `path` once shipped and was only
+ * rejected at runtime, so outbound builders type against this union rather
+ * than the loose `UserInputPart` used for reading messages back.
+ */
+export type TurnInputItem =
+  | { type: "text"; text: string }
+  | { type: "image"; url: string; detail?: "low" | "high" | "original" | "auto" }
+  | { type: "localImage"; path: string; detail?: "low" | "high" | "original" | "auto" }
+  | { type: "audio"; url: string }
+  | { type: "localAudio"; path: string }
+  | { type: "skill"; name: string; path: string }
+  | { type: "mention"; name: string; path: string };
+
+/** A user message part as read back from Codex; loose because it may carry
+ * types and fields the app does not model. Send with `TurnInputItem`. */
 export interface UserInputPart {
   type: string;
   text?: string;

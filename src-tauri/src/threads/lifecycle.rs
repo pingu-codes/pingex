@@ -8,6 +8,7 @@
 use serde_json::{json, Value};
 use tauri::{AppHandle, State};
 
+use crate::codex::requests;
 use crate::projects::{bootstrap_cached, bootstrap_inner, thread_search_row, BootstrapData};
 use crate::storage;
 use crate::util::json::arr_or_empty;
@@ -53,7 +54,7 @@ pub(crate) async fn compact_thread(
     storage::invalidate_thread_detail(&state.database(), &thread_id).await?;
     state
         .session
-        .request(&app, "thread/compact/start", json!({"threadId": thread_id}))
+        .send(&app, requests::thread_compact(&thread_id))
         .await?;
     Ok(())
 }
@@ -113,7 +114,10 @@ pub(crate) async fn thread_goal_set(
     if let Some(status) = status {
         params["status"] = json!(status);
     }
-    let response = state.session.request(&app, "thread/goal/set", params).await?;
+    let response = state
+        .session
+        .request(&app, "thread/goal/set", params)
+        .await?;
     response
         .get("goal")
         .cloned()
@@ -178,7 +182,7 @@ pub(crate) async fn archive_thread(
 ) -> Result<BootstrapData, String> {
     state
         .session
-        .request(&app, "thread/archive", json!({"threadId": thread_id}))
+        .send(&app, requests::thread_archive(&thread_id))
         .await?;
     // Archiving keeps the thread searchable; the search row flips its flag
     // instead of being deleted.
@@ -195,7 +199,7 @@ pub(crate) async fn unarchive_thread(
 ) -> Result<BootstrapData, String> {
     state
         .session
-        .request(&app, "thread/unarchive", json!({"threadId": thread_id}))
+        .send(&app, requests::thread_unarchive(&thread_id))
         .await?;
     storage::set_thread_search_archived(&state.database(), &thread_id, false).await?;
     // A full bootstrap, not a cached one: the thread has to come back from the
@@ -211,7 +215,7 @@ pub(crate) async fn delete_thread(
 ) -> Result<BootstrapData, String> {
     state
         .session
-        .request(&app, "thread/delete", json!({"threadId": thread_id}))
+        .send(&app, requests::thread_delete(&thread_id))
         .await?;
     storage::delete_thread_search(&state.database(), &thread_id).await?;
     // Archiving keeps the journal (unarchiving expects its transcript back);
@@ -231,15 +235,9 @@ pub(crate) async fn list_archived_threads(
 ) -> Result<Value, String> {
     let response = state
         .session
-        .request(
+        .send(
             &app,
-            "thread/list",
-            json!({
-                "limit": ARCHIVED_PAGE,
-                "sortKey": "updated_at",
-                "sortDirection": "desc",
-                "archived": true
-            }),
+            requests::thread_list(ARCHIVED_PAGE as u32, None, None, true),
         )
         .await?;
     index_archived_search(&state, &response).await;
@@ -264,11 +262,7 @@ pub(crate) async fn list_models(
 ) -> Result<Value, String> {
     state
         .session
-        .request(
-            &app,
-            "model/list",
-            json!({"limit": 100, "includeHidden": true}),
-        )
+        .send(&app, requests::model_list(100, true))
         .await
 }
 
@@ -285,11 +279,7 @@ pub(crate) async fn rollback_thread(
     state.session.ensure_resumed(&app, &thread_id).await?;
     let response = state
         .session
-        .request(
-            &app,
-            "thread/rollback",
-            json!({"threadId": thread_id, "numTurns": num_turns}),
-        )
+        .send(&app, requests::thread_rollback(&thread_id, num_turns))
         .await?;
     // After the rollback, so the truncated history can't be served from a
     // detail row written before it.

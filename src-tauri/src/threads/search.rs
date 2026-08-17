@@ -5,10 +5,10 @@
 //! local index so typing stays responsive and works offline.
 
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::collections::HashSet;
 use tauri::{AppHandle, State};
 
+use crate::codex::requests;
 use crate::projects::{thread_search_row, thread_summary_from, ThreadSummary};
 use crate::storage::{self, StoredThreadSearch};
 use crate::util::json::{arr_or_empty, str_at};
@@ -43,19 +43,18 @@ pub(crate) async fn list_threads_page(
     state: State<'_, AppState>,
 ) -> Result<ThreadsPage, String> {
     let archived = archived.unwrap_or(false);
-    let mut params = json!({
-        "limit": page_size.unwrap_or(DEFAULT_PAGE_SIZE),
-        "sortKey": "updated_at",
-        "sortDirection": "desc",
-        "archived": archived,
-    });
-    if let Some(cursor) = cursor {
-        params["cursor"] = json!(cursor);
-    }
-    if let Some(project_path) = &project_path {
-        params["cwd"] = json!(project_path);
-    }
-    let response = state.session.request(&app, "thread/list", params).await?;
+    let response = state
+        .session
+        .send(
+            &app,
+            requests::thread_list(
+                page_size.unwrap_or(DEFAULT_PAGE_SIZE),
+                cursor.as_deref(),
+                project_path.as_deref(),
+                archived,
+            ),
+        )
+        .await?;
     let data = arr_or_empty(&response, "data").to_vec();
 
     let search_rows: Vec<_> = data
