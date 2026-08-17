@@ -27,6 +27,15 @@ describe("turnOptionsFrom", () => {
     });
   });
 
+  it("falls back to the thread's last model when nothing else resolves", () => {
+    expect(turnOptionsFrom(loadPrefs(), undefined, undefined, null, "gpt-5.6-sol")).toEqual({
+      collaborationMode: {
+        mode: "default",
+        settings: { model: "gpt-5.6-sol", reasoning_effort: null, developer_instructions: null },
+      },
+    });
+  });
+
   it("emits collaborationMode default when plan mode is off, so a thread left in plan mode exits it", () => {
     const prefs = { ...loadPrefs(), model: "gpt-5.2" };
     expect(turnOptionsFrom(prefs)).toEqual({

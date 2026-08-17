@@ -307,6 +307,34 @@ pub(crate) async fn rollback_thread(
     Ok(thread)
 }
 
+/// Replace the thread's durable history with the prefix before `before_turn_id`
+/// (`thread/revert`, the successor to the deprecated `thread/rollback`).
+/// The response carries no turns, so the caller supplies `kept_turn_ids` for
+/// the same journal pruning `rollback_thread` derives from its response.
+#[tauri::command]
+pub(crate) async fn revert_thread(
+    thread_id: String,
+    before_turn_id: String,
+    kept_turn_ids: Vec<String>,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    state.session.ensure_resumed(&app, &thread_id).await?;
+    let response = state
+        .session
+        .request(
+            &app,
+            "thread/revert",
+            json!({"threadId": thread_id, "beforeTurnId": before_turn_id}),
+        )
+        .await?;
+    storage::invalidate_thread_detail(&state.database(), &thread_id).await?;
+    storage::retain_thread_turns(&state.database(), &thread_id, &kept_turn_ids).await?;
+    storage::retain_turn_settings(&state.database(), &thread_id, &kept_turn_ids).await?;
+    storage::retain_agent_runs(&state.database(), &thread_id, &kept_turn_ids).await?;
+    Ok(response)
+}
+
 fn turn_ids(thread: &Value) -> Vec<String> {
     arr_or_empty(thread, "turns")
         .iter()

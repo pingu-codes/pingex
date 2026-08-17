@@ -351,6 +351,34 @@ export interface ThreadTokenUsage {
   modelContextWindow?: number | null;
 }
 
+/** One row of the per-model usage breakdown in `ThreadUsage`. */
+export interface ThreadUsageBreakdownGroup {
+  model?: string | null;
+  reasoningEffort?: string | null;
+  speed?: string | null;
+  estimatedUsageCreditsMicros: number;
+  netNewInputTokens?: number | null;
+  cachedInputTokens?: number | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  totalTokens?: number | null;
+}
+
+/** `threadUsage` from `account/usage/read` when called with a `threadId`. */
+export interface ThreadUsage {
+  threadId: string;
+  estimatedUsageCreditsMicros: number;
+  estimatedUsageUsdMicros?: number | null;
+  groups: ThreadUsageBreakdownGroup[];
+}
+
+/** A message waiting in the server-side thread queue (`thread/queue/*`). */
+export interface QueuedSubmission {
+  id: string;
+  input: UserInputPart[];
+  clientUserMessageId: string;
+}
+
 /** One rolling rate-limit window from `account/rateLimits/read`. */
 export interface RateLimitWindow {
   usedPercent: number;
@@ -420,6 +448,18 @@ export interface Model {
   supportedReasoningEfforts: ReasoningEffortOption[];
   defaultReasoningEffort: string;
   isDefault: boolean;
+  /** Id of the suggested replacement model, when this one is being upgraded away. */
+  upgrade?: string | null;
+  upgradeInfo?: ModelUpgradeInfo | null;
+}
+
+export interface ModelUpgradeInfo {
+  model: string;
+  upgradeCopy?: string | null;
+  modelLink?: string | null;
+  migrationMarkdown?: string | null;
+  /** Unix seconds at which this model is scheduled to retire. */
+  retirementAt?: number | null;
 }
 
 /** Per-turn overrides picked in the composer popovers. */

@@ -188,7 +188,7 @@ function openProjectFile(relativePath: string) {
       {:else if view.kind === "messageLog"}
         <MessageLog />
       {:else if view.kind === "status"}
-        <ThreadStatus stats={contextStats} {costUsd} model={activeModel} />
+        <ThreadStatus stats={contextStats} {costUsd} model={activeModel} threadId={parentThreadId} />
       {:else if view.kind === "process"}
         {@const process = processByKey(view.processKey)}
         <!-- Interrupting is only possible for the open thread's own turn. -->

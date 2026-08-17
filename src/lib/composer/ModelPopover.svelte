@@ -25,6 +25,13 @@ let {
   onChooseModel: (model: Model) => void;
   onChooseEffort: (effort: string) => void;
 } = $props();
+
+function retirementLabel(model: Model): string | null {
+  const retirementAt = model.upgradeInfo?.retirementAt;
+  if (retirementAt == null) return null;
+  const date = new Date(retirementAt * 1000);
+  return `Retiring ${date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`;
+}
 </script>
 
 <div class="relative">
@@ -62,7 +69,17 @@ let {
               class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal"
             >
               <span class="min-w-0 flex-1">
-                <span class="block truncate">{model.displayName}</span>
+                <span class="flex items-center gap-1.5">
+                  <span class="min-w-0 truncate">{model.displayName}</span>
+                  {#if retirementLabel(model)}
+                    <span
+                      class="shrink-0 rounded-full bg-warning-500/15 px-1.5 py-px text-[9px] font-medium text-warning-600-400"
+                      title={model.upgradeInfo?.upgradeCopy ?? undefined}
+                    >
+                      {retirementLabel(model)}
+                    </span>
+                  {/if}
+                </span>
                 <span class="block truncate text-[10px] text-surface-500">{model.description}</span>
               </span>
               {#if (modelId ?? (models ?? []).find((entry) => entry.isDefault)?.id) === model.id}

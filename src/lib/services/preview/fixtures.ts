@@ -20,6 +20,7 @@ import type {
   ProjectSource,
   ProviderStatus,
   PrSummary,
+  QueuedSubmission,
   RemoteConnection,
   RuntimeSettings,
   ThreadDetail,
@@ -28,6 +29,7 @@ import type {
   ThreadSearchPage,
   ThreadSummary,
   ThreadsPage,
+  ThreadUsage,
   WireMessage,
   WorkspaceSearchResults,
   WorktreeEntry,
@@ -402,8 +404,45 @@ export const previewModels: Model[] = [
     ],
     defaultReasoningEffort: "medium",
     isDefault: false,
+    upgrade: "gpt-5.2-codex",
+    upgradeInfo: {
+      model: "gpt-5.2-codex",
+      upgradeCopy: "GPT-5.2 is retiring — switch to GPT-5.2 Codex.",
+      retirementAt: 1767225600,
+    },
   },
 ];
+
+export const previewQueues = new Map<string, QueuedSubmission[]>();
+
+export function previewQueue(threadId: string): QueuedSubmission[] {
+  let queue = previewQueues.get(threadId);
+  if (!queue) {
+    queue = [];
+    previewQueues.set(threadId, queue);
+  }
+  return queue;
+}
+
+export function previewThreadUsage(threadId: string): ThreadUsage {
+  return {
+    threadId,
+    estimatedUsageCreditsMicros: 1_234_500,
+    estimatedUsageUsdMicros: 2_469_000,
+    groups: [
+      {
+        model: "gpt-5.2-codex",
+        reasoningEffort: "medium",
+        estimatedUsageCreditsMicros: 1_234_500,
+        netNewInputTokens: 18_400,
+        cachedInputTokens: 96_000,
+        inputTokens: 114_400,
+        outputTokens: 6_200,
+        totalTokens: 120_600,
+      },
+    ],
+  };
+}
 
 export const previewFiles: FileHit[] = [
   { path: "src/lib/utils.ts", fileName: "utils.ts", score: 40, isDir: false },

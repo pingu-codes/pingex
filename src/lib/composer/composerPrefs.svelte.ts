@@ -244,13 +244,15 @@ export function policyIsEmpty(policy: SubagentPolicy | null, all: string[]): boo
 
 /** Turn the saved prefs into per-turn overrides for turn/start.
  *
- * `defaultModel` backs the plan-mode collaboration settings when no model is
+ * `defaultModel` (Codex's default from the model list) and `threadModel` (what
+ * the thread last ran on) back the collaboration settings when no model is
  * explicitly selected — the protocol requires a concrete model there. */
 export function turnOptionsFrom(
   prefs: ComposerPrefs,
   subagentModelPolicy?: SubagentPolicy | null,
   subagentReasoningEffortPolicy?: SubagentPolicy | null,
   defaultModel?: string | null,
+  threadModel?: string | null,
 ): TurnOptions | undefined {
   const preset = PERMISSION_PRESETS.find((candidate) => candidate.id === prefs.permissionPreset);
   const options: TurnOptions = {};
@@ -265,8 +267,11 @@ export function turnOptionsFrom(
   // Collaboration mode is a sticky thread setting on the Codex side, so the
   // thread only leaves plan mode when a turn explicitly sends "default".
   // Codex's CollaborationMode requires full settings; without a resolvable
-  // model we skip the override rather than send an invalid request.
-  const model = prefs.model ?? defaultModel ?? null;
+  // model we skip the override rather than send an invalid request. Skipping is
+  // a last resort: a turn without an explicit mode leaves Codex's mode diff in
+  // a state where it never re-sends the "Default mode" instructions, so a
+  // thread that was in plan mode looks stuck there to the model.
+  const model = prefs.model ?? defaultModel ?? threadModel ?? null;
   if (model) {
     options.collaborationMode = {
       mode: prefs.planMode ? "plan" : "default",

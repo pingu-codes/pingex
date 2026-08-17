@@ -88,6 +88,7 @@ let {
   compacting = false,
   subagentModelPolicy = null,
   subagentReasoningEffortPolicy = null,
+  threadModel = null,
   onSend,
   onInterrupt,
   onCommand,
@@ -127,6 +128,9 @@ let {
   onSubagentPolicyChange?: (modelPolicy: SubagentPolicy | null, effortPolicy: SubagentPolicy | null) => void;
   /** The model turns will actually run on — the picked one, else Codex's default. */
   onModelChange?: (modelId: string | null) => void;
+  /** The model the thread last ran on; backs the collaboration-mode settings
+   *  when nothing is picked and the model list has not loaded yet. */
+  threadModel?: string | null;
 } = $props();
 
 let parts = $state<ComposerPart[]>([{ type: "text", text: "" }]);
@@ -383,7 +387,16 @@ $effect(() => {
 
 /** Turn overrides plus the resolved pair the transcript labels replies with. */
 function sendOptions(): TurnOptions | undefined {
-  const options = turnOptionsFrom(prefs, subagentModelPolicy, subagentReasoningEffortPolicy, defaultModel?.id ?? null);
+  const options = turnOptionsFrom(
+    prefs,
+    subagentModelPolicy,
+    subagentReasoningEffortPolicy,
+    defaultModel?.id ?? null,
+    threadModel,
+  );
+  if (!options?.collaborationMode) {
+    console.warn("composer: no model resolved; turn sent without an explicit collaboration mode");
+  }
   if (!effectiveModel && !effectiveEffort) return options;
   return { ...options, resolvedModel: effectiveModel, resolvedEffort: effectiveEffort };
 }
@@ -829,6 +842,16 @@ function submit() {
   sources.clear();
   closePickers();
   persistDraft(null);
+  void dispatchSend(sent);
+}
+
+/** Send once a model can back the collaboration settings: the first send after
+ *  launch may beat the model list, and a mode-less turn is what leaves a thread
+ *  stuck in plan mode. Bounded so a failing model fetch never blocks sending. */
+async function dispatchSend(sent: UserInputPart[]) {
+  if (!models && !prefs.model && !threadModel) {
+    await Promise.race([ensureModels(), new Promise((resolve) => setTimeout(resolve, 3000))]);
+  }
   onSend(sent, sendOptions());
 }
 

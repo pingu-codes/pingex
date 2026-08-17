@@ -65,6 +65,11 @@ vi.mock("$lib/services/api", () => ({
   listAgentRuns: vi.fn().mockResolvedValue([]),
   killAgentRun: vi.fn().mockResolvedValue(undefined),
   openInZed: vi.fn(),
+  queueAdd: vi.fn().mockImplementation((_threadId, input, clientUserMessageId) =>
+    Promise.resolve({ id: `q-${clientUserMessageId}`, input, clientUserMessageId }),
+  ),
+  queueDelete: vi.fn().mockResolvedValue(true),
+  queueList: vi.fn().mockResolvedValue([]),
   readThread: mocks.readThread,
   removeSideQuestion: vi.fn(),
   respondUserInput: vi.fn(),

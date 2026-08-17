@@ -5,12 +5,14 @@ type Handler = (event: { method: string; params: any }) => void;
 
 const mocks = vi.hoisted(() => ({
   invalidateThreadCache: vi.fn().mockResolvedValue(undefined),
+  queueList: vi.fn().mockResolvedValue([]),
   activeTurns: { list: [] as string[] },
   handlers: [] as Handler[],
 }));
 
 vi.mock("$lib/services/api", () => ({
   invalidateThreadCache: mocks.invalidateThreadCache,
+  queueList: mocks.queueList,
 }));
 
 vi.mock("$lib/services/codexEvents.svelte", () => ({
@@ -33,6 +35,7 @@ function detail(threadId: string): ThreadDetail {
 
 const idle = {
   queued: [],
+  queuedOptions: new Map(),
   compacting: false,
   streamError: null,
   subagentModelPolicy: null,
@@ -52,6 +55,8 @@ beforeEach(() => {
   resetLiveThreads();
   mocks.activeTurns.list = [];
   mocks.invalidateThreadCache.mockClear();
+  mocks.queueList.mockClear();
+  mocks.queueList.mockResolvedValue([]);
 });
 
 describe("liveThreads", () => {
@@ -85,7 +90,22 @@ describe("liveThreads", () => {
 
   it("retains a released thread that still has queued messages", () => {
     trackLive("thread-a", detail("thread-a"));
-    releaseLive("thread-a", { ...idle, queued: [{ input: [{ type: "text", text: "next" }] }] });
+    releaseLive("thread-a", {
+      ...idle,
+      queued: [{ id: "q1", input: [{ type: "text", text: "next" }], clientUserMessageId: "c1" }],
+    });
+    expect(adoptLive("thread-a")?.queued).toHaveLength(1);
+  });
+
+  it("re-lists a retained thread's queue when the server says it changed", async () => {
+    mocks.queueList.mockResolvedValue([{ id: "q1", input: [{ type: "text", text: "next" }], clientUserMessageId: "c1" }]);
+    leaveWorking("thread-a");
+    trackLive("thread-b", detail("thread-b"));
+
+    emit("thread/queue/changed", { threadId: "thread-a" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mocks.queueList).toHaveBeenCalledWith("thread-a");
     expect(adoptLive("thread-a")?.queued).toHaveLength(1);
   });
 

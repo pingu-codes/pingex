@@ -56,6 +56,19 @@ pub(crate) async fn read_account_rate_limits(
         .await
 }
 
+/// Per-thread usage estimate: `account/usage/read` scoped by `threadId`.
+#[tauri::command]
+pub(crate) async fn read_thread_usage(
+    thread_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    state
+        .session
+        .request(&app, "account/usage/read", json!({"threadId": thread_id}))
+        .await
+}
+
 #[tauri::command]
 pub(crate) async fn add_project(
     path: String,

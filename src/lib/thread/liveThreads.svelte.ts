@@ -11,20 +11,19 @@
  * The mounted view still applies events to its own thread; this store covers
  * every other retained one, and hands the document back on remount.
  */
-import { invalidateThreadCache } from "$lib/services/api";
+import { invalidateThreadCache, queueList } from "$lib/services/api";
 import { activeTurns, type CodexEvent, setThreadHandler } from "$lib/services/codexEvents.svelte";
 import { applyThreadEvent } from "$lib/thread/threadStream";
-import type { SubagentPolicy, ThreadDetail, TurnOptions, UserInputPart } from "$lib/types";
-
-export interface QueuedMessage {
-  input: UserInputPart[];
-  options?: TurnOptions;
-}
+import type { QueuedSubmission, SubagentPolicy, ThreadDetail, TurnOptions } from "$lib/types";
 
 /** The part of a thread view's state that outlives its component. */
 export interface LiveThread {
   detail: ThreadDetail;
-  queued: QueuedMessage[];
+  /** Server-side queue (`thread/queue/*`), mirrored locally for rendering. */
+  queued: QueuedSubmission[];
+  /** Per-message turn options, which the server queue has no field for. Keyed
+   *  by `clientUserMessageId`; options are lost across an app restart. */
+  queuedOptions: Map<string, TurnOptions>;
   compacting: boolean;
   streamError: string | null;
   subagentModelPolicy: SubagentPolicy | null;
@@ -71,6 +70,15 @@ function onEvent(event: CodexEvent) {
   const entry = live[id];
   if (!entry) return;
   if (event.method === "thread/compacted") entry.compacting = false;
+  if (event.method === "thread/queue/changed") {
+    queueList(id)
+      .then((items) => {
+        const current = live[id];
+        if (current && id !== openThreadId) current.queued = items;
+      })
+      .catch(() => {});
+    return;
+  }
   if (event.method === "thread/settings/updated") {
     entry.subagentModelPolicy = event.params.threadSettings?.subagentModelPolicy ?? null;
     entry.subagentReasoningEffortPolicy = event.params.threadSettings?.subagentReasoningEffortPolicy ?? null;
@@ -103,6 +111,7 @@ export function trackLive(threadId: string, detail: ThreadDetail): LiveThread {
   live[threadId] = {
     detail,
     queued: [],
+    queuedOptions: new Map(),
     compacting: false,
     streamError: null,
     subagentModelPolicy: detail.subagentModelPolicy ?? null,

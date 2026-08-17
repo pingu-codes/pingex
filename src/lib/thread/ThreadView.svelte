@@ -1,5 +1,6 @@
 <script lang="ts">
 import { ChevronRight, X } from "@lucide/svelte";
+import { planText } from "$lib/thread/planText";
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
@@ -21,8 +22,12 @@ import {
   listAgentRuns,
   listSubagents,
   openInZed,
+  queueAdd,
+  queueDelete,
+  queueList,
   readThread,
   revealInFinder,
+  revertThread,
   reviewLocalDiff,
   rollbackThread,
   setThreadGoal,
@@ -54,7 +59,13 @@ import QuestionCard from "$lib/thread/QuestionCard.svelte";
 import ReasoningBlock from "$lib/thread/ReasoningBlock.svelte";
 import RewindThreadDialog from "$lib/thread/RewindThreadDialog.svelte";
 import TurnPlanCard from "$lib/thread/TurnPlanCard.svelte";
-import { applyThreadEvent, BUFFERING_NOTICE, ensureTurn, finalizeRunningTurns, upsertItem } from "$lib/thread/threadStream";
+import {
+  applyThreadEvent,
+  BUFFERING_NOTICE,
+  ensureTurn,
+  finalizeRunningTurns,
+  upsertItem,
+} from "$lib/thread/threadStream";
 import {
   completedSegmentKey,
   segmentKey,
@@ -71,6 +82,7 @@ import type {
   FileUpdateChange,
   GitCommit,
   GitRepoInfo,
+  QueuedSubmission,
   ReviewTarget,
   SideQuestion,
   SubagentDetail,
@@ -122,6 +134,16 @@ let {
 } = $props();
 
 let thread = $state<ThreadDetail | null>(null);
+/** What the thread last ran on, so a turn sent before the model list loads
+ *  still carries full collaboration-mode settings. */
+const lastTurnModel = $derived.by(() => {
+  const turns = thread?.turns ?? [];
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const model = turns[i].model;
+    if (model) return model;
+  }
+  return null;
+});
 let loading = $state(false);
 let error = $state<string | null>(null);
 let streamError = $state<string | null>(null);
@@ -141,7 +163,14 @@ let panelView = $state<PanelView | null>(null);
 let codexSubagents = $state<SubagentDetail[]>([]);
 let subagentModelPolicy = $state<SubagentPolicy | null>(null);
 let subagentReasoningEffortPolicy = $state<SubagentPolicy | null>(null);
-let queued = $state<{ input: UserInputPart[]; options?: TurnOptions }[]>([]);
+/** Mirror of the server-side queue (`thread/queue/*`) for this thread. */
+let queued = $state<QueuedSubmission[]>([]);
+/** Per-message turn options — the server queue has no field for them, so they
+ *  live only in this session, keyed by `clientUserMessageId`. */
+let queuedOptions = new Map<string, TurnOptions>();
+/** Local queue mutations in flight; while > 0, `thread/queue/changed` re-lists
+ *  are skipped so they cannot clobber an optimistic entry. */
+let queueMutations = 0;
 let tokenUsage = $state<ThreadTokenUsage | null>(null);
 let compacting = $state(false);
 let composer = $state<{
@@ -275,6 +304,7 @@ $effect(() => {
   if (held) {
     thread = held.detail;
     queued = held.queued;
+    queuedOptions = held.queuedOptions;
     compacting = held.compacting;
     streamError = held.streamError;
     subagentModelPolicy = held.subagentModelPolicy;
@@ -285,6 +315,7 @@ $effect(() => {
     return;
   }
   queued = [];
+  queuedOptions = new Map();
   compacting = false;
   thread = null;
   loading = true;
@@ -305,6 +336,9 @@ $effect(() => {
       subagentModelPolicy = detail.subagentModelPolicy ?? null;
       subagentReasoningEffortPolicy = detail.subagentReasoningEffortPolicy ?? null;
       refreshSubagents(id);
+      // Messages queued by an earlier session (or another client) are durable
+      // on the server; pick them up so the drain effect can run them.
+      refreshQueue(id);
     })
     .catch((cause) => {
       if (id !== liveThreadId) return;
@@ -324,6 +358,7 @@ $effect(() => () => {
   if (!liveThreadId) return;
   releaseLive(liveThreadId, {
     queued,
+    queuedOptions,
     compacting,
     streamError,
     subagentModelPolicy,
@@ -350,6 +385,14 @@ function handleEvent(event: CodexEvent) {
   }
   if (method === "thread/compacted" && params?.threadId === liveThreadId) {
     compacting = false;
+  }
+  if (method === "thread/queue/changed" && params?.threadId === liveThreadId && liveThreadId) {
+    refreshQueue(liveThreadId);
+  }
+  if (method === "thread/reverted" && params?.threadId === liveThreadId && liveThreadId && !starting) {
+    // Another client truncated this thread's history; the local transcript and
+    // cache are both stale. Force a re-read on next load.
+    invalidateThreadCache(liveThreadId).catch(() => {});
   }
   if (method === "thread/settings/updated" && params?.threadId === liveThreadId) {
     subagentModelPolicy = params.threadSettings?.subagentModelPolicy ?? null;
@@ -408,9 +451,9 @@ async function ensureLiveThread(): Promise<string> {
 async function send(input: UserInputPart[], options?: TurnOptions) {
   if (!thread) return;
   if (activeTurn || starting) {
-    // Codex is mid-turn: hold the message and send it once the turn ends
-    // (completed or interrupted via Stop/Esc).
-    queued.push({ input, options });
+    // Codex is mid-turn: park the message on the server-side queue and send it
+    // once the turn ends (completed or interrupted via Stop/Esc).
+    enqueue(input, options);
     return;
   }
   const text = input
@@ -482,7 +525,14 @@ async function submitEdit(turn: Turn, text: string) {
   streamError = null;
   starting = true;
   try {
-    await rollbackThread(threadIdAtEdit, target.count);
+    // `thread/revert` is the current truncation API; `thread/rollback` is
+    // deprecated upstream but kept as the fallback for older codex CLIs.
+    const keptTurnIds = thread.turns.slice(0, target.index).map((candidate) => candidate.id);
+    try {
+      await revertThread(threadIdAtEdit, turn.id, keptTurnIds);
+    } catch {
+      await rollbackThread(threadIdAtEdit, target.count);
+    }
     if (!thread || liveThreadId !== threadIdAtEdit) return;
     thread.turns = thread.turns.slice(0, target.index);
   } catch (cause) {
@@ -526,11 +576,80 @@ const showTypingIndicator = $derived.by(() => {
   return !(last?.type === "agentMessage" && last.streaming);
 });
 
+/** Park a message on the server-side queue, rendering it optimistically. */
+async function enqueue(input: UserInputPart[], options?: TurnOptions) {
+  const threadIdAtAdd = liveThreadId;
+  const clientUserMessageId = crypto.randomUUID();
+  if (options) queuedOptions.set(clientUserMessageId, options);
+  const optimistic: QueuedSubmission = { id: `pending-${clientUserMessageId}`, input, clientUserMessageId };
+  queued.push(optimistic);
+  if (!threadIdAtAdd) return; // Draft thread: the queue drains locally once it exists.
+  queueMutations++;
+  try {
+    const submission = await queueAdd(threadIdAtAdd, input, clientUserMessageId);
+    const index = queued.findIndex((entry) => entry.id === optimistic.id);
+    if (index >= 0) queued[index] = submission;
+  } catch (cause) {
+    queued = queued.filter((entry) => entry.id !== optimistic.id);
+    queuedOptions.delete(clientUserMessageId);
+    streamError = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    queueMutations--;
+  }
+}
+
+/** Remove a queued message, server-side first so the chip cannot resurrect. */
+async function removeQueued(entry: QueuedSubmission) {
+  queued = queued.filter((candidate) => candidate.id !== entry.id);
+  queuedOptions.delete(entry.clientUserMessageId);
+  if (!liveThreadId || entry.id.startsWith("pending-")) return;
+  queueMutations++;
+  try {
+    await queueDelete(liveThreadId, entry.id);
+  } catch {
+    // Already gone (started or deleted elsewhere) — the re-list will settle it.
+  } finally {
+    queueMutations--;
+  }
+}
+
+/** Re-mirror the server queue, unless our own mutation is still in flight. */
+function refreshQueue(id: string) {
+  if (queueMutations > 0) return;
+  queueList(id)
+    .then((items) => {
+      if (id !== liveThreadId || queueMutations > 0) return;
+      // Keep optimistic entries the server does not know about yet.
+      const pending = queued.filter((entry) => entry.id.startsWith("pending-"));
+      queued = [
+        ...items,
+        ...pending.filter((entry) => !items.some((item) => item.clientUserMessageId === entry.clientUserMessageId)),
+      ];
+    })
+    .catch(() => {});
+}
+
+let draining = $state(false);
 $effect(() => {
-  if (activeTurn || starting || loading || queued.length === 0) return;
-  const next = queued.shift();
-  if (next) send(next.input, next.options);
+  if (draining || activeTurn || starting || loading || queued.length === 0) return;
+  const next = queued[0];
+  if (next) drain(next);
 });
+
+/** Run the head of the queue: take it off the server, then send it through the
+ *  normal turn path so its options (which the server queue cannot hold) and the
+ *  optimistic bubble behave exactly like a direct send. */
+async function drain(next: QueuedSubmission) {
+  draining = true;
+  try {
+    await removeQueued(next);
+    const options = queuedOptions.get(next.clientUserMessageId);
+    queuedOptions.delete(next.clientUserMessageId);
+    await send(next.input, options);
+  } finally {
+    draining = false;
+  }
+}
 
 function queuedPreview(input: UserInputPart[]) {
   return input
@@ -561,14 +680,21 @@ async function interrupt() {
 }
 
 const allItems = $derived((thread?.turns ?? []).flatMap((turn) => turn.items));
-const latestPlan = $derived([...allItems].reverse().find((item) => item.type === "plan" && item.text)?.text ?? null);
+const latestPlan = $derived.by(() => {
+  for (let i = allItems.length - 1; i >= 0; i--) {
+    const text = planText(allItems[i]);
+    if (text) return text;
+  }
+  return null;
+});
 // A plan the user hasn't responded to yet — any later user message (e.g.
 // "Implement the plan.") means the plan actions should stay hidden.
 const pendingPlan = $derived.by(() => {
   for (let i = allItems.length - 1; i >= 0; i--) {
     const item = allItems[i];
     if (item.type === "userMessage") return null;
-    if (item.type === "plan" && item.text) return item.text;
+    const text = planText(item);
+    if (text) return text;
   }
   return null;
 });
@@ -1027,14 +1153,14 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
 
   {#if queued.length > 0}
     <div class="mx-auto w-full max-w-3xl space-y-1 px-6 pb-2">
-      {#each queued as entry, index (entry)}
+      {#each queued as entry (entry.id)}
         <div class="flex items-center gap-2 rounded-lg border border-surface-200-800 bg-surface-100-900 px-3 py-1.5 text-xs text-surface-600-400">
           <span class="shrink-0 font-medium text-surface-500">Queued</span>
           <span class="min-w-0 flex-1 truncate">{queuedPreview(entry.input)}</span>
           <TooltipButton
             label="Remove queued message"
             aria-label="Remove queued message"
-            onclick={() => (queued = queued.filter((_, position) => position !== index))}
+            onclick={() => removeQueued(entry)}
             class="shrink-0 text-surface-500 hover:text-surface-800-200"
           >
             ✕
@@ -1105,6 +1231,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
     {compacting}
     {subagentModelPolicy}
     {subagentReasoningEffortPolicy}
+    threadModel={lastTurnModel}
     onSubagentPolicyChange={changeSubagentPolicy}
     onModelChange={(modelId) => (activeModel = modelId)}
   />

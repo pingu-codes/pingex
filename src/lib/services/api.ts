@@ -25,6 +25,7 @@ import {
   previewPrDetail,
   previewProviderStatus,
   previewPrs,
+  previewQueue,
   previewQuickShortcut,
   previewRateLimits,
   previewReindexSource,
@@ -36,6 +37,7 @@ import {
   previewSort,
   previewThread,
   previewThreadsPage,
+  previewThreadUsage,
   previewWireLog,
   previewWorktrees,
 } from "$lib/services/preview/fixtures";
@@ -69,6 +71,7 @@ import type {
   ProjectSource,
   ProviderStatus,
   PrSummary,
+  QueuedSubmission,
   RemoteConnection,
   ReviewDraft,
   ReviewTarget,
@@ -83,6 +86,7 @@ import type {
   ThreadSearchPage,
   ThreadSummary,
   ThreadsPage,
+  ThreadUsage,
   Turn,
   TurnOptions,
   UserInputPart,
@@ -469,6 +473,119 @@ export async function forkThread(
 export async function rollbackThread(threadId: string, numTurns: number): Promise<StartedThread> {
   if (!isTauri()) return { id: threadId };
   return invoke<StartedThread>("rollback_thread", { threadId, numTurns });
+}
+
+export interface RevertedThread {
+  thread: ThreadDetail;
+  turnsBackwardsCursor?: string | null;
+  itemsBackwardsCursor?: string | null;
+}
+
+/** Replace `threadId`'s durable history with the prefix before `beforeTurnId`.
+ *  `keptTurnIds` are the surviving turns, used to prune the local journal
+ *  (revert's response carries no turns, unlike rollback). */
+export async function revertThread(
+  threadId: string,
+  beforeTurnId: string,
+  keptTurnIds: string[],
+): Promise<RevertedThread> {
+  if (!isTauri()) return { thread: { ...previewThread, id: threadId, turns: [] } };
+  return invoke<RevertedThread>("revert_thread", { threadId, beforeTurnId, keptTurnIds });
+}
+
+export async function readThreadUsage(threadId: string): Promise<ThreadUsage | null> {
+  if (!isTauri()) return previewThreadUsage(threadId);
+  const response = await invoke<{ threadUsage?: ThreadUsage | null }>("read_thread_usage", { threadId });
+  return response.threadUsage ?? null;
+}
+
+export async function queueList(threadId: string): Promise<QueuedSubmission[]> {
+  if (!isTauri()) return [...previewQueue(threadId)];
+  const submissions: QueuedSubmission[] = [];
+  let cursor: string | null = null;
+  do {
+    const page: { data?: QueuedSubmission[]; nextCursor?: string | null } = await invoke("queue_list", {
+      threadId,
+      cursor,
+    });
+    submissions.push(...(page.data ?? []));
+    cursor = page.nextCursor ?? null;
+  } while (cursor);
+  return submissions;
+}
+
+export async function queueAdd(
+  threadId: string,
+  input: UserInputPart[],
+  clientUserMessageId: string,
+): Promise<QueuedSubmission> {
+  if (!isTauri()) {
+    const submission: QueuedSubmission = { id: `preview-queued-${nextPreviewId()}`, input, clientUserMessageId };
+    previewQueue(threadId).push(submission);
+    return submission;
+  }
+  const response = await invoke<{ queuedSubmission: QueuedSubmission }>("queue_add", {
+    threadId,
+    input,
+    clientUserMessageId,
+  });
+  return response.queuedSubmission;
+}
+
+export async function queueUpdate(
+  threadId: string,
+  queuedSubmissionId: string,
+  input: UserInputPart[],
+): Promise<QueuedSubmission> {
+  if (!isTauri()) {
+    const queue = previewQueue(threadId);
+    const entry = queue.find((item) => item.id === queuedSubmissionId);
+    if (entry) entry.input = input;
+    return entry ?? { id: queuedSubmissionId, input, clientUserMessageId: "" };
+  }
+  const response = await invoke<{ queuedSubmission: QueuedSubmission }>("queue_update", {
+    threadId,
+    queuedSubmissionId,
+    input,
+  });
+  return response.queuedSubmission;
+}
+
+export async function queueDelete(threadId: string, queuedSubmissionId: string): Promise<boolean> {
+  if (!isTauri()) {
+    const queue = previewQueue(threadId);
+    const index = queue.findIndex((item) => item.id === queuedSubmissionId);
+    if (index >= 0) queue.splice(index, 1);
+    return index >= 0;
+  }
+  const response = await invoke<{ deleted?: boolean }>("queue_delete", { threadId, queuedSubmissionId });
+  return response.deleted ?? false;
+}
+
+export async function queueReorder(threadId: string, queuedSubmissionIds: string[]): Promise<void> {
+  if (!isTauri()) {
+    const queue = previewQueue(threadId);
+    queue.sort((a, b) => queuedSubmissionIds.indexOf(a.id) - queuedSubmissionIds.indexOf(b.id));
+    return;
+  }
+  await invoke("queue_reorder", { threadId, queuedSubmissionIds });
+}
+
+/** Start the given queued submission (or the head of the queue) as a turn.
+ *  Errors if the thread already has an active or pending turn. */
+export async function queueStart(threadId: string, queuedSubmissionId?: string): Promise<Turn> {
+  if (!isTauri()) {
+    const queue = previewQueue(threadId);
+    const index = queuedSubmissionId ? queue.findIndex((item) => item.id === queuedSubmissionId) : 0;
+    if (index < 0 || !queue.length) throw new Error("queue is empty");
+    queue.splice(index, 1);
+    return { id: `preview-turn-${nextPreviewId()}`, status: "inProgress", items: [] };
+  }
+  const response = await invoke<{ turn: Turn }>("queue_start", {
+    threadId,
+    queuedSubmissionId: queuedSubmissionId ?? null,
+  });
+  return response.turn;
 }
 
 export async function addSideQuestion(
