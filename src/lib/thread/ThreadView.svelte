@@ -2,6 +2,7 @@
 import { ChevronRight, X } from "@lucide/svelte";
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
+import { toastError } from "$lib/toaster";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import Composer from "$lib/composer/Composer.svelte";
 import type { SlashCommandId } from "$lib/composer/slashCommands";
@@ -149,6 +150,12 @@ const lastTurnModel = $derived.by(() => {
 let loading = $state(false);
 let error = $state<string | null>(null);
 let streamError = $state<string | null>(null);
+// Surface stream errors as dismissable, auto-expiring toasts (see ToastHost).
+$effect(() => {
+  if (!streamError) return;
+  toastError(streamError);
+  streamError = null;
+});
 /**
  * The last advisory Codex sent — a warning, a model reroute, a retryable error.
  * Deliberately separate from `streamError`: none of these ended the turn, and
@@ -1160,12 +1167,6 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
       {/if}
     </div>
   </div>
-
-  {#if streamError}
-    <div class="mx-auto w-full max-w-3xl px-6">
-      <div class="card preset-tonal-error mb-2 px-3 py-2 text-xs">{streamError}</div>
-    </div>
-  {/if}
 
   {#if turnPlan && turnPlan.steps.length > 0}
     <div class="mx-auto w-full max-w-3xl px-6">

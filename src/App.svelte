@@ -43,6 +43,7 @@ import {
   worktreesRepo,
 } from "$lib/app/navigation.svelte";
 import DialogHost from "$lib/components/DialogHost.svelte";
+import ToastHost from "$lib/ToastHost.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import HomePage from "$lib/layout/HomePage.svelte";
 import HomePicker from "$lib/layout/HomePicker.svelte";
@@ -269,3 +270,4 @@ init();
 {/if}
 
 <DialogHost />
+<ToastHost />
