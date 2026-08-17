@@ -20,6 +20,9 @@ const mocks = vi.hoisted(() => ({
   gitBranches: vi.fn(),
   startReview: vi.fn(),
   interruptTurn: vi.fn(),
+  setThreadGoal: vi.fn(),
+  getThreadGoal: vi.fn(),
+  clearThreadGoal: vi.fn(),
   queueAdd: vi.fn(),
   queueDelete: vi.fn(),
   queueList: vi.fn(),
@@ -31,6 +34,7 @@ const mocks = vi.hoisted(() => ({
     };
   }),
   requestAutoName: vi.fn(),
+  toastError: vi.fn(),
   // The default is a live session that owns thread-1's turn; emptying it makes
   // a loaded in-progress turn look like one a dead session left behind.
   activeTurns: { list: ["thread-1"] },
@@ -40,15 +44,30 @@ vi.mock("$lib/thread/autoName", () => ({
   requestAutoName: mocks.requestAutoName,
 }));
 
+// Errors leave this view as toasts, and the toast host lives in App — outside
+// this tree. Stub it so the messages are assertable here.
+vi.mock("$lib/toaster", () => ({
+  toaster: {},
+  toastError: mocks.toastError,
+}));
+
 vi.mock("$lib/services/api", () => ({
   addSideQuestion: vi.fn(),
   compactThread: mocks.compactThread,
+  // The composer persists what is typed on a debounce; without these the timer
+  // fires into `undefined` and takes the worker down with it.
+  loadDraft: vi.fn().mockResolvedValue(null),
+  saveDraft: vi.fn().mockResolvedValue(undefined),
+  deleteDraft: vi.fn().mockResolvedValue(undefined),
   forkThread: vi.fn(),
   gitRepoInfo: mocks.gitRepoInfo,
   gitRecentCommits: mocks.gitRecentCommits,
   gitBranches: mocks.gitBranches,
   startReview: mocks.startReview,
   interruptTurn: mocks.interruptTurn,
+  setThreadGoal: mocks.setThreadGoal,
+  getThreadGoal: mocks.getThreadGoal,
+  clearThreadGoal: mocks.clearThreadGoal,
   invalidateThreadCache: mocks.invalidateThreadCache,
   isTauri: () => false,
   listModels: vi.fn().mockResolvedValue([
@@ -144,6 +163,7 @@ function seedComposerPrefs() {
 
 beforeEach(() => {
   seedComposerPrefs();
+  mocks.toastError.mockReset();
   mocks.queueAdd.mockReset();
   mocks.queueDelete.mockReset();
   mocks.queueList.mockReset();
@@ -484,7 +504,7 @@ describe("ThreadView inline message editing", () => {
 
     await edit("Do different work");
 
-    expect(await screen.findByText("Rollback unsupported")).toBeVisible();
+    await vi.waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("Rollback unsupported"));
     expect(mocks.startTurn).not.toHaveBeenCalled();
     expect(screen.getByText("Do the work")).toBeVisible();
     expect(screen.getByText("Final answer")).toBeVisible();
@@ -1044,5 +1064,93 @@ describe("ThreadView /review", () => {
       await screen.findByText("/review can't start while Codex is working — stop the current turn first."),
     ).toBeVisible();
     expect(mocks.startReview).not.toHaveBeenCalled();
+  });
+});
+
+describe("ThreadView /goal", () => {
+  const composerLabel = "Message Codex… (@ to attach files, / for commands)";
+
+  beforeEach(() => {
+    resetLiveThreads();
+    mocks.readThread.mockReset();
+    mocks.startThread.mockReset();
+    mocks.startThread.mockResolvedValue({ id: "thread-2", cwd: "/projects/example" });
+    mocks.startTurn.mockReset();
+    mocks.requestAutoName.mockReset();
+    mocks.setThreadGoal.mockReset();
+    mocks.getThreadGoal.mockReset();
+    mocks.clearThreadGoal.mockReset();
+    mocks.setThreadGoal.mockImplementation((threadId: string, objective: string) =>
+      Promise.resolve({ threadId, objective, status: "active", tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 0 }),
+    );
+    mocks.getThreadGoal.mockResolvedValue(null);
+    mocks.clearThreadGoal.mockResolvedValue(undefined);
+    mocks.gitRepoInfo.mockResolvedValue({ isGitRepo: true, root: "/projects/example" });
+    mocks.gitRecentCommits.mockResolvedValue([]);
+  });
+
+  function renderDraft() {
+    render(ThreadView, { threadId: null, cwd: "/projects/example", projectPath: "/projects/example" });
+    return screen.getByRole("textbox", { name: composerLabel });
+  }
+
+  it("starts a thread for the goal rather than dropping the command", async () => {
+    const user = userEvent.setup();
+    await user.type(renderDraft(), "/goal ship the auth refactor{Enter}");
+
+    expect(mocks.startThread).toHaveBeenCalledWith("/projects/example", null, null);
+    expect(mocks.setThreadGoal).toHaveBeenCalledWith("thread-2", "ship the auth refactor");
+    expect(await screen.findByText("Goal set: ship the auth refactor")).toBeVisible();
+    // No turn: the goal is the whole command, the composer stays free for the
+    // opening message.
+    expect(mocks.startTurn).not.toHaveBeenCalled();
+  });
+
+  it("names the new thread from the objective, since it has no turn to name it from", async () => {
+    const user = userEvent.setup();
+    await user.type(renderDraft(), "/goal ship the auth refactor{Enter}");
+
+    await screen.findByText("Goal set: ship the auth refactor");
+    expect(mocks.requestAutoName).toHaveBeenCalledWith("thread-2", "seed", "ship the auth refactor");
+  });
+
+  it("answers a bare /goal on a draft without creating a thread", async () => {
+    const user = userEvent.setup();
+    await user.type(renderDraft(), "/goal{Enter}");
+
+    expect(await screen.findByText("No goal is set — /goal <objective> sets one.")).toBeVisible();
+    expect(mocks.startThread).not.toHaveBeenCalled();
+    expect(mocks.getThreadGoal).not.toHaveBeenCalled();
+  });
+
+  it("does not create a thread just to clear a goal it cannot have", async () => {
+    const user = userEvent.setup();
+    await user.type(renderDraft(), "/goal clear{Enter}");
+
+    expect(await screen.findByText("No goal is set — /goal <objective> sets one.")).toBeVisible();
+    expect(mocks.startThread).not.toHaveBeenCalled();
+    expect(mocks.clearThreadGoal).not.toHaveBeenCalled();
+  });
+
+  it("gives the objective back to the composer when setting it fails", async () => {
+    const user = userEvent.setup();
+    mocks.setThreadGoal.mockRejectedValueOnce(new Error("goals are unavailable"));
+    const editor = renderDraft();
+
+    await user.type(editor, "/goal ship the auth refactor{Enter}");
+
+    await vi.waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("goals are unavailable"));
+    expect(editor).toHaveTextContent("/goal ship the auth refactor");
+  });
+
+  it("sets the goal on an established thread without starting another", async () => {
+    const user = userEvent.setup();
+    await renderTurn(completedTurn());
+
+    await user.type(screen.getByRole("textbox", { name: composerLabel }), "/goal ship the auth refactor{Enter}");
+
+    expect(mocks.setThreadGoal).toHaveBeenCalledWith("thread-1", "ship the auth refactor");
+    expect(mocks.startThread).not.toHaveBeenCalled();
+    expect(mocks.requestAutoName).not.toHaveBeenCalled();
   });
 });

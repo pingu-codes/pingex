@@ -187,6 +187,7 @@ let composer = $state<{
   implementPlanFresh: (plan?: string | null) => void;
   appSubagentsChoice: () => boolean | null;
   openReviewPicker: () => void;
+  restoreText: (text: string) => void;
 } | null>(null);
 /** Model the composer will run turns on — priced for the usage estimate. */
 let activeModel = $state<string | null>(null);
@@ -866,14 +867,15 @@ function diffKind(status: string): string {
  * the rest bubble to App. A command that needs a thread and has none tells the
  * user so rather than silently doing nothing.
  */
-function runCommand(command: SlashCommandId, argument = "") {
-  // These need the live thread, so they cannot be answered on a draft — except
-  // `/review`, which starts one of its own.
+function runCommand(command: SlashCommandId, argument = "", typed = "") {
+  // These read back the conversation, so they cannot be answered on a draft.
+  // `/review` and `/goal` are absent deliberately: both start a thread of their
+  // own rather than turning the user away.
   if (
     !liveThreadId &&
-    (command === "compact" || command === "undo" || command === "goal" || command === "copy" || command === "export")
+    (command === "compact" || command === "undo" || command === "copy" || command === "export")
   ) {
-    streamError = `/${command} needs an open thread.`;
+    failCommand(command, typed);
     return;
   }
   if (command === "compact") {
@@ -905,7 +907,7 @@ function runCommand(command: SlashCommandId, argument = "") {
     return;
   }
   if (command === "goal") {
-    void goalCommand(argument);
+    void goalCommand(argument, typed);
     return;
   }
   if (command === "copy") {
@@ -917,32 +919,68 @@ function runCommand(command: SlashCommandId, argument = "") {
     return;
   }
   if (command !== "new" && !liveThreadId) {
-    streamError = `/${command} needs an open thread.`;
+    failCommand(command, typed);
     return;
   }
   onCommand?.(command, liveThreadId);
+}
+
+/** A command that could not run: say why, and give the typed line back so the
+ *  user can edit it rather than retyping it from scratch. */
+function failCommand(command: SlashCommandId, typed: string, message?: string) {
+  streamError = message ?? `/${command} needs an open thread.`;
+  if (typed) composer?.restoreText(typed);
 }
 
 /**
  * `/goal` — set, view, or clear the goal for a long-running task. With no
  * argument the current goal is shown; `clear` drops it; anything else becomes
  * the new objective.
+ *
+ * Setting an objective needs no conversation behind it, so — like `/review` —
+ * an unsent draft becomes a real thread here: that is what starting a thread
+ * with a goal means. Reading and clearing stay draft-only answers, since
+ * creating a thread just to report it has no goal would be waste.
  */
-async function goalCommand(argument: string) {
-  if (!liveThreadId) return;
-  try {
-    if (!argument) {
-      const goal = await getThreadGoal(liveThreadId);
-      notice = goal ? `Goal (${goal.status}): ${goal.objective}` : "No goal is set — /goal <objective> sets one.";
-    } else if (argument.toLowerCase() === "clear") {
-      await clearThreadGoal(liveThreadId);
-      notice = "Goal cleared.";
-    } else {
-      const goal = await setThreadGoal(liveThreadId, argument);
-      notice = `Goal set: ${goal.objective}`;
+async function goalCommand(argument: string, typed = "") {
+  const objective = argument && argument.toLowerCase() !== "clear" ? argument : null;
+  const current = liveThreadId;
+  if (!objective) {
+    // Reading or clearing a goal a draft cannot have yet.
+    if (!current) {
+      notice = "No goal is set — /goal <objective> sets one.";
+      return;
     }
+    try {
+      if (argument) {
+        await clearThreadGoal(current);
+        notice = "Goal cleared.";
+      } else {
+        const goal = await getThreadGoal(current);
+        notice = goal ? `Goal (${goal.status}): ${goal.objective}` : "No goal is set — /goal <objective> sets one.";
+      }
+    } catch (cause) {
+      failCommand("goal", typed, cause instanceof Error ? cause.message : String(cause));
+    }
+    return;
+  }
+  const fresh = !current;
+  if (fresh && (activeTurn || starting)) {
+    failCommand("goal", typed, "/goal can't start a thread while Codex is working.");
+    return;
+  }
+  if (fresh) starting = true;
+  try {
+    const id = await ensureLiveThread();
+    const goal = await setThreadGoal(id, objective);
+    notice = `Goal set: ${goal.objective}`;
+    // A goal-only thread has no turn to name it from, so seed the title off the
+    // objective — otherwise the sidebar is left showing "Untitled thread".
+    if (fresh) requestAutoName(id, "seed", objective);
   } catch (cause) {
-    streamError = cause instanceof Error ? cause.message : String(cause);
+    failCommand("goal", typed, cause instanceof Error ? cause.message : String(cause));
+  } finally {
+    if (fresh) starting = false;
   }
 }
 

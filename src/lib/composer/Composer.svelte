@@ -120,8 +120,10 @@ let {
   onSend: (input: UserInputPart[], options?: TurnOptions) => void;
   onInterrupt: () => void;
   /** Thread-level slash commands (compact, new, fork, archive, rename). */
-  /** `argument` is whatever followed the command name, e.g. `/undo 2`. */
-  onCommand?: (command: SlashCommandId, argument?: string) => void;
+  /** `argument` is whatever followed the command name, e.g. `/undo 2`. `typed`
+   *  is the line as submitted, so a handler that fails can put it back via
+   *  `restoreText` rather than leaving the user with an empty composer. */
+  onCommand?: (command: SlashCommandId, argument?: string, typed?: string) => void;
   /** A review target chosen in the picker `openReviewPicker()` opened. */
   onReview?: (target: ReviewTarget) => void;
   /** Run the plan in a fresh thread instead of this one; absent = no such option. */
@@ -554,6 +556,7 @@ function pickReviewTarget(target: ReviewTarget) {
 }
 
 function runCommand(command: SlashCommand, argument = "") {
+  const typed = argument ? `/${command.id} ${argument}` : `/${command.id}`;
   clearText();
   slashQuery = null;
   if (command.id === "plan") {
@@ -567,8 +570,17 @@ function runCommand(command: SlashCommand, argument = "") {
   } else if (command.scope === "settings") {
     openSettings("integrations");
   } else {
-    onCommand?.(command.id, argument);
+    onCommand?.(command.id, argument, typed);
   }
+}
+
+/**
+ * Put a submitted command back in the composer. `runCommand` clears the line
+ * optimistically; a handler that could not run the command calls this so the
+ * text the user typed is not lost behind an error toast.
+ */
+export function restoreText(text: string) {
+  setText(text);
 }
 
 /** Replaces the composer's contents with plain text and puts the caret at the end. */

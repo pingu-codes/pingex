@@ -482,7 +482,7 @@ describe("Composer", () => {
 
     await user.type(textarea, "/fork{Enter}");
 
-    expect(onCommand).toHaveBeenCalledWith("fork", "");
+    expect(onCommand).toHaveBeenCalledWith("fork", "", "/fork");
     expect(onSend).not.toHaveBeenCalled();
     expect(textarea).toBeEmptyDOMElement();
   });
@@ -496,7 +496,7 @@ describe("Composer", () => {
     expect(screen.queryByRole("listbox", { name: "Slash commands" })).not.toBeInTheDocument();
 
     await user.type(textarea, "{Enter}");
-    expect(onCommand).toHaveBeenCalledWith("rename", "Tauri bridge");
+    expect(onCommand).toHaveBeenCalledWith("rename", "Tauri bridge", "/rename Tauri bridge");
     expect(onSend).not.toHaveBeenCalled();
   });
 
@@ -557,7 +557,7 @@ describe("Composer", () => {
     await user.type(textarea, "/fork");
     await user.click(await screen.findByRole("option", { name: /\/fork/ }));
 
-    expect(onCommand).toHaveBeenCalledWith("fork", "");
+    expect(onCommand).toHaveBeenCalledWith("fork", "", "/fork");
     expect(screen.queryByRole("listbox", { name: "Slash commands" })).not.toBeInTheDocument();
   });
 
