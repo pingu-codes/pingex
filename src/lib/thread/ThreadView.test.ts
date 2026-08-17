@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/svelte";
+import { render, screen, waitFor, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { loadPrefs, savePrefs } from "$lib/composer/composerPrefs.svelte";
@@ -67,6 +67,7 @@ vi.mock("$lib/services/api", () => ({
   interruptTurn: mocks.interruptTurn,
   setThreadGoal: mocks.setThreadGoal,
   getThreadGoal: mocks.getThreadGoal,
+  setThreadGoalStatus: vi.fn(),
   clearThreadGoal: mocks.clearThreadGoal,
   invalidateThreadCache: mocks.invalidateThreadCache,
   isTauri: () => false,
@@ -173,6 +174,9 @@ beforeEach(() => {
   );
   mocks.queueDelete.mockResolvedValue(true);
   mocks.queueList.mockResolvedValue([]);
+  // Opening a thread reads its goal; no goal unless a test sets one.
+  mocks.getThreadGoal.mockReset();
+  mocks.getThreadGoal.mockResolvedValue(null);
 });
 
 describe("ThreadView completed work", () => {
@@ -1104,6 +1108,43 @@ describe("ThreadView /goal", () => {
     // No turn: the goal is the whole command, the composer stays free for the
     // opening message.
     expect(mocks.startTurn).not.toHaveBeenCalled();
+    // The goal stays visible after the notice is gone.
+    const banner = screen.getByTestId("goal-banner");
+    expect(banner).toHaveTextContent("Goal · active");
+    expect(banner).toHaveTextContent("ship the auth refactor");
+    expect(screen.getByRole("button", { name: "Pause goal" })).toBeVisible();
+  });
+
+  it("shows the goal an open thread already carries, and follows updates", async () => {
+    mocks.getThreadGoal.mockResolvedValue({
+      threadId: "thread-1",
+      objective: "keep the build green",
+      status: "paused",
+      tokenBudget: null,
+      tokensUsed: 0,
+      timeUsedSeconds: 0,
+    });
+    render(ThreadView, { threadId: "thread-1", cwd: "/projects/example", projectPath: "/projects/example" });
+    expect(await screen.findByTestId("goal-banner")).toHaveTextContent("Goal · paused");
+    expect(screen.getByRole("button", { name: "Resume goal" })).toBeVisible();
+
+    for (const handler of [...mocks.handlers]) {
+      handler({
+        method: "thread/goal/updated",
+        params: {
+          threadId: "thread-1",
+          goal: {
+            threadId: "thread-1",
+            objective: "keep the build green",
+            status: "complete",
+            tokenBudget: null,
+            tokensUsed: 5,
+            timeUsedSeconds: 1,
+          },
+        },
+      });
+    }
+    await waitFor(() => expect(screen.getByTestId("goal-banner")).toHaveTextContent("Goal · complete"));
   });
 
   it("names the new thread from the objective, since it has no turn to name it from", async () => {

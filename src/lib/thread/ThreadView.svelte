@@ -1,8 +1,7 @@
 <script lang="ts">
-import { ChevronRight, X } from "@lucide/svelte";
+import { ChevronRight, Pause, Play, Target, X } from "@lucide/svelte";
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
-import { toastError } from "$lib/toaster";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import Composer from "$lib/composer/Composer.svelte";
 import type { SlashCommandId } from "$lib/composer/slashCommands";
@@ -32,6 +31,7 @@ import {
   reviewLocalDiff,
   rollbackThread,
   setThreadGoal,
+  setThreadGoalStatus,
   startReview,
   startThread,
   startTurn,
@@ -80,6 +80,7 @@ import {
 import UserMessageBubble from "$lib/thread/UserMessageBubble.svelte";
 import { estimateCost } from "$lib/thread/usageCost";
 import WorkItem from "$lib/thread/WorkItem.svelte";
+import { toastError } from "$lib/toaster";
 import type {
   BootstrapData,
   FileUpdateChange,
@@ -91,6 +92,7 @@ import type {
   SubagentDetail,
   SubagentPolicy,
   ThreadDetail,
+  ThreadGoal,
   ThreadItem,
   ThreadTokenUsage,
   Turn,
@@ -163,6 +165,13 @@ $effect(() => {
  * broken. Cleared when the next turn starts.
  */
 let notice = $state<string | null>(null);
+/**
+ * The goal this thread is working towards, or null. Seeded when the thread
+ * opens and kept live from `thread/goal/updated`, so the banner reflects what
+ * Codex holds — including a goal set from another client or an earlier session
+ * — rather than only what was typed here.
+ */
+let goal = $state<ThreadGoal | null>(null);
 let liveThreadId = $state<string | null>(null);
 /** False once this view is torn down, so a late read cannot claim the thread. */
 let attached = true;
@@ -308,6 +317,8 @@ $effect(() => {
   // Codex replays `thread/tokenUsage/updated` on a thread's first resume; after
   // that the cached figure is all we have until the next turn reports one.
   tokenUsage = threadTokenUsage[id] ?? null;
+  goal = null;
+  loadGoal(id);
   // A thread left mid-work keeps streaming into a retained document; adopt that
   // instead of re-reading a transcript that stops where the turn began.
   const held = adoptLive(id);
@@ -389,6 +400,9 @@ function handleEvent(event: CodexEvent) {
   }
   if (method === "thread/started" && liveThreadId && params?.thread?.parentThreadId) {
     refreshSubagents(liveThreadId);
+  }
+  if (method === "thread/goal/updated" && params?.threadId === liveThreadId) {
+    goal = params.goal ?? null;
   }
   if (method === "thread/tokenUsage/updated" && params?.threadId === liveThreadId) {
     tokenUsage = params.tokenUsage ?? null;
@@ -500,6 +514,8 @@ async function send(input: UserInputPart[], options?: TurnOptions): Promise<bool
     const start = startTurn(id, input, options);
     pendingTurnStart = start;
     const turn = await start;
+    // `turn/started` may already have renamed the turn to the id Codex actually
+    // runs it under (which can differ from the one returned here); leave that.
     const pending = thread.turns.find((candidate) => candidate.id === localTurnId);
     if (pending) {
       pending.id = turn.id;
@@ -871,10 +887,7 @@ function runCommand(command: SlashCommandId, argument = "", typed = "") {
   // These read back the conversation, so they cannot be answered on a draft.
   // `/review` and `/goal` are absent deliberately: both start a thread of their
   // own rather than turning the user away.
-  if (
-    !liveThreadId &&
-    (command === "compact" || command === "undo" || command === "copy" || command === "export")
-  ) {
+  if (!liveThreadId && (command === "compact" || command === "undo" || command === "copy" || command === "export")) {
     failCommand(command, typed);
     return;
   }
@@ -954,9 +967,10 @@ async function goalCommand(argument: string, typed = "") {
     try {
       if (argument) {
         await clearThreadGoal(current);
+        goal = null;
         notice = "Goal cleared.";
       } else {
-        const goal = await getThreadGoal(current);
+        goal = await getThreadGoal(current);
         notice = goal ? `Goal (${goal.status}): ${goal.objective}` : "No goal is set — /goal <objective> sets one.";
       }
     } catch (cause) {
@@ -972,7 +986,7 @@ async function goalCommand(argument: string, typed = "") {
   if (fresh) starting = true;
   try {
     const id = await ensureLiveThread();
-    const goal = await setThreadGoal(id, objective);
+    goal = await setThreadGoal(id, objective);
     notice = `Goal set: ${goal.objective}`;
     // A goal-only thread has no turn to name it from, so seed the title off the
     // objective — otherwise the sidebar is left showing "Untitled thread".
@@ -983,6 +997,45 @@ async function goalCommand(argument: string, typed = "") {
     if (fresh) starting = false;
   }
 }
+
+/** Read the goal Codex holds for a thread, if any; failures leave no goal shown. */
+function loadGoal(id: string) {
+  void getThreadGoal(id)
+    .then((current) => {
+      if (id === liveThreadId) goal = current;
+    })
+    .catch(() => {});
+}
+
+/** Pause a running goal, or resume a paused (or otherwise stalled) one. */
+async function toggleGoal() {
+  if (!goal || !liveThreadId) return;
+  const status = goal.status === "active" ? "paused" : "active";
+  try {
+    goal = { ...goal, ...(await setThreadGoalStatus(liveThreadId, status)), objective: goal.objective };
+  } catch (cause) {
+    toastError(cause instanceof Error ? cause.message : String(cause));
+  }
+}
+
+async function clearGoal() {
+  if (!liveThreadId) return;
+  try {
+    await clearThreadGoal(liveThreadId);
+    goal = null;
+  } catch (cause) {
+    toastError(cause instanceof Error ? cause.message : String(cause));
+  }
+}
+
+const GOAL_STATUS_LABEL: Record<string, string> = {
+  active: "active",
+  paused: "paused",
+  blocked: "blocked",
+  usageLimited: "waiting on usage limit",
+  budgetLimited: "budget exhausted",
+  complete: "complete",
+};
 
 /** The markdown a transcript item contributes to `/copy` and `/export`. */
 function itemMarkdown(item: ThreadItem): string {
@@ -1209,6 +1262,33 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
   {#if turnPlan && turnPlan.steps.length > 0}
     <div class="mx-auto w-full max-w-3xl px-6">
       <div class="mb-2"><TurnPlanCard plan={turnPlan} /></div>
+    </div>
+  {/if}
+
+  {#if goal}
+    <div class="mx-auto w-full max-w-3xl px-6">
+      <div
+        class="mb-2 flex items-center gap-2 rounded-lg border border-surface-200-800 bg-surface-100-900 px-3 py-1.5 text-xs"
+        data-testid="goal-banner"
+        title={goal.tokenBudget ? `${goal.tokensUsed.toLocaleString()} of ${goal.tokenBudget.toLocaleString()} tokens used` : undefined}
+      >
+        <Target size={12} class="shrink-0 {goal.status === 'active' ? 'text-primary-500' : 'text-surface-500'}" />
+        <span class="shrink-0 font-medium text-surface-500">Goal · {GOAL_STATUS_LABEL[goal.status] ?? goal.status}</span>
+        <span class="min-w-0 flex-1 truncate" title={goal.objective}>{goal.objective}</span>
+        {#if goal.status !== "complete"}
+          <TooltipButton
+            label={goal.status === "active" ? "Pause goal" : "Resume goal"}
+            onclick={toggleGoal}
+            aria-label={goal.status === "active" ? "Pause goal" : "Resume goal"}
+            class="shrink-0 opacity-60 hover:opacity-100"
+          >
+            {#if goal.status === "active"}<Pause size={12} />{:else}<Play size={12} />{/if}
+          </TooltipButton>
+        {/if}
+        <TooltipButton label="Clear goal" onclick={clearGoal} aria-label="Clear goal" class="shrink-0 opacity-60 hover:opacity-100">
+          <X size={12} />
+        </TooltipButton>
+      </div>
     </div>
   {/if}
 

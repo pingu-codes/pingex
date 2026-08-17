@@ -365,6 +365,14 @@ export async function setThreadGoal(threadId: string, objective: string): Promis
   return invoke<ThreadGoal>("thread_goal_set", { threadId, objective, status: null });
 }
 
+/** Pause or resume the thread's goal without changing its objective. */
+export async function setThreadGoalStatus(threadId: string, status: "active" | "paused"): Promise<ThreadGoal> {
+  if (!isTauri()) {
+    return { threadId, objective: "", status, tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 0 };
+  }
+  return invoke<ThreadGoal>("thread_goal_set", { threadId, objective: null, status });
+}
+
 /** The thread's goal, or null when none is set. */
 export async function getThreadGoal(threadId: string): Promise<ThreadGoal | null> {
   if (!isTauri()) return null;

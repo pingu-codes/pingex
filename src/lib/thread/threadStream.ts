@@ -79,6 +79,29 @@ function mergeItem(existing: ThreadItem, incoming: ThreadItem): ThreadItem {
   return merged;
 }
 
+/**
+ * The turn a `turn/started` announces. Codex does not always start the turn
+ * under the id `turn/start` returned — on a thread with a goal the two differ —
+ * so an unknown id is first matched to the turn the client is still waiting on:
+ * the one running with nothing but its own optimistic user message. That turn
+ * is renamed rather than joined by a second one that would otherwise carry the
+ * whole exchange while the original sat "working" forever.
+ */
+function adoptStartedTurn(turns: Turn[], turnId: string): Turn {
+  const existing = turns.find((turn) => turn.id === turnId);
+  if (existing) return existing;
+  const pending = turns.filter(
+    (turn) =>
+      turn.status === "inProgress" &&
+      turn.items.every((item) => item.type === "userMessage" && item.id.startsWith("local-")),
+  );
+  if (pending.length === 1) {
+    pending[0].id = turnId;
+    return pending[0];
+  }
+  return ensureTurn(turns, turnId);
+}
+
 export function upsertItem(turns: Turn[], turnId: string, incoming: ThreadItem): void {
   const turn = ensureTurn(turns, turnId);
   if (incoming.type === "userMessage") {
@@ -132,7 +155,7 @@ export function applyThreadEvent(thread: ThreadDetail, { method, params }: Codex
       if (openReviewTurn(thread.turns) && !thread.turns.some((turn) => turn.id === params.turn.id)) {
         break;
       }
-      ensureTurn(thread.turns, params.turn.id).status = "inProgress";
+      adoptStartedTurn(thread.turns, params.turn.id).status = "inProgress";
       break;
     case "turn/completed": {
       // Codex can complete a turn under an id it never streamed items for. It

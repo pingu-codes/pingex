@@ -503,3 +503,41 @@ describe("applyThreadEvent — reviews", () => {
     expect(thread.turns.find((turn) => turn.id === "turn-queued")?.status).toBe("inProgress");
   });
 });
+
+// On a thread with a goal, Codex runs the turn under a different id from the
+// one `turn/start` returned (observed against codex 0.147.0): the response
+// named one id, `turn/started` and every item another. Without adoption the
+// user's message sat in a turn that never ended while the reply landed in a
+// second one.
+describe("applyThreadEvent — turn/started under a new id", () => {
+  it("renames the turn still waiting on its own message rather than opening a second", () => {
+    const thread = makeThread([
+      { id: "turn-1", status: "completed", items: [] },
+      {
+        id: "response-id",
+        status: "inProgress",
+        items: [{ type: "userMessage", id: "local-item-1", content: [{ type: "text", text: "hi" }] }],
+      },
+    ]);
+    applyThreadEvent(thread, { method: "turn/started", params: { threadId: "t", turn: { id: "real-id" } } });
+    expect(thread.turns.map((turn) => turn.id)).toEqual(["turn-1", "real-id"]);
+    applyThreadEvent(thread, {
+      method: "item/completed",
+      params: { threadId: "t", turnId: "real-id", item: { type: "userMessage", id: "u1", content: [] } },
+    });
+    applyThreadEvent(thread, {
+      method: "turn/completed",
+      params: { threadId: "t", turn: { id: "real-id", status: "completed" } },
+    });
+    expect(thread.turns[1].items.map((item) => item.id)).toEqual(["u1"]);
+    expect(thread.turns.every((turn) => turn.status !== "inProgress")).toBe(true);
+  });
+
+  it("leaves a running turn that already has server items alone", () => {
+    const thread = makeThread([
+      { id: "turn-1", status: "inProgress", items: [{ type: "agentMessage", id: "m1", text: "…" }] },
+    ]);
+    applyThreadEvent(thread, { method: "turn/started", params: { threadId: "t", turn: { id: "turn-2" } } });
+    expect(thread.turns.map((turn) => turn.id)).toEqual(["turn-1", "turn-2"]);
+  });
+});
