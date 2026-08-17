@@ -4,6 +4,7 @@ import {
   aheadBehindLabel,
   folderName,
   isDirty,
+  isTempWorktreePath,
   statusSummary,
   tempWorktreeLocation,
   threadCountForPath,
@@ -48,6 +49,9 @@ describe("worktree helpers", () => {
     expect(tempWorktreeLocation("/home/me/.codex/", "/projects/example/", "abc123")).toBe(
       "/home/me/.codex/worktrees-tmp/example/abc123",
     );
+    expect(isTempWorktreePath("/home/me/.codex/worktrees-tmp/example/abc123")).toBe(true);
+    expect(isTempWorktreePath("/home/me/.codex/worktrees/example/feature")).toBe(false);
+    expect(isTempWorktreePath("/projects/example")).toBe(false);
   });
 
   it("summarises ahead/behind and dirtiness", () => {

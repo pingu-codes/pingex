@@ -16,6 +16,8 @@ use super::types::{
     WorktreeEntry,
 };
 use super::worktrees::read_worktrees;
+use crate::projects::worktrees::{is_temp_worktree_path, worktree_parent_project};
+use crate::storage;
 use crate::AppState;
 
 #[tauri::command]
@@ -69,9 +71,14 @@ pub(crate) async fn git_branches(
 pub(crate) async fn git_worktree_add(
     repo_dir: String,
     request: WorktreeAddRequest,
+    state: State<'_, AppState>,
 ) -> Result<(), String> {
+    let runtime = state.runtime();
+    let database = state.database();
+    let created = request.path.clone();
+    let repo_dir_for_git = repo_dir.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let repo = PathBuf::from(&repo_dir);
+        let repo = PathBuf::from(&repo_dir_for_git);
         let common = common_dir_of(&repo)?;
         let guard = lock_for_common_dir(&common);
         let _lock = guard.lock().expect("git common-dir lock poisoned");
@@ -105,7 +112,16 @@ pub(crate) async fn git_worktree_add(
         Ok(())
     })
     .await
-    .map_err(|_| "Git operation failed".to_string())?
+    .map_err(|_| "Git operation failed".to_string())??;
+
+    // A temporary worktree is scaffolding for a thread, not a project: record
+    // the repository it came from so its threads stay listed there once the
+    // worktree is discarded.
+    if is_temp_worktree_path(&runtime, &created) {
+        let parent = worktree_parent_project(&created).unwrap_or(repo_dir);
+        storage::record_temp_worktree(&database, &created, &parent).await?;
+    }
+    Ok(())
 }
 
 #[tauri::command]

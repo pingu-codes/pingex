@@ -27,7 +27,9 @@ use crate::AppState;
 /// turn, and a model that is told what went wrong can usually recover, whereas
 /// one left hanging cannot.
 pub(crate) async fn handle_tool_call(app: AppHandle, request_id: i64, params: Value) {
-    let response = dispatch(&app, &params).await.unwrap_or_else(tools::render_error);
+    let response = dispatch(&app, &params)
+        .await
+        .unwrap_or_else(tools::render_error);
     let Some(state) = app.try_state::<AppState>() else {
         return;
     };
@@ -35,7 +37,9 @@ pub(crate) async fn handle_tool_call(app: AppHandle, request_id: i64, params: Va
 }
 
 async fn dispatch(app: &AppHandle, params: &Value) -> Result<Value, String> {
-    let state = app.try_state::<AppState>().ok_or("The app is shutting down.")?;
+    let state = app
+        .try_state::<AppState>()
+        .ok_or("The app is shutting down.")?;
     let tool = str_at(params, "tool").ok_or("The tool call named no tool.")?;
     let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
 
@@ -62,9 +66,8 @@ async fn spawn(
     // The parent's own cwd bounds where an agent may run, so it is read from
     // the thread rather than taken from the tool call.
     let parent_cwd = parent_thread_cwd(app, state, parent_thread_id).await?;
-    let settings = crate::settings::prefs::read_agent_settings(
-        &crate::settings::prefs::settings_path(),
-    );
+    let settings =
+        crate::settings::prefs::read_agent_settings(&crate::settings::prefs::settings_path());
 
     let run = supervisor::spawn_agent(
         app,
@@ -109,7 +112,10 @@ async fn parent_thread_cwd(
         return Ok(std::path::PathBuf::from(cwd));
     }
     let summaries = crate::storage::read_thread_summaries(&state.database()).await?;
-    if let Some(summary) = summaries.into_iter().find(|summary| summary.id == thread_id) {
+    if let Some(summary) = summaries
+        .into_iter()
+        .find(|summary| summary.id == thread_id)
+    {
         return Ok(std::path::PathBuf::from(summary.cwd));
     }
     // Last resort — a thread started by a previous run of the app and not yet
@@ -145,9 +151,8 @@ async fn wait(state: &AppState, arguments: &Value) -> Result<Value, String> {
     if ids.is_empty() {
         return Err("`agentIds` must list at least one agent.".into());
     }
-    let timeout = tools::wait_timeout_seconds(
-        arguments.get("timeoutSeconds").and_then(Value::as_f64),
-    );
+    let timeout =
+        tools::wait_timeout_seconds(arguments.get("timeoutSeconds").and_then(Value::as_f64));
 
     let runs: Vec<_> = ids
         .iter()
@@ -210,7 +215,10 @@ async fn wait(state: &AppState, arguments: &Value) -> Result<Value, String> {
 
 async fn send_input(app: &AppHandle, state: &AppState, arguments: &Value) -> Result<Value, String> {
     let id = str_at(arguments, "agentId").ok_or("`agentId` is required.")?;
-    let text = str_at(arguments, "text").unwrap_or_default().trim().to_string();
+    let text = str_at(arguments, "text")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
     if text.is_empty() {
         return Err("`text` is required and must not be empty.".into());
     }

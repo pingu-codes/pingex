@@ -6,6 +6,7 @@ import {
   goHome,
   newThreadInDir,
   openThread,
+  openThreadInCwd,
   openWorktrees,
   selectedThreadInfo,
   setView,
@@ -80,6 +81,23 @@ describe("navigation", () => {
     renamed.projects[0].name = "API service";
     appData.data = renamed;
     expect(currentProject()?.name).toBe("API service");
+  });
+
+  it("opens a thread running in a temporary worktree under the project that lists it", () => {
+    const withWorktreeThread = structuredClone(data);
+    withWorktreeThread.projects[0].threads.push({
+      id: "thread-tmp",
+      cwd: "/home/.codex/worktrees-tmp/api/abc123",
+      title: "Try an idea",
+      updatedAt: 0,
+      status: "idle",
+      pinned: false,
+    });
+    appData.data = withWorktreeThread;
+
+    openThreadInCwd("thread-tmp", "/home/.codex/worktrees-tmp/api/abc123");
+    expect(view.threadId).toBe("thread-tmp");
+    expect(view.projectPath).toBe("/projects/api");
   });
 
   it("keeps the current project when a directory matches no project", () => {

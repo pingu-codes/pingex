@@ -37,7 +37,9 @@ pub(crate) use items::{
     read_running_turns, read_thread_items, record_thread_item, record_turn_start,
     retain_thread_turns, JournaledItem,
 };
-pub(crate) use projects::{read_store, write_store, Store, StoredProject};
+pub(crate) use projects::{
+    read_store, read_temp_worktrees, record_temp_worktree, write_store, Store, StoredProject,
+};
 pub(crate) use questions::{
     add_pending_user_input, add_side_question, add_user_input_answer, delete_side_question,
     list_threads_with_unanswered_user_inputs, read_side_questions, read_user_input_answers,

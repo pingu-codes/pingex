@@ -87,6 +87,40 @@ pub(crate) async fn write_store(database: &Database, store: &Store) -> Result<()
     transaction.commit().await.map_err(db::db_error)
 }
 
+/// Remember which repository a temporary worktree was cut from.
+///
+/// Threads started in a temporary worktree are listed under that repository,
+/// so the link has to outlive the worktree itself — removing the throwaway
+/// directory must not take its threads out of the sidebar with it.
+pub(crate) async fn record_temp_worktree(
+    database: &Database,
+    path: &str,
+    parent_path: &str,
+) -> Result<(), String> {
+    let connection = db::conn(database)?;
+    db::exec(
+        &connection,
+        "INSERT INTO temp_worktrees(path, parent_path) VALUES (?, ?)
+         ON CONFLICT(path) DO UPDATE SET parent_path = excluded.parent_path",
+        params![path.to_string(), parent_path.to_string()],
+    )
+    .await
+}
+
+/// Every remembered temporary worktree, as `(worktree path, repository path)`.
+pub(crate) async fn read_temp_worktrees(
+    database: &Database,
+) -> Result<Vec<(String, String)>, String> {
+    let connection = db::conn(database)?;
+    db::rows(
+        &connection,
+        "SELECT path, parent_path FROM temp_worktrees",
+        (),
+        |row| Ok((db::text(row, 0)?, db::text(row, 1)?)),
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -111,5 +145,23 @@ mod tests {
         // Writing replaces wholesale rather than accumulating.
         write_store(&database, &Store::default()).await.unwrap();
         assert_eq!(read_store(&database).await.unwrap(), Store::default());
+    }
+
+    #[tokio::test]
+    async fn remembers_the_repository_a_temporary_worktree_came_from() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = open(directory.path()).await.unwrap();
+        record_temp_worktree(&database, "/tmp/wt/a", "/repo")
+            .await
+            .unwrap();
+        // Re-recording the same worktree corrects the link rather than
+        // duplicating it.
+        record_temp_worktree(&database, "/tmp/wt/a", "/repo-moved")
+            .await
+            .unwrap();
+        assert_eq!(
+            read_temp_worktrees(&database).await.unwrap(),
+            vec![("/tmp/wt/a".to_string(), "/repo-moved".to_string())]
+        );
     }
 }

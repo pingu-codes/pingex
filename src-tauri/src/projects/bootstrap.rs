@@ -177,9 +177,36 @@ async fn read_project_extras(
     Ok((instructions, sources_by_project))
 }
 
+/// The repository each known temporary worktree belongs to.
+///
+/// Links are recorded when the worktree is created, but worktrees that predate
+/// that (or were made outside the app) are backfilled here from git while the
+/// directory is still on disk — after it is removed, only the stored link can
+/// keep its threads attached to a repository.
+async fn temp_worktree_parents(
+    state: &AppState,
+    runtime: &RuntimeConfig,
+) -> Result<Vec<(String, String)>, String> {
+    let mut links = storage::read_temp_worktrees(&state.database()).await?;
+    let known: HashSet<String> = links.iter().map(|(path, _)| path.clone()).collect();
+    for path in discover_worktrees(runtime) {
+        if known.contains(&path) || !is_temp_worktree_path(runtime, &path) {
+            continue;
+        }
+        let Some(parent) = worktree_parent_project(&path) else {
+            continue;
+        };
+        storage::record_temp_worktree(&state.database(), &path, &parent).await?;
+        links.push((path, parent));
+    }
+    Ok(links)
+}
+
 async fn read_bootstrap_extras(state: &AppState) -> Result<BootstrapExtras, String> {
     let (instructions, sources_by_project) = read_project_extras(state).await?;
+    let temp_worktree_parents = temp_worktree_parents(state, &state.runtime()).await?;
     Ok(BootstrapExtras {
+        temp_worktree_parents,
         instructions,
         sources_by_project,
         workspaces: storage::read_workspaces(&state.database()).await?,
@@ -204,6 +231,7 @@ fn build_bootstrap(
         workspace_members,
         workspace_threads,
         agent_children,
+        temp_worktree_parents,
     } = extras;
     // Threads that belong under something else rather than in a project:
     // side questions, and the threads app-owned subagents run in.
@@ -255,6 +283,10 @@ fn build_bootstrap(
         .collect();
 
     let mut entries = store.projects.clone();
+    // A temporary worktree is never a project of its own — it is scaffolding
+    // for one thread, and both it and its threads belong to the repository it
+    // was cut from.
+    entries.retain(|entry| !is_temp_worktree_path(runtime, &entry.path));
     let mut known: HashSet<String> = entries.iter().map(|entry| entry.path.clone()).collect();
     for path in discover_worktrees(runtime) {
         if let Some(parent) = worktree_parent_project(&path) {
@@ -267,9 +299,24 @@ fn build_bootstrap(
                 });
             }
         }
+        if is_temp_worktree_path(runtime, &path) {
+            continue;
+        }
         if known.insert(path.clone()) {
             entries.push(StoredProject {
                 path,
+                name: None,
+                pinned: false,
+                archived: false,
+            });
+        }
+    }
+    // Every repository a temporary worktree points at must be listed, even when
+    // the worktree itself is gone, or its threads would have nowhere to live.
+    for (_, parent) in &temp_worktree_parents {
+        if Path::new(parent).is_dir() && known.insert(parent.clone()) {
+            entries.push(StoredProject {
+                path: parent.clone(),
                 name: None,
                 pinned: false,
                 archived: false,
@@ -281,8 +328,7 @@ fn build_bootstrap(
 
     let mut projects = Vec::new();
     for entry in entries {
-        let temp_worktree = is_temp_worktree_path(runtime, &entry.path);
-        let worktree = temp_worktree || is_worktree_path(runtime, &entry.path);
+        let worktree = is_worktree_path(runtime, &entry.path);
         // A worktree that has been deleted on disk is simply gone; a plain
         // folder is kept so the user can still remove it from the sidebar.
         if worktree && !Path::new(&entry.path).is_dir() {
@@ -291,24 +337,20 @@ fn build_bootstrap(
         let name = entry
             .name
             .clone()
-            .unwrap_or_else(|| default_project_name(&entry.path, worktree, temp_worktree));
+            .unwrap_or_else(|| default_project_name(&entry.path, worktree));
         let mut threads: Vec<_> = visible_threads
             .iter()
             .filter(|thread| thread.parent_thread_id.is_none())
             .filter(|thread| !workspace_threads.contains_key(&thread.id))
-            .filter(|thread| Path::new(&thread.cwd).starts_with(Path::new(&entry.path)))
+            .filter(|thread| {
+                Path::new(home_path(&thread.cwd, &temp_worktree_parents))
+                    .starts_with(Path::new(&entry.path))
+            })
             .cloned()
             .collect();
         threads.sort_by_key(|thread| !thread.pinned);
         projects.push(Project {
-            kind: if temp_worktree {
-                "tempWorktree"
-            } else if worktree {
-                "worktree"
-            } else {
-                "folder"
-            }
-            .into(),
+            kind: if worktree { "worktree" } else { "folder" }.into(),
             name,
             workspace_id: None,
             pinned: entry.pinned,
@@ -376,17 +418,25 @@ fn build_bootstrap(
     })
 }
 
+/// Which project a thread is listed under: its own working directory, unless
+/// that directory is a temporary worktree — those are discarded, so the thread
+/// is listed under the repository the worktree came from and survives it.
+fn home_path<'a>(cwd: &'a str, temp_worktree_parents: &'a [(String, String)]) -> &'a str {
+    temp_worktree_parents
+        .iter()
+        .find(|(worktree, _)| Path::new(cwd).starts_with(Path::new(worktree)))
+        .map_or(cwd, |(_, parent)| parent.as_str())
+}
+
 /// The folder name, suffixed so a worktree is distinguishable from the
 /// repository it was cut from.
-fn default_project_name(path: &str, worktree: bool, temp_worktree: bool) -> String {
+fn default_project_name(path: &str, worktree: bool) -> String {
     let base = Path::new(path)
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or(path)
         .to_string();
-    if temp_worktree {
-        format!("{base}-temporary-worktree")
-    } else if worktree {
+    if worktree {
         format!("{base}-permanent-worktree")
     } else {
         base
@@ -432,14 +482,10 @@ mod tests {
 
     #[test]
     fn names_worktrees_by_their_kind() {
-        assert_eq!(default_project_name("/repo/api", false, false), "api");
+        assert_eq!(default_project_name("/repo/api", false), "api");
         assert_eq!(
-            default_project_name("/wt/api", true, false),
+            default_project_name("/wt/api", true),
             "api-permanent-worktree"
-        );
-        assert_eq!(
-            default_project_name("/wt/api", true, true),
-            "api-temporary-worktree"
         );
     }
 
@@ -507,6 +553,7 @@ mod tests {
                     "workspace-1".into(),
                 )]),
                 agent_children: Vec::new(),
+                temp_worktree_parents: Vec::new(),
             },
         )
         .unwrap();
@@ -573,6 +620,7 @@ mod tests {
                 workspace_members: Vec::new(),
                 workspace_threads: HashMap::new(),
                 agent_children: Vec::new(),
+                temp_worktree_parents: Vec::new(),
             },
         )
         .unwrap();
@@ -580,6 +628,69 @@ mod tests {
         let threads = &data.projects[0].threads;
         assert_eq!(threads.len(), 1);
         assert_eq!(threads[0].id, "main-thread");
+    }
+
+    #[test]
+    fn temporary_worktree_threads_are_listed_under_the_repository_and_outlive_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let home = directory.path().join("codex-home");
+        let project = directory.path().join("proj");
+        std::fs::create_dir_all(&project).unwrap();
+        let project_path = project.display().to_string();
+        // One temporary worktree still on disk, one already discarded.
+        let live = home.join("worktrees-tmp/proj/live");
+        std::fs::create_dir_all(&live).unwrap();
+        let live_path = live.display().to_string();
+        let gone_path = home.join("worktrees-tmp/proj/gone").display().to_string();
+
+        let data = build_bootstrap(
+            &RuntimeConfig {
+                codex_home: home,
+                codex_binary: PathBuf::from("codex"),
+            },
+            Store {
+                projects: vec![StoredProject {
+                    path: project_path.clone(),
+                    name: Some("Proj".into()),
+                    pinned: false,
+                    archived: false,
+                }],
+                pinned_threads: Vec::new(),
+            },
+            vec![
+                thread("own-thread", &project_path, 3),
+                thread("live-worktree-thread", &live_path, 2),
+                thread("gone-worktree-thread", &gone_path, 1),
+            ],
+            None,
+            Vec::new(),
+            BootstrapExtras {
+                instructions: HashMap::new(),
+                sources_by_project: HashMap::new(),
+                workspaces: Vec::new(),
+                workspace_members: Vec::new(),
+                workspace_threads: HashMap::new(),
+                agent_children: Vec::new(),
+                temp_worktree_parents: vec![
+                    (live_path, project_path.clone()),
+                    (gone_path, project_path),
+                ],
+            },
+        )
+        .unwrap();
+
+        // A temporary worktree is never a project of its own, and its threads
+        // stay with the repository whether or not it still exists.
+        assert_eq!(data.projects.len(), 1);
+        let ids: Vec<_> = data.projects[0]
+            .threads
+            .iter()
+            .map(|thread| thread.id.as_str())
+            .collect();
+        assert_eq!(
+            ids,
+            ["own-thread", "live-worktree-thread", "gone-worktree-thread"]
+        );
     }
 
     #[test]
@@ -620,6 +731,7 @@ mod tests {
                     ("agent-thread-1".into(), "main-thread".into()),
                     ("agent-thread-2".into(), "main-thread".into()),
                 ],
+                temp_worktree_parents: Vec::new(),
             },
         )
         .unwrap();

@@ -18,6 +18,15 @@ export function tempWorktreeLocation(codexHome: string, repoDir: string, name: s
   return `${home}/worktrees-tmp/${folderName(repoDir)}/${name}`;
 }
 
+/**
+ * Whether a directory is one of those temporary worktrees. Threads started in
+ * one are listed under the repository it was cut from, so this is what marks
+ * them as running somewhere other than the project folder.
+ */
+export function isTempWorktreePath(path: string): boolean {
+  return path.includes("/worktrees-tmp/");
+}
+
 export function isDirty(counts: StatusCounts | null): boolean {
   if (!counts) return false;
   return counts.staged + counts.unstaged + counts.untracked + counts.conflicted > 0;

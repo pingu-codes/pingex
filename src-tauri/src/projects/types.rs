@@ -32,7 +32,7 @@ pub(crate) struct ThreadSummary {
 pub(crate) struct Project {
     pub(crate) path: String,
     pub(crate) name: String,
-    /// "folder" | "worktree" | "tempWorktree" | "multiProject".
+    /// "folder" | "worktree" | "multiProject".
     pub(crate) kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) workspace_id: Option<String>,
@@ -90,4 +90,8 @@ pub(crate) struct BootstrapExtras {
     /// separate processes — so without this they would show up as ordinary
     /// top-level threads and count against nobody.
     pub(crate) agent_children: Vec<(String, String)>,
+    /// `(temporary worktree, the repository it was cut from)`. Temporary
+    /// worktrees are throwaway, so their threads are listed under that
+    /// repository instead of under a project of their own.
+    pub(crate) temp_worktree_parents: Vec<(String, String)>,
 }

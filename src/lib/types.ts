@@ -27,7 +27,7 @@ export interface ProjectSource {
 export interface Project {
   path: string;
   name: string;
-  kind: "folder" | "worktree" | "tempWorktree" | "multiProject";
+  kind: "folder" | "worktree" | "multiProject";
   /** Present only for a virtual multi-project workspace. */
   workspaceId?: string;
   pinned: boolean;

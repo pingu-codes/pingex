@@ -5,6 +5,7 @@ import {
   Ellipsis,
   Folder,
   FolderGit2,
+  GitBranch,
   Layers3,
   MessageCircleQuestion,
   Pin,
@@ -41,6 +42,7 @@ import { dragRegion } from "$lib/utils/dragRegion";
 import { relativeTime } from "$lib/utils/time";
 import BranchChip from "$lib/worktrees/BranchChip.svelte";
 import { ensureGitStatus, gitStatusCache } from "$lib/worktrees/gitStatus.svelte";
+import { folderName, isTempWorktreePath } from "$lib/worktrees/worktrees";
 
 let {
   projects,
@@ -341,6 +343,14 @@ const threadTarget = (project: Project, thread: ThreadSummary): MenuTarget => ({
                         <Star class="shrink-0 fill-warning-500 text-warning-500" size={11} />
                       {/if}
                       <span class="min-w-0 flex-1 truncate" title={thread.title}>{thread.title}</span>
+                      {#if isTempWorktreePath(thread.cwd ?? "")}
+                        <span
+                          class="grid shrink-0 place-items-center text-surface-500"
+                          title="Runs in the temporary worktree {folderName(thread.cwd ?? '')}"
+                        >
+                          <GitBranch size={10} />
+                        </span>
+                      {/if}
                       {#if sideQuestionCount(thread.id) > 0}
                         <span
                           class="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-primary-500/15 px-1.5 text-[9px] font-medium text-primary-500"

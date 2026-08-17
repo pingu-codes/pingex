@@ -37,12 +37,19 @@ export function projectByPath(path: string | null): Project | null {
   return projects().find((project) => project.path === path) ?? null;
 }
 
-/** The project a directory belongs to (exact match, else nearest ancestor). */
+/**
+ * The project a directory belongs to (exact match, else nearest ancestor).
+ *
+ * A temporary worktree lives outside every project path, so the listing itself
+ * is the last word: whichever project already holds a thread running there is
+ * the project that thread belongs to.
+ */
 export function projectForCwd(cwd: string | null): Project | null {
   if (!cwd) return null;
   return (
     projects().find((project) => project.path === cwd) ??
     projects().find((project) => cwd.startsWith(project.path)) ??
+    projects().find((project) => project.threads.some((thread) => thread.cwd === cwd)) ??
     null
   );
 }

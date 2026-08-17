@@ -179,6 +179,10 @@ const DDL: &str = "CREATE TABLE IF NOT EXISTS metadata (
  );
  CREATE INDEX IF NOT EXISTS workspace_members_effective
      ON workspace_members(effective_path);
+ CREATE TABLE IF NOT EXISTS temp_worktrees (
+     path TEXT PRIMARY KEY,
+     parent_path TEXT NOT NULL
+ );
  CREATE TABLE IF NOT EXISTS workspace_threads (
      thread_id TEXT PRIMARY KEY,
      workspace_id TEXT NOT NULL

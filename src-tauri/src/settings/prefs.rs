@@ -90,10 +90,7 @@ pub(crate) fn read_agent_settings(path: &Path) -> AgentSettings {
 }
 
 /// Persist the agent settings while preserving the other overrides.
-pub(crate) fn write_agent_settings(
-    path: &Path,
-    settings: &AgentSettings,
-) -> Result<(), String> {
+pub(crate) fn write_agent_settings(path: &Path, settings: &AgentSettings) -> Result<(), String> {
     if !AGENT_SANDBOXES.contains(&settings.sandbox.as_str()) {
         return Err(format!("Unknown agent sandbox: {}", settings.sandbox));
     }

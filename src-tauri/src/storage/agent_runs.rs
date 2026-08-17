@@ -137,9 +137,7 @@ pub(crate) async fn read_agent_runs(
     let connection = db::conn(database)?;
     db::rows(
         &connection,
-        &format!(
-            "SELECT {COLUMNS} FROM agent_runs WHERE parent_thread_id = ? ORDER BY created_at"
-        ),
+        &format!("SELECT {COLUMNS} FROM agent_runs WHERE parent_thread_id = ? ORDER BY created_at"),
         (parent_thread_id,),
         row_to_run,
     )
@@ -369,14 +367,19 @@ mod tests {
             .await
             .unwrap();
 
-        copy_agent_runs(&database, "thread-1", "fork-1").await.unwrap();
+        copy_agent_runs(&database, "thread-1", "fork-1")
+            .await
+            .unwrap();
 
         let forked = read_agent_runs(&database, "fork-1").await.unwrap();
         assert_eq!(forked.len(), 1);
         assert_eq!(forked[0].name, "probe");
         // Fresh id, so updating one fork cannot disturb the other.
         assert_ne!(forked[0].run_id, "run-1");
-        assert_eq!(read_agent_runs(&database, "thread-1").await.unwrap().len(), 1);
+        assert_eq!(
+            read_agent_runs(&database, "thread-1").await.unwrap().len(),
+            1
+        );
     }
 
     #[tokio::test]
@@ -418,7 +421,10 @@ mod tests {
             .await
             .unwrap()
             .is_empty());
-        assert_eq!(read_agent_runs(&database, "thread-2").await.unwrap().len(), 1);
+        assert_eq!(
+            read_agent_runs(&database, "thread-2").await.unwrap().len(),
+            1
+        );
     }
 
     #[tokio::test]
