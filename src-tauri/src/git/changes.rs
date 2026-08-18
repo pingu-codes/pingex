@@ -349,7 +349,9 @@ pub(crate) fn handoff_preflight(
         .as_ref()
         .map(|status| status.counts.is_dirty())
         .unwrap_or(true);
-    let same_repo = entries.iter().any(|entry| same_dir(target, &entry.path));
+    let target_entry = entries.iter().find(|entry| same_dir(target, &entry.path));
+    let same_repo = target_entry.is_some();
+    let target_is_worktree = target_entry.map(|e| !e.is_main).unwrap_or(false);
     let blocker = if branch.is_none() {
         Some("This worktree is not on a branch".to_string())
     } else if entry.map(|e| e.is_main).unwrap_or(false) {
@@ -358,6 +360,8 @@ pub(crate) fn handoff_preflight(
         Some("The local workspace is not a Git repository".to_string())
     } else if !same_repo {
         Some("The local workspace is not part of this repository".to_string())
+    } else if target_is_worktree {
+        Some("Choose the repository itself, not another worktree".to_string())
     } else if target_dirty {
         Some("Stash or commit your local changes to hand off".to_string())
     } else {
@@ -371,19 +375,38 @@ pub(crate) fn handoff_preflight(
     })
 }
 
-/// Detach the branch from the worktree and check it out in `target`. Returns
-/// the branch name. Restores the worktree if the checkout fails.
+/// Detach the branch from the worktree and check it out in `target`,
+/// optionally renaming it to `new_name`. Returns the final branch name.
+/// Restores the worktree if the checkout fails.
 pub(crate) fn handoff(
     worktree: &Path,
     target: &Path,
     codex_home: &Path,
     commit_uncommitted: bool,
+    new_name: Option<&str>,
 ) -> Result<String, String> {
     let preflight = handoff_preflight(worktree, target, codex_home)?;
     if let Some(blocker) = preflight.blocker {
         return Err(blocker);
     }
     let branch = preflight.branch.expect("preflight guarantees a branch");
+    let new_name = new_name
+        .map(str::trim)
+        .filter(|name| !name.is_empty() && *name != branch);
+    if let Some(name) = new_name {
+        let valid = run_git(target, &["check-ref-format", "--branch", name], WRITE_TIMEOUT)?;
+        if !valid.ok {
+            return Err(format!("\"{name}\" is not a valid branch name"));
+        }
+        let exists = run_git(
+            target,
+            &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{name}")],
+            WRITE_TIMEOUT,
+        )?;
+        if exists.ok {
+            return Err(format!("A branch named \"{name}\" already exists"));
+        }
+    }
     if preflight.worktree_dirty {
         if !commit_uncommitted {
             return Err("This worktree has uncommitted changes".to_string());
@@ -431,6 +454,13 @@ pub(crate) fn handoff(
             "Could not check the branch out locally",
             &checkout,
         ));
+    }
+    if let Some(name) = new_name {
+        let renamed = run_git(target, &["branch", "-m", &branch, name], WRITE_TIMEOUT)?;
+        if !renamed.ok {
+            return Err(redact_git_error("Could not rename the branch", &renamed));
+        }
+        return Ok(name.to_string());
     }
     Ok(branch)
 }

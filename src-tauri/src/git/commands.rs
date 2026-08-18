@@ -285,6 +285,7 @@ pub(crate) async fn git_worktree_handoff(
     worktree_path: String,
     target_dir: String,
     commit_uncommitted: bool,
+    branch_name: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     let codex_home = state.runtime().codex_home;
@@ -300,6 +301,7 @@ pub(crate) async fn git_worktree_handoff(
             &target,
             &codex_home,
             commit_uncommitted,
+            branch_name.as_deref(),
         )
     })
     .await

@@ -19,7 +19,7 @@ let {
   targets: { path: string; name: string }[];
   defaultTarget: string;
   /** Performs the handoff; rejecting keeps the dialog open. */
-  submit: (targetDir: string, commitUncommitted: boolean) => Promise<void>;
+  submit: (targetDir: string, commitUncommitted: boolean, branchName: string | null) => Promise<void>;
   close: DialogClose<true>;
 } = $props();
 
@@ -29,7 +29,18 @@ let preflight = $state<WorktreeHandoffPreflight | null>(null);
 let checking = $state(true);
 let checkError = $state<string | null>(null);
 let commitUncommitted = $state(true);
+/** Optional new name for the branch; empty keeps the worktree's branch name. */
+let branchName = $state("");
+let branchTouched = $state(false);
 const action = submitState();
+
+/** Local branch names may not contain whitespace, `..`, `~^:?*[\\`, or `@{`. */
+const branchNameIssue = $derived.by(() => {
+  const name = branchName.trim();
+  if (!name) return null;
+  if (/[\s~^:?*[\\]|\.\.|@\{|^-|^\/|\/$|\.$|\/\/|\.lock$|^\.|\/\./.test(name)) return "Not a valid branch name";
+  return null;
+});
 
 const options = $derived(
   targets.some((entry) => entry.path === defaultTarget)
@@ -58,13 +69,16 @@ $effect(() => {
 const blocker = $derived(
   checkError ??
     preflight?.blocker ??
-    (preflight?.worktreeDirty && !commitUncommitted ? "Commit the worktree's changes to hand off" : null),
+    (preflight?.worktreeDirty && !commitUncommitted ? "Commit the worktree's changes to hand off" : null) ??
+    branchNameIssue,
 );
 const ready = $derived(!checking && !blocker && !!preflight?.branch);
 
 async function handoff() {
   if (!ready) return;
-  if (await action.run(() => submit(target, commitUncommitted))) close(true);
+  const name = branchName.trim();
+  const rename = name && name !== preflight?.branch ? name : null;
+  if (await action.run(() => submit(target, commitUncommitted, rename))) close(true);
 }
 </script>
 
@@ -94,6 +108,25 @@ async function handoff() {
     <ChevronDown size={14} class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-surface-500" />
   </div>
   <p class="mt-1 truncate text-xs text-surface-500" title={target}>{target}</p>
+
+  <label class="mt-4 block text-sm text-surface-600-400" for="handoff-branch">Branch name</label>
+  <input
+    id="handoff-branch"
+    type="text"
+    class="input mt-2 w-full rounded-lg bg-surface-200-800 px-3 py-2 font-mono text-sm"
+    placeholder={preflight?.branch ?? "…"}
+    bind:value={branchName}
+    oninput={() => (branchTouched = true)}
+    spellcheck="false"
+    autocomplete="off"
+  />
+  <p class="mt-1 text-xs text-surface-500">
+    {#if branchTouched && branchName.trim() && branchName.trim() !== preflight?.branch}
+      The branch is renamed as it's checked out locally.
+    {:else}
+      Leave blank to keep the worktree's branch name.
+    {/if}
+  </p>
 
   {#if preflight?.worktreeDirty}
     <label class="mt-3 flex items-center gap-2 text-xs text-surface-600-400">

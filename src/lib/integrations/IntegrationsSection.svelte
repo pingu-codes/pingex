@@ -308,12 +308,13 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
           bind:value={formName}
           disabled={editing !== ""}
           placeholder="github"
-          class="input mt-1 w-full font-mono text-xs disabled:opacity-60"
+          class="input mt-1 w-full font-mono text-xs disabled:opacity-60" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck={false}
         />
       </div>
       <div>
         <label for="mcp-command" class="text-xs font-medium text-surface-500">Command</label>
-        <input id="mcp-command" bind:value={formCommand} placeholder="npx" class="input mt-1 w-full font-mono text-xs" />
+        <input id="mcp-command" bind:value={formCommand} placeholder="npx" class="input mt-1 w-full font-mono text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck={false}
+ />
       </div>
       <div>
         <label for="mcp-args" class="text-xs font-medium text-surface-500">Arguments</label>
@@ -321,7 +322,7 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
           id="mcp-args"
           bind:value={formArgs}
           placeholder="-y @modelcontextprotocol/server-github"
-          class="input mt-1 w-full font-mono text-xs"
+          class="input mt-1 w-full font-mono text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck={false}
         />
       </div>
       <div>
@@ -337,13 +338,13 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
         <div class="mt-1.5 space-y-1.5">
           {#each formEnv as row, index (index)}
             <div class="flex items-center gap-1.5">
-              <input bind:value={row.key} placeholder="GITHUB_TOKEN" class="input flex-1 font-mono text-xs" />
+              <input bind:value={row.key} placeholder="GITHUB_TOKEN" class="input flex-1 font-mono text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck={false}
+ />
               <input
                 bind:value={row.value}
                 type="password"
-                autocomplete="off"
                 placeholder={editing !== "" ? "unchanged" : "secret value"}
-                class="input flex-1 font-mono text-xs"
+                class="input flex-1 font-mono text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck={false}
               />
               <TooltipButton
                 label="Remove variable"

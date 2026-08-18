@@ -140,8 +140,8 @@ function handoffToLocal(entry: WorktreeEntry) {
     worktreePath: entry.path,
     targets: [],
     defaultTarget: repoDir,
-    submit: async (targetDir: string, commitUncommitted: boolean) => {
-      await gitWorktreeHandoff(entry.path, targetDir, commitUncommitted);
+    submit: async (targetDir: string, commitUncommitted: boolean, branchName: string | null) => {
+      await gitWorktreeHandoff(entry.path, targetDir, commitUncommitted, branchName);
       await load();
     },
   });

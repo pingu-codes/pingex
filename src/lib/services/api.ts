@@ -933,9 +933,10 @@ export async function gitWorktreeHandoff(
   worktreePath: string,
   targetDir: string,
   commitUncommitted: boolean,
+  branchName?: string | null,
 ): Promise<string> {
-  if (!isTauri()) return "codex/tmp-preview";
-  return invoke<string>("git_worktree_handoff", { worktreePath, targetDir, commitUncommitted });
+  if (!isTauri()) return branchName || "codex/tmp-preview";
+  return invoke<string>("git_worktree_handoff", { worktreePath, targetDir, commitUncommitted, branchName: branchName ?? null });
 }
 
 export async function gitRecentCommits(dir: string, limit = 20): Promise<GitCommit[]> {
