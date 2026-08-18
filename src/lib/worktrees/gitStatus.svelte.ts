@@ -9,9 +9,11 @@ import type { GitStatus } from "$lib/types";
 export const gitStatusCache = $state<{
   byPath: Record<string, GitStatus | null>;
   loading: Record<string, boolean>;
+  fetchedAt: Record<string, number>;
 }>({
   byPath: {},
   loading: {},
+  fetchedAt: {},
 });
 
 export async function refreshGitStatus(path: string): Promise<void> {
@@ -24,14 +26,31 @@ export async function refreshGitStatus(path: string): Promise<void> {
     gitStatusCache.byPath[path] = null;
   } finally {
     gitStatusCache.loading[path] = false;
+    gitStatusCache.fetchedAt[path] = Date.now();
   }
 }
 
-/** Fetch once if we have never looked at this path. */
-export function ensureGitStatus(path: string): void {
-  if (path && !(path in gitStatusCache.byPath) && !gitStatusCache.loading[path]) {
-    refreshGitStatus(path);
-  }
+/**
+ * Fetch if we have never looked at this path, or the cached entry is older than
+ * `maxAgeMs` — so a re-mounted chip picks up a branch switched outside the app.
+ */
+export function ensureGitStatus(path: string, maxAgeMs = 5000): void {
+  if (!path || gitStatusCache.loading[path]) return;
+  const seen = path in gitStatusCache.byPath;
+  const stale = Date.now() - (gitStatusCache.fetchedAt[path] ?? 0) > maxAgeMs;
+  if (!seen || stale) refreshGitStatus(path);
+}
+
+let lastRefreshAll = 0;
+/**
+ * Refresh every cached path (throttled). Called when the window regains focus,
+ * since branch switches usually happen in a terminal or another app.
+ */
+export function refreshAllGitStatus(throttleMs = 1000): void {
+  const now = Date.now();
+  if (now - lastRefreshAll < throttleMs) return;
+  lastRefreshAll = now;
+  for (const path of Object.keys(gitStatusCache.byPath)) refreshGitStatus(path);
 }
 
 export function statusIsDirty(status: GitStatus | null | undefined): boolean {

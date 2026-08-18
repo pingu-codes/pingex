@@ -13,7 +13,7 @@ import { setThreadHandler, startCodexListeners } from "$lib/services/codexEvents
 import { startConnectionsWatch } from "$lib/services/connections.svelte";
 import type { HandoffOpen } from "$lib/types";
 import { installExternalLinkHandler } from "$lib/utils/externalLinks";
-import { refreshGitStatus } from "$lib/worktrees/gitStatus.svelte";
+import { refreshAllGitStatus, refreshGitStatus } from "$lib/worktrees/gitStatus.svelte";
 
 // Quick-chat handoff: when the floating composer's "Open full thread" fires,
 // the backend focuses this window and emits the thread to navigate to.
@@ -36,6 +36,12 @@ export function startApp(): void {
   // Recording always starts off in the backend, so re-apply the saved
   // Advanced → message log preference.
   void messageLog.start();
+  // Branches are usually switched in a terminal; refresh every cached repo's
+  // git status when the user comes back to this window.
+  window.addEventListener("focus", () => refreshAllGitStatus());
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") refreshAllGitStatus();
+  });
 
   // Threads can be created or renamed outside this window (e.g. from a paired
   // phone via remote control); refresh the sidebar when Codex announces them.

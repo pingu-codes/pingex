@@ -168,6 +168,7 @@ describe("Sidebar", () => {
       truncated: false,
       refreshedAt: Date.now(),
     };
+    gitStatusCache.fetchedAt[source.path] = Date.now();
     setup(source);
 
     const projectName = screen.getByText(source.name);
