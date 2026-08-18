@@ -37,14 +37,13 @@ pub(crate) use items::{
     read_running_turns, read_thread_items, record_thread_item, record_turn_start,
     retain_thread_turns, JournaledItem,
 };
-pub(crate) use projects::{
-    read_store, read_temp_worktrees, record_temp_worktree, write_store, Store, StoredProject,
-};
+pub(crate) use projects::{read_store, write_store, Store, StoredProject};
+pub use projects::{read_temp_worktrees, record_temp_worktree};
 pub(crate) use questions::{
-    add_pending_user_input, add_side_question, add_user_input_answer, delete_side_question,
-    list_threads_with_unanswered_user_inputs, read_side_questions, read_user_input_answers,
-    SideQuestion, UserInputAnswer,
+    add_pending_user_input, add_user_input_answer, list_threads_with_unanswered_user_inputs,
+    read_user_input_answers, UserInputAnswer,
 };
+pub use questions::{add_side_question, delete_side_question, read_side_questions, SideQuestion};
 pub(crate) use review::{delete_review_draft, read_review_draft, write_review_draft, ReviewDraft};
 pub(crate) use search::{
     delete_thread_search, rename_thread_search, search_thread_index, set_thread_search_archived,
@@ -82,7 +81,7 @@ fn legacy_database_path(codex_home: &Path) -> PathBuf {
 
 /// Open (creating if needed) the database for `codex_home`, bringing its schema
 /// up to date and importing the pre-SQLite JSON store on first run.
-pub(crate) async fn open(codex_home: &Path) -> Result<Database, String> {
+pub async fn open(codex_home: &Path) -> Result<Database, String> {
     fs::create_dir_all(codex_home)
         .map_err(|error| format!("Could not create CODEX_HOME: {error}"))?;
     let path = database_path(codex_home);

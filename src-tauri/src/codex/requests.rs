@@ -65,6 +65,27 @@ pub fn thread_read(thread_id: &str) -> Request {
     )
 }
 
+/// `thread/goal/set`: only the fields given change; the app-server keeps the
+/// rest of the goal.
+pub fn thread_goal_set(thread_id: &str, objective: Option<&str>, status: Option<&str>) -> Request {
+    let mut params = json!({"threadId": thread_id});
+    if let Some(objective) = objective {
+        params["objective"] = json!(objective);
+    }
+    if let Some(status) = status {
+        params["status"] = json!(status);
+    }
+    request("thread/goal/set", params)
+}
+
+pub fn thread_goal_get(thread_id: &str) -> Request {
+    request("thread/goal/get", json!({"threadId": thread_id}))
+}
+
+pub fn thread_goal_clear(thread_id: &str) -> Request {
+    request("thread/goal/clear", json!({"threadId": thread_id}))
+}
+
 pub fn thread_delete(thread_id: &str) -> Request {
     request("thread/delete", json!({"threadId": thread_id}))
 }

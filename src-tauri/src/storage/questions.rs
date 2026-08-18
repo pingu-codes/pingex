@@ -113,14 +113,14 @@ pub(crate) async fn read_user_input_answers(
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SideQuestion {
-    pub(crate) side_thread_id: String,
-    pub(crate) parent_thread_id: String,
-    pub(crate) title: String,
-    pub(crate) created_at: i64,
+pub struct SideQuestion {
+    pub side_thread_id: String,
+    pub parent_thread_id: String,
+    pub title: String,
+    pub created_at: i64,
 }
 
-pub(crate) async fn add_side_question(
+pub async fn add_side_question(
     database: &Database,
     side_question: &SideQuestion,
 ) -> Result<(), String> {
@@ -141,7 +141,7 @@ pub(crate) async fn add_side_question(
     .await
 }
 
-pub(crate) async fn read_side_questions(database: &Database) -> Result<Vec<SideQuestion>, String> {
+pub async fn read_side_questions(database: &Database) -> Result<Vec<SideQuestion>, String> {
     let connection = db::conn(database)?;
     db::rows(
         &connection,
@@ -160,10 +160,7 @@ pub(crate) async fn read_side_questions(database: &Database) -> Result<Vec<SideQ
     .await
 }
 
-pub(crate) async fn delete_side_question(
-    database: &Database,
-    side_thread_id: &str,
-) -> Result<(), String> {
+pub async fn delete_side_question(database: &Database, side_thread_id: &str) -> Result<(), String> {
     let connection = db::conn(database)?;
     db::exec(
         &connection,

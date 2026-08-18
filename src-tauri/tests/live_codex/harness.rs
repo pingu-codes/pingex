@@ -17,7 +17,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::{mpsc, Arc, Condvar, Mutex, OnceLock};
+use std::sync::{mpsc, Arc, Condvar, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
@@ -96,7 +96,8 @@ impl Drop for Inner {
 
 #[allow(dead_code)]
 pub struct Server {
-    inner: Arc<Inner>,
+    /// The live app-server child; swapped wholesale by [`Server::restart`].
+    inner: RwLock<Arc<Inner>>,
     pub model: String,
     pub codex_home: PathBuf,
     /// The project directory turns run in.
@@ -216,6 +217,9 @@ impl Server {
                  approval_policy = \"never\"\n\
                  sandbox_mode = \"workspace-write\"\n\
                  \n\
+                 [features]\n\
+                 goals = true\n\
+                 \n\
                  [mcp_servers.{MCP_SERVER}]\n\
                  command = \"{}\"\n",
                 mcp_echo_binary().display()
@@ -239,144 +243,76 @@ impl Server {
         let image_path = cwd.join("pixel.png");
         std::fs::write(&image_path, PIXEL_PNG).map_err(io_err)?;
 
-        // Same invocation as `crate::codex::child::spawn_child`.
-        let mut process = Command::new(codex_binary())
-            .args(["app-server", "--stdio"])
-            .env("CODEX_HOME", &codex_home)
-            .current_dir(&cwd)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| format!("spawn failed: {error}"))?;
-        let stdin = process.stdin.take().ok_or("no stdin")?;
-        let stdout = process.stdout.take().ok_or("no stdout")?;
-        let stderr = process.stderr.take().ok_or("no stderr")?;
-
-        let inner = Arc::new(Inner {
-            process: Mutex::new(process),
-            stdin: Mutex::new(stdin),
-            next_id: AtomicI64::new(1),
-            pending: Mutex::new(HashMap::new()),
-            messages: Mutex::new(Vec::new()),
-            changed: Condvar::new(),
-            stderr: Mutex::new(Vec::new()),
-        });
-        let for_stderr = inner.clone();
-        std::thread::spawn(move || {
-            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                if let Ok(mut tail) = for_stderr.stderr.lock() {
-                    tail.push(line);
-                    if tail.len() > 200 {
-                        tail.remove(0);
-                    }
-                }
-            }
-        });
-        let for_stdout = inner.clone();
-        std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-                let Ok(message) = serde_json::from_str::<Value>(&line) else {
-                    continue;
-                };
-                let is_response = message.get("id").is_some() && message.get("method").is_none();
-                if is_response {
-                    if let Some(id) = message.get("id").and_then(Value::as_i64) {
-                        let sender = for_stdout
-                            .pending
-                            .lock()
-                            .ok()
-                            .and_then(|mut p| p.remove(&id));
-                        if let Some(sender) = sender {
-                            let _ = sender.send(message.clone());
-                        }
-                    }
-                }
-                let mut messages = for_stdout.messages.lock().expect("bus lock");
-                messages.push(message);
-                for_stdout.changed.notify_all();
-            }
-            for_stdout.changed.notify_all();
-        });
-
-        let server = Server {
-            inner,
+        let inner = start_session(&codex_home, &cwd)?;
+        Ok(Server {
+            inner: RwLock::new(inner),
             model,
             codex_home,
             cwd,
             image_path,
-        };
-        // The handshake `spawn_child` performs, with the app's own params.
-        server
-            .request(requests::initialize("pingex-e2e"))
-            .map_err(|error| error.to_string())?;
-        server.write(&json!({"method": "initialized", "params": {}}))?;
-        Ok(server)
+        })
+    }
+
+    fn inner(&self) -> Arc<Inner> {
+        self.inner.read().expect("server lock").clone()
+    }
+
+    /// Simulate the app being quit and relaunched: kill the app-server child
+    /// and spawn a fresh one on the same `CODEX_HOME` and cwd. Nothing in
+    /// memory survives — message cursors from before are invalid, and threads
+    /// must be re-attached with `thread/resume`, exactly as the app does.
+    pub fn restart(&self) {
+        // The reader threads keep the old `Inner` alive, so kill explicitly
+        // (and wait, so the thread store's writer lock is released) before
+        // the replacement comes up.
+        {
+            let old = self.inner();
+            let mut process = old.process.lock().expect("process lock");
+            let _ = process.kill();
+            let _ = process.wait();
+        }
+        let fresh = start_session(&self.codex_home, &self.cwd)
+            .unwrap_or_else(|error| panic!("could not restart codex: {error}"));
+        *self.inner.write().expect("server lock") = fresh;
+    }
+
+    /// The Pingex frontend database for the scratch home. Every call opens
+    /// it anew, which is what the app does on launch — so "open, assert" after
+    /// [`Server::restart`] is the persistence check.
+    pub fn open_db(&self) -> turso::Database {
+        block_on(pingex_app_lib::e2e::open_database(&self.codex_home))
+            .unwrap_or_else(|error| panic!("could not open the Pingex database: {error}"))
+    }
+
+    /// A fresh git repository with one commit under the scratch root.
+    pub fn git_repo(&self, name: &str) -> PathBuf {
+        let path = self.cwd.parent().expect("scratch root").join(name);
+        std::fs::create_dir_all(&path).expect("repo dir");
+        std::fs::write(path.join("README.md"), format!("# {name}\n")).expect("readme");
+        for args in [
+            vec!["init", "-q", "-b", "main"],
+            vec!["config", "user.email", "e2e@pingex.test"],
+            vec!["config", "user.name", "Pingex E2E"],
+            vec!["add", "."],
+            vec!["commit", "-q", "-m", "init"],
+        ] {
+            git(&path, &args);
+        }
+        path
     }
 
     fn write(&self, message: &Value) -> Result<(), String> {
-        let mut stdin = self.inner.stdin.lock().map_err(|_| "stdin poisoned")?;
-        writeln!(stdin, "{message}").map_err(io_err)?;
-        stdin.flush().map_err(io_err)
+        self.inner().write(message)
     }
 
     /// The last lines the server wrote to stderr, for failure messages.
     pub fn stderr_tail(&self) -> String {
-        self.inner
-            .stderr
-            .lock()
-            .map(|lines| {
-                lines
-                    .iter()
-                    .rev()
-                    .take(20)
-                    .rev()
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })
-            .unwrap_or_default()
+        self.inner().stderr_tail()
     }
 
     /// Send a request and wait for its response.
     pub fn request(&self, request: Request) -> Result<Value, RpcError> {
-        let id = self.inner.next_id.fetch_add(1, Ordering::SeqCst);
-        let (sender, receiver) = mpsc::channel();
-        self.inner
-            .pending
-            .lock()
-            .expect("pending lock")
-            .insert(id, sender);
-        let message = json!({"id": id, "method": request.method, "params": request.params});
-        if let Err(error) = self.write(&message) {
-            panic!(
-                "could not write {}: {error}\n{}",
-                request.method,
-                self.stderr_tail()
-            );
-        }
-        let response = receiver.recv_timeout(REQUEST_TIMEOUT).unwrap_or_else(|_| {
-            panic!(
-                "no response to {} within {:?}\nstderr:\n{}",
-                request.method,
-                REQUEST_TIMEOUT,
-                self.stderr_tail()
-            )
-        });
-        if let Some(error) = response.get("error") {
-            return Err(RpcError {
-                code: error
-                    .get("code")
-                    .and_then(Value::as_i64)
-                    .unwrap_or_default(),
-                message: error
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string(),
-            });
-        }
-        Ok(response.get("result").cloned().unwrap_or(Value::Null))
+        self.inner().request(request)
     }
 
     /// `request`, panicking with context on any error. Most of the suite is
@@ -401,7 +337,7 @@ impl Server {
 
     /// Position in the message log; pass to `wait_for` to only see later traffic.
     pub fn cursor(&self) -> usize {
-        self.inner.messages.lock().expect("bus lock").len()
+        self.inner().messages.lock().expect("bus lock").len()
     }
 
     /// Block until a message at or after `from` matches, returning it and the
@@ -413,7 +349,8 @@ impl Server {
         mut predicate: impl FnMut(&Value) -> bool,
     ) -> Option<(usize, Value)> {
         let deadline = Instant::now() + timeout;
-        let mut messages = self.inner.messages.lock().expect("bus lock");
+        let inner = self.inner();
+        let mut messages = inner.messages.lock().expect("bus lock");
         let mut index = from;
         loop {
             while index < messages.len() {
@@ -426,8 +363,7 @@ impl Server {
             if now >= deadline {
                 return None;
             }
-            let (guard, _) = self
-                .inner
+            let (guard, _) = inner
                 .changed
                 .wait_timeout(messages, deadline - now)
                 .expect("bus lock");
@@ -474,7 +410,7 @@ impl Server {
 
     /// Messages recorded since `from` (for diagnostics).
     pub fn messages_since(&self, from: usize) -> Vec<Value> {
-        self.inner.messages.lock().expect("bus lock")[from..].to_vec()
+        self.inner().messages.lock().expect("bus lock")[from..].to_vec()
     }
 
     /// Start a thread in the scratch cwd with the app's own params and return
@@ -500,6 +436,70 @@ impl Server {
             .unwrap_or_else(|| panic!("turn/start returned no turn id: {response}"))
             .to_string();
         self.await_turn(from, &turn_id)
+    }
+
+    /// Like [`Server::run_turn`], but follows the turn the server actually
+    /// announces in `turn/started` rather than the id `turn/start` returned —
+    /// on a thread with a goal the two can differ (see `adoptStartedTurn` in
+    /// the frontend). Returns the outcome and the id `turn/start` returned.
+    pub fn run_turn_observed(&self, request: Request) -> (TurnOutcome, String) {
+        assert_eq!(
+            request.method, "turn/start",
+            "run_turn_observed wants a turn/start"
+        );
+        let from = self.cursor();
+        let response = self.call(request);
+        let requested = response
+            .pointer("/turn/id")
+            .and_then(Value::as_str)
+            .unwrap_or_else(|| panic!("turn/start returned no turn id: {response}"))
+            .to_string();
+        let (_, started) = self
+            .wait_notification(from, "turn/started", REQUEST_TIMEOUT, |_| true)
+            .unwrap_or_else(|| {
+                panic!(
+                    "no turn/started after turn/start\nstderr:\n{}",
+                    self.stderr_tail()
+                )
+            });
+        let started_id = started
+            .pointer("/turn/id")
+            .and_then(Value::as_str)
+            .unwrap_or_else(|| panic!("turn/started without id: {started}"))
+            .to_string();
+        (self.await_turn(from, &started_id), requested)
+    }
+
+    /// Wait until every turn started since `from` has completed (goal threads
+    /// can start follow-up turns on their own), returning the ids seen.
+    pub fn drain_turns(&self, from: usize, settle: Duration) -> Vec<String> {
+        loop {
+            let messages = self.messages_since(from);
+            let started: Vec<String> = messages
+                .iter()
+                .filter(|m| m.get("method").and_then(Value::as_str) == Some("turn/started"))
+                .filter_map(|m| m.pointer("/params/turn/id").and_then(Value::as_str))
+                .map(str::to_string)
+                .collect();
+            let completed: Vec<String> = messages
+                .iter()
+                .filter(|m| m.get("method").and_then(Value::as_str) == Some("turn/completed"))
+                .filter_map(|m| m.pointer("/params/turn/id").and_then(Value::as_str))
+                .map(str::to_string)
+                .collect();
+            if let Some(open) = started.iter().find(|id| !completed.contains(id)) {
+                self.await_turn(from, open);
+                continue;
+            }
+            // Give a goal continuation a moment to appear before declaring quiet.
+            let cursor = self.cursor();
+            if self
+                .wait_notification(cursor, "turn/started", settle, |_| true)
+                .is_none()
+            {
+                return started;
+            }
+        }
     }
 
     /// Wait for `turn/completed` for `turn_id`, collecting its completed items.
@@ -550,6 +550,164 @@ impl Server {
             .unwrap_or_else(|| panic!("{SKILL_NAME} not in skills/list: {response}"))
             .path
     }
+}
+
+/// Spawn `codex app-server --stdio` on `codex_home`/`cwd` and complete the
+/// `initialize`/`initialized` handshake, the way `spawn_child` does.
+fn start_session(codex_home: &Path, cwd: &Path) -> Result<Arc<Inner>, String> {
+    // Same invocation as `crate::codex::child::spawn_child`.
+    let mut process = Command::new(codex_binary())
+        .args(["app-server", "--stdio"])
+        .env("CODEX_HOME", codex_home)
+        .current_dir(cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("spawn failed: {error}"))?;
+    let stdin = process.stdin.take().ok_or("no stdin")?;
+    let stdout = process.stdout.take().ok_or("no stdout")?;
+    let stderr = process.stderr.take().ok_or("no stderr")?;
+
+    let inner = Arc::new(Inner {
+        process: Mutex::new(process),
+        stdin: Mutex::new(stdin),
+        next_id: AtomicI64::new(1),
+        pending: Mutex::new(HashMap::new()),
+        messages: Mutex::new(Vec::new()),
+        changed: Condvar::new(),
+        stderr: Mutex::new(Vec::new()),
+    });
+    let for_stderr = inner.clone();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            if let Ok(mut tail) = for_stderr.stderr.lock() {
+                tail.push(line);
+                if tail.len() > 200 {
+                    tail.remove(0);
+                }
+            }
+        }
+    });
+    let for_stdout = inner.clone();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            let Ok(message) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
+            let is_response = message.get("id").is_some() && message.get("method").is_none();
+            if is_response {
+                if let Some(id) = message.get("id").and_then(Value::as_i64) {
+                    let sender = for_stdout
+                        .pending
+                        .lock()
+                        .ok()
+                        .and_then(|mut p| p.remove(&id));
+                    if let Some(sender) = sender {
+                        let _ = sender.send(message.clone());
+                    }
+                }
+            }
+            let mut messages = for_stdout.messages.lock().expect("bus lock");
+            messages.push(message);
+            for_stdout.changed.notify_all();
+        }
+        for_stdout.changed.notify_all();
+    });
+
+    inner
+        .request(requests::initialize("pingex-e2e"))
+        .map_err(|error| error.to_string())?;
+    inner.write(&json!({"method": "initialized", "params": {}}))?;
+    Ok(inner)
+}
+
+impl Inner {
+    fn write(&self, message: &Value) -> Result<(), String> {
+        let mut stdin = self.stdin.lock().map_err(|_| "stdin poisoned")?;
+        writeln!(stdin, "{message}").map_err(io_err)?;
+        stdin.flush().map_err(io_err)
+    }
+
+    fn stderr_tail(&self) -> String {
+        self.stderr
+            .lock()
+            .map(|lines| {
+                lines
+                    .iter()
+                    .rev()
+                    .take(20)
+                    .rev()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_default()
+    }
+
+    fn request(&self, request: Request) -> Result<Value, RpcError> {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let (sender, receiver) = mpsc::channel();
+        self.pending
+            .lock()
+            .expect("pending lock")
+            .insert(id, sender);
+        let message = json!({"id": id, "method": request.method, "params": request.params});
+        if let Err(error) = self.write(&message) {
+            panic!(
+                "could not write {}: {error}\n{}",
+                request.method,
+                self.stderr_tail()
+            );
+        }
+        let response = receiver.recv_timeout(REQUEST_TIMEOUT).unwrap_or_else(|_| {
+            panic!(
+                "no response to {} within {:?}\nstderr:\n{}",
+                request.method,
+                REQUEST_TIMEOUT,
+                self.stderr_tail()
+            )
+        });
+        if let Some(error) = response.get("error") {
+            return Err(RpcError {
+                code: error
+                    .get("code")
+                    .and_then(Value::as_i64)
+                    .unwrap_or_default(),
+                message: error
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            });
+        }
+        Ok(response.get("result").cloned().unwrap_or(Value::Null))
+    }
+}
+
+/// Run an async storage call to completion on a private runtime.
+pub fn block_on<T>(future: impl std::future::Future<Output = T>) -> T {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime")
+        .block_on(future)
+}
+
+/// Run `git` in `dir`, panicking on failure.
+pub fn git(dir: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap_or_else(|error| panic!("git {args:?}: {error}"));
+    assert!(
+        output.status.success(),
+        "git {args:?} in {} failed:\n{}",
+        dir.display(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
 pub fn thread_id_of(response: &Value) -> String {

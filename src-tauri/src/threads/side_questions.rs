@@ -9,7 +9,7 @@ use crate::util::time::unix_secs;
 use crate::AppState;
 
 /// Side-question titles are one-line labels in the sidebar, so they are capped.
-const MAX_TITLE_CHARS: usize = 120;
+pub const MAX_TITLE_CHARS: usize = 120;
 
 #[tauri::command]
 pub(crate) async fn add_side_question(

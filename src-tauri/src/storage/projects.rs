@@ -92,7 +92,7 @@ pub(crate) async fn write_store(database: &Database, store: &Store) -> Result<()
 /// Threads started in a temporary worktree are listed under that repository,
 /// so the link has to outlive the worktree itself — removing the throwaway
 /// directory must not take its threads out of the sidebar with it.
-pub(crate) async fn record_temp_worktree(
+pub async fn record_temp_worktree(
     database: &Database,
     path: &str,
     parent_path: &str,
@@ -108,9 +108,7 @@ pub(crate) async fn record_temp_worktree(
 }
 
 /// Every remembered temporary worktree, as `(worktree path, repository path)`.
-pub(crate) async fn read_temp_worktrees(
-    database: &Database,
-) -> Result<Vec<(String, String)>, String> {
+pub async fn read_temp_worktrees(database: &Database) -> Result<Vec<(String, String)>, String> {
     let connection = db::conn(database)?;
     db::rows(
         &connection,

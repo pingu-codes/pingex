@@ -1,0 +1,3 @@
+{
+  "freshPlanPrompt": "Implement the plan below.\n\nIt was agreed in an earlier session that this thread cannot see, so the plan is your only context — re-read whatever files you need before changing anything.\n\n${PLAN}"
+}

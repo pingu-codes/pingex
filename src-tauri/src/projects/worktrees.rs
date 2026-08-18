@@ -44,10 +44,33 @@ fn discover_worktree_root(root: &Path) -> Vec<String> {
 /// Canonical-path prefix check shared by the worktree classifiers.
 fn path_under(root: PathBuf, path: &str) -> bool {
     let canonical_root = fs::canonicalize(&root).unwrap_or(root);
-    match fs::canonicalize(path) {
-        Ok(canonical) => canonical.starts_with(&canonical_root),
-        Err(_) => Path::new(path).starts_with(&canonical_root),
+    canonicalize_lenient(Path::new(path)).starts_with(&canonical_root)
+}
+
+/// `fs::canonicalize` for paths that may no longer exist (a removed temporary
+/// worktree): the longest existing ancestor is canonicalised and the missing
+/// tail re-appended, so a path spelled through a symlinked home still
+/// classifies after its directory is gone.
+fn canonicalize_lenient(path: &Path) -> PathBuf {
+    if let Ok(canonical) = fs::canonicalize(path) {
+        return canonical;
     }
+    let mut missing = Vec::new();
+    let mut current = path;
+    while let Some(parent) = current.parent() {
+        if let Some(name) = current.file_name() {
+            missing.push(name.to_owned());
+        }
+        if let Ok(canonical) = fs::canonicalize(parent) {
+            let mut rebuilt = canonical;
+            for part in missing.into_iter().rev() {
+                rebuilt.push(part);
+            }
+            return rebuilt;
+        }
+        current = parent;
+    }
+    path.to_path_buf()
 }
 
 /// A project is a Codex-managed permanent worktree only when its *canonical*
@@ -61,12 +84,22 @@ pub(crate) fn is_worktree_path(runtime: &RuntimeConfig, path: &str) -> bool {
 /// Temporary worktrees live under `<codex_home>/worktrees-tmp/` — persistent
 /// across app restarts (never the OS temp dir) but intended to be discarded.
 pub(crate) fn is_temp_worktree_path(runtime: &RuntimeConfig, path: &str) -> bool {
-    path_under(runtime.codex_home.join("worktrees-tmp"), path)
+    is_temp_worktree_path_under(&runtime.codex_home, path)
+}
+
+/// Where temporary worktrees for this Codex home live.
+pub fn temp_worktrees_root(codex_home: &Path) -> PathBuf {
+    codex_home.join("worktrees-tmp")
+}
+
+/// [`is_temp_worktree_path`] against an explicit Codex home.
+pub fn is_temp_worktree_path_under(codex_home: &Path, path: &str) -> bool {
+    path_under(temp_worktrees_root(codex_home), path)
 }
 
 /// The main working tree a linked worktree belongs to, so discovering a
 /// worktree also surfaces its repository in the sidebar.
-pub(crate) fn worktree_parent_project(worktree: &str) -> Option<String> {
+pub fn worktree_parent_project(worktree: &str) -> Option<String> {
     let output = Command::new("git")
         .args(["-C", worktree, "worktree", "list", "--porcelain"])
         .output()
@@ -110,6 +143,28 @@ mod tests {
         assert!(!is_temp_worktree_path(&runtime, &managed));
         assert!(is_temp_worktree_path(&runtime, &temporary));
         assert!(!is_worktree_path(&runtime, &impostor.display().to_string()));
+    }
+
+    #[test]
+    fn a_removed_temp_worktree_is_still_classified_under_a_symlinked_home() {
+        // macOS temp dirs are symlinks (/var → /private/var): a path that no
+        // longer exists cannot be canonicalised, but must still count when it
+        // is spelled through the non-canonical home.
+        let directory = tempfile::tempdir().unwrap();
+        let real_home = directory.path().join("real-home");
+        fs::create_dir_all(real_home.join("worktrees-tmp")).unwrap();
+        let linked_home = directory.path().join("linked-home");
+        std::os::unix::fs::symlink(&real_home, &linked_home).unwrap();
+        let gone = linked_home.join("worktrees-tmp/abc/removed");
+        assert!(!gone.exists());
+        assert!(is_temp_worktree_path_under(
+            &linked_home,
+            &gone.display().to_string()
+        ));
+        assert!(is_temp_worktree_path_under(
+            &real_home,
+            &gone.display().to_string()
+        ));
     }
 
     #[test]

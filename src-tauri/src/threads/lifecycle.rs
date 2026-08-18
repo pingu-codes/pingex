@@ -107,16 +107,10 @@ pub(crate) async fn thread_goal_set(
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     state.session.ensure_resumed(&app, &thread_id).await?;
-    let mut params = json!({"threadId": thread_id});
-    if let Some(objective) = objective {
-        params["objective"] = json!(objective);
-    }
-    if let Some(status) = status {
-        params["status"] = json!(status);
-    }
+    let request = requests::thread_goal_set(&thread_id, objective.as_deref(), status.as_deref());
     let response = state
         .session
-        .request(&app, "thread/goal/set", params)
+        .request(&app, request.method, request.params)
         .await?;
     response
         .get("goal")
@@ -132,9 +126,10 @@ pub(crate) async fn thread_goal_get(
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     state.session.ensure_resumed(&app, &thread_id).await?;
+    let request = requests::thread_goal_get(&thread_id);
     let response = state
         .session
-        .request(&app, "thread/goal/get", json!({"threadId": thread_id}))
+        .request(&app, request.method, request.params)
         .await?;
     Ok(response.get("goal").cloned().unwrap_or(Value::Null))
 }
@@ -147,9 +142,10 @@ pub(crate) async fn thread_goal_clear(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     state.session.ensure_resumed(&app, &thread_id).await?;
+    let request = requests::thread_goal_clear(&thread_id);
     state
         .session
-        .request(&app, "thread/goal/clear", json!({"threadId": thread_id}))
+        .request(&app, request.method, request.params)
         .await?;
     Ok(())
 }

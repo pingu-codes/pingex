@@ -11,9 +11,10 @@
 //! Run:  `deno task test:e2e:codex`   (PINGEX_LIVE_E2E=1, needs a Codex login)
 //! Skips silently otherwise so `cargo test` stays offline.
 
-mod fixtures;
 #[macro_use]
 mod harness;
+mod features;
+mod fixtures;
 
 use harness::{Server, TurnOutcome, MCP_SERVER, MCP_TOOL, SKILL_NAME, TURN_TIMEOUT};
 use pingex_app_lib::e2e::requests::{self, TurnOptions};

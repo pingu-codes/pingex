@@ -55,7 +55,15 @@ pub mod e2e {
     pub use crate::codex::requests;
     pub use crate::integrations::app_server::parse_skills;
     pub use crate::integrations::SkillSummary;
+    pub use crate::projects::worktrees::{
+        is_temp_worktree_path_under, temp_worktrees_root, worktree_parent_project,
+    };
+    pub use crate::storage::{
+        add_side_question, delete_side_question, open as open_database, read_side_questions,
+        read_temp_worktrees, record_temp_worktree, SideQuestion,
+    };
     pub use crate::threads::autoname::NAMER_INSTRUCTIONS;
+    pub use crate::threads::side_questions::MAX_TITLE_CHARS;
 }
 use util::time::unix_secs;
 
