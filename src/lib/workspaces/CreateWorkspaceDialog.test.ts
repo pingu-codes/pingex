@@ -5,7 +5,7 @@ import type { Project } from "$lib/types";
 import CreateWorkspaceDialog from "$lib/workspaces/CreateWorkspaceDialog.svelte";
 
 function project(name: string, path: string): Project {
-  return { name, path, kind: "folder", pinned: false, threads: [] };
+  return { name, path, kind: "folder", pinned: false, expanded: true, threads: [] };
 }
 
 const api = project("API", "/projects/api");
@@ -16,6 +16,7 @@ const workspace: Project = {
   kind: "multiProject",
   workspaceId: "workspace-1",
   pinned: false,
+  expanded: true,
   threads: [],
   members: [
     {

@@ -51,6 +51,7 @@ export const previewData: BootstrapData = {
       path: "/Users/ciaran/Projects/codex-custom",
       kind: "folder",
       pinned: false,
+      expanded: true,
       instructions: "Prefer small, focused PRs. Keep IPC in api.ts and never walk the filesystem from the renderer.",
       sources: [
         {
@@ -101,6 +102,7 @@ export const previewData: BootstrapData = {
       path: "/Users/ciaran/Projects/arctic-explorer",
       kind: "folder",
       pinned: false,
+      expanded: true,
       threads: [
         {
           id: "3",
@@ -127,6 +129,7 @@ export const previewData: BootstrapData = {
       path: "/Users/ciaran/.codex/worktrees/0357/search-ranking",
       kind: "worktree",
       pinned: false,
+      expanded: true,
       threads: [],
     },
   ],

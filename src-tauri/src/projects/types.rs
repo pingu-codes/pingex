@@ -38,6 +38,9 @@ pub(crate) struct Project {
     pub(crate) workspace_id: Option<String>,
     pub(crate) pinned: bool,
     pub(crate) archived: bool,
+    /// Whether the sidebar shows this project's threads. Missing preferences
+    /// default to true so new and pre-existing projects start expanded.
+    pub(crate) expanded: bool,
     pub(crate) threads: Vec<ThreadSummary>,
     /// Free-form project instructions; empty string when none are stored.
     pub(crate) instructions: String,
@@ -82,6 +85,7 @@ pub(crate) struct BootstrapData {
 pub(crate) struct BootstrapExtras {
     pub(crate) instructions: HashMap<String, String>,
     pub(crate) sources_by_project: HashMap<String, Vec<StoredProjectSource>>,
+    pub(crate) project_expansion: HashMap<String, bool>,
     pub(crate) workspaces: Vec<StoredWorkspace>,
     pub(crate) workspace_members: Vec<StoredWorkspaceMember>,
     pub(crate) workspace_threads: HashMap<String, String>,

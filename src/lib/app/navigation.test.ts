@@ -19,6 +19,7 @@ const api: Project = {
   path: "/projects/api",
   kind: "folder",
   pinned: false,
+  expanded: true,
   threads: [
     {
       id: "thread-1",

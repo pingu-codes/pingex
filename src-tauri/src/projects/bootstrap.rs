@@ -209,6 +209,7 @@ async fn read_bootstrap_extras(state: &AppState) -> Result<BootstrapExtras, Stri
         temp_worktree_parents,
         instructions,
         sources_by_project,
+        project_expansion: storage::read_project_expansion(&state.database()).await?,
         workspaces: storage::read_workspaces(&state.database()).await?,
         workspace_members: storage::read_all_workspace_members(&state.database()).await?,
         workspace_threads: storage::workspace_thread_map(&state.database()).await?,
@@ -227,6 +228,7 @@ fn build_bootstrap(
     let BootstrapExtras {
         instructions,
         mut sources_by_project,
+        project_expansion,
         workspaces,
         workspace_members,
         workspace_threads,
@@ -355,6 +357,7 @@ fn build_bootstrap(
             workspace_id: None,
             pinned: entry.pinned,
             archived: entry.archived,
+            expanded: project_expansion.get(&entry.path).copied().unwrap_or(true),
             threads,
             instructions: instructions.get(&entry.path).cloned().unwrap_or_default(),
             sources: sources_by_project.remove(&entry.path).unwrap_or_default(),
@@ -385,6 +388,10 @@ fn build_bootstrap(
             workspace_id: Some(workspace.id),
             pinned: false,
             archived: false,
+            expanded: project_expansion
+                .get(&workspace.hub_path)
+                .copied()
+                .unwrap_or(true),
             threads,
             instructions: instructions
                 .get(&workspace.hub_path)
@@ -538,6 +545,10 @@ mod tests {
             BootstrapExtras {
                 instructions: HashMap::new(),
                 sources_by_project: HashMap::new(),
+                project_expansion: HashMap::from([
+                    (source_path.clone(), false),
+                    (hub_path.clone(), false),
+                ]),
                 workspaces: vec![workspace],
                 workspace_members: vec![StoredWorkspaceMember {
                     workspace_id: "workspace-1".into(),
@@ -566,6 +577,7 @@ mod tests {
             .unwrap();
         assert_eq!(api.threads.len(), 1);
         assert_eq!(api.threads[0].id, "ordinary-thread");
+        assert!(!api.expanded);
         assert!(data
             .projects
             .iter()
@@ -576,6 +588,7 @@ mod tests {
             .find(|project| project.workspace_id.as_deref() == Some("workspace-1"))
             .unwrap();
         assert_eq!(workspace.kind, "multiProject");
+        assert!(!workspace.expanded);
         assert_eq!(workspace.threads[0].id, "workspace-thread");
         assert_eq!(workspace.members[0].alias, "api");
         assert!(workspace.members[0].available);
@@ -616,6 +629,7 @@ mod tests {
             BootstrapExtras {
                 instructions: HashMap::new(),
                 sources_by_project: HashMap::new(),
+                project_expansion: HashMap::new(),
                 workspaces: Vec::new(),
                 workspace_members: Vec::new(),
                 workspace_threads: HashMap::new(),
@@ -667,6 +681,7 @@ mod tests {
             BootstrapExtras {
                 instructions: HashMap::new(),
                 sources_by_project: HashMap::new(),
+                project_expansion: HashMap::new(),
                 workspaces: Vec::new(),
                 workspace_members: Vec::new(),
                 workspace_threads: HashMap::new(),
@@ -724,6 +739,7 @@ mod tests {
             BootstrapExtras {
                 instructions: HashMap::new(),
                 sources_by_project: HashMap::new(),
+                project_expansion: HashMap::new(),
                 workspaces: Vec::new(),
                 workspace_members: Vec::new(),
                 workspace_threads: HashMap::new(),

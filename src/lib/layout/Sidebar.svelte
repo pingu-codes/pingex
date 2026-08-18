@@ -27,6 +27,8 @@ import UsageMeter from "$lib/layout/UsageMeter.svelte";
 import { accountUsage } from "$lib/services/accountUsage.svelte";
 import { activeTurns, approvals, unansweredQuestions, userInputRequests } from "$lib/services/codexEvents.svelte";
 import { remoteConnections } from "$lib/services/connections.svelte";
+import { setProjectExpanded } from "$lib/services/api";
+import { toastError } from "$lib/toaster";
 import type {
   Account,
   ArchivedThread,
@@ -171,6 +173,12 @@ const onlineCount = $derived(activeConnectionCount(remoteConnections.list));
 
 const projectTarget = (project: Project): MenuTarget => ({ kind: "project", project });
 
+function persistProjectExpansion(project: Project, expanded: boolean) {
+  void setProjectExpanded(project.path, expanded).catch((cause) => {
+    toastError(`Could not save project expansion: ${cause instanceof Error ? cause.message : String(cause)}`);
+  });
+}
+
 /** Tooltip body for a project row: full path plus the checked-out branch once known. */
 function projectTooltip(project: Project): string {
   const branch = gitStatusCache.byPath[project.path]?.branch;
@@ -261,7 +269,7 @@ const threadTarget = (project: Project, thread: ThreadSummary): MenuTarget => ({
     {:else}
       <div class="space-y-0.5">
         {#each visibleProjects as project (project.path)}
-          <Collapsible defaultOpen={true}>
+          <Collapsible defaultOpen={project.expanded} onOpenChange={({ open }) => persistProjectExpansion(project, open)}>
             <div
               class="group/project relative flex items-center"
               role="presentation"

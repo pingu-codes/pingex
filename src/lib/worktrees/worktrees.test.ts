@@ -77,6 +77,7 @@ describe("worktree helpers", () => {
         name: "repo",
         kind: "folder",
         pinned: false,
+        expanded: true,
         threads: [
           { id: "1", cwd: "/repo/wt", title: "a", updatedAt: 0, status: "idle", pinned: false },
           { id: "2", cwd: "/repo/wt/sub", title: "b", updatedAt: 0, status: "idle", pinned: false },

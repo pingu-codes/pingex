@@ -25,6 +25,10 @@ const DDL: &str = "CREATE TABLE IF NOT EXISTS metadata (
      pinned INTEGER NOT NULL DEFAULT 0,
      archived INTEGER NOT NULL DEFAULT 0
  );
+ CREATE TABLE IF NOT EXISTS project_expansion (
+     project_path TEXT PRIMARY KEY,
+     expanded INTEGER NOT NULL
+ );
  CREATE TABLE IF NOT EXISTS pinned_threads (
      thread_id TEXT PRIMARY KEY
  );

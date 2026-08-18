@@ -16,6 +16,7 @@ pub(crate) mod db;
 mod account;
 mod agent_runs;
 mod items;
+mod project_expansion;
 mod projects;
 mod questions;
 mod review;
@@ -37,6 +38,7 @@ pub(crate) use items::{
     read_running_turns, read_thread_items, record_thread_item, record_turn_start,
     retain_thread_turns, JournaledItem,
 };
+pub(crate) use project_expansion::{read_project_expansion, set_project_expanded};
 pub(crate) use projects::{read_store, write_store, Store, StoredProject};
 pub use projects::{read_temp_worktrees, record_temp_worktree};
 pub(crate) use questions::{

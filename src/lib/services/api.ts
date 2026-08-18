@@ -171,6 +171,16 @@ export async function setProjectArchived(path: string, archived: boolean): Promi
   return invoke<BootstrapData>("set_project_archived", { path, archived });
 }
 
+/** Persist the sidebar expansion state without reloading the project tree. */
+export async function setProjectExpanded(path: string, expanded: boolean): Promise<void> {
+  if (!isTauri()) {
+    const project = previewData.projects.find((project) => project.path === path);
+    if (project) project.expanded = expanded;
+    return;
+  }
+  return invoke<void>("set_project_expanded", { path, expanded });
+}
+
 export async function setThreadPinned(threadId: string, pinned: boolean): Promise<BootstrapData> {
   if (!isTauri()) {
     for (const project of previewData.projects) {

@@ -32,6 +32,8 @@ export interface Project {
   workspaceId?: string;
   pinned: boolean;
   archived?: boolean;
+  /** Whether this project's thread list is expanded in the sidebar. */
+  expanded: boolean;
   threads: ThreadSummary[];
   /** Free-form project instructions; empty string when none are stored. */
   instructions?: string;

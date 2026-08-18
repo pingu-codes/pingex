@@ -3,8 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Sidebar from "$lib/layout/Sidebar.svelte";
 import { activeTurns, approvals, unansweredQuestions, userInputRequests } from "$lib/services/codexEvents.svelte";
+import { setProjectExpanded } from "$lib/services/api";
 import type { Project, SideQuestion } from "$lib/types";
 import { gitStatusCache } from "$lib/worktrees/gitStatus.svelte";
+
+vi.mock("$lib/services/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("$lib/services/api")>()),
+  setProjectExpanded: vi.fn(() => Promise.resolve()),
+}));
 
 function project(pinned = false, threadPinned = false): Project {
   return {
@@ -12,6 +18,7 @@ function project(pinned = false, threadPinned = false): Project {
     path: "/projects/codex-custom",
     kind: "folder",
     pinned,
+    expanded: true,
     threads: [
       {
         id: "thread-1",
@@ -65,6 +72,7 @@ describe("Sidebar", () => {
     unansweredQuestions.list = [];
     gitStatusCache.byPath = {};
     gitStatusCache.loading = {};
+    vi.mocked(setProjectExpanded).mockClear();
   });
 
   it("shows a working indicator for threads with an active turn", () => {
@@ -116,6 +124,24 @@ describe("Sidebar", () => {
     expect(screen.getByText("First thread")).not.toBeVisible();
     await user.click(projectButton);
     expect(screen.getByText("First thread")).toBeVisible();
+  });
+
+  it("starts collapsed when the bootstrap project says it is closed", () => {
+    const source = project();
+    source.expanded = false;
+    setup(source);
+
+    expect(screen.getByText("First thread")).not.toBeVisible();
+  });
+
+  it("persists each project expansion change", async () => {
+    const user = userEvent.setup();
+    const { source } = setup();
+    const projectButton = screen.getByText("codex-custom").closest("button") as HTMLButtonElement;
+
+    await user.click(projectButton);
+
+    expect(setProjectExpanded).toHaveBeenCalledWith(source.path, false);
   });
 
   it("exposes full project paths and thread names in tooltips", () => {

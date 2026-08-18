@@ -127,6 +127,16 @@ pub(crate) async fn set_project_archived(
     bootstrap_cached(&state).await
 }
 
+/// Persist a sidebar-only preference without rebuilding the project tree.
+#[tauri::command]
+pub(crate) async fn set_project_expanded(
+    path: String,
+    expanded: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    storage::set_project_expanded(&state.database(), &path, expanded).await
+}
+
 #[tauri::command]
 pub(crate) async fn set_thread_pinned(
     thread_id: String,

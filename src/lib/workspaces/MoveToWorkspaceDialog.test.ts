@@ -9,6 +9,7 @@ const folder: Project = {
   path: "/projects/api",
   kind: "folder",
   pinned: false,
+  expanded: true,
   threads: [],
 };
 const workspace: Project = {
@@ -17,6 +18,7 @@ const workspace: Project = {
   kind: "multiProject",
   workspaceId: "workspace-1",
   pinned: false,
+  expanded: true,
   threads: [],
   members: [
     { sourcePath: "/projects/api", effectivePath: "/projects/api", alias: "api", isolated: false, available: true },

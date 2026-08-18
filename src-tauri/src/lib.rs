@@ -180,6 +180,7 @@ pub fn run() {
             projects::commands::move_project,
             projects::commands::set_project_pinned,
             projects::commands::set_project_archived,
+            projects::commands::set_project_expanded,
             projects::commands::set_thread_pinned,
             projects::commands::read_account_rate_limits,
             projects::commands::read_thread_usage,
