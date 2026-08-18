@@ -77,31 +77,33 @@ function onKeydown(event: KeyboardEvent) {
     ></textarea>
   {:else}
     <span class="min-w-0 flex-1 truncate pt-0.5">{queuedText(entry.input)}</span>
-    {#if canSendNow}
+    <div class="flex shrink-0 items-center gap-2.5">
+      {#if canSendNow}
+        <TooltipButton
+          label="Send now (stops the current turn)"
+          aria-label="Send now"
+          onclick={onSendNow}
+          class="btn-icon btn-icon-sm rounded-md text-primary-500 transition hover:preset-tonal-primary"
+        >
+          <Send size={14} />
+        </TooltipButton>
+      {/if}
       <TooltipButton
-        label="Send now (stops the current turn)"
-        aria-label="Send now"
-        onclick={onSendNow}
-        class="shrink-0 text-surface-500 hover:text-surface-800-200"
+        label="Edit queued message"
+        aria-label="Edit queued message"
+        onclick={startEdit}
+        class="btn-icon btn-icon-sm rounded-md text-surface-600-400 transition hover:preset-tonal"
       >
-        <Send size={12} />
+        <Pencil size={14} />
       </TooltipButton>
-    {/if}
-    <TooltipButton
-      label="Edit queued message"
-      aria-label="Edit queued message"
-      onclick={startEdit}
-      class="shrink-0 text-surface-500 hover:text-surface-800-200"
-    >
-      <Pencil size={12} />
-    </TooltipButton>
-    <TooltipButton
-      label="Remove queued message"
-      aria-label="Remove queued message"
-      onclick={onCancel}
-      class="shrink-0 text-surface-500 hover:text-surface-800-200"
-    >
-      <X size={12} />
-    </TooltipButton>
+      <TooltipButton
+        label="Remove queued message"
+        aria-label="Remove queued message"
+        onclick={onCancel}
+        class="btn-icon btn-icon-sm rounded-md text-surface-600-400 transition hover:text-error-500 hover:preset-tonal"
+      >
+        <X size={14} />
+      </TooltipButton>
+    </div>
   {/if}
 </div>
