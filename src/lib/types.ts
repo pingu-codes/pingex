@@ -977,7 +977,8 @@ export interface McpServerSummary {
   name: string;
   transport: "stdio" | "http" | "unknown";
   command: string | null;
-  argCount: number;
+  /** The stdio `args` array verbatim (not secret, unlike `env` values). */
+  args: string[];
   url: string | null;
   /** Names of `env` keys (values are kept native-side and never sent here). */
   envKeys: string[];

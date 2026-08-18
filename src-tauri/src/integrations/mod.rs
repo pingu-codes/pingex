@@ -44,7 +44,9 @@ pub(crate) struct McpServerSummary {
     /// `"stdio"`, `"http"`, or `"unknown"` for malformed entries.
     pub(crate) transport: String,
     pub(crate) command: Option<String>,
-    pub(crate) arg_count: usize,
+    /// The stdio `args` array verbatim. Not secret, and the edit form needs the
+    /// real values to round-trip a "Configure" without dropping them.
+    pub(crate) args: Vec<String>,
     pub(crate) url: Option<String>,
     /// Names of `env` keys defined for a stdio server (values redacted).
     pub(crate) env_keys: Vec<String>,

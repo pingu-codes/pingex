@@ -310,7 +310,7 @@ pub fn run() {
             connections::commands::revoke_connection,
             // MCP servers and skills
             integrations::commands::list_integrations,
-            integrations::commands::add_mcp_server,
+            integrations::commands::save_mcp_server,
             integrations::commands::remove_mcp_server,
             integrations::commands::set_mcp_enabled,
             // Live state only Codex can answer for: startup status, tool

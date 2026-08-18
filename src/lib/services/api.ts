@@ -2,7 +2,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { previewStageBytes, previewStageFile, previewStageFromPath } from "$lib/services/preview/attachments";
 import {
   nextPreviewId,
-  previewAddMcpServer,
   previewAddSource,
   previewAgentRuns,
   previewAgentSettings,
@@ -32,6 +31,7 @@ import {
   previewRemoveSource,
   previewRuntimeSettings,
   previewSaveInstructions,
+  previewSaveMcpServer,
   previewSearchThreads,
   previewSearchWorkspace,
   previewSort,
@@ -936,7 +936,12 @@ export async function gitWorktreeHandoff(
   branchName?: string | null,
 ): Promise<string> {
   if (!isTauri()) return branchName || "codex/tmp-preview";
-  return invoke<string>("git_worktree_handoff", { worktreePath, targetDir, commitUncommitted, branchName: branchName ?? null });
+  return invoke<string>("git_worktree_handoff", {
+    worktreePath,
+    targetDir,
+    commitUncommitted,
+    branchName: branchName ?? null,
+  });
 }
 
 export async function gitRecentCommits(dir: string, limit = 20): Promise<GitCommit[]> {
@@ -1344,17 +1349,44 @@ export async function setSkillEnabled(name: string, enabled: boolean): Promise<v
   await invoke("set_skill_enabled", { name, enabled });
 }
 
-export async function addMcpServer(
-  name: string,
-  command: string,
-  args: string[],
-  env: Record<string, string>,
-): Promise<IntegrationsList> {
+/**
+ * Create an MCP server, or save edits to an existing one.
+ *
+ * `previousName` is what tells the two apart — pass the name the server is
+ * currently stored under to edit it, which is also how a rename is expressed.
+ * Transport follows the populated fields: `command` means stdio, `url` means
+ * streamable HTTP. `envKeys` is the full desired set of env variable names:
+ * values left blank keep the stored secret (which the UI never receives) and
+ * names missing from the set are dropped.
+ */
+export async function saveMcpServer(input: {
+  previousName?: string | null;
+  name: string;
+  command?: string | null;
+  args?: string[];
+  env?: Record<string, string>;
+  envKeys?: string[] | null;
+  url?: string | null;
+  bearerTokenEnvVar?: string | null;
+}): Promise<IntegrationsList> {
+  const args = input.args ?? [];
+  const env = input.env ?? {};
   if (!isTauri()) {
-    previewAddMcpServer(name, command, args, Object.keys(env));
+    previewSaveMcpServer({ ...input, args, envKeys: input.envKeys ?? Object.keys(env) });
     return structuredClone(previewIntegrations);
   }
-  return invoke<IntegrationsList>("add_mcp_server", { name, command, args, env });
+  return invoke<IntegrationsList>("save_mcp_server", {
+    server: {
+      previousName: input.previousName ?? null,
+      name: input.name,
+      command: input.command ?? null,
+      args,
+      env,
+      envKeys: input.envKeys ?? null,
+      url: input.url ?? null,
+      bearerTokenEnvVar: input.bearerTokenEnvVar ?? null,
+    },
+  });
 }
 
 export async function removeMcpServer(name: string): Promise<IntegrationsList> {

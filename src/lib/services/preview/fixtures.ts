@@ -1110,7 +1110,7 @@ export const previewIntegrations: IntegrationsList = {
       name: "github",
       transport: "stdio",
       command: "npx",
-      argCount: 2,
+      args: ["-y", "@modelcontextprotocol/server-github"],
       url: null,
       envKeys: ["GITHUB_TOKEN"],
       bearerTokenEnvVar: null,
@@ -1121,7 +1121,7 @@ export const previewIntegrations: IntegrationsList = {
       name: "linear",
       transport: "http",
       command: null,
-      argCount: 0,
+      args: [],
       url: "https://mcp.linear.app/sse",
       envKeys: [],
       bearerTokenEnvVar: "LINEAR_API_KEY",
@@ -1132,7 +1132,7 @@ export const previewIntegrations: IntegrationsList = {
       name: "filesystem",
       transport: "stdio",
       command: "uvx",
-      argCount: 1,
+      args: ["mcp-server-filesystem"],
       url: null,
       envKeys: [],
       bearerTokenEnvVar: null,
@@ -1248,21 +1248,35 @@ export function previewMcpOauthLogin(name: string): void {
   };
 }
 
-export function previewAddMcpServer(name: string, command: string, args: string[], envKeys: string[]): void {
+/** Mirror of the native `save_mcp_server` command for the browser preview. */
+export function previewSaveMcpServer(input: {
+  previousName?: string | null;
+  name: string;
+  command?: string | null;
+  args: string[];
+  envKeys: string[];
+  url?: string | null;
+  bearerTokenEnvVar?: string | null;
+}): void {
+  const previous = input.previousName
+    ? previewIntegrations.mcpServers.find((server) => server.name === input.previousName)
+    : undefined;
+  const stdio = Boolean(input.command?.trim());
   const summary: McpServerSummary = {
-    name,
-    transport: "stdio",
-    command,
-    argCount: args.length,
-    url: null,
-    envKeys,
-    bearerTokenEnvVar: null,
-    enabled: true,
+    name: input.name,
+    transport: stdio ? "stdio" : "http",
+    command: stdio ? (input.command?.trim() ?? null) : null,
+    args: stdio ? input.args : [],
+    url: stdio ? null : (input.url?.trim() ?? null),
+    envKeys: stdio ? input.envKeys : [],
+    bearerTokenEnvVar: stdio ? null : input.bearerTokenEnvVar?.trim() || null,
+    enabled: previous?.enabled ?? true,
     scope: "global",
   };
-  const index = previewIntegrations.mcpServers.findIndex((server) => server.name === name);
-  if (index >= 0) previewIntegrations.mcpServers[index] = summary;
-  else previewIntegrations.mcpServers.push(summary);
+  previewIntegrations.mcpServers = previewIntegrations.mcpServers.filter(
+    (server) => server.name !== input.name && server.name !== input.previousName,
+  );
+  previewIntegrations.mcpServers.push(summary);
   previewIntegrations.mcpServers.sort((a, b) => a.name.localeCompare(b.name));
 }
 

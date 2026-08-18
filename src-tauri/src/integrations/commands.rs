@@ -5,13 +5,14 @@
 //! reload — otherwise the running session keeps serving whatever servers it
 //! started with and the UI reports changes the agent cannot see.
 
+use serde::Deserialize;
 use std::collections::BTreeMap;
 use tauri::{AppHandle, State};
 
 use super::app_server::{fetch_skills, reload_mcp_config};
 use super::config_doc::{
-    load, remove_server_from_doc, save, set_enabled_in_doc, summarize_mcp_servers,
-    upsert_stdio_server, validate_server_name,
+    load, remove_server_from_doc, rename_server_in_doc, save, set_enabled_in_doc,
+    summarize_mcp_servers, upsert_http_server, upsert_stdio_server, validate_server_name,
 };
 use super::IntegrationsList;
 use crate::AppState;
@@ -44,19 +45,87 @@ pub(crate) async fn list_integrations(
     build_list(&app, &state, cwds.unwrap_or_default()).await
 }
 
-#[tauri::command]
-pub(crate) async fn add_mcp_server(
+/// One MCP server as the edit form describes it.
+///
+/// Transport is chosen by which fields are populated, matching Codex's own
+/// config shape: a `command` means stdio, a `url` means streamable HTTP.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct McpServerInput {
+    /// The name the server is currently stored under. `None` adds a new server;
+    /// `Some` edits that entry, which is also how a rename is expressed.
+    #[serde(default)]
+    previous_name: Option<String>,
     name: String,
-    command: String,
+    #[serde(default)]
+    command: Option<String>,
+    #[serde(default)]
     args: Vec<String>,
+    /// Newly typed secret values only; see `env_keys`.
+    #[serde(default)]
     env: BTreeMap<String, String>,
+    /// Full desired set of env variable names; see `upsert_stdio_server`. Absent
+    /// means "leave the stored env table alone".
+    #[serde(default)]
+    env_keys: Option<Vec<String>>,
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    bearer_token_env_var: Option<String>,
+}
+
+/// Add a new MCP server, or save edits to an existing one.
+#[tauri::command]
+pub(crate) async fn save_mcp_server(
+    server: McpServerInput,
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
+    let name = server.name;
     validate_server_name(&name)?;
     let home = state.runtime().codex_home;
     let mut doc = load(&home)?;
-    upsert_stdio_server(&mut doc, &name, &command, &args, &env)?;
+
+    // Rename first so every later edit targets the entry under its final key,
+    // and so a name collision fails before anything is written to disk.
+    match server.previous_name.as_deref() {
+        Some(previous) => rename_server_in_doc(&mut doc, previous, &name)?,
+        None => {
+            if summarize_mcp_servers(&doc)
+                .iter()
+                .any(|existing| existing.name == name)
+            {
+                return Err(format!("An MCP server named '{name}' already exists"));
+            }
+        }
+    }
+
+    let command = server
+        .command
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let url = server
+        .url
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    match (command, url) {
+        (Some(command), _) => upsert_stdio_server(
+            &mut doc,
+            &name,
+            &command,
+            &server.args,
+            &server.env,
+            server.env_keys.as_deref(),
+        )?,
+        (None, Some(url)) => upsert_http_server(
+            &mut doc,
+            &name,
+            &url,
+            server.bearer_token_env_var.as_deref(),
+        )?,
+        (None, None) => return Err("Provide a command (stdio) or a URL (http)".to_string()),
+    }
+
     save(&home, &doc)?;
     reload(&app, &state).await;
     // Re-read so the returned list reflects exactly what is on disk (redacted).

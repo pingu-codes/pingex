@@ -3,6 +3,7 @@ import {
   authAction,
   capabilitySummary,
   envKeysValid,
+  formatArgs,
   parseArgs,
   rowStatus,
   statusDotClass,
@@ -17,7 +18,7 @@ function server(overrides: Partial<McpServerSummary> = {}): McpServerSummary {
     name: "github",
     transport: "stdio",
     command: "npx",
-    argCount: 2,
+    args: ["-y", "server"],
     url: null,
     envKeys: [],
     bearerTokenEnvVar: null,
@@ -175,5 +176,13 @@ describe("parseArgs", () => {
 
   it("returns empty for blank input", () => {
     expect(parseArgs("   ")).toEqual([]);
+  });
+});
+
+describe("formatArgs", () => {
+  it("round-trips through parseArgs, quoting what would otherwise split", () => {
+    const args = ["-y", "pkg", "--flag=a b", "", "it's"];
+    expect(parseArgs(formatArgs(args))).toEqual(args);
+    expect(formatArgs(["-y", "pkg"])).toBe("-y pkg");
   });
 });

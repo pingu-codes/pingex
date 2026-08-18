@@ -9,7 +9,7 @@ const mcpOauthLogin = vi.fn();
 const setMcpEnabled = vi.fn();
 const setSkillEnabled = vi.fn();
 const removeMcpServer = vi.fn();
-const addMcpServer = vi.fn();
+const saveMcpServer = vi.fn();
 
 vi.mock("$lib/services/api", () => ({
   listIntegrations: () => listIntegrations(),
@@ -18,8 +18,7 @@ vi.mock("$lib/services/api", () => ({
   setMcpEnabled: (name: string, enabled: boolean) => setMcpEnabled(name, enabled),
   setSkillEnabled: (name: string, enabled: boolean) => setSkillEnabled(name, enabled),
   removeMcpServer: (name: string) => removeMcpServer(name),
-  addMcpServer: (name: string, command: string, args: string[], env: Record<string, string>) =>
-    addMcpServer(name, command, args, env),
+  saveMcpServer: (input: unknown) => saveMcpServer(input),
 }));
 
 import IntegrationsSection from "$lib/integrations/IntegrationsSection.svelte";
@@ -31,7 +30,7 @@ function fixture(): IntegrationsList {
         name: "github",
         transport: "stdio",
         command: "npx",
-        argCount: 2,
+        args: ["-y", "@modelcontextprotocol/server-github"],
         url: null,
         envKeys: ["GITHUB_TOKEN"],
         bearerTokenEnvVar: null,
@@ -42,7 +41,7 @@ function fixture(): IntegrationsList {
         name: "linear",
         transport: "http",
         command: null,
-        argCount: 0,
+        args: [],
         url: "https://mcp.linear.app",
         envKeys: [],
         bearerTokenEnvVar: "LINEAR_API_KEY",
@@ -172,7 +171,7 @@ describe("IntegrationsSection", () => {
 
   it("adds a new MCP server through the form", async () => {
     const user = userEvent.setup();
-    addMcpServer.mockResolvedValue(fixture());
+    saveMcpServer.mockResolvedValue(fixture());
     render(IntegrationsSection, {});
     await screen.findByText("GitHub");
     await user.click(screen.getByRole("button", { name: /Add MCP server/ }));
@@ -180,6 +179,66 @@ describe("IntegrationsSection", () => {
     await user.type(screen.getByLabelText("Command"), "npx");
     await user.type(screen.getByLabelText("Arguments"), "-y server-notion");
     await user.click(screen.getByRole("button", { name: "Add server" }));
-    await waitFor(() => expect(addMcpServer).toHaveBeenCalledWith("notion", "npx", ["-y", "server-notion"], {}));
+    await waitFor(() =>
+      expect(saveMcpServer).toHaveBeenCalledWith({
+        previousName: null,
+        name: "notion",
+        command: "npx",
+        args: ["-y", "server-notion"],
+        env: {},
+        envKeys: [],
+      }),
+    );
+  });
+
+  it("prefills an existing stdio server and saves edits, including a rename", async () => {
+    const user = userEvent.setup();
+    saveMcpServer.mockResolvedValue(fixture());
+    render(IntegrationsSection, {});
+    const row = (await screen.findByText("GitHub")).closest(".card") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "Edit" }));
+
+    // Args round-trip: editing must not silently drop them.
+    expect(screen.getByLabelText<HTMLInputElement>("Arguments").value).toBe("-y @modelcontextprotocol/server-github");
+    expect(screen.getByLabelText<HTMLInputElement>("Command").value).toBe("npx");
+
+    const name = screen.getByLabelText("Name");
+    await user.clear(name);
+    await user.type(name, "gh");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() =>
+      expect(saveMcpServer).toHaveBeenCalledWith({
+        previousName: "github",
+        name: "gh",
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-github"],
+        // No value typed, so the stored secret is preserved by omission while
+        // the key stays in the desired set.
+        env: {},
+        envKeys: ["GITHUB_TOKEN"],
+      }),
+    );
+  });
+
+  it("edits an HTTP server's url and bearer token variable", async () => {
+    const user = userEvent.setup();
+    saveMcpServer.mockResolvedValue(fixture());
+    render(IntegrationsSection, {});
+    const row = (await screen.findByText("linear")).closest(".card") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "Edit" }));
+
+    expect(screen.getByLabelText<HTMLInputElement>("URL").value).toBe("https://mcp.linear.app");
+    const url = screen.getByLabelText("URL");
+    await user.clear(url);
+    await user.type(url, "https://mcp.linear.app/sse");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() =>
+      expect(saveMcpServer).toHaveBeenCalledWith({
+        previousName: "linear",
+        name: "linear",
+        url: "https://mcp.linear.app/sse",
+        bearerTokenEnvVar: "LINEAR_API_KEY",
+      }),
+    );
   });
 });

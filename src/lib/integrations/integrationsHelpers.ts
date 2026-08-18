@@ -122,3 +122,18 @@ export function parseArgs(input: string): string[] {
   }
   return out;
 }
+
+/**
+ * Render an argv array back into the single-line form [`parseArgs`] accepts.
+ *
+ * The edit form round-trips through text, so anything with whitespace (or an
+ * empty string) has to come back quoted or it would silently split on save.
+ */
+export function formatArgs(args: string[]): string {
+  return args
+    .map((arg) => {
+      if (arg !== "" && !/[\s"']/.test(arg)) return arg;
+      return arg.includes('"') ? `'${arg}'` : `"${arg}"`;
+    })
+    .join(" ");
+}

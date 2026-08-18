@@ -5,6 +5,7 @@ import {
   authAction,
   capabilitySummary,
   envKeysValid,
+  formatArgs,
   type IntegrationFilter,
   parseArgs,
   rowStatus,
@@ -14,11 +15,11 @@ import {
   toolsOf,
 } from "$lib/integrations/integrationsHelpers";
 import {
-  addMcpServer,
   listIntegrations,
   listMcpServerStatus,
   mcpOauthLogin,
   removeMcpServer,
+  saveMcpServer,
   setMcpEnabled,
   setSkillEnabled,
 } from "$lib/services/api";
@@ -62,9 +63,13 @@ let confirmRemove = $state<string | null>(null);
 
 // Edit-form fields.
 let formName = $state("");
+/** `"stdio"` (command + args + env) or `"http"` (url + bearer token env var). */
+let formTransport = $state<"stdio" | "http">("stdio");
 let formCommand = $state("");
 let formArgs = $state("");
 let formEnv = $state<{ key: string; value: string }[]>([]);
+let formUrl = $state("");
+let formBearerEnv = $state("");
 let formError = $state<string | null>(null);
 let saving = $state(false);
 
@@ -167,20 +172,28 @@ async function toggleSkill(skill: SkillSummary) {
 function openAdd() {
   editing = "";
   formName = "";
+  formTransport = "stdio";
   formCommand = "";
   formArgs = "";
   formEnv = [];
+  formUrl = "";
+  formBearerEnv = "";
   formError = null;
 }
 
 function openConfigure(server: McpServerSummary) {
   editing = server.name;
   formName = server.name;
+  // An entry with neither command nor url is malformed; editing it as stdio is
+  // the repair path, since that is the transport the command field writes.
+  formTransport = server.transport === "http" ? "http" : "stdio";
   formCommand = server.command ?? "";
-  formArgs = "";
+  formArgs = formatArgs(server.args);
   // Existing secret values are never sent to the UI: show key names with empty,
   // write-only value fields. Leaving them blank preserves the stored secrets.
   formEnv = server.envKeys.map((key) => ({ key, value: "" }));
+  formUrl = server.url ?? "";
+  formBearerEnv = server.bearerTokenEnvVar ?? "";
   formError = null;
 }
 
@@ -205,12 +218,16 @@ async function saveForm(event: SubmitEvent) {
     formError = "Name is required.";
     return;
   }
-  if (!formCommand.trim()) {
+  if (formTransport === "stdio" && !formCommand.trim()) {
     formError = "Command is required.";
     return;
   }
+  if (formTransport === "http" && !formUrl.trim()) {
+    formError = "URL is required.";
+    return;
+  }
   const keys = formEnv.map((row) => row.key.trim());
-  if (!envKeysValid(keys)) {
+  if (formTransport === "stdio" && !envKeysValid(keys)) {
     formError = "Environment variable names must be unique and non-empty.";
     return;
   }
@@ -222,7 +239,28 @@ async function saveForm(event: SubmitEvent) {
   }
   saving = true;
   try {
-    apply(await addMcpServer(name, formCommand.trim(), parseArgs(formArgs), env));
+    apply(
+      await saveMcpServer(
+        formTransport === "stdio"
+          ? {
+              // "" means the Add form, where there is no prior entry to edit.
+              previousName: editing === "" ? null : editing,
+              name,
+              command: formCommand.trim(),
+              args: parseArgs(formArgs),
+              env,
+              // Rows still on screen define the desired key set; anything the
+              // user deleted is pruned from the stored env by its absence.
+              envKeys: keys.filter(Boolean),
+            }
+          : {
+              previousName: editing === "" ? null : editing,
+              name,
+              url: formUrl.trim(),
+              bearerTokenEnvVar: formBearerEnv.trim() || null,
+            },
+      ),
+    );
     editing = null;
     await refreshStatus();
   } catch (cause) {
@@ -299,18 +337,36 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
   {#if editing !== null}
     <form onsubmit={saveForm} class="card mt-4 space-y-3 border border-surface-200-800 bg-surface-100-900 p-4">
       <div class="text-xs font-semibold text-surface-500">
-        {editing === "" ? "Add MCP server" : `Configure ${editing}`}
+        {editing === "" ? "Add MCP server" : `Edit ${editing}`}
       </div>
       <div>
         <label for="mcp-name" class="text-xs font-medium text-surface-500">Name</label>
         <input
           id="mcp-name"
           bind:value={formName}
-          disabled={editing !== ""}
           placeholder="github"
-          class="input mt-1 w-full font-mono text-xs disabled:opacity-60" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck={false}
+          class="input mt-1 w-full font-mono text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck={false}
         />
+        {#if editing !== "" && formName.trim() !== editing}
+          <p class="mt-1 text-[11px] text-surface-500">Renaming keeps this server's settings and stored secrets.</p>
+        {/if}
       </div>
+      <div>
+        <span class="text-xs font-medium text-surface-500">Transport</span>
+        <div class="mt-1 flex gap-1">
+          {#each [{ id: "stdio", label: "stdio (command)" }, { id: "http", label: "HTTP (url)" }] as option (option.id)}
+            <button
+              type="button"
+              onclick={() => (formTransport = option.id as "stdio" | "http")}
+              aria-pressed={formTransport === option.id}
+              class="btn btn-sm text-xs {formTransport === option.id ? 'preset-filled-surface-200-800' : 'hover:preset-tonal text-surface-500'}"
+            >
+              {option.label}
+            </button>
+          {/each}
+        </div>
+      </div>
+      {#if formTransport === "stdio"}
       <div>
         <label for="mcp-command" class="text-xs font-medium text-surface-500">Command</label>
         <input id="mcp-command" bind:value={formCommand} placeholder="npx" class="input mt-1 w-full font-mono text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck={false}
@@ -359,6 +415,29 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
           {/each}
         </div>
       </div>
+      {:else}
+      <div>
+        <label for="mcp-url" class="text-xs font-medium text-surface-500">URL</label>
+        <input
+          id="mcp-url"
+          bind:value={formUrl}
+          placeholder="https://mcp.example.com/sse"
+          class="input mt-1 w-full font-mono text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck={false}
+        />
+      </div>
+      <div>
+        <label for="mcp-bearer" class="text-xs font-medium text-surface-500">Bearer token variable</label>
+        <input
+          id="mcp-bearer"
+          bind:value={formBearerEnv}
+          placeholder="LINEAR_API_KEY"
+          class="input mt-1 w-full font-mono text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck={false}
+        />
+        <p class="mt-1 text-[11px] text-surface-500">
+          Name of an environment variable holding the token. Leave blank to sign in with OAuth instead.
+        </p>
+      </div>
+      {/if}
       {#if formError}
         <div class="card preset-tonal-error px-3 py-2 text-xs">{formError}</div>
       {/if}
@@ -431,7 +510,7 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
               <button type="button" onclick={() => toggleEnabled(server)} class="btn btn-sm hover:preset-tonal text-xs">
                 {server.enabled ? "Disable" : "Enable"}
               </button>
-              <button type="button" onclick={() => openConfigure(server)} class="btn btn-sm hover:preset-tonal text-xs">Configure</button>
+              <button type="button" onclick={() => openConfigure(server)} class="btn btn-sm hover:preset-tonal text-xs">Edit</button>
               {#if tools.length > 0}
                 <button
                   type="button"
