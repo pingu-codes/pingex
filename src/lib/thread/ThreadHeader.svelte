@@ -1,11 +1,21 @@
 <script lang="ts">
-import { ChevronDown, Copy, GitBranch, Home, Link2, Send, TerminalSquare } from "@lucide/svelte";
+import { ArrowLeftRight, ChevronDown, Copy, GitBranch, Home, Link2, Send, TerminalSquare } from "@lucide/svelte";
+import { projects } from "$lib/app/appData.svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
-import { forkThread, handoffCommand, handoffCopy, handoffLaunchTerminal, handoffThreadLink } from "$lib/services/api";
+import {
+  forkThread,
+  gitWorktreeHandoff,
+  handoffCommand,
+  handoffCopy,
+  handoffLaunchTerminal,
+  handoffThreadLink,
+} from "$lib/services/api";
 import HandoffConfirmDialog from "$lib/thread/HandoffConfirmDialog.svelte";
+import HandoffToLocalDialog from "$lib/thread/HandoffToLocalDialog.svelte";
 import { canHandoff, dirName, shortHomeName } from "$lib/thread/handoff";
 import MoveToWorktreeDialog from "$lib/thread/MoveToWorktreeDialog.svelte";
-import { ensureGitStatus, gitStatusCache } from "$lib/worktrees/gitStatus.svelte";
+import { ensureGitStatus, gitStatusCache, refreshGitStatus } from "$lib/worktrees/gitStatus.svelte";
+import { isTempWorktreePath } from "$lib/worktrees/worktrees";
 
 let {
   codexHome,
@@ -82,6 +92,29 @@ async function copyThreadLink() {
   }
 }
 
+const inTempWorktree = $derived(isTempWorktreePath(cwd));
+
+/** Check the temporary worktree's branch out locally and continue the thread there. */
+function openHandoffToLocal() {
+  closeMenu();
+  const thread = threadId;
+  if (!thread) return;
+  const targets = projects()
+    .filter((project) => project.kind === "folder" && !project.archived && !isTempWorktreePath(project.path))
+    .map((project) => ({ path: project.path, name: project.name }));
+  openDialog(HandoffToLocalDialog, {
+    worktreePath: cwd,
+    targets,
+    defaultTarget: repoDir,
+    submit: async (targetDir: string, commitUncommitted: boolean) => {
+      await gitWorktreeHandoff(cwd, targetDir, commitUncommitted);
+      refreshGitStatus(targetDir);
+      const forked = await forkThread(thread, undefined, undefined, targetDir);
+      onMovedToWorktree(forked.id);
+    },
+  });
+}
+
 function openMoveToWorktree() {
   closeMenu();
   const thread = threadId;
@@ -144,6 +177,12 @@ function openMoveToWorktree() {
           <TerminalSquare size={14} class="shrink-0 text-surface-500" />
           <span class="min-w-0 flex-1">Continue in terminal</span>
         </button>
+        {#if inTempWorktree}
+          <button onclick={openHandoffToLocal} class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal" role="menuitem">
+            <ArrowLeftRight size={14} class="shrink-0 text-surface-500" />
+            <span class="min-w-0 flex-1">Hand off to local</span>
+          </button>
+        {/if}
         <button onclick={openMoveToWorktree} class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal" role="menuitem">
           <GitBranch size={14} class="shrink-0 text-surface-500" />
           <span class="min-w-0 flex-1">Move to worktree</span>

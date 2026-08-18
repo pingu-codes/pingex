@@ -13,6 +13,7 @@ import {
   compactThread,
   copyText,
   getThreadGoal,
+  gitChangesSummary,
   gitRecentCommits,
   gitRepoInfo,
   gitWorktreeAdd,
@@ -89,6 +90,7 @@ import WorkItem from "$lib/thread/WorkItem.svelte";
 import { toastError } from "$lib/toaster";
 import type {
   BootstrapData,
+  ChangesSummary,
   FileUpdateChange,
   GitCommit,
   GitRepoInfo,
@@ -832,6 +834,57 @@ const outputChanges = $derived(collectFileChanges(allItems));
  */
 let workingDiff = $state<FileUpdateChange[] | null>(null);
 const panelChanges = $derived(workingDiff ?? outputChanges);
+
+/**
+ * Git-derived "Changes" summary for the thread's directory. Only the cheap
+ * summary is fetched here (numstat, no diff bodies); it refreshes when a turn
+ * finishes, never on a timer, and each file's patch loads on demand.
+ */
+let gitChanges = $state<ChangesSummary | null>(null);
+let gitChangesLoading = $state(false);
+let gitChangesError = $state<string | null>(null);
+let gitChangesTimer: ReturnType<typeof setTimeout> | null = null;
+let gitChangesRequest = 0;
+const changesDir = $derived(workspaceId ? cwd : thread?.cwd || cwd);
+
+function refreshGitChanges(immediate = false) {
+  if (gitChangesTimer) clearTimeout(gitChangesTimer);
+  gitChangesTimer = setTimeout(
+    async () => {
+      gitChangesTimer = null;
+      const dir = changesDir;
+      if (!dir) return;
+      const id = ++gitChangesRequest;
+      gitChangesLoading = true;
+      try {
+        const summary = await gitChangesSummary(dir);
+        if (id !== gitChangesRequest) return;
+        gitChanges = summary;
+        gitChangesError = null;
+      } catch (cause) {
+        if (id !== gitChangesRequest) return;
+        gitChanges = null;
+        gitChangesError = cause instanceof Error ? cause.message : String(cause);
+      } finally {
+        if (id === gitChangesRequest) gitChangesLoading = false;
+      }
+    },
+    immediate ? 0 : 500,
+  );
+}
+
+// Load once per directory, then again each time a turn ends.
+$effect(() => {
+  changesDir;
+  gitChanges = null;
+  refreshGitChanges(true);
+});
+let hadActiveTurn = false;
+$effect(() => {
+  const running = activeTurn !== null;
+  if (hadActiveTurn && !running) refreshGitChanges();
+  hadActiveTurn = running;
+});
 const sourceQueries = $derived(
   allItems.filter((item) => item.type === "webSearch" && item.query).map((item) => item.query as string),
 );
@@ -1215,6 +1268,11 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
         workingDiff = null;
         panelView = { kind: "diffs", focusPath: path };
       }}
+      gitChanges={gitChanges}
+      onShowChanges={(path) => {
+        refreshGitChanges();
+        panelView = { kind: "changes", focusPath: path };
+      }}
       onShowFiles={() => (panelView = { kind: "files" })}
       onShowMessageLog={() => (panelView = { kind: "messageLog" })}
       onOpenSubagent={(agent) => (onOpenSubagent ? onOpenSubagent(agent) : onSelectThread?.(agent.id))}
@@ -1466,6 +1524,10 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
     parentThreadId={liveThreadId}
     {sideQuestions}
     changes={panelChanges}
+    {gitChanges}
+    {gitChangesLoading}
+    {gitChangesError}
+    onRefreshGitChanges={() => refreshGitChanges(true)}
     {contextStats}
     costUsd={estimateCost(tokenUsage, activeModel)}
     {activeModel}

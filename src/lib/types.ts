@@ -737,6 +737,45 @@ export interface WorktreeEntry {
   state: string | null;
 }
 
+/** One changed path in the "Changes" view (working tree + commits vs base). */
+export interface ChangedFile {
+  path: string;
+  oldPath: string | null;
+  status: "added" | "modified" | "deleted" | "renamed" | "untracked";
+  additions: number;
+  deletions: number;
+  binary: boolean;
+}
+
+/** Cheap summary of a directory's changes — never carries diff bodies. */
+export interface ChangesSummary {
+  /** Revision compared against: `HEAD`, or a merge-base for a linked worktree. */
+  base: string;
+  baseBranch: string | null;
+  files: ChangedFile[];
+  truncated: boolean;
+  totalFiles: number;
+  additions: number;
+  deletions: number;
+}
+
+/** One file's patch, read with a hard byte cap on the backend. */
+export interface FileDiff {
+  path: string;
+  patch: string;
+  truncated: boolean;
+  binary: boolean;
+  bytes: number;
+}
+
+export interface WorktreeHandoffPreflight {
+  branch: string | null;
+  worktreeDirty: boolean;
+  targetDirty: boolean;
+  /** Blocking reason in dialog wording; null when ready. */
+  blocker: string | null;
+}
+
 export interface GitCommit {
   hash: string;
   shortHash: string;

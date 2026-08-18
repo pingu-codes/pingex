@@ -16,6 +16,7 @@ import {
 import DiffBlock from "$lib/components/DiffBlock.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import MessageLog from "$lib/layout/MessageLog.svelte";
+import ChangesPanel from "$lib/panels/ChangesPanel.svelte";
 import FileTree from "$lib/panels/FileTree.svelte";
 import ProcessDetail from "$lib/panels/ProcessDetail.svelte";
 import SideQuestions from "$lib/panels/SideQuestions.svelte";
@@ -23,7 +24,7 @@ import ThreadStatus from "$lib/panels/ThreadStatus.svelte";
 import { revealInFinder } from "$lib/services/api";
 import { processByKey, type RunningProcess } from "$lib/services/processes.svelte";
 import type { ContextStats } from "$lib/thread/contextUsage";
-import type { BootstrapData, FileUpdateChange, SideQuestion } from "$lib/types";
+import type { BootstrapData, ChangesSummary, FileUpdateChange, SideQuestion } from "$lib/types";
 import { renderMarkdown } from "$lib/utils/markdown";
 import { loadSize, resizeHandle } from "$lib/utils/resize";
 
@@ -32,6 +33,7 @@ export type PanelView =
   | { kind: "sources"; queries: string[] }
   | { kind: "side" }
   | { kind: "diffs"; focusPath?: string | null }
+  | { kind: "changes"; focusPath?: string | null }
   | { kind: "files" }
   | { kind: "messageLog" }
   | { kind: "status" }
@@ -42,6 +44,10 @@ let {
   parentThreadId,
   sideQuestions,
   changes = [],
+  gitChanges = null,
+  gitChangesLoading = false,
+  gitChangesError = null,
+  onRefreshGitChanges = () => {},
   cwd = "",
   contextStats = null,
   costUsd = null,
@@ -57,6 +63,11 @@ let {
   parentThreadId: string | null;
   sideQuestions: SideQuestion[];
   changes?: FileUpdateChange[];
+  /** Git-derived changes for the `changes` view (summary only; diffs load lazily). */
+  gitChanges?: ChangesSummary | null;
+  gitChangesLoading?: boolean;
+  gitChangesError?: string | null;
+  onRefreshGitChanges?: () => void;
   cwd?: string;
   /** Context usage for the `status` view. */
   contextStats?: ContextStats | null;
@@ -125,10 +136,13 @@ function openProjectFile(relativePath: string) {
       <span class="flex-1 text-xs font-semibold">Sources</span>
     {:else if view.kind === "diffs"}
       <FileDiff size={14} class="text-surface-500" />
-      <span class="flex-1 text-xs font-semibold">Changes</span>
+      <span class="flex-1 text-xs font-semibold">Outputs</span>
       {#if changes.length > 0}
         <span class="text-[10px] text-surface-500">{changes.length}</span>
       {/if}
+    {:else if view.kind === "changes"}
+      <FileDiff size={14} class="text-surface-500" />
+      <span class="flex-1 text-xs font-semibold">Changes</span>
     {:else if view.kind === "files"}
       <FolderTree size={14} class="text-surface-500" />
       <span class="flex-1 text-xs font-semibold">Files</span>
@@ -166,6 +180,15 @@ function openProjectFile(relativePath: string) {
             {/each}
           </div>
         {/if}
+      {:else if view.kind === "changes"}
+        <ChangesPanel
+          {cwd}
+          summary={gitChanges}
+          loading={gitChangesLoading}
+          error={gitChangesError}
+          focusPath={view.focusPath ?? null}
+          onRefresh={onRefreshGitChanges}
+        />
       {:else if view.kind === "files"}
         <FileTree root={cwd} onOpenFile={openProjectFile} />
       {:else if view.kind === "plan"}

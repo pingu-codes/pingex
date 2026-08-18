@@ -11,6 +11,7 @@
 //! repository can never interleave.
 
 mod branches;
+mod changes;
 pub(crate) mod commands;
 mod commits;
 mod run;

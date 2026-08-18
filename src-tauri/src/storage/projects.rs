@@ -107,6 +107,18 @@ pub async fn record_temp_worktree(
     .await
 }
 
+/// Forget a temporary worktree once its branch has been handed off; the
+/// directory is gone and its threads move with the branch.
+pub async fn remove_temp_worktree(database: &Database, path: &str) -> Result<(), String> {
+    let connection = db::conn(database)?;
+    db::exec(
+        &connection,
+        "DELETE FROM temp_worktrees WHERE path = ?",
+        params![path.to_string()],
+    )
+    .await
+}
+
 /// Every remembered temporary worktree, as `(worktree path, repository path)`.
 pub async fn read_temp_worktrees(database: &Database) -> Result<Vec<(String, String)>, String> {
     let connection = db::conn(database)?;

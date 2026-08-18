@@ -274,6 +274,10 @@ pub fn run() {
             git::commands::git_worktree_prune,
             git::commands::git_worktree_lock,
             git::commands::git_worktree_unlock,
+            git::commands::git_changes_summary,
+            git::commands::git_file_diff,
+            git::commands::git_worktree_handoff_preflight,
+            git::commands::git_worktree_handoff,
             // Handoff to a terminal or another Codex home
             handoff::commands::handoff_command,
             handoff::commands::handoff_thread_link,

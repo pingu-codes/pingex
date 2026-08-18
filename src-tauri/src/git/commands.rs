@@ -8,6 +8,10 @@ use std::path::{Path, PathBuf};
 use tauri::State;
 
 use super::branches::read_branches;
+use super::changes::{
+    handoff, handoff_preflight, read_changes_summary, read_file_diff, ChangesSummary, FileDiff,
+    HandoffPreflight, DEFAULT_DIFF_BYTES,
+};
 use super::commits::read_recent_commits;
 use super::run::{common_dir_of, lock_for_common_dir, redact_git_error, run_git, WRITE_TIMEOUT};
 use super::status::{read_repo_info, read_status};
@@ -222,6 +226,86 @@ pub(crate) async fn git_worktree_unlock(repo_dir: String, path: String) -> Resul
     })
     .await
     .map_err(|_| "Git operation failed".to_string())?
+}
+
+#[tauri::command]
+pub(crate) async fn git_changes_summary(
+    dir: String,
+    state: State<'_, AppState>,
+) -> Result<ChangesSummary, String> {
+    let codex_home = state.runtime().codex_home;
+    tauri::async_runtime::spawn_blocking(move || read_changes_summary(Path::new(&dir), &codex_home))
+        .await
+        .map_err(|_| "Git inspection failed".to_string())?
+}
+
+#[tauri::command]
+pub(crate) async fn git_file_diff(
+    dir: String,
+    base: String,
+    path: String,
+    untracked: bool,
+    max_bytes: Option<usize>,
+) -> Result<FileDiff, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        read_file_diff(
+            Path::new(&dir),
+            &base,
+            &path,
+            untracked,
+            max_bytes.unwrap_or(DEFAULT_DIFF_BYTES),
+        )
+    })
+    .await
+    .map_err(|_| "Git inspection failed".to_string())?
+}
+
+#[tauri::command]
+pub(crate) async fn git_worktree_handoff_preflight(
+    worktree_path: String,
+    target_dir: String,
+    state: State<'_, AppState>,
+) -> Result<HandoffPreflight, String> {
+    let codex_home = state.runtime().codex_home;
+    tauri::async_runtime::spawn_blocking(move || {
+        handoff_preflight(
+            Path::new(&worktree_path),
+            Path::new(&target_dir),
+            &codex_home,
+        )
+    })
+    .await
+    .map_err(|_| "Git inspection failed".to_string())?
+}
+
+/// Check the temporary worktree's branch out in `target_dir` and remove the
+/// worktree, so the thread can continue in the local checkout.
+#[tauri::command]
+pub(crate) async fn git_worktree_handoff(
+    worktree_path: String,
+    target_dir: String,
+    commit_uncommitted: bool,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let codex_home = state.runtime().codex_home;
+    let database = state.database();
+    let worktree_for_db = worktree_path.clone();
+    let branch = tauri::async_runtime::spawn_blocking(move || {
+        let target = PathBuf::from(&target_dir);
+        let common = common_dir_of(&target)?;
+        let guard = lock_for_common_dir(&common);
+        let _lock = guard.lock().expect("git common-dir lock poisoned");
+        handoff(
+            Path::new(&worktree_path),
+            &target,
+            &codex_home,
+            commit_uncommitted,
+        )
+    })
+    .await
+    .map_err(|_| "Git operation failed".to_string())??;
+    let _ = storage::remove_temp_worktree(&database, &worktree_for_db).await;
+    Ok(branch)
 }
 
 #[cfg(test)]

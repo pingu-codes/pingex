@@ -23,12 +23,13 @@ import { processClock, type RunningProcess } from "$lib/services/processes.svelt
 import { type ContextStats, formatTokens, formatTokensShort } from "$lib/thread/contextUsage";
 import { changeLabel } from "$lib/thread/fileChanges";
 import { formatCost } from "$lib/thread/usageCost";
-import type { FileUpdateChange, SubagentDetail } from "$lib/types";
+import type { ChangesSummary, FileUpdateChange, SubagentDetail } from "$lib/types";
 import { fileIconFor } from "$lib/utils/fileIcons";
 
 let {
   plan,
   outputs,
+  gitChanges = null,
   sources,
   sideQuestionCount,
   subagents = [],
@@ -42,6 +43,7 @@ let {
   onShowSources,
   onShowSideQuestions,
   onShowDiff,
+  onShowChanges = () => {},
   onShowFiles,
   onShowMessageLog,
   onOpenSubagent = () => {},
@@ -51,6 +53,8 @@ let {
   plan: string | null;
   /** Every file the thread touched — created, edited, deleted alike. */
   outputs: FileUpdateChange[];
+  /** Git-derived summary of the working directory's changes vs its base. */
+  gitChanges?: ChangesSummary | null;
   sources: string[];
   sideQuestionCount: number;
   subagents?: SubagentDetail[];
@@ -67,6 +71,7 @@ let {
   onShowSources: () => void;
   onShowSideQuestions: () => void;
   onShowDiff: (path: string | null) => void;
+  onShowChanges?: (path: string | null) => void;
   onShowFiles: () => void;
   onShowMessageLog: () => void;
   onOpenSubagent?: (agent: SubagentDetail) => void;
@@ -76,6 +81,10 @@ let {
 } = $props();
 
 let openIn = $state(false);
+// Collapsed by default: git changes are secondary to the thread's own outputs
+// and can be long, so they only take space when asked for.
+let changesOpen = $state(false);
+const changeRows = $derived(gitChanges?.files ?? []);
 // The overview panel is persistent: it starts open and only the toggle
 // button closes it, so opening plan/sources/side questions keeps it around.
 let panel = $state(true);
@@ -308,6 +317,51 @@ function closeDropdown() {
           <FileDiff size={13} class="shrink-0" />
           <span class="min-w-0 flex-1 truncate">All {outputs.length} changed files</span>
         </button>
+      {/if}
+
+      <button
+        onclick={() => (changesOpen = !changesOpen)}
+        aria-expanded={changesOpen}
+        class="mt-2 flex w-full items-center gap-1 border-t border-surface-200-800 px-1 pb-1 pt-2 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-surface-500"
+      >
+        <span class="flex-1">Changes</span>
+        {#if gitChanges && gitChanges.totalFiles > 0}
+          <span class="tabular-nums normal-case tracking-normal">
+            {gitChanges.totalFiles} · <span class="text-success-500">+{gitChanges.additions}</span> <span class="text-error-500">−{gitChanges.deletions}</span>
+          </span>
+        {/if}
+        <ChevronDown size={12} class="shrink-0 transition {changesOpen ? 'rotate-180' : ''}" />
+      </button>
+      {#if changesOpen}
+        {#if !gitChanges}
+          <p class="px-2 py-1 text-xs text-surface-500">Not a Git repository.</p>
+        {:else if changeRows.length === 0}
+          <p class="px-2 py-1 text-xs text-surface-500">No changes{gitChanges.baseBranch ? ` vs ${gitChanges.baseBranch}` : ""}.</p>
+        {:else}
+          <div class="max-h-56 overflow-y-auto">
+            <!-- Only the first rows are listed here; the panel pages the rest. -->
+            {#each changeRows.slice(0, 50) as file (file.path)}
+              {@const icon = fileIconFor(basename(file.path))}
+              <button
+                onclick={() => onShowChanges(file.path)}
+                title={file.path}
+                class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal"
+              >
+                <icon.icon size={13} class="shrink-0 {icon.class}" />
+                <span class="min-w-0 flex-1 truncate">{basename(file.path)}</span>
+                <span class="shrink-0 text-[10px] tabular-nums text-success-500">+{file.additions}</span>
+                <span class="shrink-0 text-[10px] tabular-nums text-error-500">−{file.deletions}</span>
+              </button>
+            {/each}
+          </div>
+          <button
+            onclick={() => onShowChanges(null)}
+            class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-surface-500 hover:preset-tonal"
+          >
+            <FileDiff size={13} class="shrink-0" />
+            <span class="min-w-0 flex-1 truncate">All {gitChanges.totalFiles} changed files</span>
+          </button>
+        {/if}
       {/if}
 
       <div class="mt-2 border-t border-surface-200-800 px-1 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-surface-500">Sources</div>

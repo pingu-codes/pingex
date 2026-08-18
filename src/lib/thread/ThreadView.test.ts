@@ -565,7 +565,7 @@ describe("ThreadView right panel", () => {
     await user.click(screen.getByTitle("View diff for src/lib/api.ts"));
 
     const panel = screen.getByRole("complementary", { name: "Thread side panel" });
-    expect(within(panel).getByText("Changes")).toBeInTheDocument();
+    expect(within(panel).getByText("Outputs")).toBeInTheDocument();
     expect(within(panel).getByText("src/lib/api.ts")).toBeInTheDocument();
     expect(within(panel).getByText("docs/notes.md")).toBeInTheDocument();
     expect(within(panel).getByText("+const added = 1;")).toBeVisible();

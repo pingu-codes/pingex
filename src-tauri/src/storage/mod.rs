@@ -40,7 +40,7 @@ pub(crate) use items::{
 };
 pub(crate) use project_expansion::{read_project_expansion, set_project_expanded};
 pub(crate) use projects::{read_store, write_store, Store, StoredProject};
-pub use projects::{read_temp_worktrees, record_temp_worktree};
+pub use projects::{read_temp_worktrees, record_temp_worktree, remove_temp_worktree};
 pub(crate) use questions::{
     add_pending_user_input, add_user_input_answer, list_threads_with_unanswered_user_inputs,
     read_user_input_answers, UserInputAnswer,

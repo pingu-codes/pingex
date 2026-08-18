@@ -2,6 +2,7 @@
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowLeftRight,
   Bot,
   FolderGit2,
   FolderOpen,
@@ -24,6 +25,7 @@ import {
   gitRecentCommits,
   gitRepoInfo,
   gitWorktreeAdd,
+  gitWorktreeHandoff,
   gitWorktreeLock,
   gitWorktreePrune,
   gitWorktreeRemove,
@@ -31,10 +33,11 @@ import {
   gitWorktreeUnlock,
 } from "$lib/services/api";
 import { type CodexEvent, setThreadHandler } from "$lib/services/codexEvents.svelte";
+import HandoffToLocalDialog from "$lib/thread/HandoffToLocalDialog.svelte";
 import type { GitCommit, GitRepoInfo, Project, WorktreeBranchRequest, WorktreeEntry } from "$lib/types";
 import CreateWorktreeDialog from "$lib/worktrees/CreateWorktreeDialog.svelte";
 import RemoveWorktreeDialog from "$lib/worktrees/RemoveWorktreeDialog.svelte";
-import { type WorktreeCard, worktreeCards } from "$lib/worktrees/worktrees";
+import { isTempWorktreePath, type WorktreeCard, worktreeCards } from "$lib/worktrees/worktrees";
 
 let {
   repoDir,
@@ -128,6 +131,20 @@ function newWorktree() {
 
 function threadCountFor(path: string): number {
   return cards.find((card) => card.entry.path === path)?.threadCount ?? 0;
+}
+
+/** Check a temporary worktree's branch out in this repository and drop the worktree. */
+function handoffToLocal(entry: WorktreeEntry) {
+  openMenu = null;
+  openDialog(HandoffToLocalDialog, {
+    worktreePath: entry.path,
+    targets: [],
+    defaultTarget: repoDir,
+    submit: async (targetDir: string, commitUncommitted: boolean) => {
+      await gitWorktreeHandoff(entry.path, targetDir, commitUncommitted);
+      await load();
+    },
+  });
 }
 
 async function removeWorktree(entry: WorktreeEntry) {
@@ -302,6 +319,11 @@ async function removeWorktree(entry: WorktreeEntry) {
             {#if card.entry.prunable || card.entry.missingDir}
               <button onclick={() => runAction(() => gitWorktreePrune(repoDir))} class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:preset-tonal">
                 <Trash2 size={13} /> Prune stale
+              </button>
+            {/if}
+            {#if !card.entry.isMain && isTempWorktreePath(card.entry.path) && !card.entry.missingDir}
+              <button onclick={() => handoffToLocal(card.entry)} class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:preset-tonal">
+                <ArrowLeftRight size={13} /> Hand off to local
               </button>
             {/if}
             {#if !card.entry.isMain}

@@ -75,7 +75,7 @@ describe("RightPanel", () => {
       { path: "README.md", kind: { type: "add" }, diff: "+# Title" },
     ]);
 
-    expect(screen.getByText("Changes")).toBeInTheDocument();
+    expect(screen.getByText("Outputs")).toBeInTheDocument();
     expect(screen.getByText("src/lib/api.ts")).toBeInTheDocument();
     expect(screen.getByText("README.md")).toBeInTheDocument();
   });

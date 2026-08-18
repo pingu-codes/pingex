@@ -51,8 +51,10 @@ import type {
   Attachment,
   BinaryStatus,
   BootstrapData,
+  ChangesSummary,
   ConfigSetting,
   CreateWorkspaceInput,
+  FileDiff,
   FileHit,
   GitBranch,
   GitCommit,
@@ -94,6 +96,7 @@ import type {
   WorkspaceSearchResults,
   WorktreeBranchRequest,
   WorktreeEntry,
+  WorktreeHandoffPreflight,
 } from "$lib/types";
 
 export { isTauri } from "$lib/services/tauri";
@@ -883,6 +886,56 @@ export async function gitStatus(dir: string): Promise<GitStatus> {
 export async function gitWorktrees(repoDir: string): Promise<WorktreeEntry[]> {
   if (!isTauri()) return structuredClone(previewWorktrees);
   return invoke<WorktreeEntry[]>("git_worktrees", { repoDir });
+}
+
+export async function gitChangesSummary(dir: string): Promise<ChangesSummary> {
+  if (!isTauri()) {
+    return {
+      base: "HEAD",
+      baseBranch: null,
+      files: [
+        { path: "src/lib/example.ts", oldPath: null, status: "modified", additions: 12, deletions: 3, binary: false },
+        { path: "README.md", oldPath: null, status: "added", additions: 40, deletions: 0, binary: false },
+      ],
+      truncated: false,
+      totalFiles: 2,
+      additions: 52,
+      deletions: 3,
+    };
+  }
+  return invoke<ChangesSummary>("git_changes_summary", { dir });
+}
+
+export async function gitFileDiff(
+  dir: string,
+  base: string,
+  path: string,
+  untracked: boolean,
+  maxBytes?: number,
+): Promise<FileDiff> {
+  if (!isTauri()) {
+    const patch = `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1,2 +1,3 @@\n line\n-old\n+new\n+added\n`;
+    return { path, patch, truncated: false, binary: false, bytes: patch.length };
+  }
+  return invoke<FileDiff>("git_file_diff", { dir, base, path, untracked, maxBytes: maxBytes ?? null });
+}
+
+export async function gitWorktreeHandoffPreflight(
+  worktreePath: string,
+  targetDir: string,
+): Promise<WorktreeHandoffPreflight> {
+  if (!isTauri()) return { branch: "codex/tmp-preview", worktreeDirty: false, targetDirty: false, blocker: null };
+  return invoke<WorktreeHandoffPreflight>("git_worktree_handoff_preflight", { worktreePath, targetDir });
+}
+
+/** Check the temp worktree's branch out in `targetDir` and remove the worktree. Returns the branch. */
+export async function gitWorktreeHandoff(
+  worktreePath: string,
+  targetDir: string,
+  commitUncommitted: boolean,
+): Promise<string> {
+  if (!isTauri()) return "codex/tmp-preview";
+  return invoke<string>("git_worktree_handoff", { worktreePath, targetDir, commitUncommitted });
 }
 
 export async function gitRecentCommits(dir: string, limit = 20): Promise<GitCommit[]> {
