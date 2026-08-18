@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { appData, trackNewThread } from "$lib/app/appData.svelte";
 import { loadPrefs, savePrefs } from "$lib/composer/composerPrefs.svelte";
 import type { ThreadDetail, Turn } from "$lib/types";
 
@@ -784,6 +785,39 @@ describe("ThreadView thread naming", () => {
       "Refactor the sidebar grouping{Enter}",
     );
 
+    expect(mocks.requestAutoName).toHaveBeenCalledWith("thread-2", "seed", "Refactor the sidebar grouping");
+  });
+
+  it("titles the sidebar entry without waiting for the turn to start", async () => {
+    // A turn that never starts stands in for the seconds one normally takes:
+    // the title must not be held back by it.
+    mocks.startTurn.mockReturnValue(new Promise(() => {}));
+    appData.data = {
+      codexHome: "/home/.codex",
+      codexBinary: "codex",
+      projects: [
+        { name: "example", path: "/projects/example", kind: "folder", pinned: false, expanded: true, threads: [] },
+      ],
+      account: null,
+      sideQuestions: [],
+      subagents: [],
+    };
+    const user = userEvent.setup();
+    render(ThreadView, {
+      threadId: null,
+      cwd: "/projects/example",
+      // What the app shell does with a draft that has become a real thread.
+      onThreadCreated: (id: string, cwd: string) => trackNewThread(id, cwd),
+    });
+
+    await user.type(
+      screen.getByRole("textbox", { name: "Message Codex… (@ to attach files, / for commands)" }),
+      "Refactor the sidebar grouping{Enter}",
+    );
+
+    await waitFor(() => {
+      expect(appData.data?.projects[0].threads[0]?.title).toBe("Refactor the sidebar grouping");
+    });
     expect(mocks.requestAutoName).toHaveBeenCalledWith("thread-2", "seed", "Refactor the sidebar grouping");
   });
 

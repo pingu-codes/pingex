@@ -1,6 +1,7 @@
 <script lang="ts">
 import { ChevronRight, Pause, Play, Target, X } from "@lucide/svelte";
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
+import { nameNewThread } from "$lib/app/appData.svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import Composer from "$lib/composer/Composer.svelte";
@@ -59,7 +60,7 @@ import FloatingMenu from "$lib/thread/FloatingMenu.svelte";
 import { collectFileChanges } from "$lib/thread/fileChanges";
 import { cwdBelongsTo } from "$lib/thread/handoff";
 import { adoptLive, releaseLive, trackLive } from "$lib/thread/liveThreads.svelte";
-import { messageText } from "$lib/thread/messageText";
+import { messageText, messageTitle } from "$lib/thread/messageText";
 import { planText } from "$lib/thread/planText";
 import QuestionCard from "$lib/thread/QuestionCard.svelte";
 import QueuedMessageRow from "$lib/thread/QueuedMessageRow.svelte";
@@ -501,6 +502,13 @@ async function send(input: UserInputPart[], options?: TurnOptions): Promise<bool
     const isFirstMessage = !liveThreadId;
     if (isFirstMessage) starting = true;
     const id = await ensureLiveThread();
+    // Name the thread off its opening message before the turn is even started:
+    // nothing else can title it until its rollout persists, so waiting here is
+    // what leaves the sidebar reading "Untitled thread" for the whole turn.
+    if (isFirstMessage) {
+      nameNewThread(id, messageTitle(input));
+      if (text.trim()) requestAutoName(id, "seed", text);
+    }
     thread.turns.push({
       id: localTurnId,
       status: "inProgress",
@@ -527,9 +535,6 @@ async function send(input: UserInputPart[], options?: TurnOptions): Promise<bool
       pending.id = turn.id;
       pending.status = turn.status ?? "inProgress";
     }
-    // Name the thread off its opening message so the sidebar shows a title
-    // rather than a truncated prompt while the turn runs.
-    if (isFirstMessage && text.trim()) requestAutoName(id, "seed", text);
     return true;
   } catch (cause) {
     thread.turns = thread.turns.filter((candidate) => candidate.id !== localTurnId);
@@ -862,6 +867,10 @@ async function startPlanThread(input: UserInputPart[], options?: TurnOptions) {
     await startTurn(created.id, input, options);
     // Adopting the new thread re-drives the load effect, so the view swaps to it.
     onThreadCreated?.(created.id, created.cwd ?? dir);
+    // The plan itself is this thread's opening message, so it names it.
+    nameNewThread(created.id, messageTitle(input));
+    const plan = messageText(input);
+    if (plan.trim()) requestAutoName(created.id, "seed", plan);
   } catch (cause) {
     streamError = cause instanceof Error ? cause.message : String(cause);
   } finally {
@@ -1051,9 +1060,12 @@ async function goalCommand(argument: string, typed = "") {
     const id = await ensureLiveThread();
     goal = await setThreadGoal(id, objective);
     notice = `Goal set: ${goal.objective}`;
-    // A goal-only thread has no turn to name it from, so seed the title off the
-    // objective — otherwise the sidebar is left showing "Untitled thread".
-    if (fresh) requestAutoName(id, "seed", objective);
+    // A goal-only thread has no turn to name it from, so the objective titles
+    // it: shown at once, then refined by the namer.
+    if (fresh) {
+      nameNewThread(id, messageTitle([{ type: "text", text: objective }]));
+      requestAutoName(id, "seed", objective);
+    }
   } catch (cause) {
     failCommand("goal", typed, cause instanceof Error ? cause.message : String(cause));
   } finally {

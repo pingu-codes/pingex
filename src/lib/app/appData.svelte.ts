@@ -58,6 +58,9 @@ export function fail(cause: unknown): void {
   appData.error = cause instanceof Error ? cause.message : String(cause);
 }
 
+/** The title a thread carries until it has a message to be named after. */
+export const UNTITLED_THREAD = "Untitled thread";
+
 /** Threads shown in the sidebar before their rollout is persisted on disk.
  *  bootstrap() only sees persisted rollouts, so without this a new thread
  *  would vanish from (or never reach) the sidebar until the turn completes. */
@@ -98,13 +101,33 @@ export function trackNewThread(id: string, cwd: string): void {
   const summary: ThreadSummary = {
     id,
     cwd,
-    title: "Untitled thread",
+    title: UNTITLED_THREAD,
     updatedAt: Math.floor(Date.now() / 1000),
     status: "idle",
     pinned: false,
   };
   optimisticThreads.set(id, summary);
   if (appData.data) insertOptimisticThread(appData.data, summary);
+}
+
+/**
+ * Title a just-created thread from the message that opened it.
+ *
+ * Nothing else can name it for a while: bootstrap does not see a thread until
+ * its rollout is on disk, and the auto-namer costs a Codex round trip — so
+ * without this the sidebar reads "Untitled thread" for as long as the first
+ * turn runs. Only the placeholder is overwritten, so a real title that has
+ * already landed is never lost to a late call.
+ */
+export function nameNewThread(id: string, title: string): void {
+  const tracked = optimisticThreads.get(id);
+  const shown = threadById(id);
+  // Both hold the same summary once it has been inserted, so the placeholder is
+  // checked once — testing them in turn would let the first write mask the
+  // second and leave the sidebar's copy unnotified.
+  if (!title || (shown ?? tracked)?.title !== UNTITLED_THREAD) return;
+  if (shown) shown.title = title;
+  if (tracked) tracked.title = title;
 }
 
 /** Register a subagent thread bootstrap has not reported yet. */

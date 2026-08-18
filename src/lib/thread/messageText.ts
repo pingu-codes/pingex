@@ -63,3 +63,29 @@ export function userMessageMarkdown(content: UserInputPart[], cwd = ""): string 
   }
   return out.trim();
 }
+
+/** How much of a message's first line becomes a title. Mirrors `TITLE_CHARS`
+ *  in `src-tauri/src/projects/summary.rs`. */
+const TITLE_CHARS = 80;
+
+/**
+ * A one-line sidebar title for the message that opened a thread.
+ *
+ * Deliberately the same projection the backend applies to a thread's preview
+ * (`title_from` + `strip_mention_markup` in `projects::summary`), so the title
+ * shown the instant a message is sent and the one bootstrap supplies moments
+ * later read identically rather than visibly swapping. Returns `""` when the
+ * message carries no prose — an image-only message has no title to give.
+ */
+export function messageTitle(content: UserInputPart[]): string {
+  const line = messageText(content)
+    .split("\n")
+    .map((candidate) =>
+      splitMentions(candidate)
+        .map((segment) => (segment.type === "mention" ? `@${segment.name}` : segment.text))
+        .join(""),
+    )
+    .find((candidate) => candidate.trim() !== "");
+  // Sliced by code point, so a title never ends mid-emoji.
+  return [...(line ?? "").trim()].slice(0, TITLE_CHARS).join("");
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeTextParts, messageText, userMessageMarkdown } from "$lib/thread/messageText";
+import { mergeTextParts, messageText, messageTitle, userMessageMarkdown } from "$lib/thread/messageText";
 import type { UserInputPart } from "$lib/types";
 
 // A mention leaves the composer as its own text part, so this is what a sent
@@ -63,5 +63,26 @@ describe("userMessageMarkdown", () => {
 
   it("is empty for a message with nothing in it", () => {
     expect(userMessageMarkdown([], "/proj")).toBe("");
+  });
+});
+
+describe("messageTitle", () => {
+  it("reads mentions as @name, the way the sidebar shows them", () => {
+    expect(messageTitle(mentioned)).toBe("check @utils.ts please");
+  });
+
+  it("takes the first line with anything on it", () => {
+    const parts: UserInputPart[] = [{ type: "text", text: "\n  \nfix the login bug\n\nit 500s on submit" }];
+    expect(messageTitle(parts)).toBe("fix the login bug");
+  });
+
+  it("truncates a long opening line to a title", () => {
+    const parts: UserInputPart[] = [{ type: "text", text: "x".repeat(120) }];
+    expect(messageTitle(parts)).toBe("x".repeat(80));
+  });
+
+  it("has no title for a message with no prose", () => {
+    expect(messageTitle([{ type: "localImage", path: "/tmp/shot.png" }])).toBe("");
+    expect(messageTitle([{ type: "text", text: "   " }])).toBe("");
   });
 });
