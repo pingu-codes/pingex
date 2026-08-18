@@ -491,6 +491,12 @@ function chipContaining(node: Node, root: HTMLElement): HTMLElement | null {
 export function chipBesideCaret(direction: "back" | "forward", range: Range): HTMLElement | null {
   if (!range.collapsed) return null;
   const container = range.startContainer;
+  // Caret stranded inside a chip's label (WebKit does this after deleting the
+  // text right after a chip): the chip itself is what's beside the caret.
+  for (let ancestor: Node | null = container; ancestor; ancestor = ancestor.parentNode) {
+    const chip = asChip(ancestor);
+    if (chip) return chip;
+  }
   let candidate: Node | null;
   if (container.nodeType === Node.TEXT_NODE) {
     const atEdge =
@@ -613,7 +619,17 @@ export function caretOffset(root: HTMLElement): number | null {
   if (!selection?.rangeCount) return null;
   const range = selection.getRangeAt(0);
   if (!range.collapsed || !root.contains(range.startContainer)) return null;
-  const { startContainer: container, startOffset: offset } = range;
+  let { startContainer: container, startOffset: offset } = range;
+  // WebKit parks the caret inside a chip's label once the text after the chip
+  // is deleted (it drops the padding text node with it). Count that as "just
+  // after the chip" — the position the caret visually occupies — rather than
+  // failing to find it at all.
+  const inside = chipContaining(container, root);
+  if (inside?.parentNode) {
+    const atChipStart = container === inside && offset === 0;
+    container = inside.parentNode;
+    offset = [...container.childNodes].indexOf(inside) + (atChipStart ? 0 : 1);
+  }
 
   let total = 0;
   let found: number | null = null;
@@ -898,6 +914,11 @@ const isUnpadded = (chip: Element): boolean =>
  */
 function needsFlattening(root: HTMLElement): boolean {
   if (root.querySelector("div,p")) return true;
+  const selection = window.getSelection();
+  if (selection?.rangeCount) {
+    const container = selection.getRangeAt(0).startContainer;
+    if (root.contains(container) && chipContaining(container, root)) return true;
+  }
   return [...root.querySelectorAll("[data-mention-path],[data-attachment-id],[data-skill-name]")].some(
     (chip) => chip.parentNode !== root || isUnpadded(chip),
   );
