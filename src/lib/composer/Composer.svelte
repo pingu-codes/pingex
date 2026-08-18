@@ -24,6 +24,7 @@ import {
   type AttachmentPart,
   buildTurnInput,
   type ComposerPart,
+  caretOffset,
   chipAcrossLineBreak,
   chipBesideCaret,
   deleteLineBreak,
@@ -40,6 +41,7 @@ import {
   moveCaretVertically,
   normaliseEditorDom,
   normaliseParts,
+  placeCaretAtOffset,
   placeCaretBesideChip,
   readParts,
   removeMentionChip,
@@ -51,6 +53,7 @@ import SlashCommandPicker from "$lib/composer/SlashCommandPicker.svelte";
 import SubagentPolicyPopover from "$lib/composer/SubagentPolicyPopover.svelte";
 import { skillLabel } from "$lib/composer/skills";
 import { INIT_PROMPT, parseSlashCommand, type SlashCommand, type SlashCommandId } from "$lib/composer/slashCommands";
+import { UndoStack } from "$lib/composer/undoStack";
 import {
   deleteDraft,
   isTauri,
@@ -90,6 +93,7 @@ let {
   subagentModelPolicy = null,
   subagentReasoningEffortPolicy = null,
   threadModel = null,
+  history = [],
   onSend,
   onInterrupt,
   onCommand,
@@ -134,6 +138,8 @@ let {
   /** The model the thread last ran on; backs the collaboration-mode settings
    *  when nothing is picked and the model list has not loaded yet. */
   threadModel?: string | null;
+  /** Prior user messages, oldest first, for ↑/↓ recall from the composer's edges. */
+  history?: string[];
 } = $props();
 
 let parts = $state<ComposerPart[]>([{ type: "text", text: "" }]);
@@ -141,6 +147,109 @@ let editor = $state<HTMLDivElement | null>(null);
 let composerBox = $state<HTMLDivElement | null>(null);
 let composing = false;
 let mentionRange: Range | null = null;
+
+// Undo/redo over the parts model. Every change to `parts` lands in the stack
+// through the effect below; typing (flagged by `onEditorInput`) coalesces,
+// everything else gets its own entry. `applyingSnapshot` keeps the restore
+// itself from being recorded as a fresh edit.
+const undoStack = new UndoStack();
+let typingEdit = false;
+let applyingSnapshot = false;
+undoStack.reset({ parts: [{ type: "text", text: "" }], caret: 0 });
+$effect(() => {
+  const snapshot = { parts: JSON.parse(JSON.stringify(parts)) as ComposerPart[], caret: null as number | null };
+  untrack(() => {
+    if (applyingSnapshot) return;
+    snapshot.caret = editor ? caretOffset(editor) : null;
+    undoStack.record(snapshot, typingEdit);
+    typingEdit = false;
+  });
+});
+
+function applySnapshot(snapshot: { parts: ComposerPart[]; caret: number | null }) {
+  if (!editor) return;
+  applyingSnapshot = true;
+  try {
+    const restored = JSON.parse(JSON.stringify(snapshot.parts)) as ComposerPart[];
+    renderPartsWith(editor, restored, chipHandlers);
+    parts = readParts(editor);
+    placeCaretAtOffset(editor, snapshot.caret ?? Number.MAX_SAFE_INTEGER);
+    editor.focus();
+  } finally {
+    // The recording effect runs after this tick; let it see the flag.
+    queueMicrotask(() => {
+      applyingSnapshot = false;
+    });
+  }
+  historyIndex = null;
+}
+
+/** Forget the history: the content just left the composer for good. */
+function resetUndo() {
+  applyingSnapshot = true;
+  undoStack.reset({ parts: [{ type: "text", text: "" }], caret: 0 });
+  historyIndex = null;
+  historyDraft = null;
+  queueMicrotask(() => {
+    applyingSnapshot = false;
+  });
+}
+
+function undo() {
+  const snapshot = undoStack.undo();
+  if (snapshot) applySnapshot(snapshot);
+}
+
+function redo() {
+  const snapshot = undoStack.redo();
+  if (snapshot) applySnapshot(snapshot);
+}
+
+// ↑/↓ at the composer's first/last line walk back through `history`, the way
+// a shell does; the unsent draft is stashed on the way in and restored once
+// the walk runs off the newest end.
+let historyIndex: number | null = null;
+let historyDraft: ComposerPart[] | null = null;
+
+function isPlainText() {
+  return parts.every((part) => part.type === "text");
+}
+
+function caretOnEdgeLine(edge: "first" | "last"): boolean {
+  if (!editor) return false;
+  const offset = caretOffset(editor);
+  if (offset === null) return false;
+  const text = parts.map((part) => (part.type === "text" ? part.text : "\u0000")).join("");
+  return edge === "first" ? !text.slice(0, offset).includes("\n") : !text.slice(offset).includes("\n");
+}
+
+function recallHistory(direction: "older" | "newer"): boolean {
+  const entries = history ?? [];
+  if (!isPlainText()) return false;
+  if (direction === "older") {
+    if (!caretOnEdgeLine("first")) return false;
+    const next = (historyIndex ?? entries.length) - 1;
+    if (next < 0) return entries.length === 0 ? false : true;
+    if (historyIndex === null) historyDraft = JSON.parse(JSON.stringify(parts)) as ComposerPart[];
+    historyIndex = next;
+    setText(entries[next] ?? "");
+    historyIndex = next;
+    return true;
+  }
+  if (historyIndex === null || !caretOnEdgeLine("last")) return false;
+  const next = historyIndex + 1;
+  if (next >= entries.length) {
+    const draft = historyDraft ?? [{ type: "text", text: "" }];
+    historyDraft = null;
+    applySnapshot({ parts: draft, caret: null });
+    historyIndex = null;
+    return true;
+  }
+  historyIndex = next;
+  setText(entries[next] ?? "");
+  historyIndex = next;
+  return true;
+}
 
 // Per-project draft persistence: unsent input is saved (debounced) under the
 // project's draft folder and restored the next time this project's composer
@@ -583,6 +692,11 @@ export function restoreText(text: string) {
   setText(text);
 }
 
+/** True when nothing sendable has been typed or attached. */
+export function isEmpty(): boolean {
+  return !hasSendableContent(normaliseParts(parts.map((part) => ({ ...part }))));
+}
+
 /** Replaces the composer's contents with plain text and puts the caret at the end. */
 function setText(text: string) {
   parts = [{ type: "text", text }];
@@ -854,6 +968,7 @@ function submit() {
   sources.clear();
   closePickers();
   persistDraft(null);
+  resetUndo();
   void dispatchSend(sent);
 }
 
@@ -870,6 +985,8 @@ async function dispatchSend(sent: UserInputPart[]) {
 function onEditorInput() {
   if (composing) return;
   if (!editor) return;
+  typingEdit = true;
+  historyIndex = null;
   parts = readParts(editor);
   // The browser answers Enter/paste with its own block lines and strips the
   // padding around chips; flatten it back before anything reads the caret.
@@ -893,6 +1010,13 @@ function onPaste(event: ClipboardEvent) {
 }
 
 function onKeydown(event: KeyboardEvent) {
+  const mod = event.metaKey || event.ctrlKey;
+  if (mod && !event.altKey && (event.key === "z" || event.key === "Z" || event.key === "y")) {
+    event.preventDefault();
+    if (event.key === "y" || event.shiftKey) redo();
+    else undo();
+    return;
+  }
   if (pickerOpen && event.key === "Escape") {
     event.preventDefault();
     return;
@@ -988,6 +1112,10 @@ function onKeydown(event: KeyboardEvent) {
     // WebKit's native vertical caret motion refuses to move at all when the
     // line it's aiming for holds only a chip — from any column in the
     // current line, not just its very end — so it's driven by hand.
+    if (recallHistory(event.key === "ArrowUp" ? "older" : "newer")) {
+      event.preventDefault();
+      return;
+    }
     if (moveCaretVertically(editor, event.key === "ArrowDown" ? "down" : "up")) {
       event.preventDefault();
     }

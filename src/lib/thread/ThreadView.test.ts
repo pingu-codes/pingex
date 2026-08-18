@@ -26,6 +26,8 @@ const mocks = vi.hoisted(() => ({
   queueAdd: vi.fn(),
   queueDelete: vi.fn(),
   queueList: vi.fn(),
+  queueUpdate: vi.fn(),
+  queueReorder: vi.fn(),
   handlers: [] as ThreadEventHandler[],
   setThreadHandler: vi.fn((handler: ThreadEventHandler) => {
     mocks.handlers.push(handler);
@@ -93,6 +95,8 @@ vi.mock("$lib/services/api", () => ({
   queueAdd: mocks.queueAdd,
   queueDelete: mocks.queueDelete,
   queueList: mocks.queueList,
+  queueUpdate: mocks.queueUpdate,
+  queueReorder: mocks.queueReorder,
   readThread: mocks.readThread,
   removeSideQuestion: vi.fn(),
   respondUserInput: vi.fn(),
@@ -936,6 +940,80 @@ describe("ThreadView queueing when Codex cannot hold the queue", () => {
 
     await vi.waitFor(() => expect(mocks.startTurn).toHaveBeenCalled());
     expect(mocks.startTurn.mock.calls[0][1]).toEqual([{ type: "text", text: "First" }]);
+  });
+
+  it("edits a queued message in place", async () => {
+    const user = userEvent.setup();
+    mocks.queueAdd.mockRejectedValue(unsupported);
+    await renderWorking();
+    await user.type(screen.getByRole("textbox", { name: composerLabel }), "Then do this{Enter}");
+    await screen.findByText("Queued locally");
+
+    await user.click(screen.getByRole("button", { name: "Edit queued message" }));
+    const field = screen.getByRole("textbox", { name: "Edit queued message" });
+    await user.clear(field);
+    await user.type(field, "Do that instead{Enter}");
+
+    expect(await screen.findByText("Do that instead")).toBeVisible();
+    finishTurn();
+    await vi.waitFor(() => expect(mocks.startTurn).toHaveBeenCalled());
+    expect(mocks.startTurn.mock.calls[0][1]).toEqual([{ type: "text", text: "Do that instead" }]);
+  });
+
+  it("send now stops the turn and puts the message first", async () => {
+    const user = userEvent.setup();
+    mocks.queueAdd.mockRejectedValue(unsupported);
+    mocks.interruptTurn.mockReset();
+    mocks.interruptTurn.mockResolvedValue(undefined);
+    await renderWorking();
+    const composer = screen.getByRole("textbox", { name: composerLabel });
+    await user.type(composer, "First{Enter}");
+    await user.type(composer, "Second{Enter}");
+    await vi.waitFor(() => expect(screen.getAllByText("Queued locally")).toHaveLength(2));
+
+    await user.click(screen.getAllByRole("button", { name: "Send now" })[1]);
+
+    expect(mocks.interruptTurn).toHaveBeenCalledWith("thread-1", "turn-1");
+    finishTurn();
+    await vi.waitFor(() => expect(mocks.startTurn).toHaveBeenCalled());
+    expect(mocks.startTurn.mock.calls[0][1]).toEqual([{ type: "text", text: "Second" }]);
+  });
+
+  it("cancel moves the message back into an empty composer", async () => {
+    const user = userEvent.setup();
+    mocks.queueAdd.mockRejectedValue(unsupported);
+    mocks.openDialog.mockReset();
+    await renderWorking();
+    const composer = screen.getByRole("textbox", { name: composerLabel });
+    await user.type(composer, "Then do this{Enter}");
+    await screen.findByText("Queued locally");
+
+    await user.click(screen.getByRole("button", { name: "Remove queued message" }));
+
+    await vi.waitFor(() => expect(composer.textContent).toBe("Then do this"));
+    expect(screen.queryByText("Queued locally")).not.toBeInTheDocument();
+    expect(mocks.openDialog).not.toHaveBeenCalled();
+  });
+
+  it("cancel asks before discarding when the composer holds text", async () => {
+    const user = userEvent.setup();
+    mocks.queueAdd.mockRejectedValue(unsupported);
+    mocks.openDialog.mockReset();
+    mocks.openDialog.mockResolvedValue(null);
+    await renderWorking();
+    const composer = screen.getByRole("textbox", { name: composerLabel });
+    await user.type(composer, "Then do this{Enter}");
+    await screen.findByText("Queued locally");
+    await user.type(composer, "unsent");
+
+    await user.click(screen.getByRole("button", { name: "Remove queued message" }));
+    await vi.waitFor(() => expect(mocks.openDialog).toHaveBeenCalled());
+    expect(screen.getByText("Queued locally")).toBeVisible();
+
+    mocks.openDialog.mockResolvedValue(true);
+    await user.click(screen.getByRole("button", { name: "Remove queued message" }));
+    await vi.waitFor(() => expect(screen.queryByText("Queued locally")).not.toBeInTheDocument());
+    expect(composer.textContent).toBe("unsent");
   });
 
   it("explains a queue that exists but refused, without losing the message", async () => {

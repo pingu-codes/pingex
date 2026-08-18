@@ -19,6 +19,7 @@ function setup({
   draftKey?: string;
   projectKey?: string;
   threadId?: string | null;
+  history?: string[];
   subagentModelPolicy?: SubagentPolicy | null;
   subagentReasoningEffortPolicy?: SubagentPolicy | null;
   onImplementFresh?: ((input: unknown, options?: unknown) => void) | undefined;
@@ -101,6 +102,42 @@ describe("Composer", () => {
       ],
       expect.anything(),
     );
+  });
+
+  it("undoes and redoes typing with Cmd+Z / Cmd+Shift+Z", async () => {
+    const user = userEvent.setup();
+    const { textarea } = setup();
+    await user.type(textarea, "hello");
+    // Past the coalescing window, so the second run is its own undo entry.
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    await user.type(textarea, " world");
+    expect(textarea.textContent).toBe("hello world");
+
+    await user.keyboard("{Meta>}z{/Meta}");
+    expect(textarea.textContent).toBe("hello");
+    await user.keyboard("{Meta>}z{/Meta}");
+    expect(textarea.textContent).toBe("");
+    await user.keyboard("{Meta>}{Shift>}z{/Shift}{/Meta}");
+    expect(textarea.textContent).toBe("hello");
+    await user.keyboard("{Control>}y{/Control}");
+    expect(textarea.textContent).toBe("hello world");
+  });
+
+  it("recalls earlier messages with ArrowUp and returns to the draft with ArrowDown", async () => {
+    const user = userEvent.setup();
+    const { textarea } = setup({ history: ["first", "second"] });
+
+    await user.type(textarea, "draft");
+    await user.keyboard("{ArrowUp}");
+    expect(textarea.textContent).toBe("second");
+    await user.keyboard("{ArrowUp}");
+    expect(textarea.textContent).toBe("first");
+    await user.keyboard("{ArrowUp}");
+    expect(textarea.textContent).toBe("first");
+    await user.keyboard("{ArrowDown}");
+    expect(textarea.textContent).toBe("second");
+    await user.keyboard("{ArrowDown}");
+    expect(textarea.textContent).toBe("draft");
   });
 
   it("rejects whitespace-only input", async () => {

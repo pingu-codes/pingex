@@ -25,6 +25,8 @@ import {
   queueAdd,
   queueDelete,
   queueList,
+  queueReorder,
+  queueUpdate,
   readThread,
   revealInFinder,
   revertThread,
@@ -51,13 +53,16 @@ import { processes } from "$lib/services/processes.svelte";
 import ApprovalCard from "$lib/thread/ApprovalCard.svelte";
 import { requestAutoName } from "$lib/thread/autoName";
 import { contextStats as deriveContextStats } from "$lib/thread/contextUsage";
+import DiscardQueuedDialog from "$lib/thread/DiscardQueuedDialog.svelte";
 import ElicitationCard from "$lib/thread/ElicitationCard.svelte";
 import FloatingMenu from "$lib/thread/FloatingMenu.svelte";
 import { collectFileChanges } from "$lib/thread/fileChanges";
 import { cwdBelongsTo } from "$lib/thread/handoff";
 import { adoptLive, releaseLive, trackLive } from "$lib/thread/liveThreads.svelte";
+import { messageText } from "$lib/thread/messageText";
 import { planText } from "$lib/thread/planText";
 import QuestionCard from "$lib/thread/QuestionCard.svelte";
+import QueuedMessageRow from "$lib/thread/QueuedMessageRow.svelte";
 import { isClientQueued, isLocalOnly, localId, mergeQueue, pendingId } from "$lib/thread/queueEntries";
 import ReasoningBlock from "$lib/thread/ReasoningBlock.svelte";
 import RewindThreadDialog from "$lib/thread/RewindThreadDialog.svelte";
@@ -197,6 +202,7 @@ let composer = $state<{
   appSubagentsChoice: () => boolean | null;
   openReviewPicker: () => void;
   restoreText: (text: string) => void;
+  isEmpty: () => boolean;
 } | null>(null);
 /** Model the composer will run turns on — priced for the usage estimate. */
 let activeModel = $state<string | null>(null);
@@ -708,6 +714,53 @@ async function drain(next: QueuedSubmission) {
   }
 }
 
+/** Jump a queued message to the head and stop the running turn so it goes next. */
+async function sendNow(entry: QueuedSubmission) {
+  queued = [entry, ...queued.filter((candidate) => candidate.id !== entry.id)];
+  if (liveThreadId && !queued.some(isClientQueued) && queued.length > 1) {
+    queueMutations++;
+    try {
+      await queueReorder(
+        liveThreadId,
+        queued.map((candidate) => candidate.id),
+      );
+    } catch {
+      // The local order still drives the drain; the server's is only cosmetic.
+    } finally {
+      queueMutations--;
+    }
+  }
+  drainBlocked = false;
+  await interrupt();
+}
+
+/** Replace a queued message's content, on the server too when it lives there. */
+async function editQueued(entry: QueuedSubmission, input: UserInputPart[]) {
+  queued = queued.map((candidate) => (candidate.id === entry.id ? { ...candidate, input } : candidate));
+  if (!liveThreadId || isClientQueued(entry)) return;
+  queueMutations++;
+  try {
+    await queueUpdate(liveThreadId, entry.id, input);
+  } catch (cause) {
+    toastError(`Could not update the queued message: ${cause instanceof Error ? cause.message : String(cause)}`);
+  } finally {
+    queueMutations--;
+  }
+}
+
+/** Take a message off the queue: back into an empty composer, or, when that
+ *  would clobber typed text, only after the user agrees to lose it. */
+async function cancelQueued(entry: QueuedSubmission) {
+  const text = queuedPreview(entry.input);
+  if (composer?.isEmpty()) {
+    await removeQueued(entry);
+    composer.restoreText(text);
+    return;
+  }
+  if (!(await openDialog(DiscardQueuedDialog, { preview: text }))) return;
+  await removeQueued(entry);
+}
+
 function queuedPreview(input: UserInputPart[]) {
   return input
     .map((part) => (part.type === "text" ? (part.text ?? "") : `@${part.name}`))
@@ -737,6 +790,16 @@ async function interrupt() {
 }
 
 const allItems = $derived((thread?.turns ?? []).flatMap((turn) => turn.items));
+/** Prior prompts, oldest first, for the composer's ↑/↓ recall. */
+const messageHistory = $derived.by(() => {
+  const out: string[] = [];
+  for (const item of allItems) {
+    if (item.type !== "userMessage" || !item.content) continue;
+    const text = messageText(item.content as UserInputPart[]).trim();
+    if (text && out.at(-1) !== text) out.push(text);
+  }
+  return out;
+});
 const latestPlan = $derived.by(() => {
   for (let i = allItems.length - 1; i >= 0; i--) {
     const text = planText(allItems[i]);
@@ -1305,26 +1368,14 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
 
   {#if queued.length > 0}
     <div class="mx-auto w-full max-w-3xl space-y-1 px-6 pb-2">
-      {#each queued as entry (entry.id)}
-        <div class="flex items-center gap-2 rounded-lg border border-surface-200-800 bg-surface-100-900 px-3 py-1.5 text-xs text-surface-600-400">
-          <span
-            class="shrink-0 font-medium text-surface-500"
-            title={isLocalOnly(entry)
-              ? "Held in this window only — this Codex version can't save queued messages."
-              : undefined}
-          >
-            {isLocalOnly(entry) ? "Queued locally" : "Queued"}
-          </span>
-          <span class="min-w-0 flex-1 truncate">{queuedPreview(entry.input)}</span>
-          <TooltipButton
-            label="Remove queued message"
-            aria-label="Remove queued message"
-            onclick={() => removeQueued(entry)}
-            class="shrink-0 text-surface-500 hover:text-surface-800-200"
-          >
-            ✕
-          </TooltipButton>
-        </div>
+      {#each queued as entry, index (entry.id)}
+        <QueuedMessageRow
+          {entry}
+          canSendNow={activeTurn !== null || index > 0}
+          onSendNow={() => sendNow(entry)}
+          onEdit={(input) => editQueued(entry, input)}
+          onCancel={() => cancelQueued(entry)}
+        />
       {/each}
     </div>
   {/if}
@@ -1379,6 +1430,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
     plan={pendingPlan}
     cwd={workspaceId ? cwd : (thread?.cwd || cwd)}
     draftKey={threadId ? `${projectPath || cwd}#thread:${threadId}` : projectPath || cwd}
+    history={messageHistory}
     projectKey={projectPath || cwd}
     {threadId}
     onSend={send}
