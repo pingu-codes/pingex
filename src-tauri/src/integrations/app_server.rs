@@ -109,8 +109,14 @@ pub(crate) async fn fetch_skills(
     app: &AppHandle,
     state: &State<'_, AppState>,
     cwds: Vec<String>,
+    force_reload: bool,
 ) -> Vec<SkillSummary> {
-    let response = state.session.send(app, requests::skills_list(&cwds)).await;
+    let req = if force_reload {
+        requests::skills_list_force(&cwds)
+    } else {
+        requests::skills_list(&cwds)
+    };
+    let response = state.session.send(app, req).await;
     let Ok(value) = response else {
         return Vec::new();
     };

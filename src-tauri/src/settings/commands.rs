@@ -87,7 +87,7 @@ pub(crate) async fn read_home_overview(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<overview::HomeOverview, String> {
-    let skills = crate::integrations::app_server::fetch_skills(&app, &state, Vec::new())
+    let skills = crate::integrations::app_server::fetch_skills(&app, &state, Vec::new(), false)
         .await
         .into_iter()
         .map(|skill| overview::SkillInfo { name: skill.name })

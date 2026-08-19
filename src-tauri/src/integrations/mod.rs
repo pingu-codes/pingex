@@ -21,6 +21,7 @@ use serde::Serialize;
 pub(crate) mod app_server;
 pub(crate) mod commands;
 mod config_doc;
+pub(crate) mod skills_fs;
 
 /// Everything the Integrations settings section needs in one call.
 #[derive(Debug, Serialize, PartialEq, Eq)]

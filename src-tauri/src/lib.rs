@@ -320,6 +320,10 @@ pub fn run() {
             integrations::app_server::reload_mcp_servers,
             integrations::app_server::list_skills_for,
             integrations::app_server::set_skill_enabled,
+            // Skill files on disk: read, scaffold, delete (user scope only).
+            integrations::skills_fs::read_skill,
+            integrations::skills_fs::create_skill,
+            integrations::skills_fs::delete_skill,
             // Desktop integration
             os::reveal_in_finder,
             os::open_external_url,

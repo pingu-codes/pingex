@@ -22,15 +22,26 @@ use crate::AppState;
 /// `cwds` scopes the skill lookup: passing the active project's directory
 /// surfaces project skills alongside user ones. An empty list still returns
 /// user- and system-scoped skills.
-async fn build_list(
+pub(super) async fn build_list(
     app: &AppHandle,
     state: &State<'_, AppState>,
     cwds: Vec<String>,
 ) -> Result<IntegrationsList, String> {
+    build_list_with(app, state, cwds, false).await
+}
+
+/// `force_reload` makes Codex rescan skill directories; needed after we add or
+/// remove one on disk ourselves.
+pub(super) async fn build_list_with(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+    cwds: Vec<String>,
+    force_reload: bool,
+) -> Result<IntegrationsList, String> {
     let doc = load(&state.runtime().codex_home)?;
     Ok(IntegrationsList {
         mcp_servers: summarize_mcp_servers(&doc),
-        skills: fetch_skills(app, state, cwds).await,
+        skills: fetch_skills(app, state, cwds, force_reload).await,
         plugins: Vec::new(),
         plugins_supported: false,
     })

@@ -1183,7 +1183,17 @@ export const previewIntegrations: IntegrationsList = {
 const previewStatuses: McpServerStatus[] = [
   {
     name: "github",
-    serverInfo: { name: "github-mcp", title: "GitHub", version: "1.4.0" },
+    serverInfo: {
+      name: "github-mcp",
+      title: "GitHub",
+      version: "1.4.0",
+      description: "Issues, pull requests, and code search for repositories you can access.",
+      websiteUrl: "https://github.com/github/github-mcp-server",
+    },
+    resources: [{ uri: "github://repos/me/pingex/README.md", name: "README", mimeType: "text/markdown" }],
+    resourceTemplates: [
+      { uriTemplate: "github://repos/{owner}/{repo}/issues/{number}", name: "issue", description: "A single issue." },
+    ],
     tools: {
       create_issue: {
         name: "create_issue",
@@ -1225,6 +1235,55 @@ const previewStatuses: McpServerStatus[] = [
     error: "Server exited before completing the handshake",
   },
 ];
+
+const PREVIEW_SKILL_BODY: Record<string, string> = {
+  "code-reviewer": `---
+name: code-reviewer
+description: Review a diff for correctness, security, and style.
+---
+
+## Instructions
+
+1. Read the whole diff before commenting.
+2. Call out correctness bugs first, then security, then style.
+3. Cite \`file:line\` for every finding.
+`,
+};
+
+export function previewReadSkill(path: string): string {
+  const name = path.split("/").filter(Boolean).at(-2) ?? "";
+  return PREVIEW_SKILL_BODY[name] ?? `---\nname: ${name}\ndescription: (preview)\n---\n\n## Instructions\n`;
+}
+
+export function previewCreateSkill(input: {
+  name: string;
+  description: string;
+  body?: string | null;
+}): IntegrationsList {
+  if (previewIntegrations.skills.some((skill) => skill.name === input.name)) {
+    throw new Error(`A skill named ${input.name} already exists.`);
+  }
+  const path = `~/.codex/skills/${input.name}/SKILL.md`;
+  PREVIEW_SKILL_BODY[input.name] = `---\nname: ${input.name}\ndescription: ${input.description}\n---\n\n${
+    input.body?.trim() || "## Instructions\n"
+  }\n`;
+  previewIntegrations.skills.push({
+    name: input.name,
+    path,
+    scope: "user",
+    description: input.description,
+    enabled: true,
+    displayName: null,
+    shortDescription: null,
+  });
+  previewIntegrations.skills.sort((a, b) => a.name.localeCompare(b.name));
+  return structuredClone(previewIntegrations);
+}
+
+export function previewDeleteSkill(path: string): IntegrationsList {
+  previewIntegrations.skills = previewIntegrations.skills.filter((skill) => skill.path !== path);
+  return structuredClone(previewIntegrations);
+}
 
 export function previewMcpServerStatus(): { data: McpServerStatus[] } {
   return structuredClone({ data: previewStatuses });

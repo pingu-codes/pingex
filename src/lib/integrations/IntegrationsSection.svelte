@@ -1,30 +1,56 @@
 <script lang="ts">
-import { ChevronRight, LogIn, Plug, Plus, Puzzle, RefreshCw, Sparkles, Trash2, X } from "@lucide/svelte";
+import {
+  ChevronRight,
+  ExternalLink,
+  FileText,
+  FolderOpen,
+  LogIn,
+  Plug,
+  Plus,
+  Puzzle,
+  RefreshCw,
+  Sparkles,
+  Trash2,
+  X,
+} from "@lucide/svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import {
   authAction,
   capabilitySummary,
+  contributionSummary,
   envKeysValid,
   formatArgs,
   type IntegrationFilter,
   parseArgs,
+  resourcesOf,
+  resourceTemplatesOf,
   rowStatus,
+  serverInfoLines,
+  splitFrontmatter,
   statusDotClass,
   statusLabel,
   toolParameters,
   toolsOf,
+  validSkillName,
 } from "$lib/integrations/integrationsHelpers";
 import {
+  createSkill,
+  deleteSkill,
   listIntegrations,
   listMcpServerStatus,
   mcpOauthLogin,
+  openExternalUrl,
+  openInZed,
+  readSkill,
   removeMcpServer,
+  revealInFinder,
   saveMcpServer,
   setMcpEnabled,
   setSkillEnabled,
 } from "$lib/services/api";
 import { mcpStatus as mcpStatusEvents } from "$lib/services/codexEvents.svelte";
 import type { IntegrationsList, McpServerStatus, McpServerSummary, SkillSummary } from "$lib/types";
+import { renderMarkdown } from "$lib/utils/markdown";
 
 let {
   focusServer = null,
@@ -56,6 +82,19 @@ let checking = $state(false);
 let expanded = $state<Record<string, boolean>>({});
 /** Servers with an OAuth sign-in in flight, cleared by the completion event. */
 let signingIn = $state<Record<string, boolean>>({});
+
+/** Skills whose SKILL.md is shown, and the text once loaded (null while loading). */
+let skillOpen = $state<Record<string, boolean>>({});
+let skillText = $state<Record<string, string | null>>({});
+let confirmDeleteSkill = $state<string | null>(null);
+
+// Add-skill form.
+let addingSkill = $state(false);
+let skillFormName = $state("");
+let skillFormDescription = $state("");
+let skillFormBody = $state("");
+let skillFormError = $state<string | null>(null);
+let skillSaving = $state(false);
 
 // The server whose edit form is open ("" means the Add form; null means none).
 let editing = $state<string | null>(null);
@@ -169,7 +208,67 @@ async function toggleSkill(skill: SkillSummary) {
   }
 }
 
+async function toggleSkillView(skill: SkillSummary) {
+  const open = !skillOpen[skill.name];
+  skillOpen[skill.name] = open;
+  if (!open || skillText[skill.name] != null) return;
+  skillText[skill.name] = null;
+  try {
+    skillText[skill.name] = await readSkill(skill.path);
+  } catch (cause) {
+    delete skillOpen[skill.name];
+    actionError = cause instanceof Error ? cause.message : String(cause);
+  }
+}
+
+async function doDeleteSkill(skill: SkillSummary) {
+  actionError = null;
+  try {
+    apply(await deleteSkill(skill.path));
+    confirmDeleteSkill = null;
+    delete skillOpen[skill.name];
+    delete skillText[skill.name];
+  } catch (cause) {
+    actionError = cause instanceof Error ? cause.message : String(cause);
+  }
+}
+
+function openAddSkill() {
+  addingSkill = true;
+  editing = null;
+  skillFormName = "";
+  skillFormDescription = "";
+  skillFormBody = "";
+  skillFormError = null;
+}
+
+async function saveSkillForm(event: SubmitEvent) {
+  event.preventDefault();
+  skillFormError = null;
+  const name = skillFormName.trim();
+  if (!validSkillName(name)) {
+    skillFormError = "Name must be lowercase letters, digits, '-' or '_' (not leading).";
+    return;
+  }
+  if (!skillFormDescription.trim()) {
+    skillFormError = "Description is required — it is what Codex matches against.";
+    return;
+  }
+  skillSaving = true;
+  try {
+    apply(await createSkill({ name, description: skillFormDescription.trim(), body: skillFormBody.trim() || null }));
+    addingSkill = false;
+    filter = filter === "all" ? "all" : "skills";
+    queueMicrotask(() => document.getElementById(`skill-row-${name}`)?.scrollIntoView({ block: "nearest" }));
+  } catch (cause) {
+    skillFormError = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    skillSaving = false;
+  }
+}
+
 function openAdd() {
+  addingSkill = false;
   editing = "";
   formName = "";
   formTransport = "stdio";
@@ -305,6 +404,9 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
       <button type="button" onclick={refreshStatus} disabled={checking} class="btn btn-sm hover:preset-tonal text-xs">
         <RefreshCw size={13} class={checking ? "animate-spin" : ""} /> Refresh
       </button>
+      <button type="button" onclick={openAddSkill} class="btn btn-sm hover:preset-tonal text-xs">
+        <Plus size={13} /> Add skill
+      </button>
       <button type="button" onclick={openAdd} class="btn btn-sm preset-tonal">
         <Plus size={14} /> Add MCP server
       </button>
@@ -332,6 +434,51 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
   {/if}
   {#if actionError}
     <div class="card preset-tonal-error mt-4 px-3 py-2 text-xs">{actionError}</div>
+  {/if}
+
+  {#if addingSkill}
+    <form onsubmit={saveSkillForm} class="card mt-4 space-y-3 border border-surface-200-800 bg-surface-100-900 p-4">
+      <div class="text-xs font-semibold text-surface-500">Add skill</div>
+      <div>
+        <label for="skill-name" class="text-xs font-medium text-surface-500">Name</label>
+        <input
+          id="skill-name"
+          bind:value={skillFormName}
+          placeholder="release-notes"
+          class="input mt-1 w-full font-mono text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck={false}
+        />
+        <p class="mt-1 text-[11px] text-surface-500">Becomes the folder name under <span class="font-mono">~/.codex/skills/</span>.</p>
+      </div>
+      <div>
+        <label for="skill-description" class="text-xs font-medium text-surface-500">Description</label>
+        <input
+          id="skill-description"
+          bind:value={skillFormDescription}
+          placeholder="Write release notes from merged PRs. Use when asked to draft a changelog."
+          class="input mt-1 w-full text-xs"
+        />
+        <p class="mt-1 text-[11px] text-surface-500">Codex decides when to use the skill from this sentence, so say what it does and when.</p>
+      </div>
+      <div>
+        <label for="skill-body" class="text-xs font-medium text-surface-500">Instructions (optional)</label>
+        <textarea
+          id="skill-body"
+          bind:value={skillFormBody}
+          rows={5}
+          placeholder="## Instructions&#10;&#10;1. ..."
+          class="textarea mt-1 w-full font-mono text-xs"
+        ></textarea>
+      </div>
+      {#if skillFormError}
+        <div class="card preset-tonal-error px-3 py-2 text-xs">{skillFormError}</div>
+      {/if}
+      <div class="flex items-center gap-2">
+        <button type="submit" disabled={skillSaving} class="btn btn-sm preset-filled-primary-500">
+          {skillSaving ? "Creating…" : "Create skill"}
+        </button>
+        <button type="button" onclick={() => (addingSkill = false)} class="btn btn-sm hover:preset-tonal text-surface-500">Cancel</button>
+      </div>
+    </form>
   {/if}
 
   {#if editing !== null}
@@ -462,6 +609,11 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
           {@const live = statuses[server.name]}
           {@const status = rowStatus(server, live, checking)}
           {@const tools = toolsOf(live)}
+          {@const resources = resourcesOf(live)}
+          {@const templates = resourceTemplatesOf(live)}
+          {@const info = serverInfoLines(live)}
+          {@const contribution = contributionSummary(live)}
+          {@const hasDetails = tools.length + resources.length + templates.length + info.length > 0}
           {@const auth = authAction(live)}
           <div id="mcp-row-{server.name}" class="card border border-surface-200-800 bg-surface-50-950 p-3">
             <div class="flex items-center gap-3">
@@ -511,7 +663,7 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
                 {server.enabled ? "Disable" : "Enable"}
               </button>
               <button type="button" onclick={() => openConfigure(server)} class="btn btn-sm hover:preset-tonal text-xs">Edit</button>
-              {#if tools.length > 0}
+              {#if hasDetails}
                 <button
                   type="button"
                   onclick={() => (expanded[server.name] = !expanded[server.name])}
@@ -519,7 +671,7 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
                   class="btn btn-sm hover:preset-tonal text-xs"
                 >
                   <ChevronRight size={12} class="transition-transform {expanded[server.name] ? 'rotate-90' : ''}" />
-                  {tools.length} {tools.length === 1 ? "tool" : "tools"}
+                  {contribution || "Details"}
                 </button>
               {/if}
               {#if confirmRemove === server.name}
@@ -538,8 +690,28 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
               {/if}
             </div>
 
-            {#if expanded[server.name] && tools.length > 0}
-              <ul class="mt-2.5 space-y-2 border-t border-surface-200-800 pt-2.5">
+            {#if expanded[server.name] && hasDetails}
+              <div class="mt-2.5 space-y-3 border-t border-surface-200-800 pt-2.5">
+              {#if info.length > 0}
+                <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11px]">
+                  {#each info as line (line.label)}
+                    <dt class="text-surface-500">{line.label}</dt>
+                    <dd class="min-w-0 break-words text-surface-600-400">
+                      {#if line.href}
+                        <button type="button" onclick={() => openExternalUrl(line.href ?? "")} class="inline-flex items-center gap-1 text-primary-500 hover:underline">
+                          {line.value} <ExternalLink size={10} />
+                        </button>
+                      {:else}
+                        {line.value}
+                      {/if}
+                    </dd>
+                  {/each}
+                </dl>
+              {/if}
+              {#if tools.length > 0}
+              <div>
+              <div class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-surface-500">Tools</div>
+              <ul class="space-y-2">
                 {#each tools as tool (tool.name)}
                   {@const parameters = toolParameters(tool)}
                   <li id="mcp-tool-{server.name}-{tool.name}">
@@ -565,6 +737,49 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
                   </li>
                 {/each}
               </ul>
+              </div>
+              {/if}
+              {#if resources.length > 0}
+                <div>
+                  <div class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-surface-500">Resources</div>
+                  <ul class="space-y-1.5">
+                    {#each resources as resource (resource.uri)}
+                      <li>
+                        <div class="flex items-baseline gap-2">
+                          <span class="font-mono text-[11px] font-medium break-all">{resource.uri}</span>
+                          {#if resource.mimeType}<span class="shrink-0 text-[10px] text-surface-400">{resource.mimeType}</span>{/if}
+                        </div>
+                        {#if resource.title || resource.name || resource.description}
+                          <p class="mt-0.5 text-[11px] leading-snug text-surface-600-400">
+                            {[resource.title || resource.name, resource.description].filter(Boolean).join(" — ")}
+                          </p>
+                        {/if}
+                      </li>
+                    {/each}
+                  </ul>
+                </div>
+              {/if}
+              {#if templates.length > 0}
+                <div>
+                  <div class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-surface-500">Resource templates</div>
+                  <ul class="space-y-1.5">
+                    {#each templates as template (template.uriTemplate)}
+                      <li>
+                        <div class="flex items-baseline gap-2">
+                          <span class="font-mono text-[11px] font-medium break-all">{template.uriTemplate}</span>
+                          {#if template.mimeType}<span class="shrink-0 text-[10px] text-surface-400">{template.mimeType}</span>{/if}
+                        </div>
+                        {#if template.title || template.name || template.description}
+                          <p class="mt-0.5 text-[11px] leading-snug text-surface-600-400">
+                            {[template.title || template.name, template.description].filter(Boolean).join(" — ")}
+                          </p>
+                        {/if}
+                      </li>
+                    {/each}
+                  </ul>
+                </div>
+              {/if}
+              </div>
             {/if}
           </div>
         {/each}
@@ -572,10 +787,13 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
 
       {#if showSkills}
         {#if filter === "skills" && data.skills.length === 0}
-          <div class="text-xs text-surface-500">Codex reported no skills for this home.</div>
+          <div class="flex items-center gap-2 text-xs text-surface-500">
+            <span>Codex reported no skills for this home.</span>
+            <button type="button" onclick={openAddSkill} class="btn btn-sm preset-tonal text-xs"><Plus size={12} /> Add skill</button>
+          </div>
         {/if}
         {#each data.skills as skill (skill.name)}
-          <div class="card border border-surface-200-800 bg-surface-50-950 p-3">
+          <div id="skill-row-{skill.name}" class="card border border-surface-200-800 bg-surface-50-950 p-3">
             <div class="flex items-center gap-3">
               <Sparkles size={16} class="shrink-0 {skill.enabled ? 'text-tertiary-500' : 'text-surface-500'}" />
               <div class="min-w-0 flex-1">
@@ -597,12 +815,63 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
                 {skill.shortDescription || skill.description}
               </p>
             {/if}
-            <div class="mt-2.5 flex items-center gap-2">
+            <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
               <button type="button" onclick={() => toggleSkill(skill)} class="btn btn-sm hover:preset-tonal text-xs">
                 {skill.enabled ? "Disable" : "Enable"}
               </button>
+              <button
+                type="button"
+                onclick={() => toggleSkillView(skill)}
+                aria-expanded={Boolean(skillOpen[skill.name])}
+                class="btn btn-sm hover:preset-tonal text-xs"
+              >
+                <ChevronRight size={12} class="transition-transform {skillOpen[skill.name] ? 'rotate-90' : ''}" />
+                View SKILL.md
+              </button>
+              <TooltipButton label="Reveal in Finder" type="button" onclick={() => revealInFinder(skill.path)} aria-label="Reveal {skill.name} in Finder" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
+                <FolderOpen size={13} />
+              </TooltipButton>
+              <TooltipButton label="Open in Zed" type="button" onclick={() => openInZed(skill.path)} aria-label="Open {skill.name} in Zed" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
+                <FileText size={13} />
+              </TooltipButton>
               <span class="min-w-0 flex-1 truncate font-mono text-[10px] text-surface-500">{skill.path}</span>
+              {#if skill.scope === "user"}
+                {#if confirmDeleteSkill === skill.name}
+                  <button type="button" onclick={() => doDeleteSkill(skill)} class="btn btn-sm preset-filled-error-500 text-xs">Confirm delete</button>
+                  <button type="button" onclick={() => (confirmDeleteSkill = null)} class="btn btn-sm hover:preset-tonal text-xs">Cancel</button>
+                {:else}
+                  <TooltipButton
+                    label={`Delete ${skill.name}`}
+                    type="button"
+                    onclick={() => (confirmDeleteSkill = skill.name)}
+                    aria-label="Delete {skill.name}"
+                    class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
+                  >
+                    <Trash2 size={13} />
+                  </TooltipButton>
+                {/if}
+              {/if}
             </div>
+            {#if skillOpen[skill.name]}
+              <div class="mt-2.5 border-t border-surface-200-800 pt-2.5">
+                {#if skillText[skill.name] == null}
+                  <div class="text-[11px] text-surface-500">Loading SKILL.md…</div>
+                {:else}
+                  {@const parsed = splitFrontmatter(skillText[skill.name] ?? "")}
+                  <div class="max-h-80 overflow-auto rounded bg-surface-100-900 p-3 text-xs leading-5">
+                    {#if parsed.meta.length > 0}
+                      <dl class="mb-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 border-b border-surface-200-800 pb-2 text-[11px]">
+                        {#each parsed.meta as entry (entry.key)}
+                          <dt class="font-mono text-surface-500">{entry.key}</dt>
+                          <dd class="min-w-0 break-words text-surface-600-400">{entry.value}</dd>
+                        {/each}
+                      </dl>
+                    {/if}
+                    <div class="prose-skill">{@html renderMarkdown(parsed.body)}</div>
+                  </div>
+                {/if}
+              </div>
+            {/if}
           </div>
         {/each}
       {/if}
@@ -625,3 +894,31 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
     </div>
   {/if}
 </div>
+
+<style>
+  .prose-skill :global(h1),
+  .prose-skill :global(h2),
+  .prose-skill :global(h3) {
+    margin: 0.6rem 0 0.25rem;
+    font-weight: 600;
+  }
+  .prose-skill :global(h1) { font-size: 0.9rem; }
+  .prose-skill :global(h2) { font-size: 0.8rem; }
+  .prose-skill :global(p) { margin: 0.35rem 0; }
+  .prose-skill :global(ul),
+  .prose-skill :global(ol) {
+    margin: 0.35rem 0;
+    padding-left: 1.1rem;
+  }
+  .prose-skill :global(ul) { list-style: disc; }
+  .prose-skill :global(ol) { list-style: decimal; }
+  .prose-skill :global(pre) {
+    overflow-x: auto;
+    border-radius: 0.5rem;
+    background: #0d1117;
+    padding: 0.5rem 0.7rem;
+    font-size: 11px;
+  }
+  .prose-skill :global(code) { font-size: 11px; }
+  .prose-skill :global(hr) { margin: 0.5rem 0; opacity: 0.3; }
+</style>

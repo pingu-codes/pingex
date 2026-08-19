@@ -2,14 +2,18 @@ import { describe, expect, it } from "vitest";
 import {
   authAction,
   capabilitySummary,
+  contributionSummary,
   envKeysValid,
   formatArgs,
   parseArgs,
   rowStatus,
+  serverInfoLines,
+  splitFrontmatter,
   statusDotClass,
   statusLabel,
   toolParameters,
   toolsOf,
+  validSkillName,
 } from "$lib/integrations/integrationsHelpers";
 import type { McpServerStatus, McpServerSummary } from "$lib/types";
 
@@ -184,5 +188,58 @@ describe("formatArgs", () => {
     const args = ["-y", "pkg", "--flag=a b", "", "it's"];
     expect(parseArgs(formatArgs(args))).toEqual(args);
     expect(formatArgs(["-y", "pkg"])).toBe("-y pkg");
+  });
+});
+
+describe("contributionSummary", () => {
+  it("counts tools and resources, omitting zeros", () => {
+    expect(contributionSummary(null)).toBe("");
+    expect(
+      contributionSummary({
+        name: "x",
+        serverInfo: null,
+        authStatus: "unsupported",
+        tools: { a: { name: "a" } },
+        resources: [{ uri: "r://1" }],
+        resourceTemplates: [{ uriTemplate: "r://{id}" }],
+      }),
+    ).toBe("1 tool · 2 resources");
+  });
+});
+
+describe("serverInfoLines", () => {
+  it("skips empty fields and links the website", () => {
+    expect(serverInfoLines(null)).toEqual([]);
+    expect(
+      serverInfoLines({
+        name: "x",
+        authStatus: "unsupported",
+        tools: {},
+        serverInfo: { name: "srv", version: null, websiteUrl: "https://e.com" },
+      }),
+    ).toEqual([
+      { label: "Name", value: "srv" },
+      { label: "Website", value: "https://e.com", href: "https://e.com" },
+    ]);
+  });
+});
+
+describe("validSkillName", () => {
+  it("matches the native rule", () => {
+    expect(validSkillName("my-skill_2")).toBe(true);
+    for (const bad of ["", "My", "-x", "a b", "a/b", "a:b"]) expect(validSkillName(bad)).toBe(false);
+  });
+});
+
+describe("splitFrontmatter", () => {
+  it("separates yaml frontmatter from the body", () => {
+    expect(splitFrontmatter("---\nname: a\ndescription: b c\n---\n\n## Hi\n")).toEqual({
+      meta: [
+        { key: "name", value: "a" },
+        { key: "description", value: "b c" },
+      ],
+      body: "\n## Hi\n",
+    });
+    expect(splitFrontmatter("## Hi")).toEqual({ meta: [], body: "## Hi" });
   });
 });

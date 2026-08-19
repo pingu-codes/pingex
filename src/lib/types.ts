@@ -1063,11 +1063,29 @@ export interface McpServerStatus {
   } | null;
   /** Keyed by tool name. Empty when the server failed to start. */
   tools: Record<string, McpTool>;
-  resources?: unknown[];
-  resourceTemplates?: unknown[];
+  resources?: McpResource[];
+  resourceTemplates?: McpResourceTemplate[];
   authStatus: McpAuthStatus;
   /** Present when the server failed to start. */
   error?: string | null;
+}
+
+/** A concrete resource an MCP server exposes (`resources/list`). */
+export interface McpResource {
+  uri: string;
+  name?: string | null;
+  title?: string | null;
+  description?: string | null;
+  mimeType?: string | null;
+}
+
+/** A parameterised resource (`resources/templates/list`). */
+export interface McpResourceTemplate {
+  uriTemplate: string;
+  name?: string | null;
+  title?: string | null;
+  description?: string | null;
+  mimeType?: string | null;
 }
 
 // --- History search and pagination (feature 11) ---

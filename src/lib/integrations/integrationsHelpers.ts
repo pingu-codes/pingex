@@ -1,4 +1,11 @@
-import type { McpJsonSchema, McpServerStatus, McpServerSummary, McpTool } from "$lib/types";
+import type {
+  McpJsonSchema,
+  McpResource,
+  McpResourceTemplate,
+  McpServerStatus,
+  McpServerSummary,
+  McpTool,
+} from "$lib/types";
 
 export type IntegrationFilter = "all" | "mcp" | "skills" | "plugins" | "connections";
 
@@ -51,6 +58,41 @@ export function toolsOf(status?: McpServerStatus | null): McpTool[] {
   return Object.values(status?.tools ?? {}).sort((a, b) => a.name.localeCompare(b.name));
 }
 
+export function resourcesOf(status?: McpServerStatus | null): McpResource[] {
+  return status?.resources ?? [];
+}
+
+export function resourceTemplatesOf(status?: McpServerStatus | null): McpResourceTemplate[] {
+  return status?.resourceTemplates ?? [];
+}
+
+/** "2 tools · 1 resource" — what the server contributes, for the details toggle. */
+export function contributionSummary(status?: McpServerStatus | null): string {
+  const parts: string[] = [];
+  const tools = toolsOf(status).length;
+  if (tools > 0) parts.push(`${tools} ${tools === 1 ? "tool" : "tools"}`);
+  const resources = resourcesOf(status).length + resourceTemplatesOf(status).length;
+  if (resources > 0) parts.push(`${resources} ${resources === 1 ? "resource" : "resources"}`);
+  return parts.join(" · ");
+}
+
+/** Non-empty `serverInfo` fields as label/value pairs, website last. */
+export function serverInfoLines(status?: McpServerStatus | null): { label: string; value: string; href?: string }[] {
+  const info = status?.serverInfo;
+  if (!info) return [];
+  const lines: { label: string; value: string; href?: string }[] = [];
+  if (info.name) lines.push({ label: "Name", value: info.name });
+  if (info.version) lines.push({ label: "Version", value: info.version });
+  if (info.description) lines.push({ label: "About", value: info.description });
+  if (info.websiteUrl) lines.push({ label: "Website", value: info.websiteUrl, href: info.websiteUrl });
+  return lines;
+}
+
+/** Mirror of the native `validate_skill_name` rule. */
+export function validSkillName(name: string): boolean {
+  return /^[a-z0-9][a-z0-9_-]{0,63}$/.test(name);
+}
+
 /** One-line capability/transport summary for a server row. */
 export function capabilitySummary(server: McpServerSummary, status?: McpServerStatus | null): string {
   const parts: string[] = [];
@@ -63,8 +105,8 @@ export function capabilitySummary(server: McpServerSummary, status?: McpServerSt
   }
   const version = status?.serverInfo?.version;
   if (version) parts.push(`v${version}`);
-  const count = toolsOf(status).length;
-  if (status && count > 0) parts.push(`${count} ${count === 1 ? "tool" : "tools"}`);
+  const contribution = contributionSummary(status);
+  if (contribution) parts.push(contribution);
   return parts.join(" · ");
 }
 
@@ -136,4 +178,19 @@ export function formatArgs(args: string[]): string {
       return arg.includes('"') ? `'${arg}'` : `"${arg}"`;
     })
     .join(" ");
+}
+
+/**
+ * Split a SKILL.md into its YAML frontmatter lines and the markdown body, so
+ * the UI can show metadata compactly instead of rendering `---` as a rule.
+ */
+export function splitFrontmatter(text: string): { meta: { key: string; value: string }[]; body: string } {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
+  if (!match) return { meta: [], body: text };
+  const meta = match[1]
+    .split(/\r?\n/)
+    .map((line) => /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .map((m) => ({ key: m[1], value: m[2] }));
+  return { meta, body: text.slice(match[0].length) };
 }

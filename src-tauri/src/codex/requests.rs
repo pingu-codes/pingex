@@ -241,6 +241,12 @@ pub fn skills_list(cwds: &[String]) -> Request {
     request("skills/list", json!({"cwds": cwds}))
 }
 
+/// `skills/list` with `forceReload`, for right after we created or deleted a
+/// skill directory ourselves — Codex caches the scan otherwise.
+pub fn skills_list_force(cwds: &[String]) -> Request {
+    request("skills/list", json!({"cwds": cwds, "forceReload": true}))
+}
+
 /// `skills/config/write` requires exactly one of `name` or `path`; we always
 /// key by name.
 pub fn skill_config_write(name: &str, enabled: bool) -> Request {

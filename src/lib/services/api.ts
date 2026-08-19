@@ -10,7 +10,9 @@ import {
   previewCommits,
   previewConfigSettings,
   previewConnections,
+  previewCreateSkill,
   previewData,
+  previewDeleteSkill,
   previewFiles,
   previewGitRepoInfo,
   previewGitStatus,
@@ -27,6 +29,7 @@ import {
   previewQueue,
   previewQuickShortcut,
   previewRateLimits,
+  previewReadSkill,
   previewReindexSource,
   previewRemoveSource,
   previewRuntimeSettings,
@@ -1347,6 +1350,31 @@ export async function setSkillEnabled(name: string, enabled: boolean): Promise<v
     return;
   }
   await invoke("set_skill_enabled", { name, enabled });
+}
+
+/** Raw `SKILL.md` text for a skill; `path` is the directory or the file. */
+export async function readSkill(path: string): Promise<string> {
+  if (!isTauri()) return previewReadSkill(path);
+  return invoke<string>("read_skill", { path });
+}
+
+/**
+ * Scaffold `<codex_home>/skills/<name>/SKILL.md`. Returns the refreshed list
+ * (Codex is asked to rescan, so the new skill is already present).
+ */
+export async function createSkill(input: {
+  name: string;
+  description: string;
+  body?: string | null;
+}): Promise<IntegrationsList> {
+  if (!isTauri()) return previewCreateSkill(input);
+  return invoke<IntegrationsList>("create_skill", { ...input, body: input.body ?? null });
+}
+
+/** Delete a user-scope skill directory. Refused for anything outside `~/.codex/skills`. */
+export async function deleteSkill(path: string): Promise<IntegrationsList> {
+  if (!isTauri()) return previewDeleteSkill(path);
+  return invoke<IntegrationsList>("delete_skill", { path });
 }
 
 /**
