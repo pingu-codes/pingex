@@ -1,5 +1,16 @@
 <script lang="ts">
-import { AlertTriangle, Check, CheckCircle2, FolderOpen, House, Loader, Plus, Terminal, X } from "@lucide/svelte";
+import {
+  AlertTriangle,
+  AppWindow,
+  Check,
+  CheckCircle2,
+  FolderOpen,
+  House,
+  Loader,
+  Plus,
+  Terminal,
+  X,
+} from "@lucide/svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import type { LaunchState } from "$lib/types";
 
@@ -11,6 +22,7 @@ let {
   onBrowse,
   onRemove,
   onSetBinary,
+  onOpenNewWindow,
 }: {
   launchState: LaunchState;
   busy?: boolean;
@@ -20,6 +32,8 @@ let {
   onRemove: (path: string) => void;
   /** Save a Codex CLI path; rejects with a message when it cannot be run. */
   onSetBinary: (path: string) => Promise<void>;
+  /** Open this home in a new window instead of binding it to this one. */
+  onOpenNewWindow?: (path: string) => void;
 } = $props();
 
 // Opening a home creates it on disk and spawns the CLI, so a missing binary
@@ -152,7 +166,7 @@ const relativeTime = (timestamp: number | null) => {
             onclick={() => onSelect(option.path)}
             disabled={locked}
             data-testid="home-option"
-            class="flex w-full items-center gap-3 rounded-xl border border-surface-200-800 bg-surface-100-900 px-3 py-2.5 text-left transition hover:preset-tonal disabled:pointer-events-none disabled:opacity-60 {option.exists ? '' : 'opacity-60'} {option.removable ? 'pr-9' : ''}"
+            class="flex w-full items-center gap-3 rounded-xl border border-surface-200-800 bg-surface-100-900 px-3 py-2.5 text-left transition hover:preset-tonal disabled:pointer-events-none disabled:opacity-60 {option.exists ? '' : 'opacity-60'} {option.removable ? 'pr-14' : 'pr-9'}"
           >
             <House size={17} strokeWidth={1.7} class="shrink-0 text-surface-500" />
             <div class="min-w-0 flex-1">
@@ -176,6 +190,18 @@ const relativeTime = (timestamp: number | null) => {
               <Check size={15} class="shrink-0 text-primary-500" />
             {/if}
           </button>
+          {#if onOpenNewWindow}
+            <TooltipButton
+              label="Open in new window"
+              onclick={() => onOpenNewWindow(option.path)}
+              disabled={locked || !option.exists}
+              aria-label="Open {option.path} in a new window"
+              data-testid="open-home-new-window"
+              class="absolute top-1/2 -translate-y-1/2 rounded-md p-1 text-surface-500 opacity-0 transition group-hover/row:opacity-100 focus-visible:opacity-100 hover:preset-tonal disabled:pointer-events-none {option.removable ? 'right-8' : 'right-2'}"
+            >
+              <AppWindow size={14} />
+            </TooltipButton>
+          {/if}
           {#if option.removable}
             <TooltipButton
               label="Remove from recents"

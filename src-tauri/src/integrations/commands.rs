@@ -24,24 +24,24 @@ use crate::AppState;
 /// user- and system-scoped skills.
 pub(super) async fn build_list(
     app: &AppHandle,
-    state: &State<'_, AppState>,
+    ctx: &crate::HomeContext,
     cwds: Vec<String>,
 ) -> Result<IntegrationsList, String> {
-    build_list_with(app, state, cwds, false).await
+    build_list_with(app, ctx, cwds, false).await
 }
 
 /// `force_reload` makes Codex rescan skill directories; needed after we add or
 /// remove one on disk ourselves.
 pub(super) async fn build_list_with(
     app: &AppHandle,
-    state: &State<'_, AppState>,
+    ctx: &crate::HomeContext,
     cwds: Vec<String>,
     force_reload: bool,
 ) -> Result<IntegrationsList, String> {
-    let doc = load(&state.runtime().codex_home)?;
+    let doc = load(&ctx.runtime().codex_home)?;
     Ok(IntegrationsList {
         mcp_servers: summarize_mcp_servers(&doc),
-        skills: fetch_skills(app, state, cwds, force_reload).await,
+        skills: fetch_skills(app, ctx, cwds, force_reload).await,
         plugins: Vec::new(),
         plugins_supported: false,
     })
@@ -51,9 +51,11 @@ pub(super) async fn build_list_with(
 pub(crate) async fn list_integrations(
     cwds: Option<Vec<String>>,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
-    build_list(&app, &state, cwds.unwrap_or_default()).await
+    let ctx = state.ctx(&window);
+    build_list(&app, &ctx, cwds.unwrap_or_default()).await
 }
 
 /// One MCP server as the edit form describes it.
@@ -90,11 +92,13 @@ pub(crate) struct McpServerInput {
 pub(crate) async fn save_mcp_server(
     server: McpServerInput,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
+    let ctx = state.ctx(&window);
     let name = server.name;
     validate_server_name(&name)?;
-    let home = state.runtime().codex_home;
+    let home = ctx.runtime().codex_home;
     let mut doc = load(&home)?;
 
     // Rename first so every later edit targets the entry under its final key,
@@ -138,23 +142,25 @@ pub(crate) async fn save_mcp_server(
     }
 
     save(&home, &doc)?;
-    reload(&app, &state).await;
+    reload(&app, &ctx).await;
     // Re-read so the returned list reflects exactly what is on disk (redacted).
-    build_list(&app, &state, Vec::new()).await
+    build_list(&app, &ctx, Vec::new()).await
 }
 
 #[tauri::command]
 pub(crate) async fn remove_mcp_server(
     name: String,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
-    let home = state.runtime().codex_home;
+    let ctx = state.ctx(&window);
+    let home = ctx.runtime().codex_home;
     let mut doc = load(&home)?;
     remove_server_from_doc(&mut doc, &name)?;
     save(&home, &doc)?;
-    reload(&app, &state).await;
-    build_list(&app, &state, Vec::new()).await
+    reload(&app, &ctx).await;
+    build_list(&app, &ctx, Vec::new()).await
 }
 
 #[tauri::command]
@@ -162,22 +168,24 @@ pub(crate) async fn set_mcp_enabled(
     name: String,
     enabled: bool,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
-    let home = state.runtime().codex_home;
+    let ctx = state.ctx(&window);
+    let home = ctx.runtime().codex_home;
     let mut doc = load(&home)?;
     set_enabled_in_doc(&mut doc, &name, enabled)?;
     save(&home, &doc)?;
-    reload(&app, &state).await;
-    build_list(&app, &state, Vec::new()).await
+    reload(&app, &ctx).await;
+    build_list(&app, &ctx, Vec::new()).await
 }
 
 /// Ask Codex to re-read `config.toml`. Deliberately best-effort: the edit is
 /// already durable on disk, so a reload failure means "takes effect next
 /// restart", not "the change was lost". Failing the whole command here would
 /// misreport a successful save.
-async fn reload(app: &AppHandle, state: &State<'_, AppState>) {
-    if let Err(error) = reload_mcp_config(app, state).await {
+async fn reload(app: &AppHandle, ctx: &crate::HomeContext) {
+    if let Err(error) = reload_mcp_config(app, ctx).await {
         eprintln!("MCP config reload failed; changes apply on next restart: {error}");
     }
 }

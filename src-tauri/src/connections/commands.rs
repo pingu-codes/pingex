@@ -16,9 +16,11 @@ use crate::AppState;
 #[tauri::command]
 pub(crate) async fn list_connections(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<Connection>, String> {
-    collect_connections(&app, &state).await
+    let ctx = state.ctx(&window);
+    collect_connections(&app, &ctx).await
 }
 
 /// Re-poll the relay for fresh health. Identical to `list_connections` today;
@@ -26,25 +28,29 @@ pub(crate) async fn list_connections(
 #[tauri::command]
 pub(crate) async fn refresh_connections(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<Connection>, String> {
-    collect_connections(&app, &state).await
+    let ctx = state.ctx(&window);
+    collect_connections(&app, &ctx).await
 }
 
 #[tauri::command]
 pub(crate) async fn rename_connection(
     client_id: String,
     name: String,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    ensure_table(&state.database()).await?;
+    let ctx = state.ctx(&window);
+    ensure_table(&ctx.database()).await?;
     let trimmed = name.trim();
     let name = if trimmed.is_empty() {
         None
     } else {
         Some(trimmed)
     };
-    set_name(&state.database(), &client_id, name, unix_secs()).await
+    set_name(&ctx.database(), &client_id, name, unix_secs()).await
 }
 
 /// Safe action: forget the local record. The credential is untouched, so an
@@ -52,10 +58,12 @@ pub(crate) async fn rename_connection(
 #[tauri::command]
 pub(crate) async fn disconnect_connection(
     client_id: String,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    ensure_table(&state.database()).await?;
-    delete_record(&state.database(), &client_id).await
+    let ctx = state.ctx(&window);
+    ensure_table(&ctx.database()).await?;
+    delete_record(&ctx.database(), &client_id).await
 }
 
 /// Destructive action: revoke the credential through the relay (idempotent —
@@ -65,13 +73,15 @@ pub(crate) async fn disconnect_connection(
 pub(crate) async fn revoke_connection(
     client_id: String,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    ensure_table(&state.database()).await?;
-    if let Some(environment_id) = environment_id(&app, &state).await {
+    let ctx = state.ctx(&window);
+    ensure_table(&ctx.database()).await?;
+    if let Some(environment_id) = environment_id(&app, &ctx).await {
         // A NotFound/already-revoked client maps to invalid_request; treat that
         // as success so the action is idempotent. Other errors surface.
-        if let Err(error) = state
+        if let Err(error) = ctx
             .session
             .request(
                 &app,
@@ -85,7 +95,7 @@ pub(crate) async fn revoke_connection(
             }
         }
     }
-    delete_record(&state.database(), &client_id).await
+    delete_record(&ctx.database(), &client_id).await
 }
 
 /// A revoke or disconnect for a device the relay has already forgotten is a

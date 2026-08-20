@@ -18,6 +18,9 @@ const METHOD_NOT_FOUND: i64 = -32601;
 /// Tauri events.
 pub(crate) struct CodexSession {
     runtime: SharedRuntime,
+    /// Canonical home this session belongs to; stamped onto every event so a
+    /// window bound to another home can drop it.
+    home_key: String,
     inner: tokio::sync::Mutex<Option<MainSession>>,
     /// Opt-in record of the traffic below, shared with every spawned child so
     /// switching homes does not lose the switch.
@@ -34,6 +37,10 @@ struct MainSession {
 /// the work items, cache the settings a thread resolved to, and forward the
 /// rest to the frontend.
 struct MainSessionSink {
+    /// Canonical home of the context this child serves — the `codexHome` tag
+    /// on everything emitted, and the key background writes resolve their
+    /// database through.
+    home_key: String,
     resumed: Mutex<HashMap<String, Value>>,
     /// Why this child refused `thread/queue/*`, once it has. Lives on the sink
     /// rather than on [`CodexSession`] so that replacing the child — a binary
@@ -47,11 +54,12 @@ struct MainSessionSink {
 }
 
 impl MainSessionSink {
-    fn new(app: AppHandle) -> Self {
+    fn new(app: AppHandle, home_key: String) -> Self {
         Self {
             resumed: Mutex::new(HashMap::new()),
             queue_unsupported: Mutex::new(None),
-            journal: TurnJournal::new(app.clone()),
+            journal: TurnJournal::new(app.clone(), home_key.clone()),
+            home_key,
             app,
         }
     }
@@ -95,6 +103,7 @@ impl ChildSink for MainSessionSink {
             json!({
                 "method": method,
                 "params": params,
+                "codexHome": self.home_key,
             }),
         );
     }
@@ -131,9 +140,9 @@ impl ChildSink for MainSessionSink {
         // Anything else — including a dynamic tool we do not own — falls
         // through untouched.
         if method == "item/tool/call" && crate::agents::tools::owns(params) {
-            let (app, params) = (self.app.clone(), params.clone());
+            let (app, home_key, params) = (self.app.clone(), self.home_key.clone(), params.clone());
             tauri::async_runtime::spawn(async move {
-                crate::agents::handle_tool_call(app, id, params).await;
+                crate::agents::handle_tool_call(app, home_key, id, params).await;
             });
             return;
         }
@@ -162,17 +171,23 @@ impl ChildSink for MainSessionSink {
                 "requestId": id,
                 "method": method,
                 "params": params,
+                "codexHome": self.home_key,
             }),
         );
     }
 
     fn on_closed(&self) {
-        let _ = self.app.emit("codex:disconnected", ());
+        // Carries the home so one account's child dying does not tear down a
+        // window bound to another account.
+        let _ = self
+            .app
+            .emit("codex:disconnected", json!({ "codexHome": self.home_key }));
     }
 }
 
 async fn spawn_session(
     runtime: &RuntimeConfig,
+    home_key: String,
     app: AppHandle,
     wire: Arc<WireLog>,
 ) -> Result<MainSession, String> {
@@ -181,7 +196,7 @@ async fn spawn_session(
     // spawning bare `codex` would fail even though the CLI is installed.
     let program = crate::codex::binary::resolve(&runtime.codex_binary)
         .ok_or_else(|| crate::codex::binary::missing_message(&runtime.codex_binary))?;
-    let sink = Arc::new(MainSessionSink::new(app.clone()));
+    let sink = Arc::new(MainSessionSink::new(app.clone(), home_key));
     let child = spawn_child(
         &program,
         std::path::Path::new(&runtime.codex_home),
@@ -195,9 +210,10 @@ async fn spawn_session(
 }
 
 impl CodexSession {
-    pub(crate) fn new(runtime: SharedRuntime) -> Self {
+    pub(crate) fn new(runtime: SharedRuntime, home_key: String) -> Self {
         Self {
             runtime,
+            home_key,
             inner: tokio::sync::Mutex::new(None),
             wire: Arc::new(WireLog::default()),
         }
@@ -240,7 +256,13 @@ impl CodexSession {
             }
         }
         let runtime = self.runtime.read().expect("runtime lock poisoned").clone();
-        let session = spawn_session(&runtime, app.clone(), self.wire.clone()).await?;
+        let session = spawn_session(
+            &runtime,
+            self.home_key.clone(),
+            app.clone(),
+            self.wire.clone(),
+        )
+        .await?;
         let pair = (session.child.clone(), session.sink.clone());
         *guard = Some(session);
         Ok(pair)

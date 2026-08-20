@@ -1,5 +1,6 @@
 <script lang="ts">
 import {
+  AppWindow,
   Archive,
   ArchiveRestore,
   Boxes,
@@ -23,7 +24,8 @@ import {
   X,
 } from "@lucide/svelte";
 import { Portal, Tooltip } from "@skeletonlabs/skeleton-svelte";
-import { readHomeOverview } from "$lib/services/api";
+import { openHomeWindow, readHomeOverview } from "$lib/services/api";
+import { isTauri } from "$lib/services/tauri";
 import type { HomeOverview, MenuTarget, Project, ThreadSummary } from "$lib/types";
 import BranchChip from "$lib/worktrees/BranchChip.svelte";
 
@@ -196,6 +198,13 @@ const relativeTime = (timestamp: number) => {
           <button onclick={onSwitchHome} class="btn btn-sm preset-tonal shrink-0">
             <FolderOpen size={14} />
             Switch home
+          </button>
+        {/if}
+        {#if isTauri()}
+          <!-- A second account side by side: a fresh window with its own picker. -->
+          <button onclick={() => void openHomeWindow()} class="btn btn-sm preset-tonal shrink-0" title="Open another window, e.g. for a second account">
+            <AppWindow size={14} />
+            New window
           </button>
         {/if}
       </div>

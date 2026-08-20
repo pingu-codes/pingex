@@ -85,14 +85,16 @@ fn roll_back(created: &[(PathBuf, PathBuf, String)]) {
 #[tauri::command]
 pub(crate) async fn create_workspace(
     input: CreateWorkspaceInput,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
+    let ctx = state.ctx(&window);
     let name = input.name.trim();
     if name.is_empty() {
         return Err("Give the workspace a name".into());
     }
     let inputs = validate_members(&input.members)?;
-    let runtime = state.runtime();
+    let runtime = ctx.runtime();
     let id = workspace_id();
     let hub = runtime.codex_home.join("multi-projects").join(&id);
     let mut created = Vec::<(PathBuf, PathBuf, String)>::new();
@@ -139,34 +141,36 @@ pub(crate) async fn create_workspace(
         roll_back(&created);
         return Err(error);
     }
-    if let Err(error) = storage::create_workspace(&state.database(), &workspace, &members).await {
+    if let Err(error) = storage::create_workspace(&ctx.database(), &workspace, &members).await {
         roll_back(&created);
         return Err(error);
     }
-    bootstrap_cached(&state).await
+    bootstrap_cached(&ctx).await
 }
 
 #[tauri::command]
 pub(crate) async fn update_workspace(
     input: UpdateWorkspaceInput,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
+    let ctx = state.ctx(&window);
     let name = input.name.trim();
     if name.is_empty() {
         return Err("Give the workspace a name".into());
     }
     let requested = validate_members(&input.members)?;
-    let mut workspace = storage::read_workspaces(&state.database())
+    let mut workspace = storage::read_workspaces(&ctx.database())
         .await?
         .into_iter()
         .find(|workspace| workspace.id == input.workspace_id && !workspace.archived)
         .ok_or("This workspace no longer exists or is archived")?;
-    let old_members = storage::read_workspace_members(&state.database(), &workspace.id).await?;
+    let old_members = storage::read_workspace_members(&ctx.database(), &workspace.id).await?;
     let old_by_source: HashMap<_, _> = old_members
         .iter()
         .map(|member| (member.source_path.as_str(), member))
         .collect();
-    let runtime = state.runtime();
+    let runtime = ctx.runtime();
     let mut created = Vec::<(PathBuf, PathBuf, String)>::new();
     let mut members = Vec::new();
     for (ordinal, (requested, source)) in requested.into_iter().enumerate() {
@@ -240,24 +244,26 @@ pub(crate) async fn update_workspace(
         roll_back(&created);
         return Err(error);
     }
-    if let Err(error) = storage::update_workspace(&state.database(), &workspace, &members).await {
+    if let Err(error) = storage::update_workspace(&ctx.database(), &workspace, &members).await {
         roll_back(&created);
         return Err(error);
     }
-    bootstrap_cached(&state).await
+    bootstrap_cached(&ctx).await
 }
 
 #[tauri::command]
 pub(crate) async fn move_thread_to_workspace(
     thread_id: String,
     workspace_id: String,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
+    let ctx = state.ctx(&window);
     // Materialize and validate now, rather than saving a thread association
     // that will only fail at its next turn.
-    runtime_for_workspace(&state, &workspace_id).await?;
-    storage::assign_thread_workspace(&state.database(), &thread_id, &workspace_id).await?;
-    bootstrap_cached(&state).await
+    runtime_for_workspace(&ctx, &workspace_id).await?;
+    storage::assign_thread_workspace(&ctx.database(), &thread_id, &workspace_id).await?;
+    bootstrap_cached(&ctx).await
 }
 
 #[cfg(test)]

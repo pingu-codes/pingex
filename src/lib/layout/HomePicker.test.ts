@@ -7,6 +7,7 @@ import type { LaunchState } from "$lib/types";
 function launchState(overrides: Partial<LaunchState> = {}): LaunchState {
   return {
     codexHome: "/home/user/.codex-work",
+    homeKey: "/home/user/.codex-work",
     codexBinary: "codex",
     defaultHome: "/home/user/.codex",
     explicit: false,

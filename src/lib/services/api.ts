@@ -809,6 +809,16 @@ export async function selectCodexHome(path: string): Promise<LaunchState> {
   return invoke<LaunchState>("select_codex_home", { path });
 }
 
+/**
+ * Open another app window, bound to `path` when given (e.g. a second account's
+ * Codex home) or showing the launch picker when not. Returns the new window's
+ * label.
+ */
+export async function openHomeWindow(path?: string): Promise<string | null> {
+  if (!isTauri()) return null;
+  return invoke<string>("open_home_window", { path: path ?? null });
+}
+
 /** Probe a Codex CLI path without saving it (blank = the active binary). */
 export async function checkCodexBinary(path: string | null): Promise<BinaryStatus> {
   if (!isTauri()) {

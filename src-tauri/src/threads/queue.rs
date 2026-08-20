@@ -72,19 +72,19 @@ fn classify(error: &str) -> Option<String> {
 /// refused the API and classifying it if this is the first refusal.
 async fn queue_request(
     app: &AppHandle,
-    state: &State<'_, AppState>,
+    ctx: &crate::HomeContext,
     thread_id: &str,
     request: requests::Request,
 ) -> Result<Value, String> {
-    if let Some(reason) = state.session.queue_unsupported(app).await? {
+    if let Some(reason) = ctx.session.queue_unsupported(app).await? {
         return Err(format!("{QUEUE_UNSUPPORTED}: {reason}"));
     }
-    state.session.ensure_resumed(app, thread_id).await?;
-    match state.session.send(app, request).await {
+    ctx.session.ensure_resumed(app, thread_id).await?;
+    match ctx.session.send(app, request).await {
         Ok(response) => Ok(response),
         Err(error) => match classify(&error) {
             Some(reason) => {
-                state.session.mark_queue_unsupported(app, &reason).await?;
+                ctx.session.mark_queue_unsupported(app, &reason).await?;
                 Err(format!("{QUEUE_UNSUPPORTED}: {reason}"))
             }
             None => Err(error),
@@ -98,10 +98,12 @@ pub(crate) async fn queue_add(
     input: Value,
     client_user_message_id: String,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    let ctx = state.ctx(&window);
     let request = requests::queue_add(&thread_id, input, &client_user_message_id);
-    queue_request(&app, &state, &thread_id, request).await
+    queue_request(&app, &ctx, &thread_id, request).await
 }
 
 #[tauri::command]
@@ -109,10 +111,12 @@ pub(crate) async fn queue_list(
     thread_id: String,
     cursor: Option<String>,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    let ctx = state.ctx(&window);
     let request = requests::queue_list(&thread_id, cursor.as_deref());
-    queue_request(&app, &state, &thread_id, request).await
+    queue_request(&app, &ctx, &thread_id, request).await
 }
 
 #[tauri::command]
@@ -121,10 +125,12 @@ pub(crate) async fn queue_update(
     queued_submission_id: String,
     input: Value,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    let ctx = state.ctx(&window);
     let request = requests::queue_update(&thread_id, &queued_submission_id, input);
-    queue_request(&app, &state, &thread_id, request).await
+    queue_request(&app, &ctx, &thread_id, request).await
 }
 
 #[tauri::command]
@@ -132,10 +138,12 @@ pub(crate) async fn queue_delete(
     thread_id: String,
     queued_submission_id: String,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    let ctx = state.ctx(&window);
     let request = requests::queue_delete(&thread_id, &queued_submission_id);
-    queue_request(&app, &state, &thread_id, request).await
+    queue_request(&app, &ctx, &thread_id, request).await
 }
 
 #[tauri::command]
@@ -143,10 +151,12 @@ pub(crate) async fn queue_reorder(
     thread_id: String,
     queued_submission_ids: Vec<String>,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    let ctx = state.ctx(&window);
     let request = requests::queue_reorder(&thread_id, &queued_submission_ids);
-    queue_request(&app, &state, &thread_id, request).await
+    queue_request(&app, &ctx, &thread_id, request).await
 }
 
 #[tauri::command]
@@ -154,10 +164,12 @@ pub(crate) async fn queue_start(
     thread_id: String,
     queued_submission_id: Option<String>,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    let ctx = state.ctx(&window);
     let request = requests::queue_start(&thread_id, queued_submission_id.as_deref());
-    queue_request(&app, &state, &thread_id, request).await
+    queue_request(&app, &ctx, &thread_id, request).await
 }
 
 #[cfg(test)]

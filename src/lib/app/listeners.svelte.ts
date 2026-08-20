@@ -3,9 +3,11 @@
  * remote connections, external links and the Tauri deep-link/quick-chat
  * channels.
  */
+
 import { listen } from "@tauri-apps/api/event";
 import { quietRefresh } from "$lib/app/appData.svelte";
 import { applyHandoff } from "$lib/app/handoff.svelte";
+import { eventMatchesHome } from "$lib/app/launch.svelte";
 import { openThreadById, setView, view } from "$lib/app/navigation.svelte";
 import { messageLog } from "$lib/layout/messageLogPrefs.svelte";
 import { isTauri } from "$lib/services/api";
@@ -71,7 +73,9 @@ export function startApp(): void {
   if (!isTauri()) return;
   // A `codex://` deep link received by the backend (CLI-to-desktop handoff).
   listen<HandoffOpen>("handoff://open", (event) => applyHandoff(event.payload));
-  listen<{ threadId: string }>("quickchat://open-thread", (event) => {
+  listen<{ threadId: string; codexHome?: string }>("quickchat://open-thread", (event) => {
+    // Broadcast to every window; only the ones on the quick chat's home react.
+    if (!eventMatchesHome(event.payload?.codexHome)) return;
     const threadId = event.payload?.threadId;
     if (threadId) openThreadFromQuick(threadId);
   });

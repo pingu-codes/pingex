@@ -11,9 +11,11 @@ use crate::AppState;
 pub(crate) fn handoff_command(
     thread_id: String,
     cwd: String,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> String {
-    let runtime = state.runtime();
+    let ctx = state.ctx(&window);
+    let runtime = ctx.runtime();
     build_resume_command(
         &runtime.codex_home.display().to_string(),
         &runtime.codex_binary.display().to_string(),
@@ -28,9 +30,11 @@ pub(crate) fn handoff_thread_link(
     thread_id: String,
     cwd: String,
     label: Option<String>,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> String {
-    let runtime = state.runtime();
+    let ctx = state.ctx(&window);
+    let runtime = ctx.runtime();
     build_thread_link(
         &thread_id,
         &cwd,

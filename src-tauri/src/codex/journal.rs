@@ -13,7 +13,7 @@
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 /// How much aggregated command output to keep. A single build can emit
 /// megabytes, and the transcript only ever shows the tail of it.
@@ -186,6 +186,7 @@ pub(crate) fn journal_target(params: &Value) -> Option<JournalTarget> {
 /// session it is watching.
 pub(crate) fn journal_item(
     app: &AppHandle,
+    home_key: &str,
     params: &Value,
     after_item_id: Option<String>,
     streamed_summary: Vec<String>,
@@ -205,12 +206,9 @@ pub(crate) fn journal_item(
     // streamed patch is as capable of carrying a megabyte as a reported one.
     restore_changes(&mut payload, &streamed_changes);
     payload = trim_payload(payload);
-    let app = app.clone();
+    let (app, home_key) = (app.clone(), home_key.to_string());
     tauri::async_runtime::spawn(async move {
-        let Some(database) = app
-            .try_state::<crate::AppState>()
-            .map(|state| state.database())
-        else {
+        let Some(database) = crate::database_for(&app, &home_key) else {
             return;
         };
         let _ = crate::storage::record_thread_item(
@@ -264,16 +262,20 @@ pub(crate) struct TurnJournal {
     /// reads as still running for as long as the row survives.
     open_turn: Mutex<HashMap<String, String>>,
     app: AppHandle,
+    /// Canonical home key this journal writes under, resolving the right
+    /// per-home database from a background task.
+    home_key: String,
 }
 
 impl TurnJournal {
-    pub(crate) fn new(app: AppHandle) -> Self {
+    pub(crate) fn new(app: AppHandle, home_key: String) -> Self {
         Self {
             last_item_id: Mutex::new(HashMap::new()),
             summaries: Mutex::new(HashMap::new()),
             patches: Mutex::new(HashMap::new()),
             open_turn: Mutex::new(HashMap::new()),
             app,
+            home_key,
         }
     }
 
@@ -304,7 +306,7 @@ impl TurnJournal {
                     )
                 })
                 .unwrap_or_default();
-            journal_item(&self.app, params, anchor, summary, changes);
+            journal_item(&self.app, &self.home_key, params, anchor, summary, changes);
         }
         if method == "turn/started" {
             self.track_turn(params, false);
@@ -435,12 +437,9 @@ impl TurnJournal {
         F: FnOnce(turso::Database) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = ()> + Send,
     {
-        let app = self.app.clone();
+        let (app, home_key) = (self.app.clone(), self.home_key.clone());
         tauri::async_runtime::spawn(async move {
-            let Some(database) = app
-                .try_state::<crate::AppState>()
-                .map(|state| state.database())
-            else {
+            let Some(database) = crate::database_for(&app, &home_key) else {
                 return;
             };
             body(database).await;

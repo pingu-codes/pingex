@@ -16,10 +16,12 @@ pub(crate) async fn add_side_question(
     parent_thread_id: String,
     side_thread_id: String,
     title: String,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
+    let ctx = state.ctx(&window);
     storage::add_side_question(
-        &state.database(),
+        &ctx.database(),
         &SideQuestion {
             side_thread_id,
             parent_thread_id,
@@ -28,7 +30,7 @@ pub(crate) async fn add_side_question(
         },
     )
     .await?;
-    bootstrap_cached(&state).await
+    bootstrap_cached(&ctx).await
 }
 
 /// Stop tracking a thread as a side question. The thread itself survives and
@@ -36,8 +38,10 @@ pub(crate) async fn add_side_question(
 #[tauri::command]
 pub(crate) async fn remove_side_question(
     side_thread_id: String,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
-    storage::delete_side_question(&state.database(), &side_thread_id).await?;
-    bootstrap_cached(&state).await
+    let ctx = state.ctx(&window);
+    storage::delete_side_question(&ctx.database(), &side_thread_id).await?;
+    bootstrap_cached(&ctx).await
 }

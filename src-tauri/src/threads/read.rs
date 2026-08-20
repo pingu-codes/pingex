@@ -23,21 +23,23 @@ const RESOLVED_SETTINGS: [&str; 2] = ["subagentModelPolicy", "subagentReasoningE
 pub(crate) async fn read_thread(
     thread_id: String,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    let ctx = state.ctx(&window);
     // Resuming subscribes the app to live updates. Keep this best-effort so a
     // cached thread remains readable while Codex is unavailable.
-    let resume = state.session.ensure_resumed(&app, &thread_id).await.ok();
-    let source_updated_at = storage::thread_updated_at(&state.database(), &thread_id)
+    let resume = ctx.session.ensure_resumed(&app, &thread_id).await.ok();
+    let source_updated_at = storage::thread_updated_at(&ctx.database(), &thread_id)
         .await?
         .unwrap_or_default();
     if let Some(mut detail) =
-        storage::read_thread_detail(&state.database(), &thread_id, source_updated_at).await?
+        storage::read_thread_detail(&ctx.database(), &thread_id, source_updated_at).await?
     {
-        merge_local_items(&state, &thread_id, &mut detail).await?;
+        merge_local_items(&ctx, &thread_id, &mut detail).await?;
         return Ok(with_thread_settings(detail, resume.as_ref()));
     }
-    let response = state
+    let response = ctx
         .session
         .send(&app, requests::thread_read(&thread_id))
         .await?;
@@ -47,27 +49,27 @@ pub(crate) async fn read_thread(
         .ok_or_else(|| "Codex returned no thread data".to_string())?;
     // Cached before the merge: the row holds Codex's own payload, and the local
     // items are layered on at read time so they cannot go stale inside it.
-    storage::write_thread_detail(&state.database(), &thread_id, source_updated_at, &detail).await?;
-    merge_local_items(&state, &thread_id, &mut detail).await?;
+    storage::write_thread_detail(&ctx.database(), &thread_id, source_updated_at, &detail).await?;
+    merge_local_items(&ctx, &thread_id, &mut detail).await?;
     Ok(with_thread_settings(detail, resume.as_ref()))
 }
 
 /// Layer everything Pingex persisted itself onto Codex's payload.
 async fn merge_local_items(
-    state: &State<'_, AppState>,
+    ctx: &crate::HomeContext,
     thread_id: &str,
     detail: &mut Value,
 ) -> Result<(), String> {
-    let items = storage::read_thread_items(&state.database(), thread_id).await?;
+    let items = storage::read_thread_items(&ctx.database(), thread_id).await?;
     // Before the merge: a turn that is still running may not be in Codex's
     // payload at all, and journaled items whose turn is missing are dropped.
-    let running = storage::read_running_turns(&state.database(), thread_id).await?;
+    let running = storage::read_running_turns(&ctx.database(), thread_id).await?;
     mark_running_turns(detail, &running);
-    let complete = storage::read_complete_turns(&state.database(), thread_id).await?;
+    let complete = storage::read_complete_turns(&ctx.database(), thread_id).await?;
     merge_journaled_items(detail, &items, &complete);
-    let answers = storage::read_user_input_answers(&state.database(), thread_id).await?;
+    let answers = storage::read_user_input_answers(&ctx.database(), thread_id).await?;
     merge_user_input_answers(detail, &answers);
-    let settings = storage::read_turn_settings(&state.database(), thread_id).await?;
+    let settings = storage::read_turn_settings(&ctx.database(), thread_id).await?;
     merge_turn_settings(detail, &settings);
     Ok(())
 }

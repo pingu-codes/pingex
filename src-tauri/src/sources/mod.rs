@@ -104,7 +104,7 @@ async fn index_source_now(
 
 /// Kick off (or refresh) the index for one source on a background task, moving
 /// its status to indexed/error and emitting `sources://updated` when done.
-fn spawn_index(app: AppHandle, database: Database, source: StoredProjectSource) {
+fn spawn_index(app: AppHandle, database: Database, source: StoredProjectSource, home_key: String) {
     tauri::async_runtime::spawn(async move {
         let project_path = source.project_path.clone();
         let result = index_source_now(&database, &source).await;
@@ -125,7 +125,10 @@ fn spawn_index(app: AppHandle, database: Database, source: StoredProjectSource) 
                     .await
             }
         };
-        let _ = app.emit("sources://updated", project_path);
+        let _ = app.emit(
+            "sources://updated",
+            serde_json::json!({"projectPath": project_path, "codexHome": home_key}),
+        );
     });
 }
 
@@ -133,17 +136,21 @@ fn spawn_index(app: AppHandle, database: Database, source: StoredProjectSource) 
 pub(crate) async fn save_project_instructions(
     project_path: String,
     instructions: String,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    storage::write_project_instructions(&state.database(), &project_path, &instructions).await
+    let ctx = state.ctx(&window);
+    storage::write_project_instructions(&ctx.database(), &project_path, &instructions).await
 }
 
 #[tauri::command]
 pub(crate) async fn list_project_sources(
     project_path: String,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<StoredProjectSource>, String> {
-    storage::read_project_sources(&state.database(), &project_path).await
+    let ctx = state.ctx(&window);
+    storage::read_project_sources(&ctx.database(), &project_path).await
 }
 
 #[tauri::command]
@@ -152,8 +159,10 @@ pub(crate) async fn add_project_source(
     source_path: String,
     kind: String,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<StoredProjectSource>, String> {
+    let ctx = state.ctx(&window);
     if kind != "folder" && kind != "file" {
         return Err(format!("Unknown source kind: {kind}"));
     }
@@ -169,7 +178,7 @@ pub(crate) async fn add_project_source(
         return Err(format!("{} is not a {kind}", canonical.display()));
     }
     let canonical = canonical.display().to_string();
-    let database = state.database();
+    let database = ctx.database();
     let existing = storage::read_project_sources(&database, &project_path).await?;
     if existing
         .iter()
@@ -189,7 +198,7 @@ pub(crate) async fn add_project_source(
         error: None,
     };
     storage::insert_project_source(&database, &source).await?;
-    spawn_index(app, database.clone(), source);
+    spawn_index(app, database.clone(), source, ctx.home_key.clone());
     storage::read_project_sources(&database, &project_path).await
 }
 
@@ -197,9 +206,11 @@ pub(crate) async fn add_project_source(
 pub(crate) async fn remove_project_source(
     id: String,
     project_path: String,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<StoredProjectSource>, String> {
-    let database = state.database();
+    let ctx = state.ctx(&window);
+    let database = ctx.database();
     storage::delete_project_source(&database, &id).await?;
     storage::read_project_sources(&database, &project_path).await
 }
@@ -208,14 +219,16 @@ pub(crate) async fn remove_project_source(
 pub(crate) async fn reindex_source(
     id: String,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let database = state.database();
+    let ctx = state.ctx(&window);
+    let database = ctx.database();
     let Some(source) = storage::read_source(&database, &id).await? else {
         return Err("Source no longer exists".to_string());
     };
     storage::set_source_status(&database, &id, "pending", None, 0, None).await?;
-    spawn_index(app, database, source);
+    spawn_index(app, database, source, ctx.home_key.clone());
     Ok(())
 }
 
@@ -225,8 +238,10 @@ pub(crate) async fn search_workspace(
     query: String,
     cursor: Option<String>,
     generation: Option<u64>,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<WorkspaceResults, String> {
+    let ctx = state.ctx(&window);
     let generation = generation.unwrap_or(0);
     let trimmed = query.trim().to_string();
     let offset = cursor_offset(cursor.as_deref());
@@ -250,7 +265,7 @@ pub(crate) async fn search_workspace(
             generation,
         });
     }
-    let database = state.database();
+    let database = ctx.database();
 
     // Content matches (paged). One extra row tells us whether there is more.
     let content_hits =

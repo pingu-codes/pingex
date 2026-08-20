@@ -40,10 +40,12 @@ pub(crate) async fn list_threads_page(
     archived: Option<bool>,
     project_path: Option<String>,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<ThreadsPage, String> {
+    let ctx = state.ctx(&window);
     let archived = archived.unwrap_or(false);
-    let response = state
+    let response = ctx
         .session
         .send(
             &app,
@@ -61,15 +63,15 @@ pub(crate) async fn list_threads_page(
         .iter()
         .filter_map(|thread| thread_search_row(thread, archived))
         .collect();
-    storage::upsert_thread_search(&state.database(), &search_rows).await?;
+    storage::upsert_thread_search(&ctx.database(), &search_rows).await?;
 
-    let store = storage::read_store(&state.database()).await?;
+    let store = storage::read_store(&ctx.database()).await?;
     let pinned: HashSet<&str> = store.pinned_threads.iter().map(String::as_str).collect();
     // Codex has no idea some of its threads are ours: a side question and a
     // subagent's thread are both ordinary threads in an ordinary cwd. The
     // bootstrap payload filters them, and so must every other listing, or they
     // reappear here as if the user had started them.
-    let hidden = storage::read_hidden_thread_ids(&state.database()).await?;
+    let hidden = storage::read_hidden_thread_ids(&ctx.database()).await?;
     Ok(ThreadsPage {
         items: data
             .iter()
@@ -133,8 +135,10 @@ pub(crate) async fn search_threads(
     cursor: Option<String>,
     filter: Option<SearchFilter>,
     generation: u64,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<ThreadSearchPage, String> {
+    let ctx = state.ctx(&window);
     let filter = filter.unwrap_or_default();
     let offset: i64 = cursor
         .as_deref()
@@ -145,7 +149,7 @@ pub(crate) async fn search_threads(
         .as_deref()
         .filter(|value| !value.is_empty());
     let (rows, total) = storage::search_thread_index(
-        &state.database(),
+        &ctx.database(),
         &query,
         filter.archived,
         project_path,

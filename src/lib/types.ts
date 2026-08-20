@@ -612,6 +612,8 @@ export interface BinaryStatus {
 /** Read once at startup to decide whether to show the home picker or boot. */
 export interface LaunchState {
   codexHome: string;
+  /** Canonical form of `codexHome` — the key backend events are tagged with. */
+  homeKey: string;
   codexBinary: string;
   defaultHome: string;
   /** Home came from `--codex-home`/`CODEX_HOME`; boot without a picker. */

@@ -16,6 +16,7 @@ import {
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { untrack } from "svelte";
+import { eventMatchesHome } from "$lib/app/launch.svelte";
 import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import {
@@ -62,8 +63,9 @@ let generation = 0;
 // Background indexing (Rust) announces completion; refresh the source rows.
 $effect(() => {
   if (!isTauri()) return;
-  const unlisten = listen<string>("sources://updated", (event) => {
-    if (event.payload === project.path) void refreshSources();
+  const unlisten = listen<{ projectPath: string; codexHome?: string }>("sources://updated", (event) => {
+    if (!eventMatchesHome(event.payload?.codexHome)) return;
+    if (event.payload?.projectPath === project.path) void refreshSources();
   });
   return () => {
     void unlisten.then((off) => off());

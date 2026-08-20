@@ -31,10 +31,11 @@ use crate::AppState;
 #[tauri::command]
 pub(crate) async fn list_mcp_server_status(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    state
-        .session
+    let ctx = state.ctx(&window);
+    ctx.session
         .send(&app, requests::mcp_server_status_list())
         .await
 }
@@ -46,10 +47,11 @@ pub(crate) async fn list_mcp_server_status(
 pub(crate) async fn mcp_oauth_login(
     name: String,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    state
-        .session
+    let ctx = state.ctx(&window);
+    ctx.session
         .send(&app, requests::mcp_oauth_login(&name))
         .await
 }
@@ -60,27 +62,31 @@ pub(crate) async fn mcp_oauth_login(
 #[tauri::command]
 pub(crate) async fn reload_mcp_servers(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    reload_mcp_config(&app, &state).await
+    let ctx = state.ctx(&window);
+    reload_mcp_config(&app, &ctx).await
 }
 
 /// The reload itself, callable from other commands (which hold `State` by
 /// reference and so cannot invoke the command wrapper above).
 pub(crate) async fn reload_mcp_config(
     app: &AppHandle,
-    state: &State<'_, AppState>,
+    ctx: &crate::HomeContext,
 ) -> Result<Value, String> {
-    state.session.send(app, requests::mcp_config_reload()).await
+    ctx.session.send(app, requests::mcp_config_reload()).await
 }
 
 #[tauri::command]
 pub(crate) async fn list_skills_for(
     cwds: Vec<String>,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    state.session.send(&app, requests::skills_list(&cwds)).await
+    let ctx = state.ctx(&window);
+    ctx.session.send(&app, requests::skills_list(&cwds)).await
 }
 
 /// Enable or disable a skill by name. `skills/config/write` requires exactly
@@ -90,10 +96,11 @@ pub(crate) async fn set_skill_enabled(
     name: String,
     enabled: bool,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    state
-        .session
+    let ctx = state.ctx(&window);
+    ctx.session
         .send(&app, requests::skill_config_write(&name, enabled))
         .await
 }
@@ -107,7 +114,7 @@ pub(crate) async fn set_skill_enabled(
 /// than failing the whole call.
 pub(crate) async fn fetch_skills(
     app: &AppHandle,
-    state: &State<'_, AppState>,
+    ctx: &crate::HomeContext,
     cwds: Vec<String>,
     force_reload: bool,
 ) -> Vec<SkillSummary> {
@@ -116,7 +123,7 @@ pub(crate) async fn fetch_skills(
     } else {
         requests::skills_list(&cwds)
     };
-    let response = state.session.send(app, req).await;
+    let response = ctx.session.send(app, req).await;
     let Ok(value) = response else {
         return Vec::new();
     };

@@ -157,19 +157,26 @@ impl WireLog {
 
 /// Start or stop recording. Stopping clears whatever was captured.
 #[tauri::command]
-pub(crate) fn set_wire_logging(enabled: bool, state: State<'_, AppState>) {
-    state.session.wire().set_enabled(enabled);
+pub(crate) fn set_wire_logging(
+    enabled: bool,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) {
+    state.ctx(&window).session.wire().set_enabled(enabled);
 }
 
 /// The buffered messages, oldest first. Empty while logging is off.
 #[tauri::command]
-pub(crate) fn read_wire_log(state: State<'_, AppState>) -> Vec<WireMessage> {
-    state.session.wire().entries()
+pub(crate) fn read_wire_log(
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Vec<WireMessage> {
+    state.ctx(&window).session.wire().entries()
 }
 
 #[tauri::command]
-pub(crate) fn clear_wire_log(state: State<'_, AppState>) {
-    state.session.wire().clear();
+pub(crate) fn clear_wire_log(window: tauri::WebviewWindow, state: State<'_, AppState>) {
+    state.ctx(&window).session.wire().clear();
 }
 
 #[cfg(test)]

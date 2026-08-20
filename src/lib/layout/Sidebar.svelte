@@ -25,9 +25,9 @@ import SidebarContextMenu from "$lib/layout/SidebarContextMenu.svelte";
 import SidebarSearch from "$lib/layout/SidebarSearch.svelte";
 import UsageMeter from "$lib/layout/UsageMeter.svelte";
 import { accountUsage } from "$lib/services/accountUsage.svelte";
+import { setProjectExpanded } from "$lib/services/api";
 import { activeTurns, approvals, unansweredQuestions, userInputRequests } from "$lib/services/codexEvents.svelte";
 import { remoteConnections } from "$lib/services/connections.svelte";
-import { setProjectExpanded } from "$lib/services/api";
 import { toastError } from "$lib/toaster";
 import type {
   Account,

@@ -19,42 +19,50 @@ use tauri::{AppHandle, Manager};
 
 use crate::agents::supervisor::AgentRunState;
 use crate::util::json::str_at;
-use crate::AppState;
+use crate::{AppState, HomeContext};
 
 /// Answer one `item/tool/call` for a tool we own.
 ///
 /// Always responds, even on failure: an unanswered request blocks the parent's
 /// turn, and a model that is told what went wrong can usually recover, whereas
 /// one left hanging cannot.
-pub(crate) async fn handle_tool_call(app: AppHandle, request_id: i64, params: Value) {
-    let response = dispatch(&app, &params)
+pub(crate) async fn handle_tool_call(
+    app: AppHandle,
+    home_key: String,
+    request_id: i64,
+    params: Value,
+) {
+    let response = dispatch(&app, &home_key, &params)
         .await
         .unwrap_or_else(tools::render_error);
-    let Some(state) = app.try_state::<AppState>() else {
+    let Some(ctx) = context_for(&app, &home_key) else {
         return;
     };
-    let _ = state.session.respond(request_id, response).await;
+    let _ = ctx.session.respond(request_id, response).await;
 }
 
-async fn dispatch(app: &AppHandle, params: &Value) -> Result<Value, String> {
-    let state = app
-        .try_state::<AppState>()
-        .ok_or("The app is shutting down.")?;
+fn context_for(app: &AppHandle, home_key: &str) -> Option<std::sync::Arc<HomeContext>> {
+    app.try_state::<AppState>()
+        .and_then(|state| state.context_for_home(home_key))
+}
+
+async fn dispatch(app: &AppHandle, home_key: &str, params: &Value) -> Result<Value, String> {
+    let ctx = context_for(app, home_key).ok_or("The app is shutting down.")?;
     let tool = str_at(params, "tool").ok_or("The tool call named no tool.")?;
     let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
 
     match tool {
-        tools::SPAWN => spawn(app, &state, params, &arguments).await,
-        tools::WAIT => wait(&state, &arguments).await,
-        tools::SEND_INPUT => send_input(app, &state, &arguments).await,
-        tools::KILL => kill(app, &state, &arguments).await,
+        tools::SPAWN => spawn(app, &ctx, params, &arguments).await,
+        tools::WAIT => wait(&ctx, &arguments).await,
+        tools::SEND_INPUT => send_input(app, &ctx, &arguments).await,
+        tools::KILL => kill(app, &ctx, &arguments).await,
         other => Err(format!("Unknown tool: {other}")),
     }
 }
 
 async fn spawn(
     app: &AppHandle,
-    state: &AppState,
+    ctx: &HomeContext,
     params: &Value,
     arguments: &Value,
 ) -> Result<Value, String> {
@@ -65,13 +73,13 @@ async fn spawn(
 
     // The parent's own cwd bounds where an agent may run, so it is read from
     // the thread rather than taken from the tool call.
-    let parent_cwd = parent_thread_cwd(app, state, parent_thread_id).await?;
+    let parent_cwd = parent_thread_cwd(app, ctx, parent_thread_id).await?;
     let settings =
         crate::settings::prefs::read_agent_settings(&crate::settings::prefs::settings_path());
 
     let run = supervisor::spawn_agent(
         app,
-        state,
+        ctx,
         &settings,
         supervisor::SpawnContext {
             parent_thread_id,
@@ -103,15 +111,15 @@ async fn spawn(
 /// asked directly when the cache misses.
 async fn parent_thread_cwd(
     app: &AppHandle,
-    state: &AppState,
+    ctx: &HomeContext,
     thread_id: &str,
 ) -> Result<std::path::PathBuf, String> {
     // Remembered when the thread was started: the only source that is both
     // current and free of a request back to the app-server.
-    if let Some(cwd) = state.agents.cwd_for(thread_id) {
+    if let Some(cwd) = ctx.agents.cwd_for(thread_id) {
         return Ok(std::path::PathBuf::from(cwd));
     }
-    let summaries = crate::storage::read_thread_summaries(&state.database()).await?;
+    let summaries = crate::storage::read_thread_summaries(&ctx.database()).await?;
     if let Some(summary) = summaries
         .into_iter()
         .find(|summary| summary.id == thread_id)
@@ -123,8 +131,7 @@ async fn parent_thread_cwd(
     // is blocked on the very call we are answering.
     let response = tokio::time::timeout(
         std::time::Duration::from_secs(5),
-        state
-            .session
+        ctx.session
             .request(app, "thread/read", json!({"threadId": thread_id})),
     )
     .await
@@ -133,11 +140,11 @@ async fn parent_thread_cwd(
         .get("thread")
         .and_then(|thread| str_at(thread, "cwd"))
         .ok_or_else(|| "Could not resolve this thread's working directory.".to_string())?;
-    state.agents.remember_cwd(thread_id, cwd);
+    ctx.agents.remember_cwd(thread_id, cwd);
     Ok(std::path::PathBuf::from(cwd))
 }
 
-async fn wait(state: &AppState, arguments: &Value) -> Result<Value, String> {
+async fn wait(ctx: &HomeContext, arguments: &Value) -> Result<Value, String> {
     let ids: Vec<String> = arguments
         .get("agentIds")
         .and_then(Value::as_array)
@@ -156,7 +163,7 @@ async fn wait(state: &AppState, arguments: &Value) -> Result<Value, String> {
 
     let runs: Vec<_> = ids
         .iter()
-        .map(|id| (id.clone(), state.agents.get(id)))
+        .map(|id| (id.clone(), ctx.agents.get(id)))
         .collect();
 
     // One deadline shared by every agent, so waiting on N of them costs one
@@ -213,7 +220,7 @@ async fn wait(state: &AppState, arguments: &Value) -> Result<Value, String> {
     Ok(tools::render_result(payload, true))
 }
 
-async fn send_input(app: &AppHandle, state: &AppState, arguments: &Value) -> Result<Value, String> {
+async fn send_input(app: &AppHandle, ctx: &HomeContext, arguments: &Value) -> Result<Value, String> {
     let id = str_at(arguments, "agentId").ok_or("`agentId` is required.")?;
     let text = str_at(arguments, "text")
         .unwrap_or_default()
@@ -222,25 +229,25 @@ async fn send_input(app: &AppHandle, state: &AppState, arguments: &Value) -> Res
     if text.is_empty() {
         return Err("`text` is required and must not be empty.".into());
     }
-    let run = state
+    let run = ctx
         .agents
         .get(id)
         .ok_or_else(|| format!("No agent with id {id}."))?;
-    supervisor::send_input(app, &run, &text).await?;
+    supervisor::send_input(app, &ctx.home_key, &run, &text).await?;
     Ok(tools::render_result(
         json!({"agentId": run.id, "status": "running"}),
         true,
     ))
 }
 
-async fn kill(app: &AppHandle, state: &AppState, arguments: &Value) -> Result<Value, String> {
+async fn kill(app: &AppHandle, ctx: &HomeContext, arguments: &Value) -> Result<Value, String> {
     let id = str_at(arguments, "agentId").ok_or("`agentId` is required.")?;
     let reason = str_at(arguments, "reason");
-    let run = state
+    let run = ctx
         .agents
         .get(id)
         .ok_or_else(|| format!("No agent with id {id}."))?;
-    supervisor::kill(app, &run, reason).await;
+    supervisor::kill(app, &ctx.home_key, &run, reason).await;
     Ok(tools::render_result(
         json!({
             "agentId": run.id,

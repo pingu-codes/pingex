@@ -2,8 +2,8 @@ import { render, screen } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Sidebar from "$lib/layout/Sidebar.svelte";
-import { activeTurns, approvals, unansweredQuestions, userInputRequests } from "$lib/services/codexEvents.svelte";
 import { setProjectExpanded } from "$lib/services/api";
+import { activeTurns, approvals, unansweredQuestions, userInputRequests } from "$lib/services/codexEvents.svelte";
 import type { Project, SideQuestion } from "$lib/types";
 import { gitStatusCache } from "$lib/worktrees/gitStatus.svelte";
 

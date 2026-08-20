@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 use tokio::sync::watch;
 
 use crate::agents::tools;
@@ -21,7 +21,7 @@ use crate::codex::requests;
 use crate::settings::prefs::AgentSettings;
 use crate::storage::{self, AgentRunRow};
 use crate::util::time::unix_millis;
-use crate::AppState;
+use crate::HomeContext;
 
 /// Where a run has got to. `Failed` carries the reason so the parent's
 /// `wait_agents` can report something better than "it didn't work".
@@ -213,14 +213,18 @@ impl AgentSupervisor {
 struct AgentSink {
     run: Mutex<Option<Arc<AgentRun>>>,
     app: AppHandle,
+    /// Canonical home of the context that spawned this agent — the tag on its
+    /// events and the key its journal writes resolve their database through.
+    home_key: String,
     journal: TurnJournal,
 }
 
 impl AgentSink {
-    fn new(app: AppHandle) -> Arc<Self> {
+    fn new(app: AppHandle, home_key: String) -> Arc<Self> {
         Arc::new(Self {
             run: Mutex::new(None),
-            journal: TurnJournal::new(app.clone()),
+            journal: TurnJournal::new(app.clone(), home_key.clone()),
+            home_key,
             app,
         })
     }
@@ -239,14 +243,15 @@ impl AgentSink {
 impl ChildSink for AgentSink {
     fn on_notification(&self, method: &str, params: &Value) {
         self.journal.observe(method, params);
-        let _ = self
-            .app
-            .emit("codex:event", json!({"method": method, "params": params}));
+        let _ = self.app.emit(
+            "codex:event",
+            json!({"method": method, "params": params, "codexHome": self.home_key}),
+        );
         let Some(run) = self.run() else {
             return;
         };
         if let Some(next) = apply_child_event(&run, method, params) {
-            finish(&self.app, &run, with_stderr(&run, next));
+            finish(&self.app, &self.home_key, &run, with_stderr(&run, next));
         }
     }
 
@@ -272,7 +277,7 @@ impl ChildSink for AgentSink {
         };
         if !run.state().is_terminal() {
             let state = AgentRunState::Failed("The agent's process exited unexpectedly.".into());
-            finish(&self.app, &run, with_stderr(&run, state));
+            finish(&self.app, &self.home_key, &run, with_stderr(&run, state));
         }
     }
 }
@@ -364,7 +369,7 @@ fn error_message(params: &Value) -> String {
 
 /// Move a run to a terminal state: persist it, tell the GUI, and release the
 /// process if it is still holding one.
-fn finish(app: &AppHandle, run: &Arc<AgentRun>, next: AgentRunState) {
+fn finish(app: &AppHandle, home_key: &str, run: &Arc<AgentRun>, next: AgentRunState) {
     if run.state().is_terminal() {
         return;
     }
@@ -377,14 +382,15 @@ fn finish(app: &AppHandle, run: &Arc<AgentRun>, next: AgentRunState) {
             }
         }
     }
-    persist(app, run, &next);
+    persist(app, home_key, run, &next);
 }
 
 /// Write the run's current shape back to the database and emit `codex:agentRun`
 /// so the GUI can update without polling. Best effort: a failed write must not
 /// disturb the run it describes.
-fn persist(app: &AppHandle, run: &Arc<AgentRun>, state: &AgentRunState) {
+fn persist(app: &AppHandle, home_key: &str, run: &Arc<AgentRun>, state: &AgentRunState) {
     let payload = json!({
+        "codexHome": home_key,
         "runId": run.id,
         "parentThreadId": run.parent_thread_id,
         "callId": run.call_id,
@@ -399,7 +405,8 @@ fn persist(app: &AppHandle, run: &Arc<AgentRun>, state: &AgentRunState) {
     });
     let _ = app.emit("codex:agentRun", payload);
 
-    let (app, run_id, status) = (app.clone(), run.id.clone(), state.status().to_string());
+    let (app, home_key) = (app.clone(), home_key.to_string());
+    let (run_id, status) = (run.id.clone(), state.status().to_string());
     let child_thread_id = run.child_thread_id();
     let result = run.last_message();
     let error = match state {
@@ -408,7 +415,7 @@ fn persist(app: &AppHandle, run: &Arc<AgentRun>, state: &AgentRunState) {
     };
     let finished_at = state.is_terminal().then(unix_millis);
     tauri::async_runtime::spawn(async move {
-        let Some(database) = app.try_state::<AppState>().map(|state| state.database()) else {
+        let Some(database) = crate::database_for(&app, &home_key) else {
             return;
         };
         let _ = storage::update_agent_run(
@@ -443,7 +450,7 @@ pub(crate) struct SpawnContext<'a> {
 /// before waiting on any of them.
 pub(crate) async fn spawn_agent(
     app: &AppHandle,
-    state: &AppState,
+    ctx: &HomeContext,
     settings: &AgentSettings,
     parent: SpawnContext<'_>,
     args: tools::SpawnArgs,
@@ -454,10 +461,10 @@ pub(crate) async fn spawn_agent(
         call_id,
         parent_cwd,
     } = parent;
-    if state.agents.running_count() >= settings.max_concurrent {
+    if ctx.agents.running_count() >= settings.max_concurrent {
         return Err(format!(
             "{} agents are already running (the limit is {}). Wait for one to finish first.",
-            state.agents.running_count(),
+            ctx.agents.running_count(),
             settings.max_concurrent
         ));
     }
@@ -465,11 +472,11 @@ pub(crate) async fn spawn_agent(
     let sandbox = tools::clamp_sandbox(args.sandbox.as_deref(), &settings.sandbox);
     let prompt = tools::attach_files(&args.prompt, &cwd, &args.files);
 
-    let runtime = state.runtime();
+    let runtime = ctx.runtime();
     let program = crate::codex::binary::resolve(&runtime.codex_binary)
         .ok_or_else(|| crate::codex::binary::missing_message(&runtime.codex_binary))?;
 
-    let run_id = state.agents.next_run_id();
+    let run_id = ctx.agents.next_run_id();
     let (sender, _) = watch::channel(AgentRunState::Starting);
     let run = Arc::new(AgentRun {
         id: run_id.clone(),
@@ -483,10 +490,10 @@ pub(crate) async fn spawn_agent(
         last_message: Mutex::new(String::new()),
         state: sender,
     });
-    state.agents.insert(run.clone());
+    ctx.agents.insert(run.clone());
 
     storage::record_agent_run(
-        &state.database(),
+        &ctx.database(),
         &AgentRunRow {
             run_id: run_id.clone(),
             parent_thread_id: parent_thread_id.to_string(),
@@ -509,23 +516,23 @@ pub(crate) async fn spawn_agent(
 
     // Announce the run before the process exists, so its transcript card can
     // show a name and a status straight away rather than after two round trips.
-    persist(app, &run, &AgentRunState::Starting);
+    persist(app, &ctx.home_key, &run, &AgentRunState::Starting);
 
-    let sink = AgentSink::new(app.clone());
+    let sink = AgentSink::new(app.clone(), ctx.home_key.clone());
     sink.attach(run.clone());
     let child = match spawn_child(
         &program,
         &runtime.codex_home,
         "pingex-agent",
         app.clone(),
-        state.session.wire().clone(),
+        ctx.session.wire().clone(),
         sink.clone(),
     )
     .await
     {
         Ok(child) => child,
         Err(error) => {
-            finish(app, &run, AgentRunState::Failed(error.clone()));
+            finish(app, &ctx.home_key, &run, AgentRunState::Failed(error.clone()));
             return Err(error);
         }
     };
@@ -548,13 +555,13 @@ pub(crate) async fn spawn_agent(
             .and_then(Value::as_str)
             .map(str::to_string),
         Err(error) => {
-            finish(app, &run, AgentRunState::Failed(error.clone()));
+            finish(app, &ctx.home_key, &run, AgentRunState::Failed(error.clone()));
             return Err(error);
         }
     };
     let Some(child_thread_id) = child_thread_id else {
         let error = "The agent's process returned no thread.".to_string();
-        finish(app, &run, AgentRunState::Failed(error.clone()));
+        finish(app, &ctx.home_key, &run, AgentRunState::Failed(error.clone()));
         return Err(error);
     };
     if let Ok(mut slot) = run.child_thread_id.lock() {
@@ -578,7 +585,7 @@ pub(crate) async fn spawn_agent(
     );
     // Record what the agent is really running on, not what was asked for.
     let _ = storage::update_agent_run(
-        &state.database(),
+        &ctx.database(),
         &run_id,
         None,
         Some(&child_thread_id),
@@ -599,20 +606,25 @@ pub(crate) async fn spawn_agent(
             }
         }
         Err(error) => {
-            finish(app, &run, AgentRunState::Failed(error.clone()));
+            finish(app, &ctx.home_key, &run, AgentRunState::Failed(error.clone()));
             return Err(error);
         }
     }
 
     run.set_state(AgentRunState::Running);
-    persist(app, &run, &AgentRunState::Running);
-    spawn_deadline(app.clone(), run.clone(), settings.timeout_seconds);
+    persist(app, &ctx.home_key, &run, &AgentRunState::Running);
+    spawn_deadline(
+        app.clone(),
+        ctx.home_key.clone(),
+        run.clone(),
+        settings.timeout_seconds,
+    );
     Ok(run)
 }
 
 /// Kill a run that overruns its budget, so a wedged agent cannot occupy a
 /// concurrency slot forever.
-fn spawn_deadline(app: AppHandle, run: Arc<AgentRun>, timeout_seconds: u64) {
+fn spawn_deadline(app: AppHandle, home_key: String, run: Arc<AgentRun>, timeout_seconds: u64) {
     tauri::async_runtime::spawn(async move {
         let mut receiver = run.subscribe();
         let deadline = tokio::time::sleep(std::time::Duration::from_secs(timeout_seconds));
@@ -622,6 +634,7 @@ fn spawn_deadline(app: AppHandle, run: Arc<AgentRun>, timeout_seconds: u64) {
                 _ = &mut deadline => {
                     finish(
                         &app,
+                        &home_key,
                         &run,
                         AgentRunState::Failed(format!(
                             "The agent ran longer than {timeout_seconds}s and was stopped."
@@ -681,6 +694,7 @@ pub fn sandbox_tag(sandbox: &str) -> &'static str {
 /// Send a follow-up to an agent whose current turn has finished.
 pub(crate) async fn send_input(
     app: &AppHandle,
+    home_key: &str,
     run: &Arc<AgentRun>,
     text: &str,
 ) -> Result<(), String> {
@@ -722,12 +736,12 @@ pub(crate) async fn send_input(
         last.clear();
     }
     run.set_state(AgentRunState::Running);
-    persist(app, run, &AgentRunState::Running);
+    persist(app, home_key, run, &AgentRunState::Running);
     Ok(())
 }
 
 /// Stop an agent: interrupt the turn if we can, then kill the process.
-pub(crate) async fn kill(app: &AppHandle, run: &Arc<AgentRun>, reason: Option<&str>) {
+pub(crate) async fn kill(app: &AppHandle, home_key: &str, run: &Arc<AgentRun>, reason: Option<&str>) {
     let child = run.child.lock().ok().and_then(|child| child.clone());
     if let (Some(child), Some(thread_id), Some(turn_id)) = (
         child.as_ref(),
@@ -751,7 +765,7 @@ pub(crate) async fn kill(app: &AppHandle, run: &Arc<AgentRun>, reason: Option<&s
         }
         _ => AgentRunState::Killed,
     };
-    finish(app, run, next);
+    finish(app, home_key, run, next);
 }
 
 /// The developer instructions every spawned agent starts with.

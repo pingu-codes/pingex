@@ -43,7 +43,6 @@ import {
   worktreesRepo,
 } from "$lib/app/navigation.svelte";
 import DialogHost from "$lib/components/DialogHost.svelte";
-import ToastHost from "$lib/ToastHost.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import HomePage from "$lib/layout/HomePage.svelte";
 import HomePicker from "$lib/layout/HomePicker.svelte";
@@ -51,8 +50,9 @@ import SettingsView from "$lib/layout/SettingsView.svelte";
 import Sidebar from "$lib/layout/Sidebar.svelte";
 import ProjectDetail from "$lib/panels/ProjectDetail.svelte";
 import ReviewView from "$lib/review/ReviewView.svelte";
-import { revealInFinder } from "$lib/services/api";
+import { openHomeWindow, revealInFinder } from "$lib/services/api";
 import { closeSettings, openSettings, settingsNav } from "$lib/services/settingsNav.svelte";
+import ToastHost from "$lib/ToastHost.svelte";
 import ThreadDebugPopover from "$lib/thread/ThreadDebugPopover.svelte";
 import ThreadHeader from "$lib/thread/ThreadHeader.svelte";
 import ThreadView from "$lib/thread/ThreadView.svelte";
@@ -82,7 +82,16 @@ init();
 
 {#if launch.phase === "picker" && launch.state}
   <div class="h-screen min-h-[560px]" data-tauri-drag-region use:dragRegion>
-    <HomePicker launchState={launch.state} busy={launch.busy} error={launch.error} onSelect={chooseHome} onBrowse={browseForHome} onRemove={removeHome} onSetBinary={setBinary} />
+    <HomePicker
+      launchState={launch.state}
+      busy={launch.busy}
+      error={launch.error}
+      onSelect={chooseHome}
+      onBrowse={browseForHome}
+      onRemove={removeHome}
+      onSetBinary={setBinary}
+      onOpenNewWindow={(path) => void openHomeWindow(path)}
+    />
   </div>
 {:else if launch.phase === "loading"}
   <div class="grid h-screen min-h-[560px] place-items-center bg-surface-50-950">

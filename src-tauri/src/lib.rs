@@ -21,7 +21,9 @@
 //! - `os`          — handing a path or URL to the desktop environment
 //! - `util`        — cross-cutting helpers owned by no single domain
 
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use tauri::Manager;
 
@@ -77,28 +79,52 @@ pub(crate) struct RuntimeConfig {
 /// visible the next time the app-server child is (re)spawned.
 pub(crate) type SharedRuntime = Arc<RwLock<RuntimeConfig>>;
 
-pub(crate) struct AppState {
-    /// Live runtime config; swapped by `select_codex_home` behind a lock.
-    runtime: SharedRuntime,
-    /// Frontend database, reopened against the active home on a switch.
-    database: RwLock<turso::Database>,
-    pub(crate) session: CodexSession,
-    /// Subagent processes the app owns. Same lifetime as `session`: reached
-    /// from Tauri commands and from the session's reader thread.
-    pub(crate) agents: agents::supervisor::AgentSupervisor,
-    /// Whether the launch home came from `--codex-home`/`CODEX_HOME`; when
-    /// false the frontend shows the home picker before booting.
-    pub(crate) launch_explicit: bool,
+/// A home's canonical identity: the registry key and the `codexHome` tag on
+/// every event payload. Falls back to the lexical path when the folder cannot
+/// be canonicalized (e.g. it does not exist yet).
+pub(crate) fn canonical_home(path: &Path) -> String {
+    std::fs::canonicalize(path)
+        .unwrap_or_else(|_| path.to_path_buf())
+        .display()
+        .to_string()
 }
 
-impl AppState {
-    /// A snapshot of the active runtime config. Cheap to clone and never held
-    /// across await points, so a concurrent switch is always observed fresh.
+/// Everything the app runs against one Codex home: the runtime identity, the
+/// frontend database, the long-lived app-server child, and the subagents it
+/// spawned. Windows bind to one of these; two windows on the same home share
+/// one context.
+pub(crate) struct HomeContext {
+    /// Canonical home path — the registry key, and the `codexHome` field the
+    /// frontend filters events on.
+    pub(crate) home_key: String,
+    runtime: SharedRuntime,
+    database: RwLock<turso::Database>,
+    pub(crate) session: CodexSession,
+    /// Subagent processes this home owns. Same lifetime as `session`: reached
+    /// from Tauri commands and from the session's reader thread.
+    pub(crate) agents: agents::supervisor::AgentSupervisor,
+}
+
+impl HomeContext {
+    fn new(runtime: RuntimeConfig, database: turso::Database) -> Arc<Self> {
+        let home_key = canonical_home(&runtime.codex_home);
+        let runtime: SharedRuntime = Arc::new(RwLock::new(runtime));
+        Arc::new(Self {
+            session: CodexSession::new(runtime.clone(), home_key.clone()),
+            agents: agents::supervisor::AgentSupervisor::default(),
+            runtime,
+            database: RwLock::new(database),
+            home_key,
+        })
+    }
+
+    /// A snapshot of this home's runtime config. Cheap to clone and never held
+    /// across await points, so a concurrent binary switch is observed fresh.
     pub(crate) fn runtime(&self) -> RuntimeConfig {
         self.runtime.read().expect("runtime lock poisoned").clone()
     }
 
-    /// A handle to the active frontend database (an `Arc` clone internally).
+    /// A handle to this home's frontend database (an `Arc` clone internally).
     pub(crate) fn database(&self) -> turso::Database {
         self.database
             .read()
@@ -106,11 +132,214 @@ impl AppState {
             .clone()
     }
 
-    /// Point the app at a different Codex home. The caller is responsible for
-    /// resetting the session so the next request respawns with the new home.
-    pub(crate) fn set_active(&self, runtime: RuntimeConfig, database: turso::Database) {
-        *self.runtime.write().expect("runtime lock poisoned") = runtime;
-        *self.database.write().expect("database lock poisoned") = database;
+    /// Point this home at a different Codex CLI. The caller resets the session
+    /// so the next request respawns with the new binary.
+    pub(crate) fn set_binary(&self, binary: PathBuf) {
+        self.runtime.write().expect("runtime lock poisoned").codex_binary = binary;
+    }
+
+    /// Kill everything this home is running. Agents first: they are children
+    /// of this process too, and nothing else will reap them once dropped.
+    pub(crate) fn shutdown(&self) {
+        self.agents.kill_all();
+        self.session.kill_child();
+    }
+}
+
+/// The frontend database for one home, reached from background tasks (journal
+/// writes, agent persistence) that only carry the home's key.
+pub(crate) fn database_for(app: &tauri::AppHandle, home_key: &str) -> Option<turso::Database> {
+    app.try_state::<AppState>()
+        .and_then(|state| state.context_for_home(home_key))
+        .map(|context| context.database())
+}
+
+pub(crate) struct AppState {
+    /// One context per open Codex home, keyed by canonical path.
+    contexts: RwLock<HashMap<String, Arc<HomeContext>>>,
+    /// Which home each window is bound to (window label → home key). Windows
+    /// missing here (the pre-pick `main`, `quick`) use the default context.
+    bindings: RwLock<HashMap<String, String>>,
+    /// The home unbound windows and the quick window fall back to — the one
+    /// the app launched with, following the `main` window's switches.
+    default_home: RwLock<String>,
+    /// Monotonic label counter for extra windows (`main-2`, `main-3`, …).
+    window_counter: AtomicU64,
+}
+
+impl AppState {
+    fn new(context: Arc<HomeContext>, launch_explicit: bool) -> Self {
+        let default_home = context.home_key.clone();
+        let mut contexts = HashMap::new();
+        contexts.insert(context.home_key.clone(), context);
+        let mut bindings = HashMap::new();
+        // The main window opens on the launch home; a non-explicit launch
+        // shows the picker first (an unbound window), and the binding is
+        // created when the user picks.
+        if launch_explicit {
+            bindings.insert("main".to_string(), default_home.clone());
+        }
+        Self {
+            contexts: RwLock::new(contexts),
+            bindings: RwLock::new(bindings),
+            default_home: RwLock::new(default_home),
+            window_counter: AtomicU64::new(1),
+        }
+    }
+
+    pub(crate) fn default_home(&self) -> String {
+        self.default_home
+            .read()
+            .expect("default home lock poisoned")
+            .clone()
+    }
+
+    pub(crate) fn set_default_home(&self, home_key: &str) {
+        *self
+            .default_home
+            .write()
+            .expect("default home lock poisoned") = home_key.to_string();
+    }
+
+    /// The context unbound windows fall back to. Always present: it is only
+    /// ever repointed at another live context, never removed.
+    pub(crate) fn default_context(&self) -> Arc<HomeContext> {
+        let key = self.default_home();
+        self.context_for_home(&key)
+            .expect("default context missing")
+    }
+
+    pub(crate) fn context_for_home(&self, home_key: &str) -> Option<Arc<HomeContext>> {
+        self.contexts
+            .read()
+            .expect("contexts lock poisoned")
+            .get(home_key)
+            .cloned()
+    }
+
+    /// The context a window works against: its binding, else the default.
+    pub(crate) fn ctx_for_label(&self, label: &str) -> Arc<HomeContext> {
+        let bound = self
+            .bindings
+            .read()
+            .expect("bindings lock poisoned")
+            .get(label)
+            .cloned();
+        bound
+            .and_then(|key| self.context_for_home(&key))
+            .unwrap_or_else(|| self.default_context())
+    }
+
+    pub(crate) fn ctx(&self, window: &tauri::WebviewWindow) -> Arc<HomeContext> {
+        self.ctx_for_label(window.label())
+    }
+
+    pub(crate) fn window_bound(&self, label: &str) -> bool {
+        self.bindings
+            .read()
+            .expect("bindings lock poisoned")
+            .contains_key(label)
+    }
+
+    /// Every (window label, home key) binding, for deep-link routing.
+    pub(crate) fn window_bindings(&self) -> Vec<(String, String)> {
+        self.bindings
+            .read()
+            .expect("bindings lock poisoned")
+            .iter()
+            .map(|(label, key)| (label.clone(), key.clone()))
+            .collect()
+    }
+
+    pub(crate) fn all_contexts(&self) -> Vec<Arc<HomeContext>> {
+        self.contexts
+            .read()
+            .expect("contexts lock poisoned")
+            .values()
+            .cloned()
+            .collect()
+    }
+
+    /// Reuse the context for `home` or open a new one (which creates the home
+    /// folder on disk via the database open).
+    pub(crate) async fn ensure_context(
+        &self,
+        home: PathBuf,
+    ) -> Result<Arc<HomeContext>, String> {
+        let key = canonical_home(&home);
+        if let Some(existing) = self.context_for_home(&key) {
+            return Ok(existing);
+        }
+        let database = storage::open(&home).await?;
+        // The home folder now exists, so canonicalization can resolve further
+        // (e.g. through a symlinked parent); re-key with the settled form.
+        let key = canonical_home(&home);
+        if let Some(existing) = self.context_for_home(&key) {
+            return Ok(existing);
+        }
+        composer::attachments::cleanup_on_startup(&home);
+        let _ = storage::orphan_running_agent_runs(&database).await;
+        let codex_binary = self.default_context().runtime().codex_binary;
+        let context = HomeContext::new(
+            RuntimeConfig {
+                codex_home: home,
+                codex_binary,
+            },
+            database,
+        );
+        let mut contexts = self.contexts.write().expect("contexts lock poisoned");
+        // A concurrent open of the same home wins by arriving first.
+        Ok(contexts
+            .entry(key)
+            .or_insert_with(|| context.clone())
+            .clone())
+    }
+
+    /// Bind a window to a home, returning the previously bound context when
+    /// this orphaned it (no other window bound, not the default) — the caller
+    /// shuts it down.
+    pub(crate) fn bind_window(&self, label: &str, home_key: &str) -> Option<Arc<HomeContext>> {
+        let previous = {
+            let mut bindings = self.bindings.write().expect("bindings lock poisoned");
+            bindings.insert(label.to_string(), home_key.to_string())
+        };
+        previous.and_then(|old| self.release_if_orphaned(&old))
+    }
+
+    /// Drop a closed window's binding, returning its context when nothing else
+    /// uses it any more — the caller shuts it down.
+    pub(crate) fn unbind_window(&self, label: &str) -> Option<Arc<HomeContext>> {
+        let removed = self
+            .bindings
+            .write()
+            .expect("bindings lock poisoned")
+            .remove(label);
+        removed.and_then(|key| self.release_if_orphaned(&key))
+    }
+
+    /// Remove `home_key`'s context from the registry when no window is bound
+    /// to it and it is not the default (which quick chat and unbound windows
+    /// rely on). Returns the removed context for the caller to shut down.
+    fn release_if_orphaned(&self, home_key: &str) -> Option<Arc<HomeContext>> {
+        if home_key == self.default_home() {
+            return None;
+        }
+        let bindings = self.bindings.read().expect("bindings lock poisoned");
+        if bindings.values().any(|key| key == home_key) {
+            return None;
+        }
+        drop(bindings);
+        self.contexts
+            .write()
+            .expect("contexts lock poisoned")
+            .remove(home_key)
+    }
+
+    pub(crate) fn next_window_label(&self) -> String {
+        format!(
+            "main-{}",
+            self.window_counter.fetch_add(1, Ordering::SeqCst) + 1
+        )
     }
 }
 
@@ -133,7 +362,7 @@ pub fn run() {
             unix_secs(),
         );
     }
-    let runtime: SharedRuntime = Arc::new(RwLock::new(runtime));
+    let context = HomeContext::new(runtime, database);
     tauri::Builder::default()
         // Single-instance must be registered first so a second launch forwards
         // its `codex://` argument to the already-running window instead of
@@ -144,7 +373,11 @@ pub fn run() {
                     handoff::handle_deep_link_url(app, arg);
                 }
             }
-            if let Some(window) = app.get_webview_window("main") {
+            // Focus the main window, else any other app window that is open.
+            let window = app
+                .get_webview_window("main")
+                .or_else(|| app.webview_windows().into_values().next());
+            if let Some(window) = window {
                 let _ = window.set_focus();
             }
         }))
@@ -164,12 +397,16 @@ pub fn run() {
             composer::quick::register_saved_shortcut(app.handle());
             Ok(())
         })
-        .manage(AppState {
-            session: CodexSession::new(runtime.clone()),
-            agents: agents::supervisor::AgentSupervisor::default(),
-            runtime,
-            database: RwLock::new(database),
-            launch_explicit,
+        .manage(AppState::new(context, launch_explicit))
+        // Closing a window releases its home: when no other window shares the
+        // context (and it is not the default), its agents and app-server die.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                let state = window.app_handle().state::<AppState>();
+                if let Some(orphaned) = state.unbind_window(window.label()) {
+                    orphaned.shutdown();
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             // Projects and the bootstrap payload
@@ -246,6 +483,7 @@ pub fn run() {
             settings::commands::check_codex_binary,
             settings::commands::set_codex_binary,
             settings::commands::select_codex_home,
+            settings::commands::open_home_window,
             settings::commands::remove_recent_home,
             settings::commands::read_home_overview,
             settings::commands::read_config_settings,
@@ -335,10 +573,9 @@ pub fn run() {
             match &event {
                 tauri::RunEvent::Exit => {
                     if let Some(state) = app.try_state::<AppState>() {
-                        // Agents first: they are children of this process too,
-                        // and nothing else will reap them once we are gone.
-                        state.agents.kill_all();
-                        state.session.kill_child();
+                        for context in state.all_contexts() {
+                            context.shutdown();
+                        }
                     }
                 }
                 // macOS delivers `codex://` links opened while (or as) the app
@@ -351,4 +588,80 @@ pub fn run() {
                 _ => {}
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn state_with_home(dir: &Path) -> AppState {
+        let database = storage::open(dir).await.expect("open db");
+        let context = HomeContext::new(
+            RuntimeConfig {
+                codex_home: dir.to_path_buf(),
+                codex_binary: PathBuf::from("codex"),
+            },
+            database,
+        );
+        AppState::new(context, true)
+    }
+
+    #[tokio::test]
+    async fn contexts_are_keyed_canonically_and_reused() {
+        let home = tempfile::tempdir().unwrap();
+        let state = state_with_home(home.path()).await;
+        // The same home through a non-canonical spelling lands on one context.
+        let alias = home.path().join(".").join("..").join(
+            home.path().file_name().unwrap(),
+        );
+        let reused = state.ensure_context(alias).await.unwrap();
+        assert_eq!(reused.home_key, state.default_context().home_key);
+        assert_eq!(state.all_contexts().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_context_is_released_only_when_its_last_window_unbinds() {
+        let home = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        let state = state_with_home(home.path()).await;
+        let context = state.ensure_context(other.path().to_path_buf()).await.unwrap();
+        let key = context.home_key.clone();
+
+        assert!(state.bind_window("main-2", &key).is_none());
+        assert!(state.bind_window("main-3", &key).is_none());
+        // One window still bound: nothing to release.
+        assert!(state.unbind_window("main-2").is_none());
+        assert!(state.context_for_home(&key).is_some());
+        // Last one out drops the context from the registry.
+        let released = state.unbind_window("main-3").expect("orphaned context");
+        assert_eq!(released.home_key, key);
+        assert!(state.context_for_home(&key).is_none());
+    }
+
+    #[tokio::test]
+    async fn the_default_context_survives_unbinding() {
+        let home = tempfile::tempdir().unwrap();
+        let state = state_with_home(home.path()).await;
+        // `main` was bound at construction (explicit launch); closing it must
+        // not tear down the default context quick chat relies on.
+        assert!(state.unbind_window("main").is_none());
+        assert_eq!(state.all_contexts().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn rebinding_a_window_releases_the_home_it_left() {
+        let home = tempfile::tempdir().unwrap();
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        let state = state_with_home(home.path()).await;
+        let first = state.ensure_context(a.path().to_path_buf()).await.unwrap();
+        let second = state.ensure_context(b.path().to_path_buf()).await.unwrap();
+        assert!(state.bind_window("main-2", &first.home_key).is_none());
+        // Switching the window's home orphans the first context.
+        let released = state
+            .bind_window("main-2", &second.home_key)
+            .expect("orphaned context");
+        assert_eq!(released.home_key, first.home_key);
+        assert!(state.context_for_home(&second.home_key).is_some());
+    }
 }

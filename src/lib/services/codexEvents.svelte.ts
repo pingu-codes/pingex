@@ -1,4 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
+import { eventMatchesHome } from "$lib/app/launch.svelte";
 import { applyRateLimitUpdate } from "$lib/services/accountUsage.svelte";
 import { type AgentRunEvent, applyAgentActivity, applyAgentRunEvent } from "$lib/services/agentRuns.svelte";
 import { recordUserInputRequest } from "$lib/services/api";
@@ -331,12 +332,25 @@ let started = false;
 export async function startCodexListeners(): Promise<void> {
   if (started || !isTauri()) return;
   started = true;
-  await listen<CodexEvent>("codex:event", (event) => dispatch(event.payload));
-  await listen<{ requestId: number; method: string; params: any }>("codex:serverRequest", (event) =>
-    onServerRequest(event.payload),
+  // Backend events are broadcast to every window and tagged with the home
+  // they belong to; drop what is meant for a window on another account.
+  await listen<CodexEvent & { codexHome?: string }>("codex:event", (event) => {
+    if (!eventMatchesHome(event.payload.codexHome)) return;
+    dispatch(event.payload);
+  });
+  await listen<{ requestId: number; method: string; params: any; codexHome?: string }>(
+    "codex:serverRequest",
+    (event) => {
+      if (!eventMatchesHome(event.payload.codexHome)) return;
+      onServerRequest(event.payload);
+    },
   );
-  await listen<AgentRunEvent>("codex:agentRun", (event) => applyAgentRunEvent(event.payload));
-  await listen("codex:disconnected", () => {
+  await listen<AgentRunEvent & { codexHome?: string }>("codex:agentRun", (event) => {
+    if (!eventMatchesHome(event.payload.codexHome)) return;
+    applyAgentRunEvent(event.payload);
+  });
+  await listen<{ codexHome?: string } | null>("codex:disconnected", (event) => {
+    if (!eventMatchesHome(event.payload?.codexHome)) return;
     approvals.list = [];
     userInputRequests.list = [];
     elicitations.list = [];

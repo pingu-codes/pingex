@@ -58,14 +58,16 @@ pub(crate) async fn auto_name_thread(
     thread_id: String,
     seed: Option<String>,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Option<BootstrapData>, String> {
+    let ctx = state.ctx(&window);
     let settings = prefs::read_auto_naming(&prefs::settings_path());
     if !settings.enabled {
         return Ok(None);
     }
     // A rename is the user's decision and outranks anything generated here.
-    if storage::read_thread_name_source(&state.database(), &thread_id)
+    if storage::read_thread_name_source(&ctx.database(), &thread_id)
         .await?
         .as_deref()
         == Some("user")
@@ -73,14 +75,14 @@ pub(crate) async fn auto_name_thread(
         return Ok(None);
     }
 
-    let Some(seed) = resolve_seed(seed, &thread_id, &app, &state).await else {
+    let Some(seed) = resolve_seed(seed, &thread_id, &app, &ctx).await else {
         return Ok(None);
     };
-    let Some(title) = generate_title(&seed, settings.model.as_deref(), &app, &state).await else {
+    let Some(title) = generate_title(&seed, settings.model.as_deref(), &app, &ctx).await else {
         return Ok(None);
     };
-    apply_title(&thread_id, &title, &app, &state).await?;
-    bootstrap_cached(&state).await.map(Some)
+    apply_title(&thread_id, &title, &app, &ctx).await?;
+    bootstrap_cached(&ctx).await.map(Some)
 }
 
 /// The text the namer is shown: the caller's message on the first pass, or the
@@ -89,12 +91,12 @@ async fn resolve_seed(
     seed: Option<String>,
     thread_id: &str,
     app: &AppHandle,
-    state: &State<'_, AppState>,
+    ctx: &crate::HomeContext,
 ) -> Option<String> {
     let raw = match seed {
         Some(text) => text,
         None => {
-            let response = state
+            let response = ctx
                 .session
                 .request(
                     app,
@@ -144,17 +146,17 @@ async fn generate_title(
     seed: &str,
     model: Option<&str>,
     app: &AppHandle,
-    state: &State<'_, AppState>,
+    ctx: &crate::HomeContext,
 ) -> Option<String> {
-    let started = state
+    let started = ctx
         .session
         .send(app, requests::namer_thread_start(NAMER_INSTRUCTIONS))
         .await
         .ok()?;
     let namer_id = str_at(started.get("thread")?, "id")?.to_string();
 
-    let title = run_naming_turn(&namer_id, seed, model, app, state).await;
-    let _ = state
+    let title = run_naming_turn(&namer_id, seed, model, app, ctx).await;
+    let _ = ctx
         .session
         .send(app, requests::thread_delete(&namer_id))
         .await;
@@ -166,9 +168,9 @@ async fn run_naming_turn(
     seed: &str,
     model: Option<&str>,
     app: &AppHandle,
-    state: &State<'_, AppState>,
+    ctx: &crate::HomeContext,
 ) -> Option<String> {
-    let response = state
+    let response = ctx
         .session
         .send(app, requests::naming_turn(namer_id, seed, model))
         .await
@@ -180,19 +182,19 @@ async fn run_naming_turn(
     if let Some(title) = response.get("turn").and_then(reply_text).and_then(sanitize) {
         return Some(title);
     }
-    await_reply(namer_id, app, state).await.and_then(sanitize)
+    await_reply(namer_id, app, ctx).await.and_then(sanitize)
 }
 
 /// Poll the naming thread until its reply appears or the deadline passes.
 async fn await_reply(
     namer_id: &str,
     app: &AppHandle,
-    state: &State<'_, AppState>,
+    ctx: &crate::HomeContext,
 ) -> Option<String> {
     let deadline = tokio::time::Instant::now() + NAME_TIMEOUT;
     while tokio::time::Instant::now() < deadline {
         tokio::time::sleep(POLL_INTERVAL).await;
-        let response = state
+        let response = ctx
             .session
             .send(app, requests::thread_read(namer_id))
             .await
@@ -249,9 +251,9 @@ async fn apply_title(
     thread_id: &str,
     title: &str,
     app: &AppHandle,
-    state: &State<'_, AppState>,
+    ctx: &crate::HomeContext,
 ) -> Result<(), String> {
-    state
+    ctx
         .session
         .request(
             app,
@@ -259,10 +261,10 @@ async fn apply_title(
             json!({"threadId": thread_id, "name": title}),
         )
         .await?;
-    storage::rename_thread_summary(&state.database(), thread_id, title).await?;
-    storage::rename_thread_search(&state.database(), thread_id, title).await?;
-    storage::invalidate_thread_detail(&state.database(), thread_id).await?;
-    storage::write_thread_name_source(&state.database(), thread_id, "auto").await
+    storage::rename_thread_summary(&ctx.database(), thread_id, title).await?;
+    storage::rename_thread_search(&ctx.database(), thread_id, title).await?;
+    storage::invalidate_thread_detail(&ctx.database(), thread_id).await?;
+    storage::write_thread_name_source(&ctx.database(), thread_id, "auto").await
 }
 
 #[cfg(test)]

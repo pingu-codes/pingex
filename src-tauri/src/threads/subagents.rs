@@ -82,9 +82,11 @@ fn collect_spawn_details(thread: &Value, details: &mut HashMap<String, SpawnDeta
 pub(crate) async fn list_subagents(
     thread_id: String,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<SubagentDetail>, String> {
-    let response = state
+    let ctx = state.ctx(&window);
+    let response = ctx
         .session
         .request(
             &app,
@@ -101,7 +103,7 @@ pub(crate) async fn list_subagents(
     let descendants = arr_or_empty(&response, "data").to_vec();
     // Resuming each descendant subscribes the app to its live updates.
     for descendant_id in descendants.iter().filter_map(|thread| str_at(thread, "id")) {
-        let _ = state.session.ensure_resumed(&app, descendant_id).await;
+        let _ = ctx.session.ensure_resumed(&app, descendant_id).await;
     }
 
     // The spawn details live on the parents, so every distinct parent (plus the
@@ -115,8 +117,8 @@ pub(crate) async fn list_subagents(
 
     let mut spawn_details = HashMap::new();
     for parent_id in parent_ids {
-        let _ = state.session.ensure_resumed(&app, &parent_id).await;
-        if let Ok(response) = state
+        let _ = ctx.session.ensure_resumed(&app, &parent_id).await;
+        if let Ok(response) = ctx
             .session
             .request(
                 &app,
@@ -168,10 +170,12 @@ pub(crate) async fn update_subagent_policy(
     model_policy: Value,
     reasoning_effort_policy: Value,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    state.session.ensure_resumed(&app, &thread_id).await?;
-    state
+    let ctx = state.ctx(&window);
+    ctx.session.ensure_resumed(&app, &thread_id).await?;
+    ctx
         .session
         .request(
             &app,

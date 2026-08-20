@@ -11,13 +11,14 @@ use crate::AppState;
 #[tauri::command]
 pub(crate) async fn remote_pairing_start(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    state
-        .session
+    let ctx = state.ctx(&window);
+    ctx.session
         .request(&app, "remoteControl/enable", json!({}))
         .await?;
-    let response = state
+    let response = ctx
         .session
         .request(&app, "remoteControl/pairing/start", json!({}))
         .await?;
@@ -42,10 +43,11 @@ pub(crate) async fn remote_pairing_start(
 pub(crate) async fn remote_pairing_status(
     pairing_code: String,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    state
-        .session
+    let ctx = state.ctx(&window);
+    ctx.session
         .request(
             &app,
             "remoteControl/pairing/status",

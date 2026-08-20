@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { Toast } from "@skeletonlabs/skeleton-svelte";
-  import { toaster } from "./toaster";
+import { Toast } from "@skeletonlabs/skeleton-svelte";
+import { toaster } from "./toaster";
 </script>
 
 <Toast.Group {toaster} class="z-50 gap-2 p-4">

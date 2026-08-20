@@ -41,9 +41,11 @@ pub(crate) async fn git_status(dir: String) -> Result<GitStatus, String> {
 #[tauri::command]
 pub(crate) async fn git_worktrees(
     repo_dir: String,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<WorktreeEntry>, String> {
-    let codex_home = state.runtime().codex_home;
+    let ctx = state.ctx(&window);
+    let codex_home = ctx.runtime().codex_home;
     tauri::async_runtime::spawn_blocking(move || read_worktrees(Path::new(&repo_dir), &codex_home))
         .await
         .map_err(|_| "Git inspection failed".to_string())?
@@ -75,10 +77,12 @@ pub(crate) async fn git_branches(
 pub(crate) async fn git_worktree_add(
     repo_dir: String,
     request: WorktreeAddRequest,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let runtime = state.runtime();
-    let database = state.database();
+    let ctx = state.ctx(&window);
+    let runtime = ctx.runtime();
+    let database = ctx.database();
     let created = request.path.clone();
     let repo_dir_for_git = repo_dir.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -231,9 +235,11 @@ pub(crate) async fn git_worktree_unlock(repo_dir: String, path: String) -> Resul
 #[tauri::command]
 pub(crate) async fn git_changes_summary(
     dir: String,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<ChangesSummary, String> {
-    let codex_home = state.runtime().codex_home;
+    let ctx = state.ctx(&window);
+    let codex_home = ctx.runtime().codex_home;
     tauri::async_runtime::spawn_blocking(move || read_changes_summary(Path::new(&dir), &codex_home))
         .await
         .map_err(|_| "Git inspection failed".to_string())?
@@ -264,9 +270,11 @@ pub(crate) async fn git_file_diff(
 pub(crate) async fn git_worktree_handoff_preflight(
     worktree_path: String,
     target_dir: String,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<HandoffPreflight, String> {
-    let codex_home = state.runtime().codex_home;
+    let ctx = state.ctx(&window);
+    let codex_home = ctx.runtime().codex_home;
     tauri::async_runtime::spawn_blocking(move || {
         handoff_preflight(
             Path::new(&worktree_path),
@@ -286,10 +294,12 @@ pub(crate) async fn git_worktree_handoff(
     target_dir: String,
     commit_uncommitted: bool,
     branch_name: Option<String>,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let codex_home = state.runtime().codex_home;
-    let database = state.database();
+    let ctx = state.ctx(&window);
+    let codex_home = ctx.runtime().codex_home;
+    let database = ctx.database();
     let worktree_for_db = worktree_path.clone();
     let branch = tauri::async_runtime::spawn_blocking(move || {
         let target = PathBuf::from(&target_dir);

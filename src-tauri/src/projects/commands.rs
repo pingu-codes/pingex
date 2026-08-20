@@ -37,9 +37,11 @@ fn stored_project_mut<'a>(store: &'a mut Store, path: &str) -> &'a mut StoredPro
 #[tauri::command]
 pub(crate) async fn bootstrap(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
-    bootstrap_inner(&app, &state).await
+    let ctx = state.ctx(&window);
+    bootstrap_inner(&app, &ctx).await
 }
 
 /// Read the account's rolling rate-limit windows (5h / weekly). Codex also
@@ -48,10 +50,11 @@ pub(crate) async fn bootstrap(
 #[tauri::command]
 pub(crate) async fn read_account_rate_limits(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    state
-        .session
+    let ctx = state.ctx(&window);
+    ctx.session
         .request(&app, "account/rateLimits/read", json!({}))
         .await
 }
@@ -61,10 +64,11 @@ pub(crate) async fn read_account_rate_limits(
 pub(crate) async fn read_thread_usage(
     thread_id: String,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    state
-        .session
+    let ctx = state.ctx(&window);
+    ctx.session
         .request(&app, "account/usage/read", json!({"threadId": thread_id}))
         .await
 }
@@ -72,26 +76,30 @@ pub(crate) async fn read_thread_usage(
 #[tauri::command]
 pub(crate) async fn add_project(
     path: String,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
+    let ctx = state.ctx(&window);
     let canonical =
         fs::canonicalize(&path).map_err(|error| format!("Could not open {path}: {error}"))?;
     if !canonical.is_dir() {
         return Err(format!("{} is not a folder", canonical.display()));
     }
-    let mut store = storage::read_store(&state.database()).await?;
+    let mut store = storage::read_store(&ctx.database()).await?;
     stored_project_mut(&mut store, &canonical.display().to_string());
-    storage::write_store(&state.database(), &store).await?;
-    bootstrap_cached(&state).await
+    storage::write_store(&ctx.database(), &store).await?;
+    bootstrap_cached(&ctx).await
 }
 
 #[tauri::command]
 pub(crate) async fn rename_project(
     path: String,
     name: String,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
-    let mut store = storage::read_store(&state.database()).await?;
+    let ctx = state.ctx(&window);
+    let mut store = storage::read_store(&ctx.database()).await?;
     let trimmed = name.trim();
     // A blank name clears the override so the folder name is used again.
     stored_project_mut(&mut store, &path).name = if trimmed.is_empty() {
@@ -99,32 +107,36 @@ pub(crate) async fn rename_project(
     } else {
         Some(trimmed.to_string())
     };
-    storage::write_store(&state.database(), &store).await?;
-    bootstrap_cached(&state).await
+    storage::write_store(&ctx.database(), &store).await?;
+    bootstrap_cached(&ctx).await
 }
 
 #[tauri::command]
 pub(crate) async fn set_project_pinned(
     path: String,
     pinned: bool,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
-    let mut store = storage::read_store(&state.database()).await?;
+    let ctx = state.ctx(&window);
+    let mut store = storage::read_store(&ctx.database()).await?;
     stored_project_mut(&mut store, &path).pinned = pinned;
-    storage::write_store(&state.database(), &store).await?;
-    bootstrap_cached(&state).await
+    storage::write_store(&ctx.database(), &store).await?;
+    bootstrap_cached(&ctx).await
 }
 
 #[tauri::command]
 pub(crate) async fn set_project_archived(
     path: String,
     archived: bool,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
-    let mut store = storage::read_store(&state.database()).await?;
+    let ctx = state.ctx(&window);
+    let mut store = storage::read_store(&ctx.database()).await?;
     stored_project_mut(&mut store, &path).archived = archived;
-    storage::write_store(&state.database(), &store).await?;
-    bootstrap_cached(&state).await
+    storage::write_store(&ctx.database(), &store).await?;
+    bootstrap_cached(&ctx).await
 }
 
 /// Persist a sidebar-only preference without rebuilding the project tree.
@@ -132,44 +144,50 @@ pub(crate) async fn set_project_archived(
 pub(crate) async fn set_project_expanded(
     path: String,
     expanded: bool,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    storage::set_project_expanded(&state.database(), &path, expanded).await
+    let ctx = state.ctx(&window);
+    storage::set_project_expanded(&ctx.database(), &path, expanded).await
 }
 
 #[tauri::command]
 pub(crate) async fn set_thread_pinned(
     thread_id: String,
     pinned: bool,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
-    let mut store = storage::read_store(&state.database()).await?;
+    let ctx = state.ctx(&window);
+    let mut store = storage::read_store(&ctx.database()).await?;
     store.pinned_threads.retain(|id| id != &thread_id);
     if pinned {
         store.pinned_threads.push(thread_id);
     }
-    storage::write_store(&state.database(), &store).await?;
-    bootstrap_cached(&state).await
+    storage::write_store(&ctx.database(), &store).await?;
+    bootstrap_cached(&ctx).await
 }
 
 #[tauri::command]
 pub(crate) async fn remove_project(
     path: String,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
+    let ctx = state.ctx(&window);
     // Removing a project that a workspace still points at would leave the
     // workspace referencing something the sidebar no longer shows.
-    if storage::read_all_workspace_members(&state.database())
+    if storage::read_all_workspace_members(&ctx.database())
         .await?
         .iter()
         .any(|member| member.source_path == path || member.effective_path == path)
     {
         return Err("Remove this project from its workspace before removing it from Pingex".into());
     }
-    let mut store = storage::read_store(&state.database()).await?;
+    let mut store = storage::read_store(&ctx.database()).await?;
     store.projects.retain(|project| project.path != path);
-    storage::write_store(&state.database(), &store).await?;
-    bootstrap_cached(&state).await
+    storage::write_store(&ctx.database(), &store).await?;
+    bootstrap_cached(&ctx).await
 }
 
 /// Move a project one place up or down. Pinned and unpinned projects form two
@@ -179,9 +197,11 @@ pub(crate) async fn remove_project(
 pub(crate) async fn move_project(
     path: String,
     direction: i32,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
-    let mut store = storage::read_store(&state.database()).await?;
+    let ctx = state.ctx(&window);
+    let mut store = storage::read_store(&ctx.database()).await?;
     if let Some(index) = store
         .projects
         .iter()
@@ -192,11 +212,11 @@ pub(crate) async fn move_project(
             let target = target as usize;
             if store.projects[target].pinned == store.projects[index].pinned {
                 store.projects.swap(index, target);
-                storage::write_store(&state.database(), &store).await?;
+                storage::write_store(&ctx.database(), &store).await?;
             }
         }
     }
-    bootstrap_cached(&state).await
+    bootstrap_cached(&ctx).await
 }
 
 #[cfg(test)]

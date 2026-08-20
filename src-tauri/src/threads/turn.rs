@@ -16,14 +16,16 @@ pub(crate) async fn start_thread(
     workspace_id: Option<String>,
     app_subagents: Option<bool>,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    let ctx = state.ctx(&window);
     // Surface the containing project's stored instructions to Codex as this
     // thread's developer instructions. The `thread/start` protocol accepts
     // `developerInstructions` (app-server-protocol v2 `ThreadStartParams`), so
     // instructions are a real context hook, not just UI metadata.
     let workspace = match workspace_id.as_deref() {
-        Some(workspace_id) => Some(workspaces::runtime_for_workspace(&state, workspace_id).await?),
+        Some(workspace_id) => Some(workspaces::runtime_for_workspace(&ctx, workspace_id).await?),
         None => None,
     };
     let cwd = workspace
@@ -32,7 +34,7 @@ pub(crate) async fn start_thread(
         .or(cwd)
         .filter(|cwd| !cwd.trim().is_empty())
         .ok_or("Choose a project directory before starting a thread")?;
-    let mut instructions = storage::read_instructions_for_cwd(&state.database(), &cwd)
+    let mut instructions = storage::read_instructions_for_cwd(&ctx.database(), &cwd)
         .await?
         .unwrap_or_default();
     if let Some(workspace) = &workspace {
@@ -54,7 +56,7 @@ pub(crate) async fn start_thread(
         // Fetched here, while nothing is in flight, so the spawn tool can offer
         // the real slugs as an enum. Best effort: an unavailable list leaves the
         // field free-form rather than blocking the tools entirely.
-        let models = state
+        let models = ctx
             .session
             .send(&app, requests::model_list(100, false))
             .await
@@ -68,7 +70,7 @@ pub(crate) async fn start_thread(
         }
         instructions.push_str(crate::agents::tools::DELEGATION_POLICY);
     }
-    let response = state
+    let response = ctx
         .session
         .send(
             &app,
@@ -87,13 +89,13 @@ pub(crate) async fn start_thread(
         .cloned()
         .ok_or_else(|| "Codex returned no thread data".to_string())?;
     if let Some(id) = str_at(&thread, "id") {
-        state.session.mark_resumed(&app, id).await?;
+        ctx.session.mark_resumed(&app, id).await?;
         // Remembered now so a `pingex_spawn_agent` on this thread's very first
         // message can bound the agent without asking Codex about a thread whose
         // turn is at that moment blocked waiting for the tool's answer.
-        state.agents.remember_cwd(id, &cwd);
+        ctx.agents.remember_cwd(id, &cwd);
         if let Some(workspace) = &workspace {
-            storage::assign_thread_workspace(&state.database(), id, &workspace.workspace_id)
+            storage::assign_thread_workspace(&ctx.database(), id, &workspace.workspace_id)
                 .await?;
         }
     }
@@ -106,10 +108,12 @@ pub(crate) async fn start_turn(
     input: Vec<Value>,
     options: Option<TurnOptions>,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    state.session.ensure_resumed(&app, &thread_id).await?;
-    storage::invalidate_thread_detail(&state.database(), &thread_id).await?;
+    let ctx = state.ctx(&window);
+    ctx.session.ensure_resumed(&app, &thread_id).await?;
+    storage::invalidate_thread_detail(&ctx.database(), &thread_id).await?;
     let resolved = options
         .as_ref()
         .map(|options| {
@@ -120,9 +124,9 @@ pub(crate) async fn start_turn(
         })
         .unwrap_or_default();
     let mut request = requests::turn_start(&thread_id, input, options);
-    if let Some(workspace_id) = storage::workspace_for_thread(&state.database(), &thread_id).await?
+    if let Some(workspace_id) = storage::workspace_for_thread(&ctx.database(), &thread_id).await?
     {
-        let workspace = workspaces::runtime_for_workspace(&state, &workspace_id).await?;
+        let workspace = workspaces::runtime_for_workspace(&ctx, &workspace_id).await?;
         requests::apply_workspace_params(
             &mut request.params,
             &workspace.cwd,
@@ -131,9 +135,9 @@ pub(crate) async fn start_turn(
         );
         // The workspace hub is where this turn actually runs, so it is also
         // what bounds any agent the turn spawns.
-        state.agents.remember_cwd(&thread_id, &workspace.cwd);
+        ctx.agents.remember_cwd(&thread_id, &workspace.cwd);
     }
-    let response = state.session.send(&app, request).await?;
+    let response = ctx.session.send(&app, request).await?;
     let turn = response
         .get("turn")
         .cloned()
@@ -141,7 +145,7 @@ pub(crate) async fn start_turn(
     if let Some(turn_id) = str_at(&turn, "id") {
         let (model, effort) = &resolved;
         storage::record_turn_settings(
-            &state.database(),
+            &ctx.database(),
             &thread_id,
             turn_id,
             model.as_deref(),
@@ -178,14 +182,16 @@ pub(crate) async fn interrupt_turn(
     thread_id: String,
     turn_id: String,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    let ctx = state.ctx(&window);
     let mut turn_id = turn_id;
     // One retry, and only for a turn-id mismatch: Codex has told us which turn
     // it considers active, so resending is the same Stop the user asked for
     // rather than a blind repeat.
     for attempt in 0..2 {
-        let error = match state
+        let error = match ctx
             .session
             .send(&app, requests::turn_interrupt(&thread_id, &turn_id))
             .await
@@ -210,9 +216,11 @@ pub(crate) async fn interrupt_turn(
 pub(crate) async fn respond_approval(
     request_id: i64,
     decision: String,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    state
+    let ctx = state.ctx(&window);
+    ctx
         .session
         .respond(request_id, requests::approval_result(&decision))
         .await
@@ -225,9 +233,11 @@ pub(crate) async fn respond_approval(
 pub(crate) async fn respond_server_request(
     request_id: i64,
     result: Value,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    state.session.respond(request_id, result).await
+    let ctx = state.ctx(&window);
+    ctx.session.respond(request_id, result).await
 }
 
 /// Record a question the moment Codex asks it, so it is still readable if the
@@ -239,10 +249,12 @@ pub(crate) async fn record_user_input_request(
     item_id: String,
     item: Value,
     after_item_id: Option<String>,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    let ctx = state.ctx(&window);
     storage::add_pending_user_input(
-        &state.database(),
+        &ctx.database(),
         &thread_id,
         &turn_id,
         &item_id,
@@ -254,15 +266,18 @@ pub(crate) async fn record_user_input_request(
 
 #[tauri::command]
 pub(crate) async fn threads_with_unanswered_questions(
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
-    storage::list_threads_with_unanswered_user_inputs(&state.database()).await
+    let ctx = state.ctx(&window);
+    storage::list_threads_with_unanswered_user_inputs(&ctx.database()).await
 }
 
 /// `request_id` is `None` when answering a question whose request died with an
 /// earlier session: there is nothing left to respond to, so the answer is only
 /// persisted (the caller sends it on as a fresh turn).
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn respond_user_input(
     request_id: Option<i64>,
     answers: Value,
@@ -270,10 +285,12 @@ pub(crate) async fn respond_user_input(
     turn_id: Option<String>,
     item_id: Option<String>,
     item: Option<Value>,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    let ctx = state.ctx(&window);
     if let Some(request_id) = request_id {
-        state
+        ctx
             .session
             .respond(request_id, requests::user_input_result(answers))
             .await?;
@@ -284,7 +301,7 @@ pub(crate) async fn respond_user_input(
     if let (Some(thread_id), Some(turn_id), Some(item_id), Some(item)) =
         (thread_id, turn_id, item_id, item)
     {
-        storage::add_user_input_answer(&state.database(), &thread_id, &turn_id, &item_id, &item)
+        storage::add_user_input_answer(&ctx.database(), &thread_id, &turn_id, &item_id, &item)
             .await?;
     }
     Ok(())

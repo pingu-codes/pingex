@@ -5,13 +5,12 @@
 //! source of truth for the user-chosen name.
 
 use serde_json::{json, Value};
-use tauri::{AppHandle, State};
+use tauri::AppHandle;
 
 use super::store::{read_records, upsert_seen};
 use super::{Connection, DeviceRecord, ProtocolClient};
 use crate::util::json::{arr_or_empty, i64_at, str_at};
 use crate::util::time::unix_secs;
-use crate::AppState;
 
 /// Merge protocol-reported clients with locally-stored records. Protocol
 /// clients win on live fields; the store wins on the user-chosen name. Records
@@ -116,8 +115,8 @@ fn parse_protocol_clients(response: &Value) -> Vec<ProtocolClient> {
 /// The relay's `environmentId`, needed by `client/list` and `client/revoke`.
 /// Returns `None` when remote control is disabled or unavailable — callers then
 /// fall back to Store-only data instead of failing.
-pub(crate) async fn environment_id(app: &AppHandle, state: &State<'_, AppState>) -> Option<String> {
-    let status = state
+pub(crate) async fn environment_id(app: &AppHandle, ctx: &crate::HomeContext) -> Option<String> {
+    let status = ctx
         .session
         .request(app, "remoteControl/status/read", json!({}))
         .await
@@ -134,12 +133,12 @@ pub(crate) async fn environment_id(app: &AppHandle, state: &State<'_, AppState>)
 /// protocol clients, or an empty vec when the relay is unavailable.
 pub(crate) async fn refresh_from_protocol(
     app: &AppHandle,
-    state: &State<'_, AppState>,
+    ctx: &crate::HomeContext,
 ) -> Vec<ProtocolClient> {
-    let Some(environment_id) = environment_id(app, state).await else {
+    let Some(environment_id) = environment_id(app, ctx).await else {
         return Vec::new();
     };
-    let response = state
+    let response = ctx
         .session
         .request(
             app,
@@ -154,7 +153,7 @@ pub(crate) async fn refresh_from_protocol(
     let now = unix_secs();
     for client in &clients {
         let _ = upsert_seen(
-            &state.database(),
+            &ctx.database(),
             &client.client_id,
             client.platform.as_deref(),
             client.last_seen_at,
@@ -168,11 +167,11 @@ pub(crate) async fn refresh_from_protocol(
 
 pub(crate) async fn collect_connections(
     app: &AppHandle,
-    state: &State<'_, AppState>,
+    ctx: &crate::HomeContext,
 ) -> Result<Vec<Connection>, String> {
-    crate::connections::store::ensure_table(&state.database()).await?;
-    let protocol = refresh_from_protocol(app, state).await;
-    let records = read_records(&state.database()).await?;
+    crate::connections::store::ensure_table(&ctx.database()).await?;
+    let protocol = refresh_from_protocol(app, ctx).await;
+    let records = read_records(&ctx.database()).await?;
     Ok(merge_connections(&protocol, &records))
 }
 

@@ -582,6 +582,7 @@ const nowSeconds = () => Math.floor(Date.now() / 1000);
 // homepage "Switch home" affordance and covered by its own unit test.
 export const previewLaunchState: LaunchState = {
   codexHome: "~/.codex-personal",
+  homeKey: "~/.codex-personal",
   codexBinary: "codex",
   defaultHome: "~/.codex",
   explicit: true,

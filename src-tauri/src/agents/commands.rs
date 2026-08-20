@@ -14,9 +14,10 @@ use crate::AppState;
 #[tauri::command]
 pub(crate) async fn list_agent_runs(
     thread_id: String,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<AgentRunRow>, String> {
-    storage::read_agent_runs(&state.database(), &thread_id).await
+    storage::read_agent_runs(&state.ctx(&window).database(), &thread_id).await
 }
 
 /// Stop a running agent from the GUI.
@@ -24,15 +25,17 @@ pub(crate) async fn list_agent_runs(
 pub(crate) async fn kill_agent_run(
     run_id: String,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let run = state
+    let ctx = state.ctx(&window);
+    let run = ctx
         .agents
         .get(&run_id)
         // A run whose process is gone (a previous launch, say) has nothing to
         // kill, but its row may still say `running`; reconcile it instead.
         .ok_or_else(|| "That agent is no longer running.".to_string())?;
-    supervisor::kill(&app, &run, Some("stopped from the app")).await;
+    supervisor::kill(&app, &ctx.home_key, &run, Some("stopped from the app")).await;
     Ok(())
 }
 
@@ -40,9 +43,10 @@ pub(crate) async fn kill_agent_run(
 #[tauri::command]
 pub(crate) async fn open_agent_thread(
     run_id: String,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Option<String>, String> {
-    Ok(storage::read_agent_run(&state.database(), &run_id)
+    Ok(storage::read_agent_run(&state.ctx(&window).database(), &run_id)
         .await?
         .and_then(|run| run.child_thread_id))
 }

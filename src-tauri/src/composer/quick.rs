@@ -3,6 +3,7 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindo
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use crate::settings::prefs as settings;
+use crate::AppState;
 
 /// Window label for the lightweight quick-chat composer.
 const QUICK_LABEL: &str = "quick";
@@ -107,17 +108,34 @@ pub(crate) fn set_quick_shortcut(app: AppHandle, accelerator: String) -> Result<
     Ok(trimmed)
 }
 
-/// Hand the quick-window thread back to the main app: show/focus the main
-/// window and emit a navigation event it listens for.
+/// Hand the quick-window thread back to the full app: focus a window bound to
+/// the quick chat's home (the default context) and emit a navigation event.
 #[tauri::command]
 pub(crate) fn quick_open_full_thread(app: AppHandle, thread_id: String) -> Result<(), String> {
-    if let Some(main) = app.get_webview_window(MAIN_LABEL) {
-        let _ = main.unminimize();
-        main.show().map_err(|error| error.to_string())?;
-        main.set_focus().map_err(|error| error.to_string())?;
+    let state = app.state::<AppState>();
+    let home_key = state.default_home();
+    // The main window drives the default home, so it is normally the target;
+    // fall back to any other window bound to the quick chat's home.
+    let label = if app.get_webview_window(MAIN_LABEL).is_some() {
+        MAIN_LABEL.to_string()
+    } else {
+        state
+            .window_bindings()
+            .into_iter()
+            .find(|(label, key)| key == &home_key && label != QUICK_LABEL)
+            .map(|(label, _)| label)
+            .unwrap_or_else(|| MAIN_LABEL.to_string())
+    };
+    if let Some(target) = app.get_webview_window(&label) {
+        let _ = target.unminimize();
+        target.show().map_err(|error| error.to_string())?;
+        target.set_focus().map_err(|error| error.to_string())?;
     }
-    app.emit("quickchat://open-thread", json!({ "threadId": thread_id }))
-        .map_err(|error| error.to_string())?;
+    app.emit(
+        "quickchat://open-thread",
+        json!({ "threadId": thread_id, "codexHome": home_key }),
+    )
+    .map_err(|error| error.to_string())?;
     if let Some(quick) = app.get_webview_window(QUICK_LABEL) {
         let _ = quick.hide();
     }

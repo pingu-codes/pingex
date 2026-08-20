@@ -22,7 +22,7 @@ use crate::storage::{
     StoredWorkspaceMember,
 };
 use crate::util::json::{arr_or_empty, str_at};
-use crate::{AppState, RuntimeConfig};
+use crate::{HomeContext, RuntimeConfig};
 
 /// How many threads a single bootstrap will page through before stopping.
 const MAX_THREADS: usize = 1000;
@@ -56,10 +56,10 @@ pub(crate) fn account_from(value: &Value) -> Option<Account> {
 /// then build the payload.
 pub(crate) async fn bootstrap_inner(
     app: &AppHandle,
-    state: &AppState,
+    ctx: &HomeContext,
 ) -> Result<BootstrapData, String> {
-    let store = storage::read_store(&state.database()).await?;
-    let account_value = state
+    let store = storage::read_store(&ctx.database()).await?;
+    let account_value = ctx
         .session
         .request(app, "account/read", json!({"refreshToken": false}))
         .await?;
@@ -78,7 +78,7 @@ pub(crate) async fn bootstrap_inner(
         if let Some(cursor) = &cursor {
             params["cursor"] = json!(cursor);
         }
-        let list_value = state.session.request(app, "thread/list", params).await?;
+        let list_value = ctx.session.request(app, "thread/list", params).await?;
         let threads = arr_or_empty(&list_value, "data");
         search_rows.extend(
             threads
@@ -97,9 +97,9 @@ pub(crate) async fn bootstrap_inner(
     }
 
     let stored_summaries: Vec<_> = all_threads.iter().map(StoredThreadSummary::from).collect();
-    storage::replace_thread_summaries(&state.database(), &stored_summaries).await?;
+    storage::replace_thread_summaries(&ctx.database(), &stored_summaries).await?;
     // Keep the local search index in step with the active thread listing.
-    storage::upsert_thread_search(&state.database(), &search_rows).await?;
+    storage::upsert_thread_search(&ctx.database(), &search_rows).await?;
 
     let account = account_from(&account_value);
     let account_json = account
@@ -107,11 +107,11 @@ pub(crate) async fn bootstrap_inner(
         .map(serde_json::to_string)
         .transpose()
         .map_err(|error| error.to_string())?;
-    storage::write_account_cache(&state.database(), account_json.as_deref()).await?;
-    let side_questions = storage::read_side_questions(&state.database()).await?;
-    let extras = read_bootstrap_extras(state).await?;
+    storage::write_account_cache(&ctx.database(), account_json.as_deref()).await?;
+    let side_questions = storage::read_side_questions(&ctx.database()).await?;
+    let extras = read_bootstrap_extras(ctx).await?;
     build_bootstrap(
-        &state.runtime(),
+        &ctx.runtime(),
         store,
         all_threads,
         account,
@@ -122,10 +122,10 @@ pub(crate) async fn bootstrap_inner(
 
 /// Rebuild the payload from local caches only. Used after any mutation that
 /// changed Pingex's own state rather than Codex's.
-pub(crate) async fn bootstrap_cached(state: &AppState) -> Result<BootstrapData, String> {
-    let store = storage::read_store(&state.database()).await?;
+pub(crate) async fn bootstrap_cached(ctx: &HomeContext) -> Result<BootstrapData, String> {
+    let store = storage::read_store(&ctx.database()).await?;
     let pinned_threads: HashSet<String> = store.pinned_threads.iter().cloned().collect();
-    let all_threads = storage::read_thread_summaries(&state.database())
+    let all_threads = storage::read_thread_summaries(&ctx.database())
         .await?
         .into_iter()
         .map(|stored| {
@@ -134,15 +134,15 @@ pub(crate) async fn bootstrap_cached(state: &AppState) -> Result<BootstrapData, 
             summary
         })
         .collect();
-    let account = storage::read_account_cache(&state.database())
+    let account = storage::read_account_cache(&ctx.database())
         .await?
         .map(|json| serde_json::from_str(&json))
         .transpose()
         .map_err(|error| format!("Could not parse cached account: {error}"))?;
-    let side_questions = storage::read_side_questions(&state.database()).await?;
-    let extras = read_bootstrap_extras(state).await?;
+    let side_questions = storage::read_side_questions(&ctx.database()).await?;
+    let extras = read_bootstrap_extras(ctx).await?;
     build_bootstrap(
-        &state.runtime(),
+        &ctx.runtime(),
         store,
         all_threads,
         account,
@@ -154,7 +154,7 @@ pub(crate) async fn bootstrap_cached(state: &AppState) -> Result<BootstrapData, 
 /// Load per-project instructions and attached sources, grouped by project path,
 /// for the bootstrap payload.
 async fn read_project_extras(
-    state: &AppState,
+    ctx: &HomeContext,
 ) -> Result<
     (
         HashMap<String, String>,
@@ -163,12 +163,12 @@ async fn read_project_extras(
     String,
 > {
     let instructions: HashMap<String, String> =
-        storage::read_all_project_instructions(&state.database())
+        storage::read_all_project_instructions(&ctx.database())
             .await?
             .into_iter()
             .collect();
     let mut sources_by_project: HashMap<String, Vec<StoredProjectSource>> = HashMap::new();
-    for source in storage::read_all_project_sources(&state.database()).await? {
+    for source in storage::read_all_project_sources(&ctx.database()).await? {
         sources_by_project
             .entry(source.project_path.clone())
             .or_default()
@@ -184,10 +184,10 @@ async fn read_project_extras(
 /// directory is still on disk — after it is removed, only the stored link can
 /// keep its threads attached to a repository.
 async fn temp_worktree_parents(
-    state: &AppState,
+    ctx: &HomeContext,
     runtime: &RuntimeConfig,
 ) -> Result<Vec<(String, String)>, String> {
-    let mut links = storage::read_temp_worktrees(&state.database()).await?;
+    let mut links = storage::read_temp_worktrees(&ctx.database()).await?;
     let known: HashSet<String> = links.iter().map(|(path, _)| path.clone()).collect();
     for path in discover_worktrees(runtime) {
         if known.contains(&path) || !is_temp_worktree_path(runtime, &path) {
@@ -196,24 +196,24 @@ async fn temp_worktree_parents(
         let Some(parent) = worktree_parent_project(&path) else {
             continue;
         };
-        storage::record_temp_worktree(&state.database(), &path, &parent).await?;
+        storage::record_temp_worktree(&ctx.database(), &path, &parent).await?;
         links.push((path, parent));
     }
     Ok(links)
 }
 
-async fn read_bootstrap_extras(state: &AppState) -> Result<BootstrapExtras, String> {
-    let (instructions, sources_by_project) = read_project_extras(state).await?;
-    let temp_worktree_parents = temp_worktree_parents(state, &state.runtime()).await?;
+async fn read_bootstrap_extras(ctx: &HomeContext) -> Result<BootstrapExtras, String> {
+    let (instructions, sources_by_project) = read_project_extras(ctx).await?;
+    let temp_worktree_parents = temp_worktree_parents(ctx, &ctx.runtime()).await?;
     Ok(BootstrapExtras {
         temp_worktree_parents,
         instructions,
         sources_by_project,
-        project_expansion: storage::read_project_expansion(&state.database()).await?,
-        workspaces: storage::read_workspaces(&state.database()).await?,
-        workspace_members: storage::read_all_workspace_members(&state.database()).await?,
-        workspace_threads: storage::workspace_thread_map(&state.database()).await?,
-        agent_children: storage::read_agent_run_children(&state.database()).await?,
+        project_expansion: storage::read_project_expansion(&ctx.database()).await?,
+        workspaces: storage::read_workspaces(&ctx.database()).await?,
+        workspace_members: storage::read_all_workspace_members(&ctx.database()).await?,
+        workspace_threads: storage::workspace_thread_map(&ctx.database()).await?,
+        agent_children: storage::read_agent_run_children(&ctx.database()).await?,
     })
 }
 

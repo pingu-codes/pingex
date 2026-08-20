@@ -107,10 +107,12 @@ pub(crate) async fn review_save_draft(
     pr_number: i64,
     head_sha: String,
     payload: String,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    let ctx = state.ctx(&window);
     storage::write_review_draft(
-        &state.database(),
+        &ctx.database(),
         &provider,
         &repo,
         pr_number,
@@ -125,9 +127,11 @@ pub(crate) async fn review_load_draft(
     provider: String,
     repo: String,
     pr_number: i64,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Option<ReviewDraft>, String> {
-    storage::read_review_draft(&state.database(), &provider, &repo, pr_number).await
+    let ctx = state.ctx(&window);
+    storage::read_review_draft(&ctx.database(), &provider, &repo, pr_number).await
 }
 
 #[tauri::command]
@@ -135,7 +139,9 @@ pub(crate) async fn review_delete_draft(
     provider: String,
     repo: String,
     pr_number: i64,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    storage::delete_review_draft(&state.database(), &provider, &repo, pr_number).await
+    let ctx = state.ctx(&window);
+    storage::delete_review_draft(&ctx.database(), &provider, &repo, pr_number).await
 }

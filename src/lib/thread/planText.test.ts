@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { planText } from "./planText";
 import type { ThreadItem } from "$lib/types";
+import { planText } from "./planText";
 
 describe("planText", () => {
   it("reads a plan item", () => {

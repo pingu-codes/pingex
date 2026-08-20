@@ -30,6 +30,22 @@ export function codexHome(): string | null {
   return appData.data?.codexHome ?? launch.state?.codexHome ?? null;
 }
 
+/**
+ * Canonical key of this window's home — the value backend events carry as
+ * `codexHome`, so listeners can drop events meant for a window bound to a
+ * different account. Null until launch state arrives (filter passes then).
+ */
+export function homeKey(): string | null {
+  return launch.state?.homeKey ?? null;
+}
+
+/** True when an event tagged `codexHome` belongs to this window's home. */
+export function eventMatchesHome(tag: unknown): boolean {
+  if (typeof tag !== "string" || !tag) return true;
+  const key = homeKey();
+  return key === null || tag === key;
+}
+
 export function codexBinary(): string | null {
   return appData.data?.codexBinary ?? launch.state?.codexBinary ?? null;
 }

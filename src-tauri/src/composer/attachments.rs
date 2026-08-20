@@ -302,16 +302,18 @@ pub(crate) fn cleanup_on_startup(codex_home: &Path) {
     let _ = cleanup(&codex_home.join("staging"), MAX_STAGING_BYTES);
 }
 
-fn staging_dir(state: &State<'_, AppState>) -> PathBuf {
-    state.runtime().codex_home.join("staging")
+fn staging_dir(ctx: &crate::HomeContext) -> PathBuf {
+    ctx.runtime().codex_home.join("staging")
 }
 
 #[tauri::command]
 pub(crate) fn stage_attachment(
     source_path: String,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Attachment, String> {
-    Ok(stage_source(&staging_dir(&state), Path::new(&source_path))?)
+    let ctx = state.ctx(&window);
+    Ok(stage_source(&staging_dir(&ctx), Path::new(&source_path))?)
 }
 
 #[tauri::command]
@@ -319,8 +321,10 @@ pub(crate) fn stage_clipboard_image(
     filename: Option<String>,
     mime: Option<String>,
     bytes: Vec<u8>,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Attachment, String> {
+    let ctx = state.ctx(&window);
     let extension = match mime.as_deref() {
         Some("image/png") => "png",
         Some("image/jpeg") => "jpg",
@@ -330,12 +334,17 @@ pub(crate) fn stage_clipboard_image(
         _ => "png",
     };
     let filename = filename.unwrap_or_else(|| format!("pasted-image.{extension}"));
-    Ok(stage_bytes(&staging_dir(&state), &filename, &bytes)?)
+    Ok(stage_bytes(&staging_dir(&ctx), &filename, &bytes)?)
 }
 
 #[tauri::command]
-pub(crate) fn remove_staged(id: String, state: State<'_, AppState>) -> Result<(), String> {
-    Ok(remove(&staging_dir(&state), &id)?)
+pub(crate) fn remove_staged(
+    id: String,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let ctx = state.ctx(&window);
+    Ok(remove(&staging_dir(&ctx), &id)?)
 }
 
 #[cfg(test)]

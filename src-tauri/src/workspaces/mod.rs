@@ -9,7 +9,7 @@ use std::path::Path;
 
 use crate::storage;
 use crate::util::id::unique_suffix;
-use crate::AppState;
+use crate::HomeContext;
 
 pub(crate) mod commands;
 mod hub;
@@ -49,15 +49,15 @@ fn clean_alias(alias: &str) -> Result<String, String> {
 /// old threads too. This deliberately returns the hub as a root: it contains
 /// user-owned notes and plans in addition to project links.
 pub(crate) async fn runtime_for_workspace(
-    state: &AppState,
+    ctx: &HomeContext,
     workspace_id: &str,
 ) -> Result<WorkspaceRuntime, String> {
-    let workspace = storage::read_workspaces(&state.database())
+    let workspace = storage::read_workspaces(&ctx.database())
         .await?
         .into_iter()
         .find(|workspace| workspace.id == workspace_id && !workspace.archived)
         .ok_or("This workspace no longer exists or is archived")?;
-    let members = storage::read_workspace_members(&state.database(), workspace_id).await?;
+    let members = storage::read_workspace_members(&ctx.database(), workspace_id).await?;
     if members.len() < 2 {
         return Err("A workspace needs at least two members".into());
     }

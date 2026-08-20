@@ -78,9 +78,10 @@ fn resolve_open(link: &DeepLink, running_home: &Path) -> HandoffOpen {
     }
 }
 
-/// Parse a received `codex://` URL, resolve it against the running home, and
-/// emit `handoff://open` for the frontend to act on. Unknown/garbage URLs are
-/// ignored (a stray click should not disturb the app).
+/// Parse a received `codex://` URL, route it to the window whose home matches
+/// (focusing it), else hand it to the main window resolved against its own
+/// home so the frontend can offer a deliberate switch. Unknown/garbage URLs
+/// are ignored (a stray click should not disturb the app).
 pub(crate) fn handle_deep_link_url(app: &AppHandle, url: &str) {
     let Ok(link) = parse_deep_link(url) else {
         return;
@@ -88,9 +89,29 @@ pub(crate) fn handle_deep_link_url(app: &AppHandle, url: &str) {
     let Some(state) = app.try_state::<AppState>() else {
         return;
     };
-    let running_home = state.runtime().codex_home;
+    // A window already on the requested home takes the link directly.
+    if let Some(raw) = link.codex_home.as_deref() {
+        let requested = expand_tilde(raw);
+        let matching = state
+            .window_bindings()
+            .into_iter()
+            .find(|(label, key)| label != "quick" && homes_match(Path::new(key), &requested));
+        if let Some((label, key)) = matching {
+            if let Some(window) = app.get_webview_window(&label) {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+            let payload = resolve_open(&link, Path::new(&key));
+            let _ = app.emit_to(&label, "handoff://open", payload);
+            return;
+        }
+    }
+    // No open window has this home: let the main window resolve it against
+    // its own context and offer the switch flow.
+    let running_home = state.ctx_for_label("main").runtime().codex_home;
     let payload = resolve_open(&link, &running_home);
-    let _ = app.emit("handoff://open", payload);
+    let _ = app.emit_to("main", "handoff://open", payload);
 }
 
 #[cfg(test)]

@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use super::prefs::{self, RuntimeOverrides};
 use crate::codex::binary;
-use crate::{AppState, RuntimeConfig};
+use crate::{HomeContext, RuntimeConfig};
 
 /// The runtime identity as the settings dialog sees it: what is active now,
 /// what is saved as an override, and whether the two have diverged.
@@ -41,6 +41,9 @@ pub(crate) struct RecentHomeInfo {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LaunchState {
     codex_home: String,
+    /// Canonical form of `codex_home` — the key the backend tags events with,
+    /// so the frontend filters by exact equality.
+    home_key: String,
     codex_binary: String,
     default_home: String,
     /// The home came from `--codex-home`/`CODEX_HOME`; boot without a picker.
@@ -76,8 +79,11 @@ pub(crate) fn runtime_settings(
     }
 }
 
-pub(crate) fn launch_state(state: &AppState) -> LaunchState {
-    let runtime = state.runtime();
+/// The launch state one window sees: the home its context points at, and
+/// whether it still needs to pick one (`explicit` means "bound already" for
+/// windows beyond the first).
+pub(crate) fn launch_state(ctx: &HomeContext, explicit: bool) -> LaunchState {
+    let runtime = ctx.runtime();
     let overrides = prefs::read_overrides(&prefs::settings_path());
     let recent_homes = overrides
         .recent_homes
@@ -90,10 +96,11 @@ pub(crate) fn launch_state(state: &AppState) -> LaunchState {
         .collect();
     LaunchState {
         codex_home: runtime.codex_home.display().to_string(),
+        home_key: ctx.home_key.clone(),
         codex_binary: runtime.codex_binary.display().to_string(),
         default_home: default_codex_home().display().to_string(),
-        explicit: state.launch_explicit,
-        needs_picker: !state.launch_explicit,
+        explicit,
+        needs_picker: !explicit,
         recent_homes,
         codex_binary_status: binary::status(&runtime.codex_binary),
     }

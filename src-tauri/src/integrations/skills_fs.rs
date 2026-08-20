@@ -121,11 +121,13 @@ pub(crate) async fn create_skill(
     body: Option<String>,
     cwds: Option<Vec<String>>,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
-    let home = state.runtime().codex_home;
+    let ctx = state.ctx(&window);
+    let home = ctx.runtime().codex_home;
     create_skill_on_disk(&home, name.trim(), &description, body.as_deref())?;
-    build_list_with(&app, &state, cwds.unwrap_or_default(), true).await
+    build_list_with(&app, &ctx, cwds.unwrap_or_default(), true).await
 }
 
 #[tauri::command]
@@ -133,11 +135,13 @@ pub(crate) async fn delete_skill(
     path: String,
     cwds: Option<Vec<String>>,
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
-    let home = state.runtime().codex_home;
+    let ctx = state.ctx(&window);
+    let home = ctx.runtime().codex_home;
     delete_skill_on_disk(&home, &path)?;
-    build_list_with(&app, &state, cwds.unwrap_or_default(), true).await
+    build_list_with(&app, &ctx, cwds.unwrap_or_default(), true).await
 }
 
 #[cfg(test)]

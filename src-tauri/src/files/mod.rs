@@ -18,14 +18,16 @@ pub(crate) async fn search_project_files(
     root: String,
     query: String,
     limit: Option<usize>,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<fuzzy::FileHit>, String> {
+    let ctx = state.ctx(&window);
     let root_path = PathBuf::from(&root);
     if !root_path.is_dir() {
         return Err(format!("{root} is not a folder"));
     }
     let limit = limit.unwrap_or(20).min(100);
-    let workspace_members = workspace_members_for_hub(&root, &state).await?;
+    let workspace_members = workspace_members_for_hub(&root, &ctx).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let Some(members) = workspace_members else {
             return fuzzy::search_files(&root_path, &query, limit);
@@ -60,13 +62,15 @@ pub(crate) async fn search_project_files(
 #[tauri::command]
 pub(crate) async fn list_project_files(
     root: String,
+    window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
+    let ctx = state.ctx(&window);
     let root_path = PathBuf::from(&root);
     if !root_path.is_dir() {
         return Err(format!("{root} is not a folder"));
     }
-    let workspace_members = workspace_members_for_hub(&root, &state).await?;
+    let workspace_members = workspace_members_for_hub(&root, &ctx).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let Some(members) = workspace_members else {
             return fuzzy::list_files(&root_path);
@@ -103,9 +107,9 @@ pub(crate) async fn list_project_files(
 /// Normal project file commands retain their single-root behavior.
 async fn workspace_members_for_hub(
     root: &str,
-    state: &State<'_, AppState>,
+    ctx: &crate::HomeContext,
 ) -> Result<Option<Vec<storage::StoredWorkspaceMember>>, String> {
-    let database = state.database();
+    let database = ctx.database();
     let Some(workspace) = storage::read_workspaces(&database)
         .await?
         .into_iter()
