@@ -208,8 +208,8 @@ const commandStatusClass = (item: ThreadItem) =>
 <svelte:window onclick={onWindowClick} />
 
 {#if item.type === "agentMessage" || item.type === "plan"}
-  <div class="group/message">
-    <div class="prose-thread text-sm leading-7" bind:this={messageEl} use:copyCode>
+  <div class="group/message min-w-0">
+    <div class="prose-thread min-w-0 text-sm leading-7" bind:this={messageEl} use:copyCode>
       {@html renderMarkdown(item.text ?? "")}
     </div>
     <div
@@ -556,6 +556,10 @@ const commandStatusClass = (item: ThreadItem) =>
   .prose-thread :global(h3) {
     margin: 1rem 0 0.5rem;
     font-weight: 600;
+  }
+  .prose-thread {
+    overflow-wrap: anywhere;
+    min-width: 0;
   }
   .prose-thread :global(a) {
     text-decoration: underline;

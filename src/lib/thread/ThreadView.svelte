@@ -1295,8 +1295,8 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
       </div>
     </div>
   {/if}
-  <div class="min-h-0 flex-1 overflow-y-auto" bind:this={scroller}>
-    <div class="mx-auto max-w-3xl space-y-5 px-6 py-8">
+  <div class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto" bind:this={scroller}>
+    <div class="mx-auto min-w-0 max-w-3xl space-y-5 px-6 py-8">
       {#if loading}
         <div class="space-y-3" aria-label="Loading thread">
           <div class="placeholder h-16 animate-pulse rounded-xl"></div>

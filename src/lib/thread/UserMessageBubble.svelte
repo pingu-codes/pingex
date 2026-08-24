@@ -127,7 +127,7 @@ const localImageSrc = (part: UserInputPart) =>
     </TooltipButton>
   {/if}
   <div
-    class="space-y-2 rounded-2xl rounded-br-md bg-primary-500/10 px-4 py-2.5 text-sm leading-6 {draft === null
+    class="min-w-0 space-y-2 rounded-2xl rounded-br-md bg-primary-500/10 px-4 py-2.5 text-sm leading-6 [overflow-wrap:anywhere] {draft === null
       ? 'max-w-[85%]'
       : 'w-full'}"
   >
