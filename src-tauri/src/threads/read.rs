@@ -39,10 +39,7 @@ pub(crate) async fn read_thread(
         merge_local_items(&ctx, &thread_id, &mut detail).await?;
         return Ok(with_thread_settings(detail, resume.as_ref()));
     }
-    let response = ctx
-        .session
-        .send(&app, requests::thread_read(&thread_id))
-        .await?;
+    let response = read_when_rollout_settles(&ctx, &app, &thread_id).await?;
     let mut detail = response
         .get("thread")
         .cloned()
@@ -52,6 +49,35 @@ pub(crate) async fn read_thread(
     storage::write_thread_detail(&ctx.database(), &thread_id, source_updated_at, &detail).await?;
     merge_local_items(&ctx, &thread_id, &mut detail).await?;
     Ok(with_thread_settings(detail, resume.as_ref()))
+}
+
+/// Codex creates a thread's rollout file lazily, and only writes its meta line
+/// after collecting git info, so a read racing the first turn of a brand-new
+/// thread can find the file empty and fail with "rollout at … is empty". That
+/// state clears itself within moments — retry it instead of surfacing it.
+async fn read_when_rollout_settles(
+    ctx: &crate::HomeContext,
+    app: &AppHandle,
+    thread_id: &str,
+) -> Result<Value, String> {
+    const ATTEMPTS: u32 = 6;
+    const BACKOFF: std::time::Duration = std::time::Duration::from_millis(250);
+    let mut attempt = 1;
+    loop {
+        match ctx.session.send(app, requests::thread_read(thread_id)).await {
+            Err(error) if is_empty_rollout(&error) && attempt < ATTEMPTS => {
+                attempt += 1;
+                tokio::time::sleep(BACKOFF).await;
+            }
+            result => return result,
+        }
+    }
+}
+
+/// The thread-store's wording for a rollout file that exists but has no
+/// session meta line yet.
+fn is_empty_rollout(error: &str) -> bool {
+    error.contains("is empty")
 }
 
 /// Layer everything Pingex persisted itself onto Codex's payload.

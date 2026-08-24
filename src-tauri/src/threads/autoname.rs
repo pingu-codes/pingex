@@ -194,11 +194,15 @@ async fn await_reply(
     let deadline = tokio::time::Instant::now() + NAME_TIMEOUT;
     while tokio::time::Instant::now() < deadline {
         tokio::time::sleep(POLL_INTERVAL).await;
-        let response = ctx
+        // A transient failure (e.g. the rollout file not yet flushed) just
+        // costs a poll tick; the deadline bounds how long errors can persist.
+        let Ok(response) = ctx
             .session
             .send(app, requests::thread_read(namer_id))
             .await
-            .ok()?;
+        else {
+            continue;
+        };
         if let Some(text) = response.get("thread").and_then(reply_text) {
             return Some(text);
         }

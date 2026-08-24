@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for the main Pingex window",
-  "windows": ["main"],
+  "description": "Permissions for the main Pingex windows (extra account windows are labelled main-2, main-3, …)",
+  "windows": ["main", "main-*"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
