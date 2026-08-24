@@ -324,6 +324,16 @@ impl TurnJournal {
         }
     }
 
+    /// Threads with a turn this process watched start and has not yet seen
+    /// end. Unlike the `journaled_turns` rows, this only ever describes the
+    /// live child, so a webview that reloads mid-turn can trust it outright.
+    pub(crate) fn open_threads(&self) -> Vec<String> {
+        self.open_turn
+            .lock()
+            .map(|open| open.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
     fn set_open_turn(&self, params: &Value) {
         let (Some(thread_id), Some(turn_id)) = (
             params.get("threadId").and_then(Value::as_str),

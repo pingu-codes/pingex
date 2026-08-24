@@ -287,6 +287,22 @@ pub(crate) async fn threads_with_unanswered_questions(
     storage::list_threads_with_unanswered_user_inputs(&ctx.database()).await
 }
 
+/// Threads with a turn currently running on this home's Codex child.
+///
+/// The webview only learns about turns from `turn/started`, so a reload
+/// mid-turn (a file link, a dev refresh) comes back with no idea anything is
+/// working: the sidebar drops the indicator and `ThreadView` demotes the turn
+/// to `interrupted`. The child and its journal outlive the webview, so this
+/// hands the set back to reseed it.
+#[tauri::command]
+pub(crate) async fn threads_with_active_turns(
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let ctx = state.ctx(&window);
+    Ok(ctx.session.active_threads().await)
+}
+
 /// `request_id` is `None` when answering a question whose request died with an
 /// earlier session: there is nothing left to respond to, so the answer is only
 /// persisted (the caller sends it on as a fresh turn).

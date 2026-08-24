@@ -8,6 +8,7 @@ import {
   elicitations,
   previewEmit,
   previewEmitServerRequest,
+  seedActiveTurns,
   turnPlans,
   userInputRequests,
 } from "$lib/services/codexEvents.svelte";
@@ -152,6 +153,20 @@ describe("turn plans", () => {
     previewEmit({ method: "turn/completed", params: { threadId: "t", turn: { id: "turn-1" } } });
 
     expect(turnPlans.byThread.t?.turnId).toBe("turn-2");
+  });
+});
+
+describe("seeding active turns from the backend", () => {
+  it("adds the backend's running threads without dropping ones already seen", () => {
+    previewEmit({ method: "turn/started", params: { threadId: "a", turn: { id: "turn-1" } } });
+    seedActiveTurns(["a", "b"]);
+    expect(activeTurns.list).toEqual(["a", "b"]);
+  });
+
+  it("lets a later turn/completed clear a seeded thread", () => {
+    seedActiveTurns(["b"]);
+    previewEmit({ method: "turn/completed", params: { threadId: "b", turn: { id: "turn-1" } } });
+    expect(activeTurns.list).toEqual([]);
   });
 });
 

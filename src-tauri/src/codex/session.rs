@@ -247,6 +247,17 @@ impl CodexSession {
         }
     }
 
+    /// Threads with a turn in flight on the live child. Does not spawn a child:
+    /// with none running there is nothing in flight to report.
+    pub(crate) async fn active_threads(&self) -> Vec<String> {
+        let guard = self.inner.lock().await;
+        guard
+            .as_ref()
+            .filter(|session| session.child.is_alive())
+            .map(|session| session.sink.journal.open_threads())
+            .unwrap_or_default()
+    }
+
     async fn session(
         &self,
         app: &AppHandle,

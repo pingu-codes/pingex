@@ -392,6 +392,12 @@ export async function threadsWithUnansweredQuestions(): Promise<string[]> {
   return await invoke<string[]>("threads_with_unanswered_questions");
 }
 
+/** Threads with a turn running right now on the backend's Codex child. */
+export async function threadsWithActiveTurns(): Promise<string[]> {
+  if (!isTauri()) return [];
+  return await invoke<string[]>("threads_with_active_turns");
+}
+
 /** Summarise the thread so far and drop the raw history from the model's context. */
 export async function compactThread(threadId: string): Promise<void> {
   if (!isTauri()) {

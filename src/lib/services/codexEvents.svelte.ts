@@ -107,6 +107,16 @@ export function setUnansweredQuestions(threadIds: string[]) {
   unansweredQuestions.list = [...threadIds];
 }
 
+/**
+ * Seeds the set from the backend at startup. The backend outlives a webview
+ * reload, and a turn that started before the reload never re-announces itself,
+ * so this is the only way the new webview learns it is still running. Merged
+ * rather than replaced: a `turn/started` can land before the seed arrives.
+ */
+export function seedActiveTurns(threadIds: string[]) {
+  for (const threadId of threadIds) setTurnActive(threadId, true);
+}
+
 function setTurnActive(threadId: string | undefined, active: boolean) {
   if (!threadId) return;
   if (active) {

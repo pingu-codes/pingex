@@ -436,6 +436,7 @@ pub fn run() {
             threads::turn::respond_server_request,
             threads::turn::record_user_input_request,
             threads::turn::threads_with_unanswered_questions,
+            threads::turn::threads_with_active_turns,
             threads::lifecycle::rename_thread,
             threads::autoname::auto_name_thread,
             threads::lifecycle::invalidate_thread_cache,

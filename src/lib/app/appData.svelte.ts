@@ -4,8 +4,14 @@
  * subagents visible until a bootstrap refresh catches up with them.
  */
 import { open } from "@tauri-apps/plugin-dialog";
-import { bootstrap, isTauri, saveProject, threadsWithUnansweredQuestions } from "$lib/services/api";
-import { setUnansweredQuestions } from "$lib/services/codexEvents.svelte";
+import {
+  bootstrap,
+  isTauri,
+  saveProject,
+  threadsWithActiveTurns,
+  threadsWithUnansweredQuestions,
+} from "$lib/services/api";
+import { seedActiveTurns, setUnansweredQuestions } from "$lib/services/codexEvents.svelte";
 import type { BootstrapData, Project, SubagentDetail, ThreadSummary } from "$lib/types";
 
 export const appData = $state<{
@@ -158,6 +164,11 @@ export async function refresh(): Promise<void> {
     // sidebar has to be told about them explicitly.
     threadsWithUnansweredQuestions()
       .then(setUnansweredQuestions)
+      .catch(() => {});
+    // A turn that began before this webview loaded (a reload mid-turn) never
+    // sends `turn/started` again; the backend still knows it is running.
+    threadsWithActiveTurns()
+      .then(seedActiveTurns)
       .catch(() => {});
   } catch (cause) {
     fail(cause);
