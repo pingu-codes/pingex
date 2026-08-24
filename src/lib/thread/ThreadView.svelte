@@ -20,6 +20,7 @@ import {
   interruptTurn,
   invalidateThreadCache,
   isQueueUnsupported,
+  isRevertUnsupported,
   killAgentRun,
   listAgentRuns,
   listSubagents,
@@ -572,11 +573,13 @@ async function submitEdit(turn: Turn, text: string) {
   starting = true;
   try {
     // `thread/revert` is the current truncation API; `thread/rollback` is
-    // deprecated upstream but kept as the fallback for older codex CLIs.
+    // deprecated upstream but kept as the fallback for codex CLIs (≤0.146)
+    // that predate revert. Any other revert failure is a real error.
     const keptTurnIds = thread.turns.slice(0, target.index).map((candidate) => candidate.id);
     try {
       await revertThread(threadIdAtEdit, turn.id, keptTurnIds);
-    } catch {
+    } catch (cause) {
+      if (!isRevertUnsupported(cause)) throw cause;
       await rollbackThread(threadIdAtEdit, target.count);
     }
     if (!thread || liveThreadId !== threadIdAtEdit) return;

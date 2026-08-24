@@ -8,7 +8,21 @@ export interface ThreadSummary {
   parentThreadId?: string | null;
   agentNickname?: string | null;
   agentRole?: string | null;
+  /** The app-server project Codex files the thread under (Codex ≥0.149). */
+  projectId?: string | null;
+  /** The thread section it sits in (Codex ≥0.149); see `BootstrapData.sections`. */
+  sectionId?: string | null;
   subagentCount?: number;
+}
+
+/** A named, optionally coloured bucket the app-server keeps for threads
+ *  (`threadSection/*`, Codex ≥0.149). Global — not scoped to a project. */
+export interface ThreadSection {
+  id: string;
+  name: string;
+  icon?: string | null;
+  /** CSS colour, when the section has one. */
+  color?: string | null;
 }
 
 /** An attached folder or file that contributes searchable content to a project. */
@@ -95,7 +109,8 @@ export interface WorkspaceSearchResults {
 
 export type MenuTarget =
   | { kind: "project"; project: Project }
-  | { kind: "thread"; project: Project; thread: ThreadSummary };
+  | { kind: "thread"; project: Project; thread: ThreadSummary }
+  | { kind: "section"; section: ThreadSection };
 
 export type MenuAction =
   | "reveal"
@@ -108,6 +123,8 @@ export type MenuAction =
   | "moveUp"
   | "moveDown"
   | "moveToWorkspace"
+  | "moveToSection"
+  | "deleteSection"
   | "fork"
   | "openDetails";
 
@@ -452,6 +469,10 @@ export interface BootstrapData {
   account: Account | null;
   sideQuestions: SideQuestion[];
   subagents: ThreadSummary[];
+  /** Server thread sections in server order. Absent/empty when unsupported. */
+  sections?: ThreadSection[];
+  /** False on a Codex without `threadSection/*` (≤0.146): no section UI. */
+  sectionsSupported?: boolean;
 }
 
 export interface ReasoningEffortOption {
@@ -589,6 +610,22 @@ export interface RuntimeSettings {
   overrideCodexBinary: string | null;
   settingsPath: string;
   restartRequired: boolean;
+}
+
+/** What the app-server reported at `initialize`. Diagnostics only. */
+export interface CodexServerInfo {
+  /** `<clientInfo.name>/<cli version> (<os>; <arch>) …`, e.g.
+   *  `pingex/0.149.1 (Mac OS 26.6.0; arm64) (pingex; 0.1.0)`. */
+  userAgent?: string | null;
+  platformOs?: string | null;
+  platformFamily?: string | null;
+  codexHome?: string | null;
+}
+
+/** The CLI version embedded in a `userAgent`, or null when it cannot be read. */
+export function codexVersionFromUserAgent(userAgent: string | null | undefined): string | null {
+  const match = userAgent?.match(/^[\w.-]+\/(\d+\.\d+\.\d+(?:-[\w.]+)?)/);
+  return match?.[1] ?? null;
 }
 
 export interface RecentHome {
@@ -1026,7 +1063,23 @@ export interface IntegrationsList {
  * - `bearerToken` — authenticated from a `bearer_token_env_var`, so there is
  *   nothing to sign into; the credential comes from the environment.
  */
-export type McpAuthStatus = "unsupported" | "notLoggedIn" | "bearerToken" | "oAuth";
+export type McpAuthStatus = "unknown" | "unsupported" | "notLoggedIn" | "bearerToken" | "oAuth" | (string & {});
+
+/**
+ * Where a server is in its lifecycle, reported by Codex builds newer than
+ * 0.149.1 as `runtimeStatus`. Older builds omit it. Kept open-ended: the
+ * upstream enum grows between releases and an unknown value must not break
+ * the integrations list.
+ */
+export type McpServerRuntimeStatus =
+  | "notStarted"
+  | "starting"
+  | "connected"
+  | "authenticationRequired"
+  | "failed"
+  | "cancelled"
+  | "disabled"
+  | (string & {});
 
 /** One tool a server exposes, as reported by `mcpServerStatus/list`. */
 export interface McpTool {
@@ -1070,6 +1123,10 @@ export interface McpServerStatus {
   authStatus: McpAuthStatus;
   /** Present when the server failed to start. */
   error?: string | null;
+  /** Absent on Codex ≤0.149.1. */
+  runtimeStatus?: McpServerRuntimeStatus | null;
+  /** Set when the server was installed by a plugin (newer Codex only). */
+  pluginId?: string | null;
 }
 
 /** A concrete resource an MCP server exposes (`resources/list`). */

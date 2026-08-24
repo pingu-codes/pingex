@@ -7,7 +7,7 @@ let {
   current,
   close,
 }: {
-  kind: "project" | "thread";
+  kind: "project" | "thread" | "section";
   /** The name to pre-fill and edit. */
   current: string;
   /** Resolves the new name, or nothing when dismissed. */
@@ -28,7 +28,7 @@ function submit(event: SubmitEvent) {
 <DialogShell title="Rename {kind}" onClose={() => close()}>
   <form onsubmit={submit} class="mt-4">
     <!-- svelte-ignore a11y_autofocus -->
-    <input bind:value autofocus class="input w-full" placeholder={kind === "project" ? "Project name" : "Thread name"} />
+    <input bind:value autofocus class="input w-full" placeholder="{kind.charAt(0).toUpperCase() + kind.slice(1)} name" />
     <div class="mt-4 flex justify-end gap-2">
       <button type="button" onclick={() => close()} class="btn btn-sm preset-tonal">Cancel</button>
       <button type="submit" class="btn btn-sm preset-filled-primary-500" disabled={!value.trim()}>Rename</button>

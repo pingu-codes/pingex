@@ -255,6 +255,7 @@ pub(crate) async fn update_workspace(
 pub(crate) async fn move_thread_to_workspace(
     thread_id: String,
     workspace_id: String,
+    app: tauri::AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
@@ -263,6 +264,8 @@ pub(crate) async fn move_thread_to_workspace(
     // that will only fail at its next turn.
     runtime_for_workspace(&ctx, &workspace_id).await?;
     storage::assign_thread_workspace(&ctx.database(), &thread_id, &workspace_id).await?;
+    crate::projects::server::assign_thread_to_workspace(&app, &ctx, &thread_id, &workspace_id)
+        .await?;
     bootstrap_cached(&ctx).await
 }
 

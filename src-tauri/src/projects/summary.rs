@@ -109,6 +109,11 @@ pub(crate) fn thread_summary_from(
         parent_thread_id: str_at(thread, "parentThreadId").map(str::to_string),
         agent_nickname: str_at(thread, "agentNickname").map(str::to_string),
         agent_role: str_at(thread, "agentRole").map(str::to_string),
+        project_id: str_at(thread, "projectId").map(str::to_string),
+        section_id: thread
+            .get("section")
+            .and_then(|section| str_at(section, "id"))
+            .map(str::to_string),
         subagent_count: 0,
     })
 }
@@ -174,6 +179,8 @@ impl From<&ThreadSummary> for StoredThreadSummary {
             parent_thread_id: thread.parent_thread_id.clone(),
             agent_nickname: thread.agent_nickname.clone(),
             agent_role: thread.agent_role.clone(),
+            project_id: thread.project_id.clone(),
+            section_id: thread.section_id.clone(),
         }
     }
 }
@@ -190,6 +197,8 @@ impl From<StoredThreadSummary> for ThreadSummary {
             parent_thread_id: thread.parent_thread_id,
             agent_nickname: thread.agent_nickname,
             agent_role: thread.agent_role,
+            project_id: thread.project_id,
+            section_id: thread.section_id,
             subagent_count: 0,
         }
     }
@@ -211,6 +220,8 @@ mod tests {
             parent_thread_id: parent.map(str::to_string),
             agent_nickname: None,
             agent_role: None,
+            project_id: None,
+            section_id: None,
             subagent_count: 0,
         }
     }

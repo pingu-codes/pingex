@@ -6,6 +6,7 @@
 
 pub(crate) mod bootstrap;
 pub(crate) mod commands;
+pub(crate) mod server;
 pub(crate) mod summary;
 pub(crate) mod types;
 pub(crate) mod worktrees;

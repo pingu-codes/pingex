@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 
 use crate::codex::child::{spawn_child, ChildSink, CodexChild, RequestError};
+use crate::codex::compat::{self, Feature};
 use crate::codex::journal::TurnJournal;
 use crate::codex::wire::WireLog;
 use crate::{RuntimeConfig, SharedRuntime};
@@ -42,11 +43,12 @@ struct MainSessionSink {
     /// database through.
     home_key: String,
     resumed: Mutex<HashMap<String, Value>>,
-    /// Why this child refused `thread/queue/*`, once it has. Lives on the sink
-    /// rather than on [`CodexSession`] so that replacing the child — a binary
-    /// override, a home switch, a crash respawn — forgets it structurally,
-    /// with no reset code to keep in step. See `threads::queue`.
-    queue_unsupported: Mutex<Option<String>>,
+    /// Why this child refused an optional API, keyed by the feature's method
+    /// prefix, once it has. Lives on the sink rather than on [`CodexSession`]
+    /// so that replacing the child — a binary override, a home switch, a
+    /// crash respawn — forgets it structurally, with no reset code to keep in
+    /// step. See [`crate::codex::compat`].
+    unsupported: Mutex<HashMap<&'static str, String>>,
     /// Journaling and per-turn stream bookkeeping, shared with every subagent's
     /// sink so both keep the same record of what streamed.
     journal: TurnJournal,
@@ -57,7 +59,7 @@ impl MainSessionSink {
     fn new(app: AppHandle, home_key: String) -> Self {
         Self {
             resumed: Mutex::new(HashMap::new()),
-            queue_unsupported: Mutex::new(None),
+            unsupported: Mutex::new(HashMap::new()),
             journal: TurnJournal::new(app.clone(), home_key.clone()),
             home_key,
             app,
@@ -338,35 +340,74 @@ impl CodexSession {
         Ok(response)
     }
 
-    /// Why the live child refuses `thread/queue/*`, if it has already said so.
+    /// Why the live child refuses `feature`, if it has already said so.
     /// `None` means "not yet known to be unsupported" — worth trying.
-    pub(crate) async fn queue_unsupported(
+    pub(crate) async fn unsupported(
         &self,
         app: &AppHandle,
+        feature: Feature,
     ) -> Result<Option<String>, String> {
         let (_, sink) = self.session(app).await?;
         let reason = sink
-            .queue_unsupported
+            .unsupported
             .lock()
-            .map_err(|_| "Codex queue support lock was poisoned".to_string())?
-            .clone();
+            .map_err(|_| "Codex feature support lock was poisoned".to_string())?
+            .get(feature.method_prefix)
+            .cloned();
         Ok(reason)
     }
 
-    /// Remember that the live child has no usable server-side queue, so later
-    /// calls can short-circuit instead of paying a round trip to be refused.
-    pub(crate) async fn mark_queue_unsupported(
+    /// Remember that the live child lacks `feature`, so later calls can
+    /// short-circuit instead of paying a round trip to be refused.
+    pub(crate) async fn mark_unsupported(
         &self,
         app: &AppHandle,
+        feature: Feature,
         reason: &str,
     ) -> Result<(), String> {
         let (_, sink) = self.session(app).await?;
-        *sink
-            .queue_unsupported
+        sink.unsupported
             .lock()
-            .map_err(|_| "Codex queue support lock was poisoned".to_string())? =
-            Some(reason.to_string());
+            .map_err(|_| "Codex feature support lock was poisoned".to_string())?
+            .insert(feature.method_prefix, reason.to_string());
         Ok(())
+    }
+
+    /// Send a request belonging to an optional `feature`: short-circuit if this
+    /// child already refused it, and on a first refusal remember that and
+    /// report it under the feature's error prefix. `classify` lets a caller
+    /// add feature-specific refusal shapes on top of the generic ones.
+    pub(crate) async fn send_gated(
+        &self,
+        app: &AppHandle,
+        feature: Feature,
+        request: crate::codex::requests::Request,
+        classify: impl Fn(&str) -> Option<String>,
+    ) -> Result<Value, String> {
+        if let Some(reason) = self.unsupported(app, feature).await? {
+            return Err(feature.error(&reason));
+        }
+        match self.send(app, request).await {
+            Ok(response) => Ok(response),
+            Err(error) => {
+                let reason = compat::method_unsupported(&error, feature.method_prefix)
+                    .or_else(|| classify(&error));
+                match reason {
+                    Some(reason) => {
+                        self.mark_unsupported(app, feature, &reason).await?;
+                        Err(feature.error(&reason))
+                    }
+                    None => Err(error),
+                }
+            }
+        }
+    }
+
+    /// What the live child said about itself in the `initialize` handshake
+    /// (`userAgent`, `platformOs`, …), spawning it if needed.
+    pub(crate) async fn server_info(&self, app: &AppHandle) -> Result<Value, String> {
+        let (child, _) = self.session(app).await?;
+        Ok(child.server_info())
     }
 
     /// Record that a thread is already live in the session (e.g. one we just

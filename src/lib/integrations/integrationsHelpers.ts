@@ -26,6 +26,11 @@ export function rowStatus(server: McpServerSummary, status?: McpServerStatus | n
   if (!status) return "untested";
   if (status.error) return "error";
   if (status.authStatus === "notLoggedIn") return "error";
+  // Newer Codex builds also report a lifecycle; only its unambiguous states
+  // change the verdict so an unknown value keeps today's behaviour.
+  if (status.runtimeStatus === "failed" || status.runtimeStatus === "authenticationRequired") return "error";
+  if (status.runtimeStatus === "starting" || status.runtimeStatus === "notStarted") return "checking";
+  if (status.runtimeStatus === "disabled") return "disabled";
   return "enabled";
 }
 

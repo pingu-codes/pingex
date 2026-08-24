@@ -57,10 +57,14 @@ export function startApp(): void {
     // turn/completed also refreshes the sidebar: a brand-new thread only becomes
     // visible to thread/list once its rollout is persisted, which happens after
     // the thread/started refresh has already run.
+    // project/changed and thread/project/updated come from Codex ≥0.149 when
+    // another client reorganises the projects this sidebar mirrors.
     if (
       event.method !== "thread/started" &&
       event.method !== "thread/name/updated" &&
-      event.method !== "turn/completed"
+      event.method !== "turn/completed" &&
+      event.method !== "project/changed" &&
+      event.method !== "thread/project/updated"
     )
       return;
     if (sidebarRefreshTimer) clearTimeout(sidebarRefreshTimer);

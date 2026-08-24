@@ -95,6 +95,7 @@ pub(crate) async fn add_project(
 pub(crate) async fn rename_project(
     path: String,
     name: String,
+    app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
@@ -102,12 +103,21 @@ pub(crate) async fn rename_project(
     let mut store = storage::read_store(&ctx.database()).await?;
     let trimmed = name.trim();
     // A blank name clears the override so the folder name is used again.
-    stored_project_mut(&mut store, &path).name = if trimmed.is_empty() {
+    let entry = stored_project_mut(&mut store, &path);
+    entry.name = if trimmed.is_empty() {
         None
     } else {
         Some(trimmed.to_string())
     };
+    let server_name = entry.name.clone().unwrap_or_else(|| {
+        std::path::Path::new(&path)
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or(&path)
+            .to_string()
+    });
     storage::write_store(&ctx.database(), &store).await?;
+    super::server::rename(&app, &ctx, &path, &server_name).await;
     bootstrap_cached(&ctx).await
 }
 
@@ -171,6 +181,7 @@ pub(crate) async fn set_thread_pinned(
 #[tauri::command]
 pub(crate) async fn remove_project(
     path: String,
+    app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
@@ -187,6 +198,9 @@ pub(crate) async fn remove_project(
     let mut store = storage::read_store(&ctx.database()).await?;
     store.projects.retain(|project| project.path != path);
     storage::write_store(&ctx.database(), &store).await?;
+    // Its threads keep their Codex assignment until the project is gone
+    // server-side too; otherwise they would vanish from the sidebar.
+    super::server::delete(&app, &ctx, &path).await?;
     bootstrap_cached(&ctx).await
 }
 

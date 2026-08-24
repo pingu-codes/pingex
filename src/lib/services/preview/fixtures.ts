@@ -86,6 +86,7 @@ export const previewData: BootstrapData = {
           status: "idle",
           pinned: false,
           subagentCount: 2,
+          sectionId: "section-focus",
         },
         {
           id: "2",
@@ -111,6 +112,7 @@ export const previewData: BootstrapData = {
           updatedAt: Date.now() / 1000 - 86400,
           status: "idle",
           pinned: false,
+          sectionId: "section-focus",
         },
         // Enough threads to push this project past the sidebar's per-project cap
         // so the "Show N more" control is exercisable in preview.
@@ -162,6 +164,11 @@ export const previewData: BootstrapData = {
       subagentCount: 0,
     },
   ],
+  sections: [
+    { id: "section-focus", name: "This week", color: "#f59e0b" },
+    { id: "section-later", name: "Later", color: null },
+  ],
+  sectionsSupported: true,
 };
 
 export function previewSort(): BootstrapData {

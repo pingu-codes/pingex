@@ -26,6 +26,7 @@ import {
   getQuickShortcut,
   isTauri,
   readAgentSettings,
+  readCodexServerInfo,
   readConfigSettings,
   readHomeOverview,
   readRuntimeSettings,
@@ -35,7 +36,8 @@ import {
   writeAgentSettings,
   writeConfigSetting,
 } from "$lib/services/api";
-import type { Account, AgentSettings, ConfigSetting, HomeOverview, RuntimeSettings } from "$lib/types";
+import type { Account, AgentSettings, CodexServerInfo, ConfigSetting, HomeOverview, RuntimeSettings } from "$lib/types";
+import { codexVersionFromUserAgent } from "$lib/types";
 import { dragRegion } from "$lib/utils/dragRegion";
 
 let {
@@ -93,6 +95,8 @@ let settingsHome = $state("");
 let settingsBinary = $state("");
 let generalError = $state<string | null>(null);
 let generalSaved = $state(false);
+let serverInfo = $state<CodexServerInfo | null>(null);
+const serverVersion = $derived(codexVersionFromUserAgent(serverInfo?.userAgent));
 
 // --- config.toml settings (Agent / Model features / Coding) ---
 let configSettings = $state<ConfigSetting[]>([]);
@@ -164,6 +168,10 @@ $effect(() => {
       settingsBinary = settings.overrideCodexBinary ?? "";
     })
     .catch((cause) => (generalError = cause instanceof Error ? cause.message : String(cause)));
+  // Best effort: a Codex that will not start is already reported elsewhere.
+  readCodexServerInfo()
+    .then((info) => (serverInfo = info))
+    .catch(() => (serverInfo = null));
   readConfigSettings()
     .then((settings) => (configSettings = settings))
     .catch((cause) => (configError = cause instanceof Error ? cause.message : String(cause)));
@@ -303,6 +311,17 @@ async function reveal(path: string | null | undefined) {
               <div class="text-xs font-medium text-surface-500">Signed in as</div>
               <div class="mt-1">{account?.label ?? "Not signed in"}</div>
             </div>
+            {#if serverInfo?.userAgent}
+              <div class="mt-3 text-sm">
+                <div class="text-xs font-medium text-surface-500">Running Codex</div>
+                <div class="mt-1" title={serverInfo.userAgent}>
+                  {serverVersion ? `codex ${serverVersion}` : serverInfo.userAgent}
+                  {#if serverInfo.platformOs}
+                    <span class="text-surface-500"> · {serverInfo.platformOs}</span>
+                  {/if}
+                </div>
+              </div>
+            {/if}
             <form onsubmit={saveGeneral} class="mt-4 space-y-4 text-sm">
               <div>
                 <div class="flex items-center gap-2">

@@ -192,13 +192,26 @@ const DDL: &str = "CREATE TABLE IF NOT EXISTS metadata (
      workspace_id TEXT NOT NULL
  );
  CREATE INDEX IF NOT EXISTS workspace_threads_workspace
-     ON workspace_threads(workspace_id);";
+     ON workspace_threads(workspace_id);
+ CREATE TABLE IF NOT EXISTS server_projects (
+     project_id TEXT PRIMARY KEY,
+     local_key TEXT NOT NULL UNIQUE
+ );
+ CREATE TABLE IF NOT EXISTS thread_sections (
+     id TEXT PRIMARY KEY,
+     name TEXT NOT NULL,
+     icon TEXT,
+     color TEXT,
+     ordinal INTEGER NOT NULL
+ );";
 
 /// Columns added after their table shipped. Re-running these on an up-to-date
 /// database fails harmlessly ("duplicate column"), which is the only expected
 /// error, so the result is ignored.
-const ADDED_COLUMNS: [&str; 6] = [
+const ADDED_COLUMNS: [&str; 8] = [
     "ALTER TABLE projects ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE thread_summaries ADD COLUMN project_id TEXT",
+    "ALTER TABLE thread_summaries ADD COLUMN section_id TEXT",
     "ALTER TABLE thread_summaries ADD COLUMN parent_thread_id TEXT",
     "ALTER TABLE thread_summaries ADD COLUMN agent_nickname TEXT",
     "ALTER TABLE thread_summaries ADD COLUMN agent_role TEXT",

@@ -3,6 +3,7 @@ import {
   Archive,
   ArrowDown,
   ArrowUp,
+  Bookmark,
   FolderOpen,
   GitFork,
   Layers3,
@@ -17,15 +18,19 @@ import type { MenuAction, MenuTarget } from "$lib/types";
 
 let {
   menu,
+  sectionsSupported = false,
   onAct,
   onClose,
 }: {
   menu: { x: number; y: number; target: MenuTarget };
+  /** Whether this Codex has thread sections; hides the section items otherwise. */
+  sectionsSupported?: boolean;
   onAct: (action: MenuAction) => void;
   onClose: () => void;
 } = $props();
 
-const menuIsPinned = (target: MenuTarget) => (target.kind === "project" ? target.project.pinned : target.thread.pinned);
+const menuIsPinned = (target: MenuTarget) =>
+  target.kind === "project" ? target.project.pinned : target.kind === "thread" ? target.thread.pinned : false;
 </script>
 
 <svelte:window onkeydown={(event) => event.key === "Escape" && onClose()} />
@@ -44,6 +49,24 @@ const menuIsPinned = (target: MenuTarget) => (target.kind === "project" ? target
   style="left: {menu.x}px; top: {menu.y}px"
   role="menu"
 >
+  {#if menu.target.kind === "section"}
+    <button
+      role="menuitem"
+      onclick={() => onAct("rename")}
+      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+    >
+      <Pencil size={13} class="text-surface-500" />
+      Rename section
+    </button>
+    <button
+      role="menuitem"
+      onclick={() => onAct("deleteSection")}
+      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-error-500 hover:preset-tonal"
+    >
+      <Trash2 size={13} />
+      Delete section
+    </button>
+  {:else}
   <button
     role="menuitem"
     onclick={() => onAct("reveal")}
@@ -130,6 +153,16 @@ const menuIsPinned = (target: MenuTarget) => (target.kind === "project" ? target
       <Layers3 size={13} class="text-surface-500" />
       Move to workspace
     </button>
+    {#if sectionsSupported}
+      <button
+        role="menuitem"
+        onclick={() => onAct("moveToSection")}
+        class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+      >
+        <Bookmark size={13} class="text-surface-500" />
+        Move to section
+      </button>
+    {/if}
     <button
       role="menuitem"
       onclick={() => onAct("fork")}
@@ -154,5 +187,6 @@ const menuIsPinned = (target: MenuTarget) => (target.kind === "project" ? target
       <Trash2 size={13} />
       Delete thread
     </button>
+  {/if}
   {/if}
 </div>

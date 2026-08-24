@@ -38,6 +38,7 @@ import type {
   Project,
   SideQuestion,
   ThreadSearchItem,
+  ThreadSection,
   ThreadSummary,
 } from "$lib/types";
 import { dragRegion } from "$lib/utils/dragRegion";
@@ -52,6 +53,8 @@ let {
   selectedThread,
   loading,
   sideQuestions = [],
+  sections = [],
+  sectionsSupported = false,
   onAddProject,
   onAddWorkspace,
   onSelectThread,
@@ -70,6 +73,10 @@ let {
   selectedThread: string | null;
   loading: boolean;
   sideQuestions?: SideQuestion[];
+  /** Server thread sections (Codex ≥0.149), in server order. */
+  sections?: ThreadSection[];
+  /** False hides every section affordance (older Codex). */
+  sectionsSupported?: boolean;
   onAddProject: () => void;
   onAddWorkspace?: () => void;
   onSelectThread: (project: Project, threadId: string) => void;
@@ -101,6 +108,21 @@ function visibleThreads(project: Project) {
     if (selected) head.push(selected);
   }
   return head;
+}
+
+/** The visible threads split by section: each section that has a thread in
+ *  this project (in server order), then the unsectioned rest. A section the
+ *  server no longer lists is treated as no section. */
+function threadGroups(project: Project): { section: ThreadSection | null; threads: ThreadSummary[] }[] {
+  const visible = visibleThreads(project);
+  if (!sectionsSupported || sections.length === 0) return [{ section: null, threads: visible }];
+  const groups: { section: ThreadSection | null; threads: ThreadSummary[] }[] = sections
+    .map((section) => ({ section, threads: visible.filter((thread) => thread.sectionId === section.id) }))
+    .filter((group) => group.threads.length > 0);
+  const known = new Set(sections.map((section) => section.id));
+  const rest = visible.filter((thread) => !thread.sectionId || !known.has(thread.sectionId));
+  if (rest.length > 0 || groups.length === 0) groups.push({ section: null, threads: rest });
+  return groups;
 }
 
 let searching = $state(false);
@@ -140,7 +162,7 @@ let menu = $state<{ x: number; y: number; target: MenuTarget } | null>(null);
 const MENU_WIDTH = 190;
 
 function openMenuAt(x: number, y: number, target: MenuTarget) {
-  const height = target.kind === "thread" ? 230 : 230;
+  const height = target.kind === "section" ? 80 : 260;
   menu = {
     x: Math.min(x, window.innerWidth - MENU_WIDTH - 8),
     y: Math.min(y, window.innerHeight - height - 8),
@@ -189,9 +211,73 @@ const threadTarget = (project: Project, thread: ThreadSummary): MenuTarget => ({
   project,
   thread,
 });
+const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section", section });
 </script>
 
 <svelte:window onkeydown={onWindowKeydown} />
+
+{#snippet threadRow(project: Project, thread: ThreadSummary)}
+  <div
+    class="group/thread relative"
+    role="presentation"
+    oncontextmenu={(event) => onContextMenu(event, threadTarget(project, thread))}
+  >
+    <button
+      onclick={() => onSelectThread(project, thread.id)}
+      class="flex w-full items-center gap-2 rounded-md py-1.5 pl-2 pr-7 text-left text-[12px] transition {selectedThread === thread.id ? 'preset-tonal' : 'text-surface-700-300 hover:preset-tonal'}"
+    >
+      {#if threadActivity(thread.id) === "waiting"}
+        <span class="relative grid size-2 shrink-0 place-items-center" role="status" title="Waiting for your input">
+          <span class="absolute size-2 animate-ping rounded-full bg-warning-500/60"></span>
+          <span class="size-2 rounded-full bg-warning-500"></span>
+        </span>
+      {:else if threadActivity(thread.id) === "working"}
+        <span class="grid size-2 shrink-0 place-items-center" role="status" title="Working">
+          <span class="size-2 animate-pulse rounded-full bg-primary-500"></span>
+        </span>
+      {/if}
+      {#if thread.pinned}
+        <Star class="shrink-0 fill-warning-500 text-warning-500" size={11} />
+      {/if}
+      <span class="min-w-0 flex-1 truncate" title={thread.title}>{thread.title}</span>
+      {#if isTempWorktreePath(thread.cwd ?? "")}
+        <span
+          class="grid shrink-0 place-items-center text-surface-500"
+          title="Runs in the temporary worktree {folderName(thread.cwd ?? '')}"
+        >
+          <GitBranch size={10} />
+        </span>
+      {/if}
+      {#if sideQuestionCount(thread.id) > 0}
+        <span
+          class="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-primary-500/15 px-1.5 text-[9px] font-medium text-primary-500"
+          title="{sideQuestionCount(thread.id)} side question{sideQuestionCount(thread.id) === 1 ? '' : 's'}"
+        >
+          <MessageCircleQuestion size={9} />
+          {sideQuestionCount(thread.id)}
+        </span>
+      {/if}
+      {#if (thread.subagentCount ?? 0) > 0}
+        <span
+          class="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-success-500/15 px-1.5 text-[9px] font-medium text-success-600 dark:text-success-400"
+          title="{thread.subagentCount} subagent{thread.subagentCount === 1 ? '' : 's'}"
+        >
+          <Bot size={9} />
+          {thread.subagentCount}
+        </span>
+      {/if}
+      <span class="shrink-0 text-[10px] text-surface-500 group-hover/thread:opacity-0">{relativeTime(thread.updatedAt)}</span>
+    </button>
+    <button
+      type="button"
+      aria-label="Thread menu"
+      onclick={(event) => onEllipsis(event, threadTarget(project, thread))}
+      class="absolute right-0.5 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded text-surface-500 opacity-0 transition hover:bg-surface-300-700 hover:text-surface-900-100 focus:opacity-100 group-hover/thread:opacity-100"
+    >
+      <Ellipsis size={13} />
+    </button>
+  </div>
+{/snippet}
 
 <aside class="flex h-full w-full flex-col border-r border-surface-200-800 bg-surface-100-900 text-surface-900-100">
   <div class="h-7 shrink-0 select-none" data-tauri-drag-region use:dragRegion></div>
@@ -327,67 +413,30 @@ const threadTarget = (project: Project, thread: ThreadSummary): MenuTarget => ({
               {#if project.threads.length === 0}
                 <p class="px-2 py-2 text-xs text-surface-500">No Codex threads yet</p>
               {:else}
-                {#each visibleThreads(project) as thread (thread.id)}
-                  <div
-                    class="group/thread relative"
-                    role="presentation"
-                    oncontextmenu={(event) => onContextMenu(event, threadTarget(project, thread))}
-                  >
-                    <button
-                      onclick={() => onSelectThread(project, thread.id)}
-                      class="flex w-full items-center gap-2 rounded-md py-1.5 pl-2 pr-7 text-left text-[12px] transition {selectedThread === thread.id ? 'preset-tonal' : 'text-surface-700-300 hover:preset-tonal'}"
+                {#each threadGroups(project) as group (group.section?.id ?? "")}
+                  {#if group.section}
+                    <div
+                      class="group/section relative mt-1 flex items-center"
+                      role="presentation"
+                      oncontextmenu={(event) => onContextMenu(event, sectionTarget(group.section!))}
                     >
-                      {#if threadActivity(thread.id) === "waiting"}
-                        <span class="relative grid size-2 shrink-0 place-items-center" role="status" title="Waiting for your input">
-                          <span class="absolute size-2 animate-ping rounded-full bg-warning-500/60"></span>
-                          <span class="size-2 rounded-full bg-warning-500"></span>
-                        </span>
-                      {:else if threadActivity(thread.id) === "working"}
-                        <span class="grid size-2 shrink-0 place-items-center" role="status" title="Working">
-                          <span class="size-2 animate-pulse rounded-full bg-primary-500"></span>
-                        </span>
-                      {/if}
-                      {#if thread.pinned}
-                        <Star class="shrink-0 fill-warning-500 text-warning-500" size={11} />
-                      {/if}
-                      <span class="min-w-0 flex-1 truncate" title={thread.title}>{thread.title}</span>
-                      {#if isTempWorktreePath(thread.cwd ?? "")}
-                        <span
-                          class="grid shrink-0 place-items-center text-surface-500"
-                          title="Runs in the temporary worktree {folderName(thread.cwd ?? '')}"
-                        >
-                          <GitBranch size={10} />
-                        </span>
-                      {/if}
-                      {#if sideQuestionCount(thread.id) > 0}
-                        <span
-                          class="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-primary-500/15 px-1.5 text-[9px] font-medium text-primary-500"
-                          title="{sideQuestionCount(thread.id)} side question{sideQuestionCount(thread.id) === 1 ? '' : 's'}"
-                        >
-                          <MessageCircleQuestion size={9} />
-                          {sideQuestionCount(thread.id)}
-                        </span>
-                      {/if}
-                      {#if (thread.subagentCount ?? 0) > 0}
-                        <span
-                          class="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-success-500/15 px-1.5 text-[9px] font-medium text-success-600 dark:text-success-400"
-                          title="{thread.subagentCount} subagent{thread.subagentCount === 1 ? '' : 's'}"
-                        >
-                          <Bot size={9} />
-                          {thread.subagentCount}
-                        </span>
-                      {/if}
-                      <span class="shrink-0 text-[10px] text-surface-500 group-hover/thread:opacity-0">{relativeTime(thread.updatedAt)}</span>
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Thread menu"
-                      onclick={(event) => onEllipsis(event, threadTarget(project, thread))}
-                      class="absolute right-0.5 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded text-surface-500 opacity-0 transition hover:bg-surface-300-700 hover:text-surface-900-100 focus:opacity-100 group-hover/thread:opacity-100"
-                    >
-                      <Ellipsis size={13} />
-                    </button>
-                  </div>
+                      <div class="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-surface-500">
+                        <span class="size-1.5 shrink-0 rounded-full" style="background: {group.section.color ?? 'currentColor'}"></span>
+                        <span class="truncate">{group.section.name}</span>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label="Section menu"
+                        onclick={(event) => onEllipsis(event, sectionTarget(group.section!))}
+                        class="grid size-5 shrink-0 place-items-center rounded text-surface-500 opacity-0 transition hover:bg-surface-300-700 hover:text-surface-900-100 focus:opacity-100 group-hover/section:opacity-100"
+                      >
+                        <Ellipsis size={12} />
+                      </button>
+                    </div>
+                  {/if}
+                  {#each group.threads as thread (thread.id)}
+                    {@render threadRow(project, thread)}
+                  {/each}
                 {/each}
                 {#if project.threads.length > THREAD_LIMIT}
                   <button
@@ -447,5 +496,5 @@ const threadTarget = (project: Project, thread: ThreadSummary): MenuTarget => ({
 </aside>
 
 {#if menu}
-  <SidebarContextMenu {menu} onAct={act} onClose={() => (menu = null)} />
+  <SidebarContextMenu {menu} {sectionsSupported} onAct={act} onClose={() => (menu = null)} />
 {/if}

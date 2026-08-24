@@ -11,7 +11,7 @@ use turso::{params, Database};
 use super::db;
 
 const SUMMARY_COLUMNS: &str = "thread_id, cwd, title, updated_at, status,
-     parent_thread_id, agent_nickname, agent_role";
+     parent_thread_id, agent_nickname, agent_role, project_id, section_id";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct StoredThreadSummary {
@@ -23,6 +23,10 @@ pub(crate) struct StoredThreadSummary {
     pub(crate) parent_thread_id: Option<String>,
     pub(crate) agent_nickname: Option<String>,
     pub(crate) agent_role: Option<String>,
+    /// The app-server project the thread is assigned to (Codex ≥0.149).
+    pub(crate) project_id: Option<String>,
+    /// The thread section it sits in (Codex ≥0.149).
+    pub(crate) section_id: Option<String>,
 }
 
 fn summary_from_row(row: &turso::Row) -> Result<StoredThreadSummary, String> {
@@ -35,6 +39,8 @@ fn summary_from_row(row: &turso::Row) -> Result<StoredThreadSummary, String> {
         parent_thread_id: db::opt_text(row, 5)?,
         agent_nickname: db::opt_text(row, 6)?,
         agent_role: db::opt_text(row, 7)?,
+        project_id: db::opt_text(row, 8)?,
+        section_id: db::opt_text(row, 9)?,
     })
 }
 
@@ -53,8 +59,8 @@ pub(crate) async fn replace_thread_summaries(
             &transaction,
             "INSERT INTO thread_summaries(
                 thread_id, cwd, title, updated_at, status,
-                parent_thread_id, agent_nickname, agent_role
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                parent_thread_id, agent_nickname, agent_role, project_id, section_id
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 summary.id.clone(),
                 summary.cwd.clone(),
@@ -63,7 +69,9 @@ pub(crate) async fn replace_thread_summaries(
                 summary.status.clone(),
                 summary.parent_thread_id.clone(),
                 summary.agent_nickname.clone(),
-                summary.agent_role.clone()
+                summary.agent_role.clone(),
+                summary.project_id.clone(),
+                summary.section_id.clone()
             ],
         )
         .await?;
@@ -287,6 +295,8 @@ mod tests {
             parent_thread_id: None,
             agent_nickname: None,
             agent_role: None,
+            project_id: None,
+            section_id: None,
         }
     }
 
@@ -298,6 +308,8 @@ mod tests {
             parent_thread_id: Some("parent-1".into()),
             agent_nickname: Some("Scout".into()),
             agent_role: Some("researcher".into()),
+            project_id: Some("srv-1".into()),
+            section_id: Some("sec-1".into()),
             ..summary("thread-1", "/tmp/project", "Title", 42)
         };
         replace_thread_summaries(&database, std::slice::from_ref(&stored))

@@ -67,6 +67,25 @@ describe("server requests", () => {
     expect(elicitations.list).toMatchObject([{ requestId: 2, serverName: "linear", mode: "form" }]);
   });
 
+  // Newer Codex builds put real values (e.g. `suggestion_id`) in `_meta` where
+  // older ones sent null; it is carried so the response can echo it.
+  it("keeps the elicitation's _meta for the response", () => {
+    previewEmitServerRequest({
+      requestId: 4,
+      method: "mcpServer/elicitation/request",
+      params: {
+        threadId: "t",
+        serverName: "codex_apps",
+        mode: "form",
+        _meta: { suggestion_id: "request_plugin_install_install-github" },
+        message: "Allow?",
+        requestedSchema: { type: "object", properties: {} },
+      },
+    });
+
+    expect(elicitations.list[0]?.meta).toEqual({ suggestion_id: "request_plugin_install_install-github" });
+  });
+
   // Anything unrecognised stalls its turn until the user is told, so it must
   // not disappear silently.
   it("warns rather than swallowing a method it does not know", () => {

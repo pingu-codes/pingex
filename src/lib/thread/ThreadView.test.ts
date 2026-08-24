@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   invalidateThreadCache: vi.fn().mockResolvedValue(undefined),
   listProjectFiles: vi.fn(),
   rollbackThread: vi.fn(),
+  revertThread: vi.fn(),
   openDialog: vi.fn(),
   startThread: vi.fn(),
   startTurn: vi.fn(),
@@ -93,6 +94,8 @@ vi.mock("$lib/services/api", () => ({
   openInZed: vi.fn(),
   isQueueUnsupported: (cause: unknown) =>
     (cause instanceof Error ? cause.message : String(cause)).startsWith("codex-queue-unsupported"),
+  isRevertUnsupported: (cause: unknown) =>
+    (cause instanceof Error ? cause.message : String(cause)).startsWith("codex-revert-unsupported"),
   queueAdd: mocks.queueAdd,
   queueDelete: mocks.queueDelete,
   queueList: mocks.queueList,
@@ -102,6 +105,7 @@ vi.mock("$lib/services/api", () => ({
   removeSideQuestion: vi.fn(),
   respondUserInput: vi.fn(),
   revealInFinder: vi.fn(),
+  revertThread: mocks.revertThread,
   rollbackThread: mocks.rollbackThread,
   startThread: mocks.startThread,
   startTurn: mocks.startTurn,
@@ -466,6 +470,10 @@ describe("ThreadView inline message editing", () => {
     resetLiveThreads();
     mocks.readThread.mockReset();
     mocks.rollbackThread.mockReset();
+    mocks.revertThread.mockReset();
+    // The default stand-in is a codex CLI too old for `thread/revert`, so the
+    // rewind goes through the deprecated rollback API.
+    mocks.revertThread.mockRejectedValue(new Error("codex-revert-unsupported: too old"));
     mocks.startTurn.mockReset();
     mocks.openDialog.mockReset();
     mocks.openDialog.mockResolvedValue(true);
@@ -517,6 +525,27 @@ describe("ThreadView inline message editing", () => {
     expect(mocks.startTurn).not.toHaveBeenCalled();
     expect(screen.getByText("Do the work")).toBeVisible();
     expect(screen.getByText("Final answer")).toBeVisible();
+  });
+
+  it("rewinds with thread/revert on a codex that has it", async () => {
+    mocks.revertThread.mockResolvedValue({ thread: { id: "thread-1", turns: [] } });
+    mocks.startTurn.mockResolvedValue({ id: "turn-2", status: "inProgress" });
+
+    await edit("Do different work");
+
+    expect(mocks.revertThread).toHaveBeenCalledWith("thread-1", "turn-1", []);
+    expect(mocks.rollbackThread).not.toHaveBeenCalled();
+    expect(mocks.startTurn).toHaveBeenCalled();
+  });
+
+  it("does not fall back to rollback when revert fails for a real reason", async () => {
+    mocks.revertThread.mockRejectedValue(new Error("thread not found"));
+
+    await edit("Do different work");
+
+    await vi.waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("thread not found"));
+    expect(mocks.rollbackThread).not.toHaveBeenCalled();
+    expect(mocks.startTurn).not.toHaveBeenCalled();
   });
 
   it("cancels an in-place edit with Escape without rewinding", async () => {

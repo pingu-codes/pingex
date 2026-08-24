@@ -109,7 +109,34 @@ pub(crate) async fn bootstrap_inner(
         .map_err(|error| error.to_string())?;
     storage::write_account_cache(&ctx.database(), account_json.as_deref()).await?;
     let side_questions = storage::read_side_questions(&ctx.database()).await?;
-    let extras = read_bootstrap_extras(ctx).await?;
+    let mut extras = read_bootstrap_extras(ctx).await?;
+    // Mirror the sidebar to app-server projects (Codex ≥0.149) so threads carry
+    // a durable assignment; on an older Codex this is a no-op and the cwd
+    // rules in `build_bootstrap` do all the work.
+    let thread_cwds: Vec<(String, String)> = all_threads
+        .iter()
+        .filter(|thread| thread.parent_thread_id.is_none())
+        .map(|thread| (thread.id.clone(), thread.cwd.clone()))
+        .collect();
+    let locals = super::server::local_projects(
+        &store,
+        &extras.workspaces,
+        &extras.workspace_members,
+        &extras.workspace_threads,
+        &thread_cwds,
+    );
+    match super::server::sync(app, ctx, &locals).await {
+        Ok(mapping) => extras.server_projects = mapping,
+        // Never let the mirror take the sidebar down with it.
+        Err(error) => eprintln!("could not sync Codex projects: {error}"),
+    }
+    match crate::threads::sections::sync(app, ctx).await {
+        Ok((supported, sections)) => {
+            extras.sections_supported = supported;
+            extras.sections = sections;
+        }
+        Err(error) => eprintln!("could not sync Codex thread sections: {error}"),
+    }
     build_bootstrap(
         &ctx.runtime(),
         store,
@@ -214,6 +241,9 @@ async fn read_bootstrap_extras(ctx: &HomeContext) -> Result<BootstrapExtras, Str
         workspace_members: storage::read_all_workspace_members(&ctx.database()).await?,
         workspace_threads: storage::workspace_thread_map(&ctx.database()).await?,
         agent_children: storage::read_agent_run_children(&ctx.database()).await?,
+        server_projects: storage::read_server_projects(&ctx.database()).await?,
+        sections: storage::read_thread_sections(&ctx.database()).await?,
+        sections_supported: storage::thread_sections_supported(&ctx.database()).await?,
     })
 }
 
@@ -234,6 +264,9 @@ fn build_bootstrap(
         workspace_threads,
         agent_children,
         temp_worktree_parents,
+        server_projects,
+        sections,
+        sections_supported,
     } = extras;
     // Threads that belong under something else rather than in a project:
     // side questions, and the threads app-owned subagents run in.
@@ -328,6 +361,17 @@ fn build_bootstrap(
     entries.retain(|entry| !workspace_effective_paths.contains(&entry.path));
     entries.sort_by_key(|entry| !entry.pinned);
 
+    // A thread Codex has filed under a mirrored project goes there and nowhere
+    // else; the cwd rules below only decide for threads without one.
+    let known_keys: HashSet<String> = entries
+        .iter()
+        .map(|entry| entry.path.clone())
+        .chain(workspaces.iter().map(|workspace| workspace.hub_path.clone()))
+        .collect();
+    let assigned_key = |thread: &ThreadSummary| {
+        super::server::assigned_key(thread.project_id.as_deref(), &server_projects, &known_keys)
+    };
+
     let mut projects = Vec::new();
     for entry in entries {
         let worktree = is_worktree_path(runtime, &entry.path);
@@ -343,10 +387,13 @@ fn build_bootstrap(
         let mut threads: Vec<_> = visible_threads
             .iter()
             .filter(|thread| thread.parent_thread_id.is_none())
-            .filter(|thread| !workspace_threads.contains_key(&thread.id))
-            .filter(|thread| {
-                Path::new(home_path(&thread.cwd, &temp_worktree_parents))
-                    .starts_with(Path::new(&entry.path))
+            .filter(|thread| match assigned_key(thread) {
+                Some(key) => key == entry.path,
+                None => {
+                    !workspace_threads.contains_key(&thread.id)
+                        && Path::new(home_path(&thread.cwd, &temp_worktree_parents))
+                            .starts_with(Path::new(&entry.path))
+                }
             })
             .cloned()
             .collect();
@@ -367,8 +414,9 @@ fn build_bootstrap(
     }
 
     for workspace in workspaces
-        .into_iter()
+        .iter()
         .filter(|workspace| !workspace.archived)
+        .cloned()
     {
         let members = members_by_workspace
             .remove(&workspace.id)
@@ -376,7 +424,10 @@ fn build_bootstrap(
         let mut threads: Vec<_> = visible_threads
             .iter()
             .filter(|thread| thread.parent_thread_id.is_none())
-            .filter(|thread| workspace_threads.get(&thread.id) == Some(&workspace.id))
+            .filter(|thread| match assigned_key(thread) {
+                Some(key) => key == workspace.hub_path,
+                None => workspace_threads.get(&thread.id) == Some(&workspace.id),
+            })
             .cloned()
             .collect();
         threads.sort_by_key(|thread| !thread.pinned);
@@ -422,6 +473,8 @@ fn build_bootstrap(
         account,
         side_questions,
         subagents,
+        sections,
+        sections_supported,
     })
 }
 
@@ -467,6 +520,8 @@ mod tests {
             parent_thread_id: None,
             agent_nickname: None,
             agent_role: None,
+            project_id: None,
+            section_id: None,
             subagent_count: 0,
         }
     }
@@ -565,6 +620,9 @@ mod tests {
                 )]),
                 agent_children: Vec::new(),
                 temp_worktree_parents: Vec::new(),
+                server_projects: HashMap::new(),
+                sections: Vec::new(),
+                sections_supported: false,
             },
         )
         .unwrap();
@@ -635,6 +693,9 @@ mod tests {
                 workspace_threads: HashMap::new(),
                 agent_children: Vec::new(),
                 temp_worktree_parents: Vec::new(),
+                server_projects: HashMap::new(),
+                sections: Vec::new(),
+                sections_supported: false,
             },
         )
         .unwrap();
@@ -690,6 +751,9 @@ mod tests {
                     (live_path, project_path.clone()),
                     (gone_path, project_path),
                 ],
+                server_projects: HashMap::new(),
+                sections: Vec::new(),
+                sections_supported: false,
             },
         )
         .unwrap();
@@ -706,6 +770,82 @@ mod tests {
             ids,
             ["own-thread", "live-worktree-thread", "gone-worktree-thread"]
         );
+    }
+
+    #[test]
+    fn a_codex_project_assignment_outranks_the_thread_cwd() {
+        let directory = tempfile::tempdir().unwrap();
+        let api = directory.path().join("api");
+        let web = directory.path().join("web");
+        std::fs::create_dir_all(&api).unwrap();
+        std::fs::create_dir_all(&web).unwrap();
+        let api_path = api.display().to_string();
+        let web_path = web.display().to_string();
+        let store = Store {
+            projects: vec![
+                StoredProject {
+                    path: api_path.clone(),
+                    name: Some("API".into()),
+                    pinned: false,
+                    archived: false,
+                },
+                StoredProject {
+                    path: web_path.clone(),
+                    name: Some("Web".into()),
+                    pinned: false,
+                    archived: false,
+                },
+            ],
+            pinned_threads: Vec::new(),
+        };
+        // Started in `api`, but Codex says it belongs to `web` (moved after a
+        // checkout was reorganised); one assignment points at a project that
+        // has since left the sidebar, so its cwd decides.
+        let mut moved = thread("moved", &api_path, 3);
+        moved.project_id = Some("srv-web".into());
+        let mut orphaned = thread("orphaned", &api_path, 2);
+        orphaned.project_id = Some("srv-removed".into());
+
+        let data = build_bootstrap(
+            &RuntimeConfig {
+                codex_home: directory.path().join("codex-home"),
+                codex_binary: PathBuf::from("codex"),
+            },
+            store,
+            vec![moved, orphaned, thread("plain", &api_path, 1)],
+            None,
+            Vec::new(),
+            BootstrapExtras {
+                instructions: HashMap::new(),
+                sources_by_project: HashMap::new(),
+                project_expansion: HashMap::new(),
+                workspaces: Vec::new(),
+                workspace_members: Vec::new(),
+                workspace_threads: HashMap::new(),
+                agent_children: Vec::new(),
+                temp_worktree_parents: Vec::new(),
+                server_projects: HashMap::from([
+                    ("srv-web".to_string(), web_path.clone()),
+                    ("srv-removed".to_string(), "/gone".to_string()),
+                ]),
+                sections: Vec::new(),
+                sections_supported: false,
+            },
+        )
+        .unwrap();
+
+        let ids = |name: &str| -> Vec<String> {
+            data.projects
+                .iter()
+                .find(|project| project.name == name)
+                .unwrap()
+                .threads
+                .iter()
+                .map(|thread| thread.id.clone())
+                .collect()
+        };
+        assert_eq!(ids("Web"), vec!["moved".to_string()]);
+        assert_eq!(ids("API"), vec!["orphaned".to_string(), "plain".to_string()]);
     }
 
     #[test]
@@ -748,6 +888,9 @@ mod tests {
                     ("agent-thread-2".into(), "main-thread".into()),
                 ],
                 temp_worktree_parents: Vec::new(),
+                server_projects: HashMap::new(),
+                sections: Vec::new(),
+                sections_supported: false,
             },
         )
         .unwrap();

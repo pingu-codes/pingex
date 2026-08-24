@@ -104,6 +104,8 @@ init();
     projects={projects()}
     account={appData.data?.account ?? null}
     sideQuestions={appData.data?.sideQuestions ?? []}
+    sections={appData.data?.sections ?? []}
+    sectionsSupported={appData.data?.sectionsSupported ?? false}
     selectedThread={view.threadId}
     loading={appData.loading}
     onAddProject={addProject}

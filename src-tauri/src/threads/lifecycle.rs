@@ -8,6 +8,7 @@
 use serde_json::{json, Value};
 use tauri::{AppHandle, State};
 
+use crate::codex::compat::{method_unsupported, Feature};
 use crate::codex::requests;
 use crate::projects::{bootstrap_cached, bootstrap_inner, thread_search_row, BootstrapData};
 use crate::storage;
@@ -334,14 +335,31 @@ pub(crate) async fn revert_thread(
 ) -> Result<Value, String> {
     let ctx = state.ctx(&window);
     ctx.session.ensure_resumed(&app, &thread_id).await?;
-    let response = ctx
-        .session
-        .request(
-            &app,
-            "thread/revert",
-            json!({"threadId": thread_id, "beforeTurnId": before_turn_id}),
-        )
-        .await?;
+    // Codex 0.146.0 has no `thread/revert`, and 0.149 refuses it for threads
+    // outside paginated history mode; either way the refusal comes back
+    // under `codex-revert-unsupported` so the frontend falls back to
+    // rollback. Only the first is cached: the second is per thread.
+    let response = if let Some(reason) = ctx.session.unsupported(&app, Feature::REVERT).await? {
+        return Err(Feature::REVERT.error(&reason));
+    } else {
+        match ctx
+            .session
+            .send(&app, requests::thread_revert(&thread_id, &before_turn_id))
+            .await
+        {
+            Ok(response) => response,
+            Err(error) if error.contains(requests::REVERT_NEEDS_PAGINATED) => {
+                return Err(Feature::REVERT.error("this thread's history mode has no revert"));
+            }
+            Err(error) => match method_unsupported(&error, Feature::REVERT.method_prefix) {
+                Some(reason) => {
+                    ctx.session.mark_unsupported(&app, Feature::REVERT, &reason).await?;
+                    return Err(Feature::REVERT.error(&reason));
+                }
+                None => return Err(error),
+            },
+        }
+    };
     storage::invalidate_thread_detail(&ctx.database(), &thread_id).await?;
     storage::retain_thread_turns(&ctx.database(), &thread_id, &kept_turn_ids).await?;
     storage::retain_turn_settings(&ctx.database(), &thread_id, &kept_turn_ids).await?;
@@ -401,6 +419,8 @@ pub(crate) async fn fork_thread(
                 storage::workspace_for_thread(&ctx.database(), &thread_id).await?
             {
                 storage::assign_thread_workspace(&ctx.database(), id, &workspace_id).await?;
+                crate::projects::server::assign_thread_to_workspace(&app, &ctx, id, &workspace_id)
+                    .await?;
             }
         }
     }

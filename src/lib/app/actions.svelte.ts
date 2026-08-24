@@ -27,12 +27,16 @@ import {
 import type { SlashCommandId } from "$lib/composer/slashCommands";
 import DeleteThreadDialog from "$lib/layout/DeleteThreadDialog.svelte";
 import RenameDialog from "$lib/layout/RenameDialog.svelte";
+import SectionPickerDialog from "$lib/layout/SectionPickerDialog.svelte";
 import {
   archiveThread,
+  createThreadSection,
   createWorkspace,
   deleteThread,
+  deleteThreadSection,
   forkThread,
   moveProject,
+  moveThreadToSection,
   moveThreadToWorkspace,
   removeProject,
   renameProject,
@@ -42,6 +46,7 @@ import {
   setProjectArchived,
   setProjectPinned,
   setThreadPinned,
+  updateThreadSection,
   updateWorkspace,
 } from "$lib/services/api";
 import type { CreateWorkspaceInput, MenuAction, MenuTarget, Project, SubagentDetail } from "$lib/types";
@@ -92,23 +97,48 @@ export function slashCommand(command: SlashCommandId, threadId: string | null): 
 }
 
 async function rename(target: MenuTarget) {
-  const name = await openDialog(RenameDialog, {
-    kind: target.kind,
-    current: target.kind === "project" ? target.project.name : target.thread.title,
-  });
+  const current =
+    target.kind === "project" ? target.project.name : target.kind === "thread" ? target.thread.title : target.section.name;
+  const name = await openDialog(RenameDialog, { kind: target.kind, current });
   if (!name) return;
   appData.loading = true;
   try {
     applyData(
       target.kind === "project"
         ? await renameProject(target.project.path, name)
-        : await renameThread(target.thread.id, name),
+        : target.kind === "thread"
+          ? await renameThread(target.thread.id, name)
+          : await updateThreadSection(target.section.id, name, target.section.color ?? null),
     );
   } catch (cause) {
     fail(cause);
   } finally {
     appData.loading = false;
   }
+}
+
+/** Pick (or create) a section for a thread. Creating one moves the thread
+ *  into it in the same step: a second round trip after the create resolves
+ *  the new id from the refreshed section list. */
+async function moveToSection(threadId: string, currentSectionId: string | null | undefined) {
+  const choice = await openDialog(SectionPickerDialog, {
+    sections: appData.data?.sections ?? [],
+    current: currentSectionId ?? null,
+  });
+  if (!choice) return;
+  if (choice.kind === "existing") {
+    applyData(await moveThreadToSection(threadId, choice.section.id));
+    return;
+  }
+  if (choice.kind === "none") {
+    applyData(await moveThreadToSection(threadId, null));
+    return;
+  }
+  const before = new Set((appData.data?.sections ?? []).map((section) => section.id));
+  const created = await createThreadSection(choice.name, choice.color);
+  applyData(created);
+  const section = (created.sections ?? []).find((section) => !before.has(section.id));
+  if (section) applyData(await moveThreadToSection(threadId, section.id));
 }
 
 async function confirmDelete(target: MenuTarget) {
@@ -168,6 +198,18 @@ export async function menuAction(action: MenuAction, target: MenuTarget): Promis
     }
     if (action === "moveToWorkspace") {
       if (target.kind === "thread") await moveToWorkspace(target.thread.id);
+      return;
+    }
+    if (action === "moveToSection") {
+      if (target.kind === "thread") await moveToSection(target.thread.id, target.thread.sectionId);
+      return;
+    }
+    if (action === "deleteSection") {
+      if (target.kind === "section") applyData(await deleteThreadSection(target.section.id));
+      return;
+    }
+    if (target.kind === "section") {
+      if (action === "rename") await rename(target);
       return;
     }
     if (action === "reveal") {

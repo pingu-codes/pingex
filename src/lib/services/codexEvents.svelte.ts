@@ -47,6 +47,9 @@ export interface Elicitation {
   message: string;
   requestedSchema?: McpElicitationSchema;
   url?: string;
+  /** Opaque `_meta` from the request (e.g. a `suggestion_id` on newer
+   *  Codex builds), echoed back on the response so the server can correlate. */
+  meta?: unknown;
 }
 
 export interface UserInputQuestion {
@@ -285,6 +288,7 @@ function onServerRequest(payload: { requestId: number; method: string; params: a
       message: params?.message ?? "",
       requestedSchema: params?.requestedSchema,
       url: params?.url,
+      meta: params?._meta ?? null,
     });
   } else if (method === "item/tool/requestUserInput") {
     const request = {

@@ -8,7 +8,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::storage::{SideQuestion, StoredProjectSource, StoredWorkspace, StoredWorkspaceMember};
+use crate::storage::{
+    SideQuestion, StoredProjectSource, StoredThreadSection, StoredWorkspace, StoredWorkspaceMember,
+};
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,6 +24,13 @@ pub(crate) struct ThreadSummary {
     pub(crate) parent_thread_id: Option<String>,
     pub(crate) agent_nickname: Option<String>,
     pub(crate) agent_role: Option<String>,
+    /// The app-server project Codex has the thread filed under, when it has
+    /// one (Codex ≥0.149 and the thread was assigned). See `projects::server`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) project_id: Option<String>,
+    /// The thread section it sits in (Codex ≥0.149). See `threads::sections`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) section_id: Option<String>,
     pub(crate) subagent_count: usize,
 }
 
@@ -77,6 +86,11 @@ pub(crate) struct BootstrapData {
     pub(crate) account: Option<Account>,
     pub(crate) side_questions: Vec<SideQuestion>,
     pub(crate) subagents: Vec<ThreadSummary>,
+    /// The app-server's thread sections, in its order; threads reference them
+    /// by `section_id`. Empty — and `sections_supported` false — on a Codex
+    /// without `threadSection/*`, in which case the sidebar offers none.
+    pub(crate) sections: Vec<StoredThreadSection>,
+    pub(crate) sections_supported: bool,
 }
 
 /// State stored by Pingex rather than supplied by the app-server. Keeping this
@@ -98,4 +112,9 @@ pub(crate) struct BootstrapExtras {
     /// worktrees are throwaway, so their threads are listed under that
     /// repository instead of under a project of their own.
     pub(crate) temp_worktree_parents: Vec<(String, String)>,
+    /// `server project id → local key` for every sidebar entry mirrored to
+    /// the app-server. Empty on a Codex without `project/*`.
+    pub(crate) server_projects: HashMap<String, String>,
+    pub(crate) sections: Vec<StoredThreadSection>,
+    pub(crate) sections_supported: bool,
 }

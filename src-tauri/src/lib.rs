@@ -54,6 +54,7 @@ pub mod e2e {
     pub use crate::agents::supervisor::{collect_model_ids, sandbox_tag, AGENT_PREAMBLE};
     pub use crate::agents::tools::{specs as agent_tool_specs, DELEGATION_POLICY};
     pub use crate::codex::binary::{missing_message, resolve as resolve_codex_binary};
+    pub use crate::codex::compat::{method_unsupported, Feature};
     pub use crate::codex::requests;
     pub use crate::integrations::app_server::parse_skills;
     pub use crate::integrations::SkillSummary;
@@ -454,6 +455,11 @@ pub fn run() {
             threads::queue::queue_delete,
             threads::queue::queue_reorder,
             threads::queue::queue_start,
+            // Thread sections (Codex ≥0.149)
+            threads::sections::create_thread_section,
+            threads::sections::update_thread_section,
+            threads::sections::delete_thread_section,
+            threads::sections::move_thread_to_section,
             threads::lifecycle::thread_goal_set,
             threads::lifecycle::thread_goal_get,
             threads::lifecycle::thread_goal_clear,
@@ -480,6 +486,7 @@ pub fn run() {
             settings::commands::read_runtime_settings,
             settings::commands::update_runtime_settings,
             settings::commands::read_launch_state,
+            settings::commands::read_codex_server_info,
             settings::commands::check_codex_binary,
             settings::commands::set_codex_binary,
             settings::commands::select_codex_home,

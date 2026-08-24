@@ -67,6 +67,20 @@ describe("rowStatus", () => {
   it("reports checking while a refresh runs", () => {
     expect(rowStatus(server(), status(), true)).toBe("checking");
   });
+
+  // Codex builds after 0.149.1 add `runtimeStatus`; older ones omit it.
+  it("folds the newer runtimeStatus into the verdict", () => {
+    expect(rowStatus(server(), status({ runtimeStatus: "failed" }))).toBe("error");
+    expect(rowStatus(server(), status({ runtimeStatus: "authenticationRequired" }))).toBe("error");
+    expect(rowStatus(server(), status({ runtimeStatus: "starting" }))).toBe("checking");
+    expect(rowStatus(server(), status({ runtimeStatus: "connected" }))).toBe("enabled");
+  });
+
+  it("keeps working when a newer Codex sends states it has never seen", () => {
+    expect(rowStatus(server(), status({ runtimeStatus: "hibernating" }))).toBe("enabled");
+    expect(rowStatus(server(), status({ authStatus: "unknown" }))).toBe("enabled");
+    expect(rowStatus(server(), status({ authStatus: "somethingNew" }))).toBe("enabled");
+  });
 });
 
 describe("statusDotClass / statusLabel", () => {

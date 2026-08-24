@@ -57,6 +57,7 @@ import type {
   ChangesSummary,
   ConfigSetting,
   CreateWorkspaceInput,
+  CodexServerInfo,
   FileDiff,
   FileHit,
   GitBranch,
@@ -129,6 +130,48 @@ export async function updateWorkspace(workspaceId: string, input: CreateWorkspac
 export async function moveThreadToWorkspace(threadId: string, workspaceId: string): Promise<BootstrapData> {
   if (!isTauri()) return previewSort();
   return invoke<BootstrapData>("move_thread_to_workspace", { threadId, workspaceId });
+}
+
+// --- Thread sections (`threadSection/*`, Codex ≥0.149) -----------------------
+
+export async function createThreadSection(name: string, color: string | null): Promise<BootstrapData> {
+  if (!isTauri()) {
+    previewData.sections = [...(previewData.sections ?? []), { id: `section-${Date.now()}`, name, color }];
+    return previewSort();
+  }
+  return invoke<BootstrapData>("create_thread_section", { name, color });
+}
+
+export async function updateThreadSection(sectionId: string, name: string, color: string | null): Promise<BootstrapData> {
+  if (!isTauri()) {
+    const section = previewData.sections?.find((section) => section.id === sectionId);
+    if (section) Object.assign(section, { name, color });
+    return previewSort();
+  }
+  return invoke<BootstrapData>("update_thread_section", { sectionId, name, color });
+}
+
+export async function deleteThreadSection(sectionId: string): Promise<BootstrapData> {
+  if (!isTauri()) {
+    previewData.sections = (previewData.sections ?? []).filter((section) => section.id !== sectionId);
+    for (const project of previewData.projects) {
+      for (const thread of project.threads) if (thread.sectionId === sectionId) thread.sectionId = null;
+    }
+    return previewSort();
+  }
+  return invoke<BootstrapData>("delete_thread_section", { sectionId });
+}
+
+/** Move a thread into `sectionId`, or out of any section with `null`. */
+export async function moveThreadToSection(threadId: string, sectionId: string | null): Promise<BootstrapData> {
+  if (!isTauri()) {
+    for (const project of previewData.projects) {
+      const thread = project.threads.find((thread) => thread.id === threadId);
+      if (thread) thread.sectionId = sectionId;
+    }
+    return previewSort();
+  }
+  return invoke<BootstrapData>("move_thread_to_section", { threadId, sectionId });
 }
 
 export async function renameProject(path: string, name: string): Promise<BootstrapData> {
@@ -526,7 +569,7 @@ export async function readThreadUsage(threadId: string): Promise<ThreadUsage | n
 /** Prefix the Rust side puts on a queue error when this Codex has no usable
  *  server queue — too old for `thread/queue/*`, missing the experimental
  *  capability, or running without a queue database. Kept in step with
- *  `QUEUE_UNSUPPORTED` in `src-tauri/src/threads/queue.rs`. */
+ *  `Feature::QUEUE` in `src-tauri/src/codex/compat.rs`. */
 export const QUEUE_UNSUPPORTED = "codex-queue-unsupported";
 
 /** Whether a rejected queue call means "this Codex cannot queue at all", as
@@ -534,6 +577,16 @@ export const QUEUE_UNSUPPORTED = "codex-queue-unsupported";
 export function isQueueUnsupported(cause: unknown): boolean {
   const message = cause instanceof Error ? cause.message : String(cause);
   return message.startsWith(QUEUE_UNSUPPORTED);
+}
+
+/** Prefix the Rust side puts on a `thread/revert` error when this Codex
+ *  predates the API (0.146.0 and earlier), as opposed to a revert that failed.
+ *  Kept in step with `Feature::REVERT` in `src-tauri/src/codex/compat.rs`. */
+export const REVERT_UNSUPPORTED = "codex-revert-unsupported";
+
+export function isRevertUnsupported(cause: unknown): boolean {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return message.startsWith(REVERT_UNSUPPORTED);
 }
 
 export async function queueList(threadId: string): Promise<QueuedSubmission[]> {
@@ -776,6 +829,14 @@ export async function listProjectFiles(root: string): Promise<string[]> {
 export async function readRuntimeSettings(): Promise<RuntimeSettings> {
   if (!isTauri()) return { ...previewRuntimeSettings };
   return invoke<RuntimeSettings>("read_runtime_settings");
+}
+
+/** What the running `codex app-server` reported about itself at `initialize`. */
+export async function readCodexServerInfo(): Promise<CodexServerInfo> {
+  if (!isTauri()) {
+    return { userAgent: "pingex/0.149.1 (preview; arm64) (pingex; 0.0.0)", platformOs: "preview" };
+  }
+  return (await invoke<CodexServerInfo | null>("read_codex_server_info")) ?? {};
 }
 
 export async function updateRuntimeSettings(

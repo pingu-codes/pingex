@@ -70,20 +70,34 @@ pub(crate) async fn start_thread(
         }
         instructions.push_str(crate::agents::tools::DELEGATION_POLICY);
     }
-    let response = ctx
-        .session
-        .send(
-            &app,
-            requests::thread_start(
+    let mut request = requests::thread_start(
+        &cwd,
+        workspace
+            .as_ref()
+            .map(|workspace| workspace.roots.as_slice()),
+        Some(&instructions),
+        dynamic_tools,
+    );
+    // File the thread under its sidebar entry's mirrored Codex project from
+    // the start (Codex ≥0.149), so the assignment holds even if its cwd
+    // later drifts. Unmirrored (older Codex) simply sends no `projectId`.
+    let project_key = match &workspace {
+        // A workspace's cwd is its hub, which is also its local key.
+        Some(workspace) => Some(workspace.cwd.clone()),
+        None => {
+            let store = storage::read_store(&ctx.database()).await?;
+            crate::projects::server::key_for_cwd(
+                store.projects.iter().map(|project| project.path.as_str()),
                 &cwd,
-                workspace
-                    .as_ref()
-                    .map(|workspace| workspace.roots.as_slice()),
-                Some(&instructions),
-                dynamic_tools,
-            ),
-        )
-        .await?;
+            )
+        }
+    };
+    let project_id = match project_key.as_deref() {
+        Some(key) => crate::projects::server::project_id_for(&ctx, key).await?,
+        None => None,
+    };
+    requests::apply_project(&mut request.params, project_id.as_deref());
+    let response = ctx.session.send(&app, request).await?;
     let thread = response
         .get("thread")
         .cloned()

@@ -19,7 +19,7 @@ mod fixtures;
 use harness::{Server, TurnOutcome, MCP_SERVER, MCP_TOOL, SKILL_NAME, TURN_TIMEOUT};
 use pingex_app_lib::e2e::requests::{self, TurnOptions};
 use pingex_app_lib::e2e::{
-    agent_tool_specs, collect_model_ids, parse_skills, sandbox_tag, AGENT_PREAMBLE,
+    agent_tool_specs, collect_model_ids, parse_skills, sandbox_tag, Feature, AGENT_PREAMBLE,
     DELEGATION_POLICY, NAMER_INSTRUCTIONS,
 };
 use serde_json::{json, Value};
@@ -567,43 +567,234 @@ fn subagent_thread_turn_and_follow_up_are_accepted() {
     server.call(requests::thread_delete(&agent_id));
 }
 
-/// `thread/queue/*` landed upstream in codex 0.148.0-alpha.20; on an older
-/// binary the app's queue feature cannot work, which this makes visible.
+// ── version-dependent APIs ────────────────────────────────────────────────
+//
+// The app supports the previous stable (0.146), the current stable (0.149)
+// and the unreleased mirror HEAD. Each of these tests takes the modern branch
+// where the API exists and, where it does not, checks that the refusal is
+// one the app's classifier recognises — and that the Codex really is old
+// enough for that to be the expected outcome.
+
+#[test]
+fn initialize_reports_a_parseable_cli_version() {
+    let server = live!();
+    // `<clientInfo.name>/<cli version> (<os>) …` — the originator we sent
+    // leads, so the version is what identifies the CLI.
+    assert!(
+        server.user_agent.starts_with("pingex-e2e/"),
+        "userAgent should lead with our client name: {:?}",
+        server.user_agent
+    );
+    // A source build of the mirror reports the workspace's `0.0.0`, which
+    // `version()` deliberately reads as "unreleased, newest".
+    assert!(
+        server.version().is_some() || server.user_agent.starts_with("pingex-e2e/0.0.0"),
+        "could not read a version out of {:?}",
+        server.user_agent
+    );
+}
+
+/// `thread/queue/*` is a 0.149 API; 0.146 has no queue at all and the app
+/// falls back to queueing in the window. A submission only stays queued while
+/// a turn is running — on an idle thread the server promotes it at once — so
+/// this queues behind a live turn, exactly as the app's composer does.
 #[test]
 fn server_side_queue_add_list_update_delete() {
     let server = live!();
     let thread_id = server.start_thread();
     let input = json!([{"type": "text", "text": "queued: reply with exactly QUEUED-OK"}]);
-    let added = match server.request(requests::queue_add(&thread_id, input.clone(), "client-msg-1")) {
-        Ok(added) => added,
-        Err(error) if error.message.contains("unknown variant") => panic!(
-            "this codex binary predates thread/queue/* (needs >= 0.148.0-alpha.20): the app's server-side queue will fail against it\n{}",
-            harness::truncate(&error.to_string(), 160)
-        ),
-        Err(error) => panic!("thread/queue/add rejected: {error}"),
-    };
+
+    // Probe support on the idle thread first, so 0.146 short-circuits before
+    // we spend a turn.
+    if let Err(error) = server.request(requests::queue_list(&thread_id, None)) {
+        match error.unsupported(Feature::QUEUE) {
+            Some(reason) => return server.expect_legacy(Feature::QUEUE, &reason),
+            None => panic!("thread/queue/list rejected: {error}"),
+        }
+    }
+
+    // Start a turn but do not wait for it: the queue holds submissions only
+    // while one is in flight.
+    let from = server.cursor();
+    let running = server.call(requests::turn_start(
+        &thread_id,
+        text_input("Wait, then reply with exactly SLOW. First, think briefly."),
+        low_effort(server),
+    ));
+    let running_id = running.pointer("/turn/id").and_then(Value::as_str).expect("turn id").to_string();
+    server
+        .wait_notification(from, "turn/started", TURN_TIMEOUT, |p| p["threadId"] == thread_id)
+        .expect("turn/started");
+
+    server.call(requests::queue_add(&thread_id, input.clone(), "client-msg-1"));
     let listed = server.call(requests::queue_list(&thread_id, None));
     let entries = listed["data"].as_array().cloned().unwrap_or_default();
-    assert_eq!(
-        entries.len(),
-        1,
-        "one queued submission: {listed} (add: {added})"
-    );
+    assert_eq!(entries.len(), 1, "one queued submission behind the running turn: {listed}");
     let queued_id = entries[0]["id"].as_str().expect("queued id").to_string();
     server.call(requests::queue_update(&thread_id, &queued_id, input));
-    server.call(requests::queue_reorder(
-        &thread_id,
-        std::slice::from_ref(&queued_id),
-    ));
+    server.call(requests::queue_reorder(&thread_id, std::slice::from_ref(&queued_id)));
     server.call(requests::queue_delete(&thread_id, &queued_id));
     let listed = server.call(requests::queue_list(&thread_id, None));
     assert!(
-        listed["data"]
-            .as_array()
-            .map(|d| d.is_empty())
-            .unwrap_or(true),
+        listed["data"].as_array().map(|d| d.is_empty()).unwrap_or(true),
         "queue empty after delete: {listed}"
     );
+
+    server.call(requests::turn_interrupt(&thread_id, &running_id));
+    server.call(requests::thread_delete(&thread_id));
+}
+
+/// `thread/revert` replaced `thread/rollback` in 0.149; the app tries revert
+/// first and falls back to rollback only on the classified refusal.
+#[test]
+fn thread_revert_or_its_classified_absence() {
+    let server = live!();
+    let thread_id = server.start_thread();
+    let first = server.run_turn(requests::turn_start(
+        &thread_id,
+        text_input("Reply with exactly ONE"),
+        low_effort(server),
+    ));
+    assert_reply_contains(&first, "ONE", "first");
+    let second = server.run_turn(requests::turn_start(
+        &thread_id,
+        text_input("Reply with exactly TWO"),
+        low_effort(server),
+    ));
+    assert_reply_contains(&second, "TWO", "second");
+
+    match server.request(requests::thread_revert(&thread_id, &second.turn_id)) {
+        Ok(_) => {
+            let read = server.call(requests::thread_read(&thread_id));
+            let turns = read.pointer("/thread/turns").and_then(Value::as_array).map(Vec::len);
+            assert_eq!(turns, Some(1), "one turn left after revert: {read}");
+        }
+        // 0.149 has the method but only serves threads in paginated history
+        // mode; a legacy-history thread (the default) is refused with a
+        // message the app also treats as "use rollback".
+        Err(error) if error.message.contains(requests::REVERT_NEEDS_PAGINATED) => {
+            assert!(
+                server.at_least(0, 149),
+                "{} refused revert for history mode but should not have it at all: {error}",
+                server.user_agent
+            );
+            server.call(requests::thread_rollback(&thread_id, 1));
+        }
+        Err(error) => match error.unsupported(Feature::REVERT) {
+            Some(reason) => {
+                server.expect_legacy(Feature::REVERT, &reason);
+                // The fallback the app takes on this Codex must still work.
+                server.call(requests::thread_rollback(&thread_id, 1));
+            }
+            None => panic!("thread/revert rejected: {error}"),
+        },
+    }
+    server.call(requests::thread_delete(&thread_id));
+}
+
+/// `project/*` (experimental, 0.149): the app imports each sidebar entry as
+/// a server project and reads `projectId` back off `thread/list`.
+#[test]
+fn projects_import_assign_rename_delete() {
+    let server = live!();
+    let (thread_id, _) = server.persisted_thread();
+    match server.request(requests::project_list(None)) {
+        Ok(_) => {}
+        Err(error) => match error.unsupported(Feature::PROJECTS) {
+            Some(reason) => return server.expect_legacy(Feature::PROJECTS, &reason),
+            None => panic!("project/list rejected: {error}"),
+        },
+    }
+    let cwd = server.cwd.display().to_string();
+    let imported = server.call(requests::project_import(
+        "E2E project",
+        std::slice::from_ref(&cwd),
+        json!({"pingex.key": cwd}),
+        std::slice::from_ref(&thread_id),
+        &format!("e2e-{thread_id}"),
+    ));
+    let project_id = imported["project"]["id"].as_str().expect("project id").to_string();
+    assert_eq!(imported["project"]["metadata"]["pingex.key"], cwd, "metadata round-trips");
+
+    let listed = server.call(requests::thread_list(50, None, None, false));
+    let thread = listed["data"]
+        .as_array()
+        .expect("data")
+        .iter()
+        .find(|thread| thread["id"] == thread_id)
+        .cloned()
+        .unwrap_or_else(|| panic!("{thread_id} not in thread/list: {listed}"));
+    assert_eq!(thread["projectId"], project_id, "import filed the thread: {thread}");
+
+    // The assignment API the app uses for moves, both directions.
+    server.call(requests::thread_set_project(&thread_id, None));
+    server.call(requests::thread_set_project(&thread_id, Some(&project_id)));
+    let read = server.call(requests::thread_read(&thread_id));
+    assert_eq!(read["thread"]["projectId"], project_id, "re-assigned: {read}");
+
+    let renamed = server.call(requests::project_update(&project_id, Some("E2E renamed"), None));
+    assert_eq!(renamed["project"]["name"], "E2E renamed");
+    server.call(requests::project_delete(&project_id));
+    let projects = server.call(requests::project_list(None));
+    assert!(
+        !projects["data"]
+            .as_array()
+            .expect("data")
+            .iter()
+            .any(|project| project["id"] == project_id),
+        "deleted project still listed: {projects}"
+    );
+    server.call(requests::thread_delete(&thread_id));
+}
+
+/// `threadSection/*` (stable in 0.149): the sidebar's section groups.
+#[test]
+fn thread_sections_create_move_update_delete() {
+    let server = live!();
+    let (thread_id, _) = server.persisted_thread();
+    match server.request(requests::thread_section_list(None)) {
+        Ok(_) => {}
+        Err(error) => match error.unsupported(Feature::SECTIONS) {
+            Some(reason) => return server.expect_legacy(Feature::SECTIONS, &reason),
+            None => panic!("threadSection/list rejected: {error}"),
+        },
+    }
+    let created = server.call(requests::thread_section_create("E2E section", Some("#f59e0b")));
+    let section_id = created["section"]["id"].as_str().expect("section id").to_string();
+    assert_eq!(created["section"]["appearance"]["color"], "#f59e0b");
+
+    server.call(requests::thread_section_move(&thread_id, Some(&section_id)));
+    let listed = server.call(requests::thread_list(50, None, None, false));
+    let thread = listed["data"]
+        .as_array()
+        .expect("data")
+        .iter()
+        .find(|thread| thread["id"] == thread_id)
+        .cloned()
+        .unwrap_or_else(|| panic!("{thread_id} not in thread/list: {listed}"));
+    assert_eq!(thread["section"]["id"], section_id, "thread moved into the section: {thread}");
+
+    let updated = server.call(requests::thread_section_update(&section_id, "E2E renamed", None));
+    assert_eq!(updated["section"]["name"], "E2E renamed");
+    assert!(
+        updated["section"]["appearance"]["color"].is_null(),
+        "colour cleared: {updated}"
+    );
+    server.call(requests::thread_section_move(&thread_id, None));
+    let read = server.call(requests::thread_read(&thread_id));
+    assert!(read["thread"]["section"].is_null(), "thread left the section: {read}");
+
+    server.call(requests::thread_section_delete(&section_id));
+    let sections = server.call(requests::thread_section_list(None));
+    assert!(
+        !sections["data"]
+            .as_array()
+            .expect("data")
+            .iter()
+            .any(|section| section["id"] == section_id),
+        "deleted section still listed: {sections}"
+    );
+    server.call(requests::thread_delete(&thread_id));
 }
 
 #[test]

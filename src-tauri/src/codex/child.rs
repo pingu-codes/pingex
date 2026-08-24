@@ -67,6 +67,9 @@ pub(crate) struct CodexChild {
     /// Kept so writes can push to the wire log without threading a handle
     /// through every caller.
     app: AppHandle,
+    /// The `initialize` response: `userAgent` (which carries the CLI version),
+    /// `platformOs`, `codexHome`. Diagnostics only — nothing branches on it.
+    server_info: Mutex<Value>,
 }
 
 impl Drop for CodexChild {
@@ -94,6 +97,14 @@ impl CodexChild {
 
     pub(crate) fn is_alive(&self) -> bool {
         self.alive.load(Ordering::SeqCst)
+    }
+
+    /// What the server said about itself in the `initialize` handshake.
+    pub(crate) fn server_info(&self) -> Value {
+        self.server_info
+            .lock()
+            .map(|info| info.clone())
+            .unwrap_or(Value::Null)
     }
 
     pub(crate) fn mark_dead(&self) {
@@ -319,6 +330,7 @@ pub(crate) async fn spawn_child(
         wire,
         stderr_tail,
         app: app.clone(),
+        server_info: Mutex::new(Value::Null),
     });
 
     let (sender, receiver) = oneshot::channel();
@@ -334,8 +346,11 @@ pub(crate) async fn spawn_child(
     let reader_child = child.clone();
     std::thread::spawn(move || reader_loop(reader_child, sink, app, stdout));
 
-    receiver
+    let info = receiver
         .await
         .map_err(|_| "Codex exited during initialization".to_string())??;
+    if let Ok(mut slot) = child.server_info.lock() {
+        *slot = info;
+    }
     Ok(child)
 }

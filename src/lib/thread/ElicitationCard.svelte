@@ -27,7 +27,7 @@ async function respond(action: "accept" | "decline" | "cancel") {
     await respondServerRequest(elicitation.requestId, {
       action,
       content: action === "accept" ? buildContent(fields, values) : null,
-      _meta: null,
+      _meta: elicitation.meta ?? null,
     });
   } finally {
     removeElicitation(elicitation.requestId);

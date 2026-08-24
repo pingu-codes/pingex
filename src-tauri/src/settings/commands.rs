@@ -36,6 +36,19 @@ pub(crate) fn read_launch_state(
     launch_state(&state.ctx(&window), bound)
 }
 
+/// What the running app-server said about itself at `initialize`: the CLI's
+/// `userAgent` (which embeds its version) and platform. Spawns the child if it
+/// is not running yet. Shown in Settings so a version mismatch is visible
+/// without a terminal; nothing in the app branches on it.
+#[tauri::command]
+pub(crate) async fn read_codex_server_info(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    state.ctx(&window).session.server_info(&app).await
+}
+
 /// Bind *this window* to a Codex home. Safe pre-boot (nothing has spawned
 /// yet) and also handles a live switch: the window is re-pointed at the
 /// (reused or freshly opened) context for the new home, and the old context is

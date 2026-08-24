@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import Sidebar from "$lib/layout/Sidebar.svelte";
 import { setProjectExpanded } from "$lib/services/api";
 import { activeTurns, approvals, unansweredQuestions, userInputRequests } from "$lib/services/codexEvents.svelte";
-import type { Project, SideQuestion } from "$lib/types";
+import type { Project, SideQuestion, ThreadSection } from "$lib/types";
 import { gitStatusCache } from "$lib/worktrees/gitStatus.svelte";
 
 vi.mock("$lib/services/api", async (importOriginal) => ({
@@ -42,7 +42,12 @@ function projectWithThreads(count: number): Project {
   return base;
 }
 
-function setup(source = project(), sideQuestions: SideQuestion[] = [], selectedThread: string | null = null) {
+function setup(
+  source = project(),
+  sideQuestions: SideQuestion[] = [],
+  selectedThread: string | null = null,
+  sectionProps: { sections?: ThreadSection[]; sectionsSupported?: boolean } = {},
+) {
   const onSelectThread = vi.fn();
   const onMenuAction = vi.fn();
   const onSelectArchived = vi.fn();
@@ -60,8 +65,22 @@ function setup(source = project(), sideQuestions: SideQuestion[] = [], selectedT
     onMenuAction,
     onSelectArchived,
     onUnarchived: vi.fn(),
+    ...sectionProps,
   });
   return { ...result, onSelectThread, onMenuAction, onSelectArchived, onNewThread, source };
+}
+
+const SECTIONS: ThreadSection[] = [
+  { id: "sec-week", name: "This week", color: "#f59e0b" },
+  { id: "sec-later", name: "Later", color: null },
+];
+
+/** Three threads: one in each section and one unsectioned. */
+function sectionedProject(): Project {
+  const base = projectWithThreads(3);
+  base.threads[0].sectionId = "sec-later";
+  base.threads[1].sectionId = "sec-week";
+  return base;
 }
 
 describe("Sidebar", () => {
@@ -96,6 +115,37 @@ describe("Sidebar", () => {
     setup();
 
     expect(screen.getByTitle("Waiting for your input")).toBeInTheDocument();
+  });
+
+  // Sections come from Codex ≥0.149; the sidebar groups each project's
+  // threads under them in server order and keeps unsectioned threads last.
+  it("groups threads under their sections in server order", () => {
+    setup(sectionedProject(), [], null, { sections: SECTIONS, sectionsSupported: true });
+
+    const rows = screen.getAllByText(/^(This week|Later|Thread \d)$/).map((node) => node.textContent);
+    expect(rows).toEqual(["This week", "Thread 2", "Later", "Thread 1", "Thread 3"]);
+  });
+
+  it("offers section actions only on a Codex that has sections", async () => {
+    const user = userEvent.setup();
+    setup(sectionedProject(), [], null, { sections: SECTIONS, sectionsSupported: false });
+
+    expect(screen.queryByText("This week")).not.toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: "Thread menu" })[0]);
+    expect(screen.queryByRole("menuitem", { name: "Move to section" })).not.toBeInTheDocument();
+  });
+
+  it("reports section menu actions with the section as the target", async () => {
+    const user = userEvent.setup();
+    const { onMenuAction } = setup(sectionedProject(), [], null, { sections: SECTIONS, sectionsSupported: true });
+
+    await user.click(screen.getAllByRole("button", { name: "Section menu" })[0]);
+    await user.click(screen.getByRole("menuitem", { name: "Rename section" }));
+    expect(onMenuAction).toHaveBeenCalledWith("rename", { kind: "section", section: SECTIONS[0] });
+
+    await user.click(screen.getAllByRole("button", { name: "Thread menu" })[0]);
+    await user.click(screen.getByRole("menuitem", { name: "Move to section" }));
+    expect(onMenuAction).toHaveBeenLastCalledWith("moveToSection", expect.objectContaining({ kind: "thread" }));
   });
 
   it("shows no activity indicator for idle threads", () => {

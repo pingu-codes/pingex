@@ -11,6 +11,7 @@
 //!   `~/.codex-personal`, then `~/.codex`)
 
 use pingex_app_lib::e2e::requests::{self, Request};
+use pingex_app_lib::e2e::{method_unsupported, Feature};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
@@ -42,6 +43,19 @@ pub struct RpcError {
 impl std::fmt::Display for RpcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "JSON-RPC error {}: {}", self.code, self.message)
+    }
+}
+
+impl RpcError {
+    /// Why this Codex lacks `feature`, judged exactly as the app judges it:
+    /// the error re-wrapped the way `child.rs` reports failures and run
+    /// through the same classifier. `None` for an ordinary failure.
+    pub fn unsupported(&self, feature: Feature) -> Option<String> {
+        let wrapped = format!(
+            "Codex request failed: {}",
+            json!({"code": self.code, "message": self.message})
+        );
+        method_unsupported(&wrapped, feature.method_prefix)
     }
 }
 
@@ -103,6 +117,11 @@ pub struct Server {
     /// The project directory turns run in.
     pub cwd: PathBuf,
     pub image_path: PathBuf,
+    /// The server's `initialize` `userAgent`, e.g.
+    /// `codex_cli_rs/0.149.0 (Mac OS 26.0.0; arm64) pingex-e2e; 0.1.0`.
+    /// Version-dependent tests read [`Server::version`] off it so one suite
+    /// asserts the right branch on every Codex it is pointed at.
+    pub user_agent: String,
 }
 
 static SERVER: OnceLock<Option<Server>> = OnceLock::new();
@@ -243,18 +262,60 @@ impl Server {
         let image_path = cwd.join("pixel.png");
         std::fs::write(&image_path, PIXEL_PNG).map_err(io_err)?;
 
-        let inner = start_session(&codex_home, &cwd)?;
+        let (inner, user_agent) = start_session(&codex_home, &cwd)?;
+        eprintln!("live e2e against {user_agent}");
         Ok(Server {
             inner: RwLock::new(inner),
             model,
             codex_home,
             cwd,
             image_path,
+            user_agent,
         })
     }
 
     fn inner(&self) -> Arc<Inner> {
         self.inner.read().expect("server lock").clone()
+    }
+
+    /// The CLI version from the user agent, as `(major, minor, patch)`.
+    /// `None` for a source build: the mirror's workspace version is `0.0.0`
+    /// (releases stamp the real one), and that is the newest code there is.
+    pub fn version(&self) -> Option<(u64, u64, u64)> {
+        let start = self.user_agent.find('/')? + 1;
+        let mut parts = self.user_agent[start..]
+            .split(|c: char| !c.is_ascii_digit() && c != '.')
+            .next()?
+            .split('.')
+            .map(|part| part.parse::<u64>().ok());
+        let version = (parts.next()??, parts.next()??, parts.next()??);
+        (version != (0, 0, 0)).then_some(version)
+    }
+
+    /// Whether this Codex is at least `major.minor`. Unknown versions count
+    /// as new, so a test expecting the modern branch fails loudly rather than
+    /// quietly taking the legacy one.
+    pub fn at_least(&self, major: u64, minor: u64) -> bool {
+        match self.version() {
+            Some((got_major, got_minor, _)) => (got_major, got_minor) >= (major, minor),
+            None => true,
+        }
+    }
+
+    /// Fail unless this Codex is old enough for `feature` to be missing —
+    /// the check every "refused, as expected" branch makes so a regression on
+    /// a current Codex cannot hide behind the legacy path.
+    pub fn expect_legacy(&self, feature: Feature, reason: &str) {
+        assert!(
+            !self.at_least(0, 149),
+            "{} refused {} on a Codex that should have it: {reason}",
+            self.user_agent,
+            feature.method_prefix
+        );
+        eprintln!(
+            "{} predates {}: {reason}",
+            self.user_agent, feature.method_prefix
+        );
     }
 
     /// Simulate the app being quit and relaunched: kill the app-server child
@@ -271,7 +332,7 @@ impl Server {
             let _ = process.kill();
             let _ = process.wait();
         }
-        let fresh = start_session(&self.codex_home, &self.cwd)
+        let (fresh, _) = start_session(&self.codex_home, &self.cwd)
             .unwrap_or_else(|error| panic!("could not restart codex: {error}"));
         *self.inner.write().expect("server lock") = fresh;
     }
@@ -425,6 +486,23 @@ impl Server {
         thread_id_of(&response)
     }
 
+    /// A thread that exists on disk: a brand-new thread has no rollout until
+    /// its first turn, so `thread/list` and the project/section APIs do not
+    /// see it yet. Returns `(thread id, that turn's id)`.
+    pub fn persisted_thread(&self) -> (String, String) {
+        let thread_id = self.start_thread();
+        let outcome = self.run_turn(requests::turn_start(
+            &thread_id,
+            vec![json!({"type": "text", "text": "Reply with exactly OK"})],
+            Some(requests::TurnOptions {
+                model: Some(self.model.clone()),
+                effort: Some("low".into()),
+                ..requests::TurnOptions::default()
+            }),
+        ));
+        (thread_id, outcome.turn_id)
+    }
+
     /// Send a `turn/start` built by the app and wait for `turn/completed`.
     pub fn run_turn(&self, request: Request) -> TurnOutcome {
         assert_eq!(request.method, "turn/start", "run_turn wants a turn/start");
@@ -553,8 +631,9 @@ impl Server {
 }
 
 /// Spawn `codex app-server --stdio` on `codex_home`/`cwd` and complete the
-/// `initialize`/`initialized` handshake, the way `spawn_child` does.
-fn start_session(codex_home: &Path, cwd: &Path) -> Result<Arc<Inner>, String> {
+/// `initialize`/`initialized` handshake, the way `spawn_child` does. Returns
+/// the session and the server's `userAgent`.
+fn start_session(codex_home: &Path, cwd: &Path) -> Result<(Arc<Inner>, String), String> {
     // Same invocation as `crate::codex::child::spawn_child`.
     let mut process = Command::new(codex_binary())
         .args(["app-server", "--stdio"])
@@ -615,11 +694,16 @@ fn start_session(codex_home: &Path, cwd: &Path) -> Result<Arc<Inner>, String> {
         for_stdout.changed.notify_all();
     });
 
-    inner
+    let initialized = inner
         .request(requests::initialize("pingex-e2e"))
         .map_err(|error| error.to_string())?;
     inner.write(&json!({"method": "initialized", "params": {}}))?;
-    Ok(inner)
+    let user_agent = initialized
+        .get("userAgent")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    Ok((inner, user_agent))
 }
 
 impl Inner {

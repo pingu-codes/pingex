@@ -27,6 +27,10 @@ pub fn initialize(client_name: &str) -> Request {
         "initialize",
         json!({
             "clientInfo": {"name": client_name, "title": "Pingex", "version": env!("CARGO_PKG_VERSION")},
+            // Deliberately no `extensions: {"openai/form": {}}`: declaring it
+            // (0.149+) invites `mode: "openai/form"` elicitations, whose
+            // schema `ElicitationCard.svelte` cannot draw. Plain `form` and
+            // `url` elicitations arrive without it.
             "capabilities": {"experimentalApi": true},
         }),
     )
@@ -100,6 +104,20 @@ pub fn thread_unarchive(thread_id: &str) -> Request {
 
 pub fn thread_compact(thread_id: &str) -> Request {
     request("thread/compact/start", json!({"threadId": thread_id}))
+}
+
+/// The refusal Codex 0.149 gives `thread/revert` on a thread whose history
+/// is not in paginated mode (the default): the method exists, the thread
+/// just cannot use it, so the caller falls back to `thread/rollback`.
+pub const REVERT_NEEDS_PAGINATED: &str = "only supports paginated threads";
+
+/// `thread/revert`, the successor to `thread/rollback`. Absent from Codex
+/// 0.146.0 and earlier; callers go through `Feature::REVERT`.
+pub fn thread_revert(thread_id: &str, before_turn_id: &str) -> Request {
+    request(
+        "thread/revert",
+        json!({"threadId": thread_id, "beforeTurnId": before_turn_id}),
+    )
 }
 
 pub fn thread_rollback(thread_id: &str, num_turns: u32) -> Request {
@@ -332,6 +350,115 @@ pub fn agent_followup(thread_id: &str, text: &str) -> Request {
             "input": [{"type": "text", "text": text}],
             "approvalPolicy": "never",
         }),
+    )
+}
+
+/// Put a `thread/start` under an app-server project (`projectId`, experimental
+/// in Codex ≥0.149). A no-op on an already-built request when `None`.
+pub fn apply_project(params: &mut Value, project_id: Option<&str>) {
+    if let Some(project_id) = project_id {
+        params["projectId"] = json!(project_id);
+    }
+}
+
+/// `project/list`, one page. Experimental; absent before Codex 0.149.
+pub fn project_list(cursor: Option<&str>) -> Request {
+    let mut params = json!({"limit": 100});
+    if let Some(cursor) = cursor {
+        params["cursor"] = json!(cursor);
+    }
+    request("project/list", params)
+}
+
+/// `project/import`: create a project over `roots` and file `threads` under it
+/// in one call. `metadata` is the app's own tag so the project can be matched
+/// back to its sidebar entry; `idempotency_key` makes a retried import a
+/// no-op rather than a duplicate.
+pub fn project_import(
+    name: &str,
+    roots: &[String],
+    metadata: Value,
+    threads: &[String],
+    idempotency_key: &str,
+) -> Request {
+    request(
+        "project/import",
+        json!({
+            "name": name,
+            "roots": roots.iter().map(|path| json!({"path": path})).collect::<Vec<_>>(),
+            "metadata": metadata,
+            "threads": threads,
+            "idempotencyKey": idempotency_key,
+        }),
+    )
+}
+
+/// `project/update`: only the given fields change.
+pub fn project_update(project_id: &str, name: Option<&str>, roots: Option<&[String]>) -> Request {
+    let mut params = json!({"projectId": project_id});
+    if let Some(name) = name {
+        params["name"] = json!(name);
+    }
+    if let Some(roots) = roots {
+        params["roots"] = json!(roots.iter().map(|path| json!({"path": path})).collect::<Vec<_>>());
+    }
+    request("project/update", params)
+}
+
+pub fn project_delete(project_id: &str) -> Request {
+    request("project/delete", json!({"projectId": project_id}))
+}
+
+/// `thread/metadata/update` restricted to the project assignment. `None`
+/// files the thread under no project — the protocol spells that as an empty
+/// string, since omitting the field means "leave it alone".
+pub fn thread_set_project(thread_id: &str, project_id: Option<&str>) -> Request {
+    request(
+        "thread/metadata/update",
+        json!({"threadId": thread_id, "projectId": project_id.unwrap_or("")}),
+    )
+}
+
+/// `threadSection/list`, one page. Stable in Codex 0.149; absent before.
+pub fn thread_section_list(cursor: Option<&str>) -> Request {
+    let mut params = json!({"limit": 100});
+    if let Some(cursor) = cursor {
+        params["cursor"] = json!(cursor);
+    }
+    request("threadSection/list", params)
+}
+
+/// `appearance` is `{icon, color}`; only `color` is set from this app.
+fn section_appearance(color: Option<&str>) -> Value {
+    json!({"icon": null, "color": color})
+}
+
+pub fn thread_section_create(name: &str, color: Option<&str>) -> Request {
+    request(
+        "threadSection/create",
+        json!({"name": name, "appearance": section_appearance(color)}),
+    )
+}
+
+/// `threadSection/update` always carries the name; `appearance` is sent so a
+/// cleared colour actually clears (omitting it would keep the old one).
+pub fn thread_section_update(section_id: &str, name: &str, color: Option<&str>) -> Request {
+    request(
+        "threadSection/update",
+        json!({"sectionId": section_id, "name": name, "appearance": section_appearance(color)}),
+    )
+}
+
+pub fn thread_section_delete(section_id: &str) -> Request {
+    request("threadSection/delete", json!({"sectionId": section_id}))
+}
+
+/// `thread/section/move`: `None` takes the thread out of its section. The
+/// thread is appended to the section (no `beforeThreadId`).
+pub fn thread_section_move(thread_id: &str, section_id: Option<&str>) -> Request {
+    request(
+        "thread/section/move",
+        json!({"threadId": thread_id, "sectionId": section_id}),
     )
 }
 

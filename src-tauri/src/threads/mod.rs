@@ -9,6 +9,7 @@ pub(crate) mod lifecycle;
 pub(crate) mod queue;
 pub(crate) mod read;
 pub(crate) mod search;
+pub(crate) mod sections;
 pub(crate) mod side_questions;
 pub(crate) mod subagents;
 pub(crate) mod turn;
