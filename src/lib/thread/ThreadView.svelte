@@ -1,6 +1,7 @@
 <script lang="ts">
 import { ChevronRight, Pause, Play, Target, X } from "@lucide/svelte";
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
+import { tick } from "svelte";
 import { nameNewThread } from "$lib/app/appData.svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
@@ -69,6 +70,7 @@ import QueuedMessageRow from "$lib/thread/QueuedMessageRow.svelte";
 import { isClientQueued, isLocalOnly, localId, mergeQueue, pendingId } from "$lib/thread/queueEntries";
 import ReasoningBlock from "$lib/thread/ReasoningBlock.svelte";
 import RewindThreadDialog from "$lib/thread/RewindThreadDialog.svelte";
+import { isNearBottom, recallScroll, rememberScroll } from "$lib/thread/scrollPositions";
 import TurnPlanCard from "$lib/thread/TurnPlanCard.svelte";
 import {
   applyThreadEvent,
@@ -186,6 +188,8 @@ let liveThreadId = $state<string | null>(null);
 let attached = true;
 let starting = $state(false);
 let scroller: HTMLElement | null = null;
+/** Thread whose remembered scroll offset has been applied to `scroller`. */
+let restoredScrollFor: string | null = null;
 let panelView = $state<PanelView | null>(null);
 let codexSubagents = $state<SubagentDetail[]>([]);
 let subagentModelPolicy = $state<SubagentPolicy | null>(null);
@@ -324,6 +328,7 @@ $effect(() => {
   }
   if (id === liveThreadId) return;
   liveThreadId = id;
+  restoredScrollFor = null;
   // Codex replays `thread/tokenUsage/updated` on a thread's first resume; after
   // that the cached figure is all we have until the next turn reports one.
   tokenUsage = threadTokenUsage[id] ?? null;
@@ -455,13 +460,33 @@ function handleEvent(event: CodexEvent) {
 function maybeScroll(force = false) {
   const element = scroller;
   if (!element) return;
-  const nearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 120;
-  if (force || nearBottom) {
+  if (force || isNearBottom(element)) {
     requestAnimationFrame(() => {
       element.scrollTop = element.scrollHeight;
     });
   }
 }
+
+function onScroll() {
+  if (liveThreadId && scroller) rememberScroll(liveThreadId, scroller);
+}
+
+// Switching threads remounts this view, so the scroller opens at the top; put
+// it back where this thread was left once the transcript has rendered.
+$effect(() => {
+  const id = liveThreadId;
+  if (loading || !thread || !id || restoredScrollFor === id) return;
+  restoredScrollFor = id;
+  const saved = recallScroll(id);
+  if (!saved) return;
+  tick().then(() => {
+    requestAnimationFrame(() => {
+      const element = scroller;
+      if (!element || liveThreadId !== id) return;
+      element.scrollTop = saved.atBottom ? element.scrollHeight : saved.top;
+    });
+  });
+});
 
 /**
  * The thread id to run work on, creating the thread first when this view is
@@ -1295,7 +1320,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
       </div>
     </div>
   {/if}
-  <div class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto" bind:this={scroller}>
+  <div class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto" bind:this={scroller} onscroll={onScroll}>
     <div class="mx-auto min-w-0 max-w-3xl space-y-5 px-6 py-8">
       {#if loading}
         <div class="space-y-3" aria-label="Loading thread">
