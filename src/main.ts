@@ -1,5 +1,8 @@
 import { mount } from "svelte";
 import "./app.css";
+import { disableAutocorrect } from "$lib/disableAutocorrect";
+
+disableAutocorrect();
 
 const target = document.getElementById("app")!;
 
