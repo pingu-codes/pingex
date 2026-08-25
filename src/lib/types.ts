@@ -107,10 +107,44 @@ export interface WorkspaceSearchResults {
   generation: number;
 }
 
+/** A user-made sidebar grouping. `scope` is `""` at the top level (holding
+ *  projects) or a project path (holding that project's threads). Folders nest
+ *  within their scope via `parentId`. */
+export interface SidebarFolder {
+  id: string;
+  scope: string;
+  parentId: string | null;
+  name: string;
+  expanded: boolean;
+  ordinal: number;
+}
+
+/** Where one project (root scope, keyed by path) or thread (project scope,
+ *  keyed by id) was explicitly placed. Absent for never-dragged items. */
+export interface SidebarPlacement {
+  itemKey: string;
+  scope: string;
+  parentId: string | null;
+  ordinal: number;
+}
+
+export interface SidebarLayout {
+  folders: SidebarFolder[];
+  placements: SidebarPlacement[];
+}
+
+/** One child of a folder (or of a scope root): a nested folder or an item
+ *  keyed by project path / thread id. */
+export interface SidebarItemRef {
+  kind: "folder" | "item";
+  id: string;
+}
+
 export type MenuTarget =
   | { kind: "project"; project: Project }
   | { kind: "thread"; project: Project; thread: ThreadSummary }
-  | { kind: "section"; section: ThreadSection };
+  | { kind: "section"; section: ThreadSection }
+  | { kind: "folder"; folder: SidebarFolder; project: Project | null };
 
 export type MenuAction =
   | "reveal"
@@ -125,6 +159,8 @@ export type MenuAction =
   | "moveToWorkspace"
   | "moveToSection"
   | "deleteSection"
+  | "newFolder"
+  | "deleteFolder"
   | "fork"
   | "openDetails";
 
@@ -473,6 +509,8 @@ export interface BootstrapData {
   sections?: ThreadSection[];
   /** False on a Codex without `threadSection/*` (≤0.146): no section UI. */
   sectionsSupported?: boolean;
+  /** User-made folders and drag orderings; see `layout/sidebarTree`. */
+  sidebarLayout?: SidebarLayout;
 }
 
 export interface ReasoningEffortOption {

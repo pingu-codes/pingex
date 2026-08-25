@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { deleteFromLayout, emptyLayout, nextOrdinal, placeInLayout } from "$lib/layout/sidebarTree";
 import { previewStageBytes, previewStageFile, previewStageFromPath } from "$lib/services/preview/attachments";
 import {
   nextPreviewId,
@@ -55,9 +56,9 @@ import type {
   BinaryStatus,
   BootstrapData,
   ChangesSummary,
+  CodexServerInfo,
   ConfigSetting,
   CreateWorkspaceInput,
-  CodexServerInfo,
   FileDiff,
   FileHit,
   GitBranch,
@@ -82,6 +83,8 @@ import type {
   ReviewDraft,
   ReviewTarget,
   RuntimeSettings,
+  SidebarItemRef,
+  SidebarLayout,
   SkillSummary,
   SubagentDetail,
   SubagentPolicy,
@@ -142,7 +145,11 @@ export async function createThreadSection(name: string, color: string | null): P
   return invoke<BootstrapData>("create_thread_section", { name, color });
 }
 
-export async function updateThreadSection(sectionId: string, name: string, color: string | null): Promise<BootstrapData> {
+export async function updateThreadSection(
+  sectionId: string,
+  name: string,
+  color: string | null,
+): Promise<BootstrapData> {
   if (!isTauri()) {
     const section = previewData.sections?.find((section) => section.id === sectionId);
     if (section) Object.assign(section, { name, color });
@@ -483,17 +490,72 @@ export async function removeProject(path: string): Promise<BootstrapData> {
   return invoke<BootstrapData>("remove_project", { path });
 }
 
-export async function moveProject(path: string, direction: -1 | 1): Promise<BootstrapData> {
+/** Create a sidebar folder. `scope` is "" for the top level or a project path. */
+export async function createSidebarFolder(
+  scope: string,
+  parentId: string | null,
+  name: string,
+): Promise<BootstrapData> {
   if (!isTauri()) {
-    const index = previewData.projects.findIndex((project) => project.path === path);
-    const target = index + direction;
-    if (index >= 0 && target >= 0 && target < previewData.projects.length) {
-      const projects = previewData.projects;
-      [projects[index], projects[target]] = [projects[target], projects[index]];
-    }
+    const layout = previewLayout();
+    layout.folders.push({
+      id: `folder-${Date.now()}-${layout.folders.length}`,
+      scope,
+      parentId,
+      name,
+      expanded: true,
+      ordinal: nextOrdinal(layout, scope, parentId),
+    });
     return previewSort();
   }
-  return invoke<BootstrapData>("move_project", { path, direction });
+  return invoke<BootstrapData>("create_sidebar_folder", { scope, parentId, name });
+}
+
+export async function renameSidebarFolder(id: string, name: string): Promise<BootstrapData> {
+  if (!isTauri()) {
+    const folder = previewLayout().folders.find((folder) => folder.id === id);
+    if (folder) folder.name = name;
+    return previewSort();
+  }
+  return invoke<BootstrapData>("rename_sidebar_folder", { id, name });
+}
+
+/** Remove a folder; whatever it held moves up to its parent. */
+export async function deleteSidebarFolder(id: string): Promise<BootstrapData> {
+  if (!isTauri()) {
+    previewData.sidebarLayout = deleteFromLayout(previewLayout(), id);
+    return previewSort();
+  }
+  return invoke<BootstrapData>("delete_sidebar_folder", { id });
+}
+
+/** Persist a folder's open/closed state without reloading the tree. */
+export async function setSidebarFolderExpanded(id: string, expanded: boolean): Promise<void> {
+  if (!isTauri()) {
+    const folder = previewLayout().folders.find((folder) => folder.id === id);
+    if (folder) folder.expanded = expanded;
+    return;
+  }
+  return invoke<void>("set_sidebar_folder_expanded", { id, expanded });
+}
+
+/** Put `item` under `parentId` with `siblings` as the parent's full new order. */
+export async function placeSidebarItem(
+  scope: string,
+  item: SidebarItemRef,
+  parentId: string | null,
+  siblings: SidebarItemRef[],
+): Promise<BootstrapData> {
+  if (!isTauri()) {
+    previewData.sidebarLayout = placeInLayout(previewLayout(), scope, item, parentId, siblings);
+    return previewSort();
+  }
+  return invoke<BootstrapData>("place_sidebar_item", { scope, item, parentId, siblings });
+}
+
+function previewLayout(): SidebarLayout {
+  previewData.sidebarLayout ??= emptyLayout();
+  return previewData.sidebarLayout;
 }
 
 export async function listArchivedThreads(): Promise<ArchivedThread[]> {

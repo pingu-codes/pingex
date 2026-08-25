@@ -3,6 +3,8 @@ import { ArrowLeft, RefreshCw, X } from "@lucide/svelte";
 import {
   askCodexReview,
   menuAction,
+  moveSidebarItem,
+  newFolder,
   openSubagent,
   openWorkspaceDialog,
   renameProjectAt,
@@ -115,6 +117,9 @@ init();
     onGoHome={goHome}
     onOpenSettings={() => openSettings("general")}
     onMenuAction={menuAction}
+    sidebarLayout={appData.data?.sidebarLayout}
+    onNewFolder={() => newFolder("", null)}
+    onMoveItem={moveSidebarItem}
     onSelectArchived={(archived) => openThreadInCwd(archived.id, archived.cwd)}
     onUnarchived={applyData}
     onOpenWorktrees={openWorktrees}

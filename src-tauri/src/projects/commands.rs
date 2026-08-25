@@ -10,7 +10,7 @@ use tauri::{AppHandle, State};
 
 use super::bootstrap::{bootstrap_cached, bootstrap_inner};
 use super::types::BootstrapData;
-use crate::storage::{self, Store, StoredProject};
+use crate::storage::{self, SiblingRef, Store, StoredProject};
 use crate::AppState;
 
 /// The stored entry for `path`, inserting a default one if it is new.
@@ -162,6 +162,96 @@ pub(crate) async fn set_project_expanded(
 }
 
 #[tauri::command]
+pub(crate) async fn create_sidebar_folder(
+    scope: String,
+    parent_id: Option<String>,
+    name: String,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<BootstrapData, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("A folder needs a name".into());
+    }
+    let ctx = state.ctx(&window);
+    storage::create_sidebar_folder(&ctx.database(), &scope, parent_id.as_deref(), name).await?;
+    bootstrap_cached(&ctx).await
+}
+
+#[tauri::command]
+pub(crate) async fn rename_sidebar_folder(
+    id: String,
+    name: String,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<BootstrapData, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("A folder needs a name".into());
+    }
+    let ctx = state.ctx(&window);
+    storage::rename_sidebar_folder(&ctx.database(), &id, name).await?;
+    bootstrap_cached(&ctx).await
+}
+
+/// Remove a folder; its contents move up to the folder's parent.
+#[tauri::command]
+pub(crate) async fn delete_sidebar_folder(
+    id: String,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<BootstrapData, String> {
+    let ctx = state.ctx(&window);
+    storage::delete_sidebar_folder(&ctx.database(), &id).await?;
+    bootstrap_cached(&ctx).await
+}
+
+/// Persist a sidebar-only preference without rebuilding the project tree.
+#[tauri::command]
+pub(crate) async fn set_sidebar_folder_expanded(
+    id: String,
+    expanded: bool,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let ctx = state.ctx(&window);
+    storage::set_sidebar_folder_expanded(&ctx.database(), &id, expanded).await
+}
+
+/// The one drag-and-drop primitive: put `item` under `parent_id` and record
+/// `siblings` as the full order of that parent's children. The frontend owns
+/// the tree, so it sends the resulting order rather than an index.
+#[tauri::command]
+pub(crate) async fn place_sidebar_item(
+    scope: String,
+    item: SiblingRef,
+    parent_id: Option<String>,
+    siblings: Vec<SiblingRef>,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<BootstrapData, String> {
+    let ctx = state.ctx(&window);
+    if let (true, Some(parent)) = (item.kind == "folder", parent_id.as_deref()) {
+        let layout = storage::read_sidebar_layout(&ctx.database()).await?;
+        if storage::is_folder_or_descendant(&layout.folders, &item.id, parent) {
+            return Err("A folder cannot be moved inside itself".into());
+        }
+    }
+    if !siblings.iter().any(|sibling| *sibling == item) {
+        return Err("The moved item must be among its siblings".into());
+    }
+    storage::place_sidebar_item(
+        &ctx.database(),
+        &scope,
+        &item,
+        parent_id.as_deref(),
+        &siblings,
+    )
+    .await?;
+    bootstrap_cached(&ctx).await
+}
+
+#[tauri::command]
 pub(crate) async fn set_thread_pinned(
     thread_id: String,
     pinned: bool,
@@ -198,38 +288,10 @@ pub(crate) async fn remove_project(
     let mut store = storage::read_store(&ctx.database()).await?;
     store.projects.retain(|project| project.path != path);
     storage::write_store(&ctx.database(), &store).await?;
+    storage::forget_sidebar_scope(&ctx.database(), &path).await?;
     // Its threads keep their Codex assignment until the project is gone
     // server-side too; otherwise they would vanish from the sidebar.
     super::server::delete(&app, &ctx, &path).await?;
-    bootstrap_cached(&ctx).await
-}
-
-/// Move a project one place up or down. Pinned and unpinned projects form two
-/// separate groups, so a swap across the boundary is ignored rather than
-/// silently unpinning something.
-#[tauri::command]
-pub(crate) async fn move_project(
-    path: String,
-    direction: i32,
-    window: tauri::WebviewWindow,
-    state: State<'_, AppState>,
-) -> Result<BootstrapData, String> {
-    let ctx = state.ctx(&window);
-    let mut store = storage::read_store(&ctx.database()).await?;
-    if let Some(index) = store
-        .projects
-        .iter()
-        .position(|project| project.path == path)
-    {
-        let target = index as i64 + i64::from(direction.signum());
-        if target >= 0 && (target as usize) < store.projects.len() {
-            let target = target as usize;
-            if store.projects[target].pinned == store.projects[index].pinned {
-                store.projects.swap(index, target);
-                storage::write_store(&ctx.database(), &store).await?;
-            }
-        }
-    }
     bootstrap_cached(&ctx).await
 }
 

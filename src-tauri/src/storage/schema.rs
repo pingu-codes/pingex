@@ -203,6 +203,20 @@ const DDL: &str = "CREATE TABLE IF NOT EXISTS metadata (
      icon TEXT,
      color TEXT,
      ordinal INTEGER NOT NULL
+ );
+ CREATE TABLE IF NOT EXISTS sidebar_folders (
+     id TEXT PRIMARY KEY,
+     scope TEXT NOT NULL,
+     parent_id TEXT,
+     name TEXT NOT NULL,
+     expanded INTEGER NOT NULL DEFAULT 1,
+     ordinal INTEGER NOT NULL DEFAULT 0
+ );
+ CREATE TABLE IF NOT EXISTS sidebar_placements (
+     item_key TEXT PRIMARY KEY,
+     scope TEXT NOT NULL,
+     parent_id TEXT,
+     ordinal INTEGER NOT NULL
  );";
 
 /// Columns added after their table shipped. Re-running these on an up-to-date

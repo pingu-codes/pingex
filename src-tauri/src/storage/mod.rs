@@ -24,6 +24,7 @@ mod schema;
 mod search;
 mod sections;
 mod server_projects;
+mod sidebar_layout;
 mod sources;
 mod threads;
 mod turn_settings;
@@ -49,6 +50,10 @@ pub(crate) use questions::{
 };
 pub use questions::{add_side_question, delete_side_question, read_side_questions, SideQuestion};
 pub(crate) use review::{delete_review_draft, read_review_draft, write_review_draft, ReviewDraft};
+pub(crate) use search::{
+    delete_thread_search, rename_thread_search, search_thread_index, set_thread_search_archived,
+    upsert_thread_search, StoredThreadSearch,
+};
 pub(crate) use sections::{
     read_thread_sections, replace_thread_sections, set_thread_section, thread_sections_supported,
     StoredThreadSection,
@@ -56,9 +61,10 @@ pub(crate) use sections::{
 pub(crate) use server_projects::{
     read_server_projects, remove_server_project, replace_server_projects,
 };
-pub(crate) use search::{
-    delete_thread_search, rename_thread_search, search_thread_index, set_thread_search_archived,
-    upsert_thread_search, StoredThreadSearch,
+pub(crate) use sidebar_layout::{
+    create_sidebar_folder, delete_sidebar_folder, forget_sidebar_scope, is_folder_or_descendant,
+    place_sidebar_item, read_sidebar_layout, rename_sidebar_folder, set_sidebar_folder_expanded,
+    SiblingRef, SidebarLayout,
 };
 pub(crate) use sources::{
     delete_project_source, insert_project_source, read_all_project_instructions,

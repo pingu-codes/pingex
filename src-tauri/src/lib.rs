@@ -136,7 +136,10 @@ impl HomeContext {
     /// Point this home at a different Codex CLI. The caller resets the session
     /// so the next request respawns with the new binary.
     pub(crate) fn set_binary(&self, binary: PathBuf) {
-        self.runtime.write().expect("runtime lock poisoned").codex_binary = binary;
+        self.runtime
+            .write()
+            .expect("runtime lock poisoned")
+            .codex_binary = binary;
     }
 
     /// Kill everything this home is running. Agents first: they are children
@@ -263,10 +266,7 @@ impl AppState {
 
     /// Reuse the context for `home` or open a new one (which creates the home
     /// folder on disk via the database open).
-    pub(crate) async fn ensure_context(
-        &self,
-        home: PathBuf,
-    ) -> Result<Arc<HomeContext>, String> {
+    pub(crate) async fn ensure_context(&self, home: PathBuf) -> Result<Arc<HomeContext>, String> {
         let key = canonical_home(&home);
         if let Some(existing) = self.context_for_home(&key) {
             return Ok(existing);
@@ -415,10 +415,14 @@ pub fn run() {
             projects::commands::add_project,
             projects::commands::rename_project,
             projects::commands::remove_project,
-            projects::commands::move_project,
             projects::commands::set_project_pinned,
             projects::commands::set_project_archived,
             projects::commands::set_project_expanded,
+            projects::commands::create_sidebar_folder,
+            projects::commands::rename_sidebar_folder,
+            projects::commands::delete_sidebar_folder,
+            projects::commands::set_sidebar_folder_expanded,
+            projects::commands::place_sidebar_item,
             projects::commands::set_thread_pinned,
             projects::commands::read_account_rate_limits,
             projects::commands::read_thread_usage,
@@ -619,9 +623,11 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let state = state_with_home(home.path()).await;
         // The same home through a non-canonical spelling lands on one context.
-        let alias = home.path().join(".").join("..").join(
-            home.path().file_name().unwrap(),
-        );
+        let alias = home
+            .path()
+            .join(".")
+            .join("..")
+            .join(home.path().file_name().unwrap());
         let reused = state.ensure_context(alias).await.unwrap();
         assert_eq!(reused.home_key, state.default_context().home_key);
         assert_eq!(state.all_contexts().len(), 1);
@@ -632,7 +638,10 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let other = tempfile::tempdir().unwrap();
         let state = state_with_home(home.path()).await;
-        let context = state.ensure_context(other.path().to_path_buf()).await.unwrap();
+        let context = state
+            .ensure_context(other.path().to_path_buf())
+            .await
+            .unwrap();
         let key = context.home_key.clone();
 
         assert!(state.bind_window("main-2", &key).is_none());

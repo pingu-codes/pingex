@@ -28,18 +28,22 @@ import type { SlashCommandId } from "$lib/composer/slashCommands";
 import DeleteThreadDialog from "$lib/layout/DeleteThreadDialog.svelte";
 import RenameDialog from "$lib/layout/RenameDialog.svelte";
 import SectionPickerDialog from "$lib/layout/SectionPickerDialog.svelte";
+import { buildTree, childrenOf, parentOf, ROOT_SCOPE, refOf } from "$lib/layout/sidebarTree";
 import {
   archiveThread,
+  createSidebarFolder,
   createThreadSection,
   createWorkspace,
+  deleteSidebarFolder,
   deleteThread,
   deleteThreadSection,
   forkThread,
-  moveProject,
   moveThreadToSection,
   moveThreadToWorkspace,
+  placeSidebarItem,
   removeProject,
   renameProject,
+  renameSidebarFolder,
   renameThread,
   revealInFinder,
   saveDraft,
@@ -49,7 +53,7 @@ import {
   updateThreadSection,
   updateWorkspace,
 } from "$lib/services/api";
-import type { CreateWorkspaceInput, MenuAction, MenuTarget, Project, SubagentDetail } from "$lib/types";
+import type { CreateWorkspaceInput, MenuAction, MenuTarget, Project, SidebarItemRef, SubagentDetail } from "$lib/types";
 import CreateWorkspaceDialog from "$lib/workspaces/CreateWorkspaceDialog.svelte";
 import MoveToWorkspaceDialog from "$lib/workspaces/MoveToWorkspaceDialog.svelte";
 
@@ -98,7 +102,13 @@ export function slashCommand(command: SlashCommandId, threadId: string | null): 
 
 async function rename(target: MenuTarget) {
   const current =
-    target.kind === "project" ? target.project.name : target.kind === "thread" ? target.thread.title : target.section.name;
+    target.kind === "project"
+      ? target.project.name
+      : target.kind === "thread"
+        ? target.thread.title
+        : target.kind === "folder"
+          ? target.folder.name
+          : target.section.name;
   const name = await openDialog(RenameDialog, { kind: target.kind, current });
   if (!name) return;
   appData.loading = true;
@@ -108,7 +118,9 @@ async function rename(target: MenuTarget) {
         ? await renameProject(target.project.path, name)
         : target.kind === "thread"
           ? await renameThread(target.thread.id, name)
-          : await updateThreadSection(target.section.id, name, target.section.color ?? null),
+          : target.kind === "folder"
+            ? await renameSidebarFolder(target.folder.id, name)
+            : await updateThreadSection(target.section.id, name, target.section.color ?? null),
     );
   } catch (cause) {
     fail(cause);
@@ -159,13 +171,83 @@ async function moveToWorkspace(threadId: string) {
   });
 }
 
+/** Ask for a name and create a sidebar folder under `parentId` in `scope`. */
+export async function newFolder(scope: string, parentId: string | null): Promise<void> {
+  const name = await openDialog(RenameDialog, {
+    kind: "folder" as const,
+    current: "",
+    title: parentId ? "New subfolder" : "New folder",
+    submitLabel: "Create",
+  });
+  if (!name) return;
+  try {
+    applyData(await createSidebarFolder(scope, parentId, name));
+  } catch (cause) {
+    fail(cause);
+  }
+}
+
+/** A drag-and-drop landed: store the new parent and sibling order. */
+export async function moveSidebarItem(
+  scope: string,
+  item: SidebarItemRef,
+  parentId: string | null,
+  siblings: SidebarItemRef[],
+): Promise<void> {
+  try {
+    applyData(await placeSidebarItem(scope, item, parentId, siblings));
+  } catch (cause) {
+    fail(cause);
+  }
+}
+
+/** "Move up/down" for a project: swap it with its neighbour among its
+ *  siblings. Pinned projects always float above unpinned ones, so a swap
+ *  across that boundary would be invisible and is skipped. */
+async function nudgeProject(project: Project, direction: -1 | 1) {
+  const visible = projects().filter((candidate) => !candidate.archived);
+  const tree = buildTree(appData.data?.sidebarLayout ?? { folders: [], placements: [] }, ROOT_SCOPE, visible, {
+    key: (candidate: Project) => candidate.path,
+    pinned: (candidate: Project) => candidate.pinned,
+  });
+  const ref: SidebarItemRef = { kind: "item", id: project.path };
+  const parent = parentOf(tree, ref);
+  if (parent === undefined) return;
+  const siblings = (childrenOf(tree, parent) ?? []).map(refOf);
+  const index = siblings.findIndex((sibling) => sibling.id === ref.id && sibling.kind === "item");
+  const target = index + direction;
+  if (index < 0 || target < 0 || target >= siblings.length) return;
+  const neighbour = siblings[target];
+  if (
+    neighbour.kind === "item" &&
+    visible.find((candidate) => candidate.path === neighbour.id)?.pinned !== project.pinned
+  ) {
+    return;
+  }
+  [siblings[index], siblings[target]] = [siblings[target], siblings[index]];
+  await moveSidebarItem(ROOT_SCOPE, ref, parent, siblings);
+}
+
 export async function menuAction(action: MenuAction, target: MenuTarget): Promise<void> {
   try {
     if (
       target.kind === "project" &&
       target.project.kind === "multiProject" &&
-      !["reveal", "openDetails"].includes(action)
+      !["reveal", "openDetails", "newFolder"].includes(action)
     ) {
+      return;
+    }
+    if (action === "newFolder") {
+      if (target.kind === "project") await newFolder(target.project.path, null);
+      else if (target.kind === "folder") await newFolder(target.folder.scope, target.folder.id);
+      return;
+    }
+    if (action === "deleteFolder") {
+      if (target.kind === "folder") applyData(await deleteSidebarFolder(target.folder.id));
+      return;
+    }
+    if (target.kind === "folder") {
+      if (action === "rename") await rename(target);
       return;
     }
     if (action === "openDetails") {
@@ -185,8 +267,7 @@ export async function menuAction(action: MenuAction, target: MenuTarget): Promis
       return;
     }
     if (action === "moveUp" || action === "moveDown") {
-      if (target.kind !== "project") return;
-      applyData(await moveProject(target.project.path, action === "moveUp" ? -1 : 1));
+      if (target.kind === "project") await nudgeProject(target.project, action === "moveUp" ? -1 : 1);
       return;
     }
     if (action === "fork") {

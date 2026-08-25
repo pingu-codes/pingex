@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::storage::{
-    SideQuestion, StoredProjectSource, StoredThreadSection, StoredWorkspace, StoredWorkspaceMember,
+    SideQuestion, SidebarLayout, StoredProjectSource, StoredThreadSection, StoredWorkspace,
+    StoredWorkspaceMember,
 };
 
 #[derive(Clone, Serialize)]
@@ -91,6 +92,9 @@ pub(crate) struct BootstrapData {
     /// without `threadSection/*`, in which case the sidebar offers none.
     pub(crate) sections: Vec<StoredThreadSection>,
     pub(crate) sections_supported: bool,
+    /// User-made sidebar folders and explicit orderings; the sidebar builds
+    /// its tree from these plus the flat project/thread lists.
+    pub(crate) sidebar_layout: SidebarLayout,
 }
 
 /// State stored by Pingex rather than supplied by the app-server. Keeping this
@@ -117,4 +121,5 @@ pub(crate) struct BootstrapExtras {
     pub(crate) server_projects: HashMap<String, String>,
     pub(crate) sections: Vec<StoredThreadSection>,
     pub(crate) sections_supported: bool,
+    pub(crate) sidebar_layout: SidebarLayout,
 }

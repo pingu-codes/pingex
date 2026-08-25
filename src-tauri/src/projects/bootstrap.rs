@@ -244,6 +244,7 @@ async fn read_bootstrap_extras(ctx: &HomeContext) -> Result<BootstrapExtras, Str
         server_projects: storage::read_server_projects(&ctx.database()).await?,
         sections: storage::read_thread_sections(&ctx.database()).await?,
         sections_supported: storage::thread_sections_supported(&ctx.database()).await?,
+        sidebar_layout: storage::read_sidebar_layout(&ctx.database()).await?,
     })
 }
 
@@ -267,6 +268,7 @@ fn build_bootstrap(
         server_projects,
         sections,
         sections_supported,
+        sidebar_layout,
     } = extras;
     // Threads that belong under something else rather than in a project:
     // side questions, and the threads app-owned subagents run in.
@@ -366,7 +368,11 @@ fn build_bootstrap(
     let known_keys: HashSet<String> = entries
         .iter()
         .map(|entry| entry.path.clone())
-        .chain(workspaces.iter().map(|workspace| workspace.hub_path.clone()))
+        .chain(
+            workspaces
+                .iter()
+                .map(|workspace| workspace.hub_path.clone()),
+        )
         .collect();
     let assigned_key = |thread: &ThreadSummary| {
         super::server::assigned_key(thread.project_id.as_deref(), &server_projects, &known_keys)
@@ -475,6 +481,7 @@ fn build_bootstrap(
         subagents,
         sections,
         sections_supported,
+        sidebar_layout,
     })
 }
 
@@ -623,6 +630,7 @@ mod tests {
                 server_projects: HashMap::new(),
                 sections: Vec::new(),
                 sections_supported: false,
+                sidebar_layout: Default::default(),
             },
         )
         .unwrap();
@@ -696,6 +704,7 @@ mod tests {
                 server_projects: HashMap::new(),
                 sections: Vec::new(),
                 sections_supported: false,
+                sidebar_layout: Default::default(),
             },
         )
         .unwrap();
@@ -754,6 +763,7 @@ mod tests {
                 server_projects: HashMap::new(),
                 sections: Vec::new(),
                 sections_supported: false,
+                sidebar_layout: Default::default(),
             },
         )
         .unwrap();
@@ -830,6 +840,7 @@ mod tests {
                 ]),
                 sections: Vec::new(),
                 sections_supported: false,
+                sidebar_layout: Default::default(),
             },
         )
         .unwrap();
@@ -845,7 +856,10 @@ mod tests {
                 .collect()
         };
         assert_eq!(ids("Web"), vec!["moved".to_string()]);
-        assert_eq!(ids("API"), vec!["orphaned".to_string(), "plain".to_string()]);
+        assert_eq!(
+            ids("API"),
+            vec!["orphaned".to_string(), "plain".to_string()]
+        );
     }
 
     #[test]
@@ -891,6 +905,7 @@ mod tests {
                 server_projects: HashMap::new(),
                 sections: Vec::new(),
                 sections_supported: false,
+                sidebar_layout: Default::default(),
             },
         )
         .unwrap();

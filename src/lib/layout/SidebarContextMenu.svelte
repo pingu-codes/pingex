@@ -5,6 +5,7 @@ import {
   ArrowUp,
   Bookmark,
   FolderOpen,
+  FolderPlus,
   GitFork,
   Layers3,
   Pencil,
@@ -49,7 +50,33 @@ const menuIsPinned = (target: MenuTarget) =>
   style="left: {menu.x}px; top: {menu.y}px"
   role="menu"
 >
-  {#if menu.target.kind === "section"}
+  {#if menu.target.kind === "folder"}
+    <button
+      role="menuitem"
+      onclick={() => onAct("newFolder")}
+      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+    >
+      <FolderPlus size={13} class="text-surface-500" />
+      New subfolder
+    </button>
+    <button
+      role="menuitem"
+      onclick={() => onAct("rename")}
+      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+    >
+      <Pencil size={13} class="text-surface-500" />
+      Rename folder
+    </button>
+    <button
+      role="menuitem"
+      onclick={() => onAct("deleteFolder")}
+      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-error-500 hover:preset-tonal"
+      title="Its contents move up a level"
+    >
+      <Trash2 size={13} />
+      Delete folder
+    </button>
+  {:else if menu.target.kind === "section"}
     <button
       role="menuitem"
       onclick={() => onAct("rename")}
@@ -99,6 +126,14 @@ const menuIsPinned = (target: MenuTarget) =>
     </button>
   {/if}
   {#if menu.target.kind === "project"}
+    <button
+      role="menuitem"
+      onclick={() => onAct("newFolder")}
+      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+    >
+      <FolderPlus size={13} class="text-surface-500" />
+      New thread folder
+    </button>
     <button
       role="menuitem"
       onclick={() => onAct("openDetails")}

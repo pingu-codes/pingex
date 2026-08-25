@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import Sidebar from "$lib/layout/Sidebar.svelte";
 import { setProjectExpanded } from "$lib/services/api";
 import { activeTurns, approvals, unansweredQuestions, userInputRequests } from "$lib/services/codexEvents.svelte";
-import type { Project, SideQuestion, ThreadSection } from "$lib/types";
+import type { Project, SidebarLayout, SideQuestion, ThreadSection } from "$lib/types";
 import { gitStatusCache } from "$lib/worktrees/gitStatus.svelte";
 
 vi.mock("$lib/services/api", async (importOriginal) => ({
@@ -46,7 +46,12 @@ function setup(
   source = project(),
   sideQuestions: SideQuestion[] = [],
   selectedThread: string | null = null,
-  sectionProps: { sections?: ThreadSection[]; sectionsSupported?: boolean } = {},
+  sectionProps: {
+    sections?: ThreadSection[];
+    sectionsSupported?: boolean;
+    sidebarLayout?: SidebarLayout;
+    onNewFolder?: () => void;
+  } = {},
 ) {
   const onSelectThread = vi.fn();
   const onMenuAction = vi.fn();
@@ -389,5 +394,68 @@ describe("Sidebar", () => {
     expect(onSelectArchived).toHaveBeenCalledWith(
       expect.objectContaining({ id: "archived-1", title: "Old research thread" }),
     );
+  });
+
+  describe("folders", () => {
+    const folder = (id: string, scope: string, parentId: string | null = null, name = id) => ({
+      id,
+      scope,
+      parentId,
+      name,
+      expanded: true,
+      ordinal: 0,
+    });
+
+    it("nests a project inside a root folder and a thread inside a project folder", () => {
+      const source = projectWithThreads(2);
+      setup(source, [], null, {
+        sidebarLayout: {
+          folders: [folder("root-f", "", null, "Clients"), folder("proj-f", source.path, null, "Bugs")],
+          placements: [
+            { itemKey: source.path, scope: "", parentId: "root-f", ordinal: 0 },
+            { itemKey: "thread-2", scope: source.path, parentId: "proj-f", ordinal: 0 },
+          ],
+        },
+      });
+
+      const clients = screen.getByText("Clients").closest("[data-sidebar-row]") as HTMLElement;
+      expect(clients.dataset.sidebarRow).toBe("folder:root-f");
+      expect(clients.parentElement?.parentElement?.textContent).toContain("codex-custom");
+      const bugs = screen.getByText("Bugs").closest("[data-sidebar-row]") as HTMLElement;
+      expect(bugs.dataset.sidebarScope).toBe(source.path);
+      expect(bugs.parentElement?.textContent).toContain("Thread 2");
+      // The project row counts the folder's thread too.
+      expect(screen.getByText("Clients").parentElement?.textContent).toContain("1");
+    });
+
+    it("offers folder actions from the folder menu and a root New folder button", async () => {
+      const user = userEvent.setup();
+      const onNewFolder = vi.fn();
+      const { onMenuAction } = setup(project(), [], null, {
+        sidebarLayout: { folders: [folder("f", "", null, "Empty")], placements: [] },
+        onNewFolder,
+      });
+
+      expect(screen.getByText("Drop projects here")).toBeInTheDocument();
+      await user.click(screen.getByLabelText("Folder menu"));
+      await user.click(screen.getByRole("menuitem", { name: "Delete folder" }));
+      expect(onMenuAction).toHaveBeenCalledWith("deleteFolder", expect.objectContaining({ kind: "folder" }));
+
+      await user.click(screen.getByLabelText("New folder"));
+      expect(onNewFolder).toHaveBeenCalled();
+    });
+
+    it("marks every row draggable within its scope", () => {
+      const source = project();
+      setup(source);
+      const rows = [...document.querySelectorAll<HTMLElement>("[data-sidebar-row]")].map((row) => [
+        row.dataset.sidebarRow,
+        row.dataset.sidebarScope,
+      ]);
+      expect(rows).toEqual([
+        [`item:${source.path}`, ""],
+        ["item:thread-1", source.path],
+      ]);
+    });
   });
 });
