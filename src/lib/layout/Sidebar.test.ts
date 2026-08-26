@@ -17,6 +17,10 @@ function project(pinned = false, threadPinned = false): Project {
     name: "codex-custom",
     path: "/projects/codex-custom",
     kind: "folder",
+    workspaceId: null,
+    archived: false,
+    instructions: "",
+    sources: [],
     pinned,
     expanded: true,
     threads: [
@@ -27,6 +31,12 @@ function project(pinned = false, threadPinned = false): Project {
         updatedAt: Date.now() / 1000,
         status: "idle",
         pinned: threadPinned,
+        parentThreadId: null,
+        agentNickname: null,
+        agentRole: null,
+        projectId: null,
+        sectionId: null,
+        subagentCount: 0,
       },
     ],
   };
@@ -76,8 +86,8 @@ function setup(
 }
 
 const SECTIONS: ThreadSection[] = [
-  { id: "sec-week", name: "This week", color: "#f59e0b" },
-  { id: "sec-later", name: "Later", color: null },
+  { id: "sec-week", name: "This week", icon: null, color: "#f59e0b" },
+  { id: "sec-later", name: "Later", icon: null, color: null },
 ];
 
 /** Three threads: one in each section and one unsectioned. */

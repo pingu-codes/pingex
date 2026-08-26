@@ -20,7 +20,7 @@ const MAX_STAGING_BYTES: u64 = 256 * 1024 * 1024;
 /// A validated, staged attachment handed to the frontend. The `staged_path` is
 /// what actually gets passed to `turn/start` (as a `localImage` for images, or
 /// a labelled path reference in the prompt for other files).
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Attachment {
     pub id: String,
@@ -307,6 +307,7 @@ fn staging_dir(ctx: &crate::HomeContext) -> PathBuf {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn stage_attachment(
     source_path: String,
     window: tauri::WebviewWindow,
@@ -317,6 +318,7 @@ pub(crate) fn stage_attachment(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn stage_clipboard_image(
     filename: Option<String>,
     mime: Option<String>,
@@ -338,6 +340,7 @@ pub(crate) fn stage_clipboard_image(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn remove_staged(
     id: String,
     window: tauri::WebviewWindow,

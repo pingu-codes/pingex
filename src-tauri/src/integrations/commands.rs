@@ -48,6 +48,7 @@ pub(super) async fn build_list_with(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn list_integrations(
     cwds: Option<Vec<String>>,
     app: AppHandle,
@@ -62,7 +63,7 @@ pub(crate) async fn list_integrations(
 ///
 /// Transport is chosen by which fields are populated, matching Codex's own
 /// config shape: a `command` means stdio, a `url` means streamable HTTP.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct McpServerInput {
     /// The name the server is currently stored under. `None` adds a new server;
@@ -89,6 +90,7 @@ pub(crate) struct McpServerInput {
 
 /// Add a new MCP server, or save edits to an existing one.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn save_mcp_server(
     server: McpServerInput,
     app: AppHandle,
@@ -148,6 +150,7 @@ pub(crate) async fn save_mcp_server(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn remove_mcp_server(
     name: String,
     app: AppHandle,
@@ -164,6 +167,7 @@ pub(crate) async fn remove_mcp_server(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn set_mcp_enabled(
     name: String,
     enabled: bool,

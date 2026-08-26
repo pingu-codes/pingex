@@ -22,7 +22,7 @@ const DEFAULT_PAGE_SIZE: u32 = 50;
 /// A single page of threads with an opaque cursor to continue from. The cursor
 /// is the app-server's own `nextCursor`, forwarded to the frontend so paging
 /// stays stateless in the Rust layer.
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ThreadsPage {
     items: Vec<ThreadSummary>,
@@ -34,6 +34,7 @@ pub(crate) struct ThreadsPage {
 /// instead of loading a fixed cap up front. Every page also refreshes the local
 /// search index for the threads it touches.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn list_threads_page(
     cursor: Option<String>,
     page_size: Option<u32>,
@@ -82,14 +83,14 @@ pub(crate) async fn list_threads_page(
     })
 }
 
-#[derive(Default, Deserialize)]
+#[derive(Default, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct SearchFilter {
     archived: bool,
     project_path: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ThreadSearchItem {
     id: String,
@@ -116,7 +117,7 @@ impl From<StoredThreadSearch> for ThreadSearchItem {
 /// One page of search results plus the total match count (for "N of M"
 /// labels), an opaque offset cursor, and the caller's generation echoed back so
 /// stale responses from an outrun query can be dropped by the frontend.
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ThreadSearchPage {
     items: Vec<ThreadSearchItem>,
@@ -130,6 +131,7 @@ pub(crate) struct ThreadSearchPage {
 /// frontend simply ignores results whose generation is older than the latest
 /// keystroke.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn search_threads(
     query: String,
     cursor: Option<String>,

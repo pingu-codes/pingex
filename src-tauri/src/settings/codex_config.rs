@@ -11,7 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// The kind of control a setting maps to in the UI.
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum SettingKind {
     /// One of a fixed set of `options`.
@@ -24,7 +24,7 @@ pub(crate) enum SettingKind {
 
 /// Where a setting's current value comes from. `env` is reserved for
 /// environment/managed overrides we cannot edit from here.
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum SettingSource {
     /// No value in `config.toml`; Codex applies its built-in default.
@@ -118,7 +118,7 @@ const KEYS: &[KeySpec] = &[
 ];
 
 /// One setting reported to the frontend.
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ConfigSetting {
     key: String,

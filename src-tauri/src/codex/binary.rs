@@ -102,7 +102,7 @@ pub fn missing_message(binary: &Path) -> String {
 
 /// Whether the configured Codex CLI can actually be spawned, and where it
 /// resolved to. Shown by the launch picker before a home is opened.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct BinaryStatus {
     /// The configured value (an override, an env var, or bare `codex`).

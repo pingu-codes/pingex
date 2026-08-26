@@ -14,6 +14,7 @@ use crate::AppState;
 pub(crate) mod fuzzy;
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn search_project_files(
     root: String,
     query: String,
@@ -60,6 +61,7 @@ pub(crate) async fn search_project_files(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn list_project_files(
     root: String,
     window: tauri::WebviewWindow,

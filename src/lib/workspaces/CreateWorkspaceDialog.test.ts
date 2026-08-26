@@ -5,7 +5,18 @@ import type { Project } from "$lib/types";
 import CreateWorkspaceDialog from "$lib/workspaces/CreateWorkspaceDialog.svelte";
 
 function project(name: string, path: string): Project {
-  return { name, path, kind: "folder", pinned: false, expanded: true, threads: [] };
+  return {
+    name,
+    path,
+    kind: "folder",
+    workspaceId: null,
+    archived: false,
+    instructions: "",
+    sources: [],
+    pinned: false,
+    expanded: true,
+    threads: [],
+  };
 }
 
 const api = project("API", "/projects/api");
@@ -14,6 +25,9 @@ const workspace: Project = {
   name: "API + Web",
   path: "/home/user/.codex/multi-projects/workspace-1",
   kind: "multiProject",
+  archived: false,
+  instructions: "",
+  sources: [],
   workspaceId: "workspace-1",
   pinned: false,
   expanded: true,
@@ -23,6 +37,7 @@ const workspace: Project = {
       sourcePath: api.path,
       effectivePath: "/worktrees/api",
       alias: "server",
+      branch: null,
       isolated: true,
       available: true,
     },
@@ -30,6 +45,7 @@ const workspace: Project = {
       sourcePath: web.path,
       effectivePath: web.path,
       alias: "client",
+      branch: null,
       isolated: false,
       available: true,
     },

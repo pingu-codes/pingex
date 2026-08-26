@@ -16,7 +16,7 @@ const SOURCE_COLUMNS: &str =
 
 /// One attached source (a folder or a single file) that contributes its text
 /// content to a project's searchable index.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct StoredProjectSource {
     pub(crate) id: String,

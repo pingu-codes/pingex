@@ -20,7 +20,7 @@ pub(crate) const MAX_CHANGED_FILES: usize = 2000;
 pub(crate) const DEFAULT_DIFF_BYTES: usize = 256 * 1024;
 pub(crate) const MAX_DIFF_BYTES: usize = 2 * 1024 * 1024;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ChangedFile {
     pub(crate) path: String,
@@ -32,7 +32,7 @@ pub(crate) struct ChangedFile {
     pub(crate) binary: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ChangesSummary {
     /// The revision everything is compared against (`HEAD` or a merge-base).
@@ -46,7 +46,7 @@ pub(crate) struct ChangesSummary {
     pub(crate) deletions: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FileDiff {
     pub(crate) path: String,
@@ -323,7 +323,7 @@ pub(crate) fn read_file_diff(
 // ---------------------------------------------------------------------------
 // Hand off a temporary worktree's branch to a local checkout.
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct HandoffPreflight {
     pub(crate) branch: Option<String>,

@@ -825,11 +825,25 @@ describe("ThreadView thread naming", () => {
       codexHome: "/home/.codex",
       codexBinary: "codex",
       projects: [
-        { name: "example", path: "/projects/example", kind: "folder", pinned: false, expanded: true, threads: [] },
+        {
+          name: "example",
+          path: "/projects/example",
+          kind: "folder",
+          workspaceId: null,
+          archived: false,
+          instructions: "",
+          sources: [],
+          pinned: false,
+          expanded: true,
+          threads: [],
+        },
       ],
       account: null,
       sideQuestions: [],
       subagents: [],
+      sections: [],
+      sectionsSupported: false,
+      sidebarLayout: { folders: [], placements: [] },
     };
     const user = userEvent.setup();
     render(ThreadView, {

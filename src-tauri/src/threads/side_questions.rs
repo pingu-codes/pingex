@@ -12,6 +12,7 @@ use crate::AppState;
 pub const MAX_TITLE_CHARS: usize = 120;
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn add_side_question(
     parent_thread_id: String,
     side_thread_id: String,
@@ -36,6 +37,7 @@ pub(crate) async fn add_side_question(
 /// Stop tracking a thread as a side question. The thread itself survives and
 /// reappears as an ordinary thread in its project.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn remove_side_question(
     side_thread_id: String,
     window: tauri::WebviewWindow,

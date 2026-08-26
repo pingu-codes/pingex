@@ -266,7 +266,7 @@ fn every_permission_preset_and_option_the_composer_can_send_is_accepted() {
                 collaboration_mode: Some(json!({
                     "mode": "plan",
                     "settings": {"model": model, "reasoning_effort": "low", "developer_instructions": null},
-                })),
+                }).into()),
                 ..TurnOptions::default()
             },
         ),
@@ -277,9 +277,9 @@ fn every_permission_preset_and_option_the_composer_can_send_is_accepted() {
                 collaboration_mode: Some(json!({
                     "mode": "default",
                     "settings": {"model": model, "reasoning_effort": null, "developer_instructions": null},
-                })),
-                subagent_model_policy: Some(json!({"allowed": [model]})),
-                subagent_reasoning_effort_policy: Some(json!({"excluded": ["xhigh"]})),
+                }).into()),
+                subagent_model_policy: Some(json!({"allowed": [model]}).into()),
+                subagent_reasoning_effort_policy: Some(json!({"excluded": ["xhigh"]}).into()),
                 ..TurnOptions::default()
             },
         ),

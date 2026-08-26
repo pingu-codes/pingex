@@ -78,6 +78,7 @@ async fn resync(app: &AppHandle, ctx: &HomeContext) -> Result<BootstrapData, Str
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn create_thread_section(
     name: String,
     color: Option<String>,
@@ -97,6 +98,7 @@ pub(crate) async fn create_thread_section(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn update_thread_section(
     section_id: String,
     name: String,
@@ -122,6 +124,7 @@ pub(crate) async fn update_thread_section(
 /// Delete a section. Its threads stay where they are, just unsectioned —
 /// the server handles that; the cached summaries are cleared to match.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn delete_thread_section(
     section_id: String,
     app: AppHandle,
@@ -144,6 +147,7 @@ pub(crate) async fn delete_thread_section(
 
 /// Move a thread into `section_id`, or out of its section when `None`.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn move_thread_to_section(
     thread_id: String,
     section_id: Option<String>,

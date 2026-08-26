@@ -69,7 +69,7 @@ fn mode_options(server: &Server, mode: &str) -> Option<TurnOptions> {
     options.collaboration_mode = Some(json!({
         "mode": mode,
         "settings": {"model": server.model, "reasoning_effort": "low", "developer_instructions": null},
-    }));
+    }).into());
     Some(options)
 }
 

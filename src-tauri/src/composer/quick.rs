@@ -87,11 +87,13 @@ pub(crate) fn register_saved_shortcut(app: &AppHandle) {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn get_quick_shortcut() -> String {
     settings::read_quick_shortcut(&settings::settings_path())
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn set_quick_shortcut(app: AppHandle, accelerator: String) -> Result<String, String> {
     let trimmed = accelerator.trim().to_string();
     if trimmed.is_empty() {
@@ -111,6 +113,7 @@ pub(crate) fn set_quick_shortcut(app: AppHandle, accelerator: String) -> Result<
 /// Hand the quick-window thread back to the full app: focus a window bound to
 /// the quick chat's home (the default context) and emit a navigation event.
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn quick_open_full_thread(app: AppHandle, thread_id: String) -> Result<(), String> {
     let state = app.state::<AppState>();
     let home_key = state.default_home();

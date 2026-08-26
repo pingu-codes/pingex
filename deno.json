@@ -20,6 +20,7 @@
     "test:e2e:codex": "cd src-tauri && PINGEX_LIVE_E2E=1 cargo test --test live_codex -- --test-threads=1",
     "rust:lint": "cd src-tauri && cargo clippy --all-targets",
     "rust:fmt": "cd src-tauri && cargo fmt",
+    "typegen": "cd src-tauri && cargo test --lib export_bindings",
     "tauri": "deno run -A npm:@tauri-apps/cli@2.11.4",
     "app:build": "deno task tauri build",
     "app:build:debug": "deno task tauri build --debug"

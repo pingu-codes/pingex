@@ -15,7 +15,8 @@
       "!src-tauri/gen",
       "!test-results",
       "!deno.lock",
-      "!src-tauri/icons"
+      "!src-tauri/icons",
+      "!src/lib/bindings.ts"
     ]
   },
   "formatter": {

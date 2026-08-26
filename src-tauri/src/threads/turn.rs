@@ -1,9 +1,9 @@
 //! Starting threads and running turns, plus the two things a running turn asks
 //! back of the user: approvals and `request_user_input` questions.
 
-use serde_json::Value;
 use tauri::{AppHandle, State};
 
+use crate::util::json::Json;
 use crate::codex::requests;
 use crate::util::json::str_at;
 use crate::{storage, workspaces, AppState};
@@ -11,6 +11,7 @@ use crate::{storage, workspaces, AppState};
 pub(crate) use crate::codex::requests::TurnOptions;
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn start_thread(
     cwd: Option<String>,
     workspace_id: Option<String>,
@@ -18,7 +19,7 @@ pub(crate) async fn start_thread(
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     // Surface the containing project's stored instructions to Codex as this
     // thread's developer instructions. The `thread/start` protocol accepts
@@ -113,18 +114,19 @@ pub(crate) async fn start_thread(
                 .await?;
         }
     }
-    Ok(thread)
+    Ok(Json(thread))
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn start_turn(
     thread_id: String,
-    input: Vec<Value>,
+    input: Vec<Json>,
     options: Option<TurnOptions>,
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     ctx.session.ensure_resumed(&app, &thread_id).await?;
     storage::invalidate_thread_detail(&ctx.database(), &thread_id).await?;
@@ -137,7 +139,7 @@ pub(crate) async fn start_turn(
             )
         })
         .unwrap_or_default();
-    let mut request = requests::turn_start(&thread_id, input, options);
+    let mut request = requests::turn_start(&thread_id, input.into_iter().map(|item| item.0).collect(), options);
     if let Some(workspace_id) = storage::workspace_for_thread(&ctx.database(), &thread_id).await?
     {
         let workspace = workspaces::runtime_for_workspace(&ctx, &workspace_id).await?;
@@ -167,7 +169,7 @@ pub(crate) async fn start_turn(
         )
         .await?;
     }
-    Ok(turn)
+    Ok(Json(turn))
 }
 
 /// The turn id Codex names as actually active, pulled out of a `turn/interrupt`
@@ -192,6 +194,7 @@ fn active_turn_mismatch(error: &str) -> Option<&str> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn interrupt_turn(
     thread_id: String,
     turn_id: String,
@@ -227,6 +230,7 @@ pub(crate) async fn interrupt_turn(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn respond_approval(
     request_id: i64,
     decision: String,
@@ -244,24 +248,26 @@ pub(crate) async fn respond_approval(
 /// permission grant, an MCP elicitation. The frontend builds the whole result
 /// object because each of these has its own shape, and Codex keeps adding more.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn respond_server_request(
     request_id: i64,
-    result: Value,
+    result: Json,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
-    ctx.session.respond(request_id, result).await
+    ctx.session.respond(request_id, result.0).await
 }
 
 /// Record a question the moment Codex asks it, so it is still readable if the
 /// app-server (and with it the request) dies before the user answers.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn record_user_input_request(
     thread_id: String,
     turn_id: String,
     item_id: String,
-    item: Value,
+    item: Json,
     after_item_id: Option<String>,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
@@ -279,6 +285,7 @@ pub(crate) async fn record_user_input_request(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn threads_with_unanswered_questions(
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
@@ -295,6 +302,7 @@ pub(crate) async fn threads_with_unanswered_questions(
 /// to `interrupted`. The child and its journal outlive the webview, so this
 /// hands the set back to reseed it.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn threads_with_active_turns(
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
@@ -307,14 +315,15 @@ pub(crate) async fn threads_with_active_turns(
 /// earlier session: there is nothing left to respond to, so the answer is only
 /// persisted (the caller sends it on as a fresh turn).
 #[tauri::command]
+#[specta::specta]
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn respond_user_input(
     request_id: Option<i64>,
-    answers: Value,
+    answers: Json,
     thread_id: Option<String>,
     turn_id: Option<String>,
     item_id: Option<String>,
-    item: Option<Value>,
+    item: Option<Json>,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
@@ -322,14 +331,14 @@ pub(crate) async fn respond_user_input(
     if let Some(request_id) = request_id {
         ctx
             .session
-            .respond(request_id, requests::user_input_result(answers))
+            .respond(request_id, requests::user_input_result(answers.0))
             .await?;
     }
     // Codex's thread/read projection has no item for request_user_input, so the
     // answered question (a client-built item, secrets already masked) is
     // persisted here and merged back in at read time.
     if let (Some(thread_id), Some(turn_id), Some(item_id), Some(item)) =
-        (thread_id, turn_id, item_id, item)
+        (thread_id, turn_id, item_id, item.map(|item| item.0))
     {
         storage::add_user_input_answer(&ctx.database(), &thread_id, &turn_id, &item_id, &item)
             .await?;
@@ -353,9 +362,9 @@ mod tests {
                 effort: Some("high".into()),
                 approval_policy: Some("on-request".into()),
                 sandbox_mode: Some("workspace-write".into()),
-                collaboration_mode: Some(json!({"mode": "plan"})),
-                subagent_model_policy: Some(json!({"mode": "allow"})),
-                subagent_reasoning_effort_policy: Some(json!({"mode": "inherit"})),
+                collaboration_mode: Some(Json(json!({"mode": "plan"}))),
+                subagent_model_policy: Some(Json(json!({"mode": "allow"}))),
+                subagent_reasoning_effort_policy: Some(Json(json!({"mode": "inherit"}))),
                 resolved_model: Some("gpt-5.6".into()),
                 resolved_effort: Some("high".into()),
             },

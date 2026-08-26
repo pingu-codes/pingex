@@ -54,6 +54,7 @@ const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(400)
 /// Returns the refreshed sidebar data when a title was applied, `None` when
 /// naming was skipped or did not work out.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn auto_name_thread(
     thread_id: String,
     seed: Option<String>,

@@ -14,7 +14,7 @@ use super::db;
 const MEMBER_COLUMNS: &str =
     "workspace_id, source_path, effective_path, alias, isolated, branch, ordinal";
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct StoredWorkspace {
     pub(crate) id: String,
@@ -23,7 +23,7 @@ pub(crate) struct StoredWorkspace {
     pub(crate) archived: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct StoredWorkspaceMember {
     pub(crate) workspace_id: String,

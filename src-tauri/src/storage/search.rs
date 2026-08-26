@@ -20,7 +20,7 @@ const MATCH_CLAUSE: &str = "archived = ?
           OR preview LIKE ? ESCAPE '\\'
           OR project_path LIKE ? ESCAPE '\\')";
 
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct StoredThreadSearch {
     pub(crate) thread_id: String,

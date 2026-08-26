@@ -12,10 +12,12 @@ use super::runtime::{
 };
 use super::{codex_config, overview, prefs};
 use crate::codex::binary;
+use crate::util::json::Json;
 use crate::util::time::unix_secs;
 use crate::AppState;
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn read_runtime_settings(
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
@@ -28,6 +30,7 @@ pub(crate) fn read_runtime_settings(
 /// a home — the first window inherits the launch binding, later windows are
 /// bound by `open_home_window` or pick a home themselves.
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn read_launch_state(
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
@@ -41,12 +44,13 @@ pub(crate) fn read_launch_state(
 /// is not running yet. Shown in Settings so a version mismatch is visible
 /// without a terminal; nothing in the app branches on it.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn read_codex_server_info(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
-    state.ctx(&window).session.server_info(&app).await
+) -> Result<Json, String> {
+    state.ctx(&window).session.server_info(&app).await.map(Json)
 }
 
 /// Bind *this window* to a Codex home. Safe pre-boot (nothing has spawned
@@ -54,6 +58,7 @@ pub(crate) async fn read_codex_server_info(
 /// (reused or freshly opened) context for the new home, and the old context is
 /// shut down only when no other window still uses it.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn select_codex_home(
     path: String,
     window: tauri::WebviewWindow,
@@ -94,6 +99,7 @@ pub(crate) async fn select_codex_home(
 /// Open a new app window, optionally bound to a home straight away. With no
 /// `path` the window shows the launch picker and binds itself on pick.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn open_home_window(
     path: Option<String>,
     app: tauri::AppHandle,
@@ -139,6 +145,7 @@ pub(crate) async fn open_home_window(
 /// Forget a home from the recents list shown by the launch picker. Does not
 /// touch the folder on disk.
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn remove_recent_home(
     path: String,
     window: tauri::WebviewWindow,
@@ -157,6 +164,7 @@ pub(crate) fn remove_recent_home(
 /// Skills come from Codex rather than the filesystem so this agrees with the
 /// Integrations tab; if Codex is unreachable the list is simply empty.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn read_home_overview(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
@@ -179,6 +187,7 @@ pub(crate) async fn read_home_overview(
 /// Read the whitelisted `config.toml` settings for the active home, with their
 /// source (default vs config) and restart semantics.
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn read_config_settings(
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
@@ -190,6 +199,7 @@ pub(crate) fn read_config_settings(
 /// the file. Passing `unset: true` removes the key so Codex inherits its
 /// default; otherwise `value` is written. Returns the refreshed settings list.
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn write_config_setting(
     key: String,
     value: Option<String>,
@@ -206,6 +216,7 @@ pub(crate) fn write_config_setting(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn update_runtime_settings(
     codex_home: Option<String>,
     codex_binary: Option<String>,
@@ -231,7 +242,7 @@ pub(crate) fn update_runtime_settings(
 }
 
 /// How app-owned subagents are configured, as the settings form sees them.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AgentSettingsPayload {
     pub(crate) enabled: bool,
@@ -239,7 +250,8 @@ pub(crate) struct AgentSettingsPayload {
     pub(crate) max_concurrent: u32,
     pub(crate) timeout_seconds: u64,
     /// The sandboxes the form may offer, so the choices live in one place.
-    #[serde(skip_deserializing)]
+    /// Ignored on the way back in (`default`, so the form may echo it).
+    #[serde(default)]
     pub(crate) sandbox_options: Vec<String>,
 }
 
@@ -257,11 +269,13 @@ fn agent_payload(settings: prefs::AgentSettings) -> AgentSettingsPayload {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn read_agent_settings() -> AgentSettingsPayload {
     agent_payload(prefs::read_agent_settings(&prefs::settings_path()))
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn write_agent_settings(
     settings: AgentSettingsPayload,
 ) -> Result<AgentSettingsPayload, String> {
@@ -281,6 +295,7 @@ pub(crate) fn write_agent_settings(
 /// Probe a candidate Codex CLI without saving it, so the picker and the
 /// settings form can show "found at …" as the user types.
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn check_codex_binary(
     path: Option<String>,
     window: tauri::WebviewWindow,
@@ -297,6 +312,7 @@ pub(crate) fn check_codex_binary(
 /// app-server is dropped so the next request respawns with the new binary.
 /// `path` of `None` clears the override back to bare `codex`.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn set_codex_binary(
     path: Option<String>,
     window: tauri::WebviewWindow,

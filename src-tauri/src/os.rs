@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn reveal_in_finder(path: String) -> Result<(), String> {
     let target = PathBuf::from(&path);
     if !target.exists() {
@@ -30,6 +31,7 @@ pub(crate) fn reveal_in_finder(path: String) -> Result<(), String> {
 
 /// Open a URL in the user's default browser (not inside the app webview).
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn open_external_url(url: String) -> Result<(), String> {
     // Only hand off web/mail links to the OS; refuse anything else so a
     // renderer bug can't turn this into arbitrary shell invocation.
@@ -67,6 +69,7 @@ pub(crate) fn open_external_url(url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn open_in_zed(path: String) -> Result<(), String> {
     let target = PathBuf::from(&path);
     if !target.exists() {

@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Working-tree status counts, shared by the worktree cards and the branch chip.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct StatusCounts {
     pub(crate) staged: usize,
@@ -22,7 +22,7 @@ impl StatusCounts {
 }
 
 /// One changed path from `git status --porcelain=v2`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct StatusFile {
     pub(crate) path: String,
@@ -33,7 +33,7 @@ pub(crate) struct StatusFile {
 }
 
 /// Branch context parsed from the `# branch.*` headers of `status --branch`.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct BranchInfo {
     pub(crate) branch: Option<String>,
@@ -44,7 +44,7 @@ pub(crate) struct BranchInfo {
 }
 
 /// Full working-tree status for one directory.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct GitStatus {
     pub(crate) branch: Option<String>,
@@ -61,7 +61,7 @@ pub(crate) struct GitStatus {
 }
 
 /// High-level repository facts for a directory.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct GitRepoInfo {
     pub(crate) dir: String,
@@ -82,7 +82,7 @@ pub(crate) struct GitRepoInfo {
 
 /// One entry from `git worktree list --porcelain`, enriched with identity and
 /// a lightweight status summary so the worktree view renders from one call.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorktreeEntry {
     pub(crate) path: String,
@@ -112,7 +112,7 @@ pub(crate) struct WorktreeEntry {
 }
 
 /// A recent commit for the base-revision picker and branch context.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CommitInfo {
     pub(crate) hash: String,
@@ -124,7 +124,7 @@ pub(crate) struct CommitInfo {
 
 /// One branch for the review target picker. Remote-tracking branches keep their
 /// remote prefix (`origin/main`), which is also what `git diff` expects.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct BranchRef {
     pub(crate) name: String,
@@ -132,7 +132,7 @@ pub(crate) struct BranchRef {
     pub(crate) is_current: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub(crate) enum WorktreeBranch {
     /// Check out an existing local branch.
@@ -141,7 +141,7 @@ pub(crate) enum WorktreeBranch {
     New { name: String, base: Option<String> },
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorktreeAddRequest {
     pub(crate) path: String,

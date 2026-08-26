@@ -25,48 +25,52 @@ use serde_json::Value;
 use tauri::{AppHandle, State};
 
 use super::SkillSummary;
+use crate::util::json::Json;
 use crate::codex::requests;
 use crate::AppState;
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn list_mcp_server_status(
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     ctx.session
         .send(&app, requests::mcp_server_status_list())
-        .await
+        .await.map(Json)
 }
 
 /// Start an OAuth login for one server. Resolves as soon as Codex has the flow
 /// under way — completion arrives later as an `mcpServer/oauthLogin/completed`
 /// notification, which the frontend listens for.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn mcp_oauth_login(
     name: String,
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     ctx.session
         .send(&app, requests::mcp_oauth_login(&name))
-        .await
+        .await.map(Json)
 }
 
 /// Make a running Codex pick up `config.toml` edits. Also called after every
 /// mutation in `commands.rs`; without it the session keeps serving the servers
 /// it started with until the app restarts.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn reload_mcp_servers(
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
-    reload_mcp_config(&app, &ctx).await
+    reload_mcp_config(&app, &ctx).await.map(Json)
 }
 
 /// The reload itself, callable from other commands (which hold `State` by
@@ -79,30 +83,32 @@ pub(crate) async fn reload_mcp_config(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn list_skills_for(
     cwds: Vec<String>,
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
-    ctx.session.send(&app, requests::skills_list(&cwds)).await
+    ctx.session.send(&app, requests::skills_list(&cwds)).await.map(Json)
 }
 
 /// Enable or disable a skill by name. `skills/config/write` requires exactly
 /// one of `name` or `path`; we always key by name.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn set_skill_enabled(
     name: String,
     enabled: bool,
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     ctx.session
         .send(&app, requests::skill_config_write(&name, enabled))
-        .await
+        .await.map(Json)
 }
 
 /// Skills for the typed `IntegrationsList`, deduped by name across the

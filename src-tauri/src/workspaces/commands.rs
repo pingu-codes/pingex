@@ -19,7 +19,7 @@ use crate::projects::{bootstrap_cached, BootstrapData};
 use crate::storage::{self, StoredWorkspace, StoredWorkspaceMember};
 use crate::AppState;
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkspaceMemberInput {
     source_path: String,
@@ -28,14 +28,14 @@ pub(crate) struct WorkspaceMemberInput {
     isolated: bool,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CreateWorkspaceInput {
     name: String,
     members: Vec<WorkspaceMemberInput>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UpdateWorkspaceInput {
     workspace_id: String,
@@ -83,6 +83,7 @@ fn roll_back(created: &[(PathBuf, PathBuf, String)]) {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn create_workspace(
     input: CreateWorkspaceInput,
     window: tauri::WebviewWindow,
@@ -149,6 +150,7 @@ pub(crate) async fn create_workspace(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn update_workspace(
     input: UpdateWorkspaceInput,
     window: tauri::WebviewWindow,
@@ -252,6 +254,7 @@ pub(crate) async fn update_workspace(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn move_thread_to_workspace(
     thread_id: String,
     workspace_id: String,

@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { commands } from "$lib/bindings";
 import { deleteFromLayout, emptyLayout, nextOrdinal, placeInLayout } from "$lib/layout/sidebarTree";
 import { previewStageBytes, previewStageFile, previewStageFromPath } from "$lib/services/preview/attachments";
 import {
@@ -110,11 +110,11 @@ export { isTauri } from "$lib/services/tauri";
 
 export async function bootstrap(): Promise<BootstrapData> {
   if (!isTauri()) return previewData;
-  return invoke<BootstrapData>("bootstrap");
+  return commands.bootstrap();
 }
 
 export async function saveProject(path: string): Promise<BootstrapData> {
-  return invoke<BootstrapData>("add_project", { path });
+  return commands.addProject(path);
 }
 
 /** Create a durable virtual project whose members are real directories or
@@ -122,27 +122,27 @@ export async function saveProject(path: string): Promise<BootstrapData> {
  * its writable hub under the active CODEX_HOME. */
 export async function createWorkspace(input: CreateWorkspaceInput): Promise<BootstrapData> {
   if (!isTauri()) return previewSort();
-  return invoke<BootstrapData>("create_workspace", { input });
+  return commands.createWorkspace(input);
 }
 
 export async function updateWorkspace(workspaceId: string, input: CreateWorkspaceInput): Promise<BootstrapData> {
   if (!isTauri()) return previewSort();
-  return invoke<BootstrapData>("update_workspace", { input: { ...input, workspaceId } });
+  return commands.updateWorkspace({ ...input, workspaceId });
 }
 
 export async function moveThreadToWorkspace(threadId: string, workspaceId: string): Promise<BootstrapData> {
   if (!isTauri()) return previewSort();
-  return invoke<BootstrapData>("move_thread_to_workspace", { threadId, workspaceId });
+  return commands.moveThreadToWorkspace(threadId, workspaceId);
 }
 
 // --- Thread sections (`threadSection/*`, Codex ≥0.149) -----------------------
 
 export async function createThreadSection(name: string, color: string | null): Promise<BootstrapData> {
   if (!isTauri()) {
-    previewData.sections = [...(previewData.sections ?? []), { id: `section-${Date.now()}`, name, color }];
+    previewData.sections = [...(previewData.sections ?? []), { id: `section-${Date.now()}`, name, icon: null, color }];
     return previewSort();
   }
-  return invoke<BootstrapData>("create_thread_section", { name, color });
+  return commands.createThreadSection(name, color);
 }
 
 export async function updateThreadSection(
@@ -155,7 +155,7 @@ export async function updateThreadSection(
     if (section) Object.assign(section, { name, color });
     return previewSort();
   }
-  return invoke<BootstrapData>("update_thread_section", { sectionId, name, color });
+  return commands.updateThreadSection(sectionId, name, color);
 }
 
 export async function deleteThreadSection(sectionId: string): Promise<BootstrapData> {
@@ -166,7 +166,7 @@ export async function deleteThreadSection(sectionId: string): Promise<BootstrapD
     }
     return previewSort();
   }
-  return invoke<BootstrapData>("delete_thread_section", { sectionId });
+  return commands.deleteThreadSection(sectionId);
 }
 
 /** Move a thread into `sectionId`, or out of any section with `null`. */
@@ -178,7 +178,7 @@ export async function moveThreadToSection(threadId: string, sectionId: string | 
     }
     return previewSort();
   }
-  return invoke<BootstrapData>("move_thread_to_section", { threadId, sectionId });
+  return commands.moveThreadToSection(threadId, sectionId);
 }
 
 export async function renameProject(path: string, name: string): Promise<BootstrapData> {
@@ -187,7 +187,7 @@ export async function renameProject(path: string, name: string): Promise<Bootstr
     if (project && name.trim()) project.name = name.trim();
     return previewSort();
   }
-  return invoke<BootstrapData>("rename_project", { path, name });
+  return commands.renameProject(path, name);
 }
 
 export async function renameThread(threadId: string, name: string): Promise<BootstrapData> {
@@ -198,7 +198,7 @@ export async function renameThread(threadId: string, name: string): Promise<Boot
     }
     return previewSort();
   }
-  return invoke<BootstrapData>("rename_thread", { threadId, name });
+  return commands.renameThread(threadId, name);
 }
 
 /** Ask the backend to generate this thread's sidebar title. `seed` is the user's
@@ -206,7 +206,7 @@ export async function renameThread(threadId: string, name: string): Promise<Boot
  *  to `null` when naming was skipped or did not produce a usable title. */
 export async function autoNameThread(threadId: string, seed?: string): Promise<BootstrapData | null> {
   if (!isTauri()) return null;
-  return invoke<BootstrapData | null>("auto_name_thread", { threadId, seed: seed ?? null });
+  return commands.autoNameThread(threadId, seed ?? null);
 }
 
 export async function setProjectPinned(path: string, pinned: boolean): Promise<BootstrapData> {
@@ -215,7 +215,7 @@ export async function setProjectPinned(path: string, pinned: boolean): Promise<B
     if (project) project.pinned = pinned;
     return previewSort();
   }
-  return invoke<BootstrapData>("set_project_pinned", { path, pinned });
+  return commands.setProjectPinned(path, pinned);
 }
 
 export async function setProjectArchived(path: string, archived: boolean): Promise<BootstrapData> {
@@ -224,7 +224,7 @@ export async function setProjectArchived(path: string, archived: boolean): Promi
     if (project) project.archived = archived;
     return previewSort();
   }
-  return invoke<BootstrapData>("set_project_archived", { path, archived });
+  return commands.setProjectArchived(path, archived);
 }
 
 /** Persist the sidebar expansion state without reloading the project tree. */
@@ -234,7 +234,7 @@ export async function setProjectExpanded(path: string, expanded: boolean): Promi
     if (project) project.expanded = expanded;
     return;
   }
-  return invoke<void>("set_project_expanded", { path, expanded });
+  await commands.setProjectExpanded(path, expanded);
 }
 
 export async function setThreadPinned(threadId: string, pinned: boolean): Promise<BootstrapData> {
@@ -245,12 +245,12 @@ export async function setThreadPinned(threadId: string, pinned: boolean): Promis
     }
     return previewSort();
   }
-  return invoke<BootstrapData>("set_thread_pinned", { threadId, pinned });
+  return commands.setThreadPinned(threadId, pinned);
 }
 
 export async function revealInFinder(path: string): Promise<void> {
   if (!isTauri()) return;
-  await invoke("reveal_in_finder", { path });
+  await commands.revealInFinder(path);
 }
 
 /** Open a URL in the user's default browser instead of the app webview. */
@@ -259,12 +259,12 @@ export async function openExternalUrl(url: string): Promise<void> {
     window.open(url, "_blank", "noopener,noreferrer");
     return;
   }
-  await invoke("open_external_url", { url });
+  await commands.openExternalUrl(url);
 }
 
 export async function readThread(threadId: string): Promise<ThreadDetail> {
   if (!isTauri()) return { ...previewThread, id: threadId };
-  return invoke<ThreadDetail>("read_thread", { threadId });
+  return commands.readThread(threadId) as Promise<ThreadDetail>;
 }
 
 export async function listSubagents(threadId: string): Promise<SubagentDetail[]> {
@@ -290,7 +290,7 @@ export async function listSubagents(threadId: string): Promise<SubagentDetail[]>
       reasoningEffort: index === 0 ? "high" : "xhigh",
     }));
   }
-  return invoke<SubagentDetail[]>("list_subagents", { threadId });
+  return commands.listSubagents(threadId) as Promise<SubagentDetail[]>;
 }
 
 export async function updateSubagentPolicy(
@@ -299,7 +299,7 @@ export async function updateSubagentPolicy(
   reasoningEffortPolicy: SubagentPolicy | null,
 ): Promise<void> {
   if (!isTauri()) return;
-  await invoke("update_subagent_policy", { threadId, modelPolicy, reasoningEffortPolicy });
+  await commands.updateSubagentPolicy(threadId, modelPolicy, reasoningEffortPolicy);
 }
 
 export interface StartedThread {
@@ -313,11 +313,7 @@ export async function startThread(
   appSubagents?: boolean | null,
 ): Promise<StartedThread> {
   if (!isTauri()) return { id: `preview-${nextPreviewId()}`, cwd };
-  return invoke<StartedThread>("start_thread", {
-    cwd,
-    workspaceId: workspaceId ?? null,
-    appSubagents: appSubagents ?? null,
-  });
+  return commands.startThread(cwd, workspaceId ?? null, appSubagents ?? null) as Promise<StartedThread>;
 }
 
 export async function startTurn(threadId: string, input: UserInputPart[], options?: TurnOptions): Promise<Turn> {
@@ -327,7 +323,7 @@ export async function startTurn(threadId: string, input: UserInputPart[], option
     previewStreamTurn(threadId, turnId, text);
     return { id: turnId, status: "inProgress", items: [] };
   }
-  return invoke<Turn>("start_turn", { threadId, input, options: options ?? null });
+  return commands.startTurn(threadId, input, options ?? null) as Promise<Turn>;
 }
 
 export async function interruptTurn(threadId: string, turnId: string): Promise<void> {
@@ -335,7 +331,7 @@ export async function interruptTurn(threadId: string, turnId: string): Promise<v
     previewInterrupt(threadId, turnId);
     return;
   }
-  await invoke("interrupt_turn", { threadId, turnId });
+  await commands.interruptTurn(threadId, turnId);
 }
 
 export async function respondApproval(
@@ -343,7 +339,7 @@ export async function respondApproval(
   decision: "accept" | "acceptForSession" | "decline",
 ): Promise<void> {
   if (!isTauri()) return;
-  await invoke("respond_approval", { requestId, decision });
+  await commands.respondApproval(requestId, decision);
 }
 
 /**
@@ -353,7 +349,7 @@ export async function respondApproval(
  */
 export async function respondServerRequest(requestId: number, result: unknown): Promise<void> {
   if (!isTauri()) return;
-  await invoke("respond_server_request", { requestId, result });
+  await commands.respondServerRequest(requestId, result);
 }
 
 /**
@@ -367,14 +363,14 @@ export async function respondUserInput(
   context?: { threadId: string; turnId: string; itemId: string; item: ThreadItem },
 ): Promise<void> {
   if (!isTauri()) return;
-  await invoke("respond_user_input", {
+  await commands.respondUserInput(
     requestId,
     answers,
-    threadId: context?.threadId ?? null,
-    turnId: context?.turnId ?? null,
-    itemId: context?.itemId ?? null,
-    item: context?.item ?? null,
-  });
+    context?.threadId ?? null,
+    context?.turnId ?? null,
+    context?.itemId ?? null,
+    context?.item ?? null,
+  );
 }
 
 /**
@@ -390,19 +386,25 @@ export async function recordUserInputRequest(context: {
   item: ThreadItem;
 }): Promise<void> {
   if (!isTauri()) return;
-  await invoke("record_user_input_request", context);
+  await commands.recordUserInputRequest(
+    context.threadId,
+    context.turnId,
+    context.itemId,
+    context.item,
+    context.afterItemId ?? null,
+  );
 }
 
 /** Threads holding a question that was never answered. */
 export async function threadsWithUnansweredQuestions(): Promise<string[]> {
   if (!isTauri()) return [];
-  return await invoke<string[]>("threads_with_unanswered_questions");
+  return await commands.threadsWithUnansweredQuestions();
 }
 
 /** Threads with a turn running right now on the backend's Codex child. */
 export async function threadsWithActiveTurns(): Promise<string[]> {
   if (!isTauri()) return [];
-  return await invoke<string[]>("threads_with_active_turns");
+  return await commands.threadsWithActiveTurns();
 }
 
 /** Summarise the thread so far and drop the raw history from the model's context. */
@@ -411,7 +413,7 @@ export async function compactThread(threadId: string): Promise<void> {
     previewCompact(threadId);
     return;
   }
-  await invoke("compact_thread", { threadId });
+  await commands.compactThread(threadId);
 }
 
 /**
@@ -426,7 +428,7 @@ export async function startReview(threadId: string, target: ReviewTarget | null 
   if (!isTauri()) {
     return { id: `preview-turn-${nextPreviewId()}`, status: "inProgress", items: [] };
   }
-  return invoke<Turn>("start_review", { threadId, target });
+  return commands.startReview(threadId, target) as Promise<Turn>;
 }
 
 /** Set or update the goal for a long-running task (`/goal <objective>`). */
@@ -434,7 +436,7 @@ export async function setThreadGoal(threadId: string, objective: string): Promis
   if (!isTauri()) {
     return { threadId, objective, status: "active", tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 0 };
   }
-  return invoke<ThreadGoal>("thread_goal_set", { threadId, objective, status: null });
+  return commands.threadGoalSet(threadId, objective, null) as Promise<ThreadGoal>;
 }
 
 /** Pause or resume the thread's goal without changing its objective. */
@@ -442,24 +444,24 @@ export async function setThreadGoalStatus(threadId: string, status: "active" | "
   if (!isTauri()) {
     return { threadId, objective: "", status, tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 0 };
   }
-  return invoke<ThreadGoal>("thread_goal_set", { threadId, objective: null, status });
+  return commands.threadGoalSet(threadId, null, status) as Promise<ThreadGoal>;
 }
 
 /** The thread's goal, or null when none is set. */
 export async function getThreadGoal(threadId: string): Promise<ThreadGoal | null> {
   if (!isTauri()) return null;
-  return invoke<ThreadGoal | null>("thread_goal_get", { threadId });
+  return commands.threadGoalGet(threadId) as Promise<ThreadGoal | null>;
 }
 
 /** Drop the thread's goal (`/goal clear`). */
 export async function clearThreadGoal(threadId: string): Promise<void> {
   if (!isTauri()) return;
-  await invoke("thread_goal_clear", { threadId });
+  await commands.threadGoalClear(threadId);
 }
 
 export async function invalidateThreadCache(threadId: string): Promise<void> {
   if (!isTauri()) return;
-  await invoke("invalidate_thread_cache", { threadId });
+  await commands.invalidateThreadCache(threadId);
 }
 
 export async function archiveThread(threadId: string): Promise<BootstrapData> {
@@ -469,7 +471,7 @@ export async function archiveThread(threadId: string): Promise<BootstrapData> {
     }
     return previewSort();
   }
-  return invoke<BootstrapData>("archive_thread", { threadId });
+  return commands.archiveThread(threadId);
 }
 
 export async function deleteThread(threadId: string): Promise<BootstrapData> {
@@ -479,7 +481,7 @@ export async function deleteThread(threadId: string): Promise<BootstrapData> {
     }
     return previewSort();
   }
-  return invoke<BootstrapData>("delete_thread", { threadId });
+  return commands.deleteThread(threadId);
 }
 
 export async function removeProject(path: string): Promise<BootstrapData> {
@@ -487,7 +489,7 @@ export async function removeProject(path: string): Promise<BootstrapData> {
     previewData.projects = previewData.projects.filter((project) => project.path !== path);
     return previewSort();
   }
-  return invoke<BootstrapData>("remove_project", { path });
+  return commands.removeProject(path);
 }
 
 /** Create a sidebar folder. `scope` is "" for the top level or a project path. */
@@ -508,7 +510,7 @@ export async function createSidebarFolder(
     });
     return previewSort();
   }
-  return invoke<BootstrapData>("create_sidebar_folder", { scope, parentId, name });
+  return commands.createSidebarFolder(scope, parentId, name);
 }
 
 export async function renameSidebarFolder(id: string, name: string): Promise<BootstrapData> {
@@ -517,7 +519,7 @@ export async function renameSidebarFolder(id: string, name: string): Promise<Boo
     if (folder) folder.name = name;
     return previewSort();
   }
-  return invoke<BootstrapData>("rename_sidebar_folder", { id, name });
+  return commands.renameSidebarFolder(id, name);
 }
 
 /** Remove a folder; whatever it held moves up to its parent. */
@@ -526,7 +528,7 @@ export async function deleteSidebarFolder(id: string): Promise<BootstrapData> {
     previewData.sidebarLayout = deleteFromLayout(previewLayout(), id);
     return previewSort();
   }
-  return invoke<BootstrapData>("delete_sidebar_folder", { id });
+  return commands.deleteSidebarFolder(id);
 }
 
 /** Persist a folder's open/closed state without reloading the tree. */
@@ -536,7 +538,7 @@ export async function setSidebarFolderExpanded(id: string, expanded: boolean): P
     if (folder) folder.expanded = expanded;
     return;
   }
-  return invoke<void>("set_sidebar_folder_expanded", { id, expanded });
+  await commands.setSidebarFolderExpanded(id, expanded);
 }
 
 /** Put `item` under `parentId` with `siblings` as the parent's full new order. */
@@ -550,7 +552,7 @@ export async function placeSidebarItem(
     previewData.sidebarLayout = placeInLayout(previewLayout(), scope, item, parentId, siblings);
     return previewSort();
   }
-  return invoke<BootstrapData>("place_sidebar_item", { scope, item, parentId, siblings });
+  return commands.placeSidebarItem(scope, item, parentId, siblings);
 }
 
 function previewLayout(): SidebarLayout {
@@ -560,7 +562,7 @@ function previewLayout(): SidebarLayout {
 
 export async function listArchivedThreads(): Promise<ArchivedThread[]> {
   if (!isTauri()) return previewArchived;
-  const response = await invoke<{ data?: any[] }>("list_archived_threads");
+  const response = await (commands.listArchivedThreads() as Promise<{ data?: any[] }>);
   return (response.data ?? []).map((thread) => ({
     id: thread.id ?? "",
     title: (thread.name || thread.preview || "Untitled thread").split("\n")[0].slice(0, 80),
@@ -575,18 +577,18 @@ export async function unarchiveThread(threadId: string): Promise<BootstrapData> 
     if (index >= 0) previewArchived.splice(index, 1);
     return previewSort();
   }
-  return invoke<BootstrapData>("unarchive_thread", { threadId });
+  return commands.unarchiveThread(threadId);
 }
 
 export async function listModels(): Promise<Model[]> {
   if (!isTauri()) return previewModels;
-  const response = await invoke<{ data?: Model[] }>("list_models");
+  const response = await (commands.listModels() as Promise<{ data?: Model[] }>);
   return response.data ?? [];
 }
 
 export async function readAccountRateLimits(): Promise<AccountRateLimits> {
   if (!isTauri()) return previewRateLimits;
-  return invoke<AccountRateLimits>("read_account_rate_limits");
+  return commands.readAccountRateLimits() as Promise<AccountRateLimits>;
 }
 
 export async function forkThread(
@@ -596,18 +598,13 @@ export async function forkThread(
   cwd?: string,
 ): Promise<StartedThread> {
   if (!isTauri()) return { id: `preview-fork-${nextPreviewId()}`, cwd };
-  return invoke<StartedThread>("fork_thread", {
-    threadId,
-    beforeTurnId: beforeTurnId ?? null,
-    lastTurnId: lastTurnId ?? null,
-    cwd: cwd ?? null,
-  });
+  return commands.forkThread(threadId, beforeTurnId ?? null, lastTurnId ?? null, cwd ?? null) as Promise<StartedThread>;
 }
 
 /** Truncate `threadId` by its last `numTurns` turns, keeping the thread id. */
 export async function rollbackThread(threadId: string, numTurns: number): Promise<StartedThread> {
   if (!isTauri()) return { id: threadId };
-  return invoke<StartedThread>("rollback_thread", { threadId, numTurns });
+  return commands.rollbackThread(threadId, numTurns) as Promise<StartedThread>;
 }
 
 export interface RevertedThread {
@@ -625,12 +622,12 @@ export async function revertThread(
   keptTurnIds: string[],
 ): Promise<RevertedThread> {
   if (!isTauri()) return { thread: { ...previewThread, id: threadId, turns: [] } };
-  return invoke<RevertedThread>("revert_thread", { threadId, beforeTurnId, keptTurnIds });
+  return commands.revertThread(threadId, beforeTurnId, keptTurnIds) as Promise<RevertedThread>;
 }
 
 export async function readThreadUsage(threadId: string): Promise<ThreadUsage | null> {
   if (!isTauri()) return previewThreadUsage(threadId);
-  const response = await invoke<{ threadUsage?: ThreadUsage | null }>("read_thread_usage", { threadId });
+  const response = await (commands.readThreadUsage(threadId) as Promise<{ threadUsage?: ThreadUsage | null }>);
   return response.threadUsage ?? null;
 }
 
@@ -662,10 +659,13 @@ export async function queueList(threadId: string): Promise<QueuedSubmission[]> {
   const submissions: QueuedSubmission[] = [];
   let cursor: string | null = null;
   do {
-    const page: { data?: QueuedSubmission[]; nextCursor?: string | null } = await invoke("queue_list", {
+    const page: { data?: QueuedSubmission[]; nextCursor?: string | null } = (await commands.queueList(
       threadId,
       cursor,
-    });
+    )) as {
+      data?: QueuedSubmission[];
+      nextCursor?: string | null;
+    };
     submissions.push(...(page.data ?? []));
     cursor = page.nextCursor ?? null;
   } while (cursor);
@@ -682,11 +682,9 @@ export async function queueAdd(
     previewQueue(threadId).push(submission);
     return submission;
   }
-  const response = await invoke<{ queuedSubmission: QueuedSubmission }>("queue_add", {
-    threadId,
-    input,
-    clientUserMessageId,
-  });
+  const response = await (commands.queueAdd(threadId, input, clientUserMessageId) as Promise<{
+    queuedSubmission: QueuedSubmission;
+  }>);
   return response.queuedSubmission;
 }
 
@@ -701,11 +699,9 @@ export async function queueUpdate(
     if (entry) entry.input = input;
     return entry ?? { id: queuedSubmissionId, input, clientUserMessageId: "" };
   }
-  const response = await invoke<{ queuedSubmission: QueuedSubmission }>("queue_update", {
-    threadId,
-    queuedSubmissionId,
-    input,
-  });
+  const response = await (commands.queueUpdate(threadId, queuedSubmissionId, input) as Promise<{
+    queuedSubmission: QueuedSubmission;
+  }>);
   return response.queuedSubmission;
 }
 
@@ -716,7 +712,7 @@ export async function queueDelete(threadId: string, queuedSubmissionId: string):
     if (index >= 0) queue.splice(index, 1);
     return index >= 0;
   }
-  const response = await invoke<{ deleted?: boolean }>("queue_delete", { threadId, queuedSubmissionId });
+  const response = await (commands.queueDelete(threadId, queuedSubmissionId) as Promise<{ deleted?: boolean }>);
   return response.deleted ?? false;
 }
 
@@ -726,7 +722,7 @@ export async function queueReorder(threadId: string, queuedSubmissionIds: string
     queue.sort((a, b) => queuedSubmissionIds.indexOf(a.id) - queuedSubmissionIds.indexOf(b.id));
     return;
   }
-  await invoke("queue_reorder", { threadId, queuedSubmissionIds });
+  await commands.queueReorder(threadId, queuedSubmissionIds);
 }
 
 /** Start the given queued submission (or the head of the queue) as a turn.
@@ -739,10 +735,7 @@ export async function queueStart(threadId: string, queuedSubmissionId?: string):
     queue.splice(index, 1);
     return { id: `preview-turn-${nextPreviewId()}`, status: "inProgress", items: [] };
   }
-  const response = await invoke<{ turn: Turn }>("queue_start", {
-    threadId,
-    queuedSubmissionId: queuedSubmissionId ?? null,
-  });
+  const response = await (commands.queueStart(threadId, queuedSubmissionId ?? null) as Promise<{ turn: Turn }>);
   return response.turn;
 }
 
@@ -755,7 +748,7 @@ export async function addSideQuestion(
     previewData.sideQuestions.unshift({ parentThreadId, sideThreadId, title, createdAt: Date.now() / 1000 });
     return previewSort();
   }
-  return invoke<BootstrapData>("add_side_question", { parentThreadId, sideThreadId, title });
+  return commands.addSideQuestion(parentThreadId, sideThreadId, title);
 }
 
 export async function removeSideQuestion(sideThreadId: string): Promise<BootstrapData> {
@@ -763,7 +756,7 @@ export async function removeSideQuestion(sideThreadId: string): Promise<Bootstra
     previewData.sideQuestions = previewData.sideQuestions.filter((entry) => entry.sideThreadId !== sideThreadId);
     return previewSort();
   }
-  return invoke<BootstrapData>("remove_side_question", { sideThreadId });
+  return commands.removeSideQuestion(sideThreadId);
 }
 
 export async function searchProjectFiles(root: string, query: string, limit = 20): Promise<FileHit[]> {
@@ -771,7 +764,7 @@ export async function searchProjectFiles(root: string, query: string, limit = 20
     const lowered = query.toLowerCase();
     return previewFiles.filter((file) => file.path.toLowerCase().includes(lowered)).slice(0, limit);
   }
-  return invoke<FileHit[]>("search_project_files", { root, query, limit });
+  return commands.searchProjectFiles(root, query, limit);
 }
 
 // --- Project instructions, sources, and workspace search ---
@@ -784,12 +777,12 @@ export async function saveProjectInstructions(projectPath: string, instructions:
     previewSaveInstructions(projectPath, instructions);
     return;
   }
-  await invoke("save_project_instructions", { projectPath, instructions });
+  await commands.saveProjectInstructions(projectPath, instructions);
 }
 
 export async function listProjectSources(projectPath: string): Promise<ProjectSource[]> {
   if (!isTauri()) return previewListSources(projectPath);
-  return invoke<ProjectSource[]>("list_project_sources", { projectPath });
+  return commands.listProjectSources(projectPath);
 }
 
 export async function addProjectSource(
@@ -798,12 +791,12 @@ export async function addProjectSource(
   kind: "folder" | "file",
 ): Promise<ProjectSource[]> {
   if (!isTauri()) return previewAddSource(projectPath, sourcePath, kind);
-  return invoke<ProjectSource[]>("add_project_source", { projectPath, sourcePath, kind });
+  return commands.addProjectSource(projectPath, sourcePath, kind);
 }
 
 export async function removeProjectSource(id: string, projectPath: string): Promise<ProjectSource[]> {
   if (!isTauri()) return previewRemoveSource(id, projectPath);
-  return invoke<ProjectSource[]>("remove_project_source", { id, projectPath });
+  return commands.removeProjectSource(id, projectPath);
 }
 
 export async function reindexSource(id: string): Promise<void> {
@@ -811,7 +804,7 @@ export async function reindexSource(id: string): Promise<void> {
     previewReindexSource(id);
     return;
   }
-  await invoke("reindex_source", { id });
+  await commands.reindexSource(id);
 }
 
 export async function searchWorkspace(
@@ -821,12 +814,7 @@ export async function searchWorkspace(
   generation = 0,
 ): Promise<WorkspaceSearchResults> {
   if (!isTauri()) return previewSearchWorkspace(projectPath, query, cursor ?? null, generation);
-  return invoke<WorkspaceSearchResults>("search_workspace", {
-    projectPath,
-    query,
-    cursor: cursor ?? null,
-    generation,
-  });
+  return commands.searchWorkspace(projectPath, query, cursor ?? null, generation);
 }
 
 // --- Attachments (staging) ---
@@ -836,12 +824,12 @@ export async function searchWorkspace(
 
 export async function stageAttachment(sourcePath: string): Promise<Attachment> {
   if (!isTauri()) return previewStageFromPath(sourcePath);
-  return invoke<Attachment>("stage_attachment", { sourcePath });
+  return commands.stageAttachment(sourcePath);
 }
 
 export async function stageClipboardImage(filename: string, mime: string, bytes: number[]): Promise<Attachment> {
   if (!isTauri()) return previewStageBytes(filename, mime, bytes);
-  return invoke<Attachment>("stage_clipboard_image", { filename, mime, bytes });
+  return commands.stageClipboardImage(filename, mime, bytes);
 }
 
 /** Browser/Playwright-only: stage from a `File` object (no native path). */
@@ -851,12 +839,12 @@ export async function stageBrowserFile(file: File): Promise<Attachment> {
 
 export async function removeStagedAttachment(id: string): Promise<void> {
   if (!isTauri()) return;
-  await invoke("remove_staged", { id });
+  await commands.removeStaged(id);
 }
 
 export async function openInZed(path: string): Promise<void> {
   if (!isTauri()) return;
-  await invoke("open_in_zed", { path });
+  await commands.openInZed(path);
 }
 
 // Per-project message drafts. Each project's draft lives in its own nested
@@ -869,12 +857,12 @@ export async function saveDraft(project: string, content: string): Promise<void>
     localStorage.setItem(previewDraftKey(project), content);
     return;
   }
-  await invoke("save_draft", { project, content });
+  await commands.saveDraft(project, content);
 }
 
 export async function loadDraft(project: string): Promise<string | null> {
   if (!isTauri()) return localStorage.getItem(previewDraftKey(project));
-  return invoke<string | null>("load_draft", { project });
+  return commands.loadDraft(project);
 }
 
 export async function deleteDraft(project: string): Promise<void> {
@@ -882,7 +870,7 @@ export async function deleteDraft(project: string): Promise<void> {
     localStorage.removeItem(previewDraftKey(project));
     return;
   }
-  await invoke("delete_draft", { project });
+  await commands.deleteDraft(project);
 }
 
 export async function listProjectFiles(root: string): Promise<string[]> {
@@ -891,12 +879,12 @@ export async function listProjectFiles(root: string): Promise<string[]> {
       .filter((file) => !file.isDir)
       .map((file) => file.path)
       .sort();
-  return invoke<string[]>("list_project_files", { root });
+  return commands.listProjectFiles(root);
 }
 
 export async function readRuntimeSettings(): Promise<RuntimeSettings> {
   if (!isTauri()) return { ...previewRuntimeSettings };
-  return invoke<RuntimeSettings>("read_runtime_settings");
+  return commands.readRuntimeSettings();
 }
 
 /** What the running `codex app-server` reported about itself at `initialize`. */
@@ -904,7 +892,7 @@ export async function readCodexServerInfo(): Promise<CodexServerInfo> {
   if (!isTauri()) {
     return { userAgent: "pingex/0.149.1 (preview; arm64) (pingex; 0.0.0)", platformOs: "preview" };
   }
-  return (await invoke<CodexServerInfo | null>("read_codex_server_info")) ?? {};
+  return (await (commands.readCodexServerInfo() as Promise<CodexServerInfo | null>)) ?? {};
 }
 
 export async function updateRuntimeSettings(
@@ -917,12 +905,12 @@ export async function updateRuntimeSettings(
     previewRuntimeSettings.restartRequired = Boolean(codexHome || codexBinary);
     return { ...previewRuntimeSettings };
   }
-  return invoke<RuntimeSettings>("update_runtime_settings", { codexHome, codexBinary });
+  return commands.updateRuntimeSettings(codexHome, codexBinary);
 }
 
 export async function readLaunchState(): Promise<LaunchState> {
   if (!isTauri()) return structuredClone(previewLaunchState);
-  return invoke<LaunchState>("read_launch_state");
+  return commands.readLaunchState();
 }
 
 export async function selectCodexHome(path: string): Promise<LaunchState> {
@@ -935,7 +923,7 @@ export async function selectCodexHome(path: string): Promise<LaunchState> {
     ];
     return structuredClone(previewLaunchState);
   }
-  return invoke<LaunchState>("select_codex_home", { path });
+  return commands.selectCodexHome(path);
 }
 
 /**
@@ -945,7 +933,7 @@ export async function selectCodexHome(path: string): Promise<LaunchState> {
  */
 export async function openHomeWindow(path?: string): Promise<string | null> {
   if (!isTauri()) return null;
-  return invoke<string>("open_home_window", { path: path ?? null });
+  return commands.openHomeWindow(path ?? null);
 }
 
 /** Probe a Codex CLI path without saving it (blank = the active binary). */
@@ -960,7 +948,7 @@ export async function checkCodexBinary(path: string | null): Promise<BinaryStatu
       message: found ? null : `No executable Codex CLI at ${binary}.`,
     };
   }
-  return invoke<BinaryStatus>("check_codex_binary", { path });
+  return commands.checkCodexBinary(path);
 }
 
 /** Persist and immediately apply a Codex CLI path (null clears the override). */
@@ -972,7 +960,7 @@ export async function setCodexBinary(path: string | null): Promise<LaunchState> 
     previewLaunchState.codexBinaryStatus = status;
     return structuredClone(previewLaunchState);
   }
-  return invoke<LaunchState>("set_codex_binary", { path });
+  return commands.setCodexBinary(path);
 }
 
 export async function removeRecentHome(path: string): Promise<LaunchState> {
@@ -980,12 +968,12 @@ export async function removeRecentHome(path: string): Promise<LaunchState> {
     previewLaunchState.recentHomes = previewLaunchState.recentHomes.filter((home) => home.path !== path);
     return structuredClone(previewLaunchState);
   }
-  return invoke<LaunchState>("remove_recent_home", { path });
+  return commands.removeRecentHome(path);
 }
 
 export async function readConfigSettings(): Promise<ConfigSetting[]> {
   if (!isTauri()) return structuredClone(previewConfigSettings);
-  return invoke<ConfigSetting[]>("read_config_settings");
+  return commands.readConfigSettings();
 }
 
 /** Set (value) or unset (unset:true, inherit default) a whitelisted config.toml key. */
@@ -1003,12 +991,12 @@ export async function writeConfigSetting(key: string, value: string | null, unse
     }
     return structuredClone(previewConfigSettings);
   }
-  return invoke<ConfigSetting[]>("write_config_setting", { key, value, unset });
+  return commands.writeConfigSetting(key, value, unset);
 }
 
 export async function readHomeOverview(): Promise<HomeOverview> {
   if (!isTauri()) return structuredClone(previewHomeOverview);
-  return invoke<HomeOverview>("read_home_overview");
+  return commands.readHomeOverview();
 }
 
 // --- Native Git service ---
@@ -1017,17 +1005,17 @@ export async function readHomeOverview(): Promise<HomeOverview> {
 
 export async function gitRepoInfo(dir: string): Promise<GitRepoInfo> {
   if (!isTauri()) return previewGitRepoInfo(dir);
-  return invoke<GitRepoInfo>("git_repo_info", { dir });
+  return commands.gitRepoInfo(dir);
 }
 
 export async function gitStatus(dir: string): Promise<GitStatus> {
   if (!isTauri()) return { ...previewGitStatus, refreshedAt: Date.now() };
-  return invoke<GitStatus>("git_status", { dir });
+  return commands.gitStatus(dir);
 }
 
 export async function gitWorktrees(repoDir: string): Promise<WorktreeEntry[]> {
   if (!isTauri()) return structuredClone(previewWorktrees);
-  return invoke<WorktreeEntry[]>("git_worktrees", { repoDir });
+  return commands.gitWorktrees(repoDir);
 }
 
 export async function gitChangesSummary(dir: string): Promise<ChangesSummary> {
@@ -1045,7 +1033,7 @@ export async function gitChangesSummary(dir: string): Promise<ChangesSummary> {
       deletions: 3,
     };
   }
-  return invoke<ChangesSummary>("git_changes_summary", { dir });
+  return commands.gitChangesSummary(dir);
 }
 
 export async function gitFileDiff(
@@ -1059,7 +1047,7 @@ export async function gitFileDiff(
     const patch = `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1,2 +1,3 @@\n line\n-old\n+new\n+added\n`;
     return { path, patch, truncated: false, binary: false, bytes: patch.length };
   }
-  return invoke<FileDiff>("git_file_diff", { dir, base, path, untracked, maxBytes: maxBytes ?? null });
+  return commands.gitFileDiff(dir, base, path, untracked, maxBytes ?? null);
 }
 
 export async function gitWorktreeHandoffPreflight(
@@ -1067,7 +1055,7 @@ export async function gitWorktreeHandoffPreflight(
   targetDir: string,
 ): Promise<WorktreeHandoffPreflight> {
   if (!isTauri()) return { branch: "codex/tmp-preview", worktreeDirty: false, targetDirty: false, blocker: null };
-  return invoke<WorktreeHandoffPreflight>("git_worktree_handoff_preflight", { worktreePath, targetDir });
+  return commands.gitWorktreeHandoffPreflight(worktreePath, targetDir);
 }
 
 /** Check the temp worktree's branch out in `targetDir` and remove the worktree. Returns the branch. */
@@ -1078,22 +1066,17 @@ export async function gitWorktreeHandoff(
   branchName?: string | null,
 ): Promise<string> {
   if (!isTauri()) return branchName || "codex/tmp-preview";
-  return invoke<string>("git_worktree_handoff", {
-    worktreePath,
-    targetDir,
-    commitUncommitted,
-    branchName: branchName ?? null,
-  });
+  return commands.gitWorktreeHandoff(worktreePath, targetDir, commitUncommitted, branchName ?? null);
 }
 
 export async function gitRecentCommits(dir: string, limit = 20): Promise<GitCommit[]> {
   if (!isTauri()) return structuredClone(previewCommits);
-  return invoke<GitCommit[]>("git_recent_commits", { dir, limit });
+  return commands.gitRecentCommits(dir, limit);
 }
 
 export async function gitBranches(dir: string, limit = 200): Promise<GitBranch[]> {
   if (!isTauri()) return structuredClone(previewBranches);
-  return invoke<GitBranch[]>("git_branches", { dir, limit });
+  return commands.gitBranches(dir, limit);
 }
 
 export async function gitWorktreeAdd(repoDir: string, path: string, branch: WorktreeBranchRequest): Promise<void> {
@@ -1120,7 +1103,7 @@ export async function gitWorktreeAdd(repoDir: string, path: string, branch: Work
     });
     return;
   }
-  await invoke("git_worktree_add", { repoDir, request: { path, branch } });
+  await commands.gitWorktreeAdd(repoDir, { path, branch });
 }
 
 export async function gitWorktreeRemove(repoDir: string, path: string, force: boolean): Promise<void> {
@@ -1129,7 +1112,7 @@ export async function gitWorktreeRemove(repoDir: string, path: string, force: bo
     if (index >= 0) previewWorktrees.splice(index, 1);
     return;
   }
-  await invoke("git_worktree_remove", { repoDir, path, force });
+  await commands.gitWorktreeRemove(repoDir, path, force);
 }
 
 export async function gitWorktreePrune(repoDir: string): Promise<void> {
@@ -1139,7 +1122,7 @@ export async function gitWorktreePrune(repoDir: string): Promise<void> {
     }
     return;
   }
-  await invoke("git_worktree_prune", { repoDir });
+  await commands.gitWorktreePrune(repoDir);
 }
 
 export async function gitWorktreeLock(repoDir: string, path: string, reason?: string): Promise<void> {
@@ -1151,7 +1134,7 @@ export async function gitWorktreeLock(repoDir: string, path: string, reason?: st
     }
     return;
   }
-  await invoke("git_worktree_lock", { repoDir, path, reason: reason ?? null });
+  await commands.gitWorktreeLock(repoDir, path, reason ?? null);
 }
 
 export async function gitWorktreeUnlock(repoDir: string, path: string): Promise<void> {
@@ -1163,7 +1146,7 @@ export async function gitWorktreeUnlock(repoDir: string, path: string): Promise<
     }
     return;
   }
-  await invoke("git_worktree_unlock", { repoDir, path });
+  await commands.gitWorktreeUnlock(repoDir, path);
 }
 
 // --- CLI / desktop handoff ---
@@ -1172,7 +1155,7 @@ export async function gitWorktreeUnlock(repoDir: string, path: string): Promise<
 
 export async function handoffCommand(threadId: string, cwd: string): Promise<string> {
   if (!isTauri()) return `CODEX_HOME='${previewLaunchState.codexHome}' codex resume '${threadId}' --cd '${cwd}'`;
-  return invoke<string>("handoff_command", { threadId, cwd });
+  return commands.handoffCommand(threadId, cwd);
 }
 
 export async function handoffThreadLink(threadId: string, cwd: string, label?: string): Promise<string> {
@@ -1181,7 +1164,7 @@ export async function handoffThreadLink(threadId: string, cwd: string, label?: s
     if (label) params.set("label", label);
     return `codex://threads/${threadId}?${params.toString()}`;
   }
-  return invoke<string>("handoff_thread_link", { threadId, cwd, label: label ?? null });
+  return commands.handoffThreadLink(threadId, cwd, label ?? null);
 }
 
 /** Copy arbitrary text to the system clipboard. */
@@ -1192,12 +1175,12 @@ export async function handoffCopy(text: string): Promise<void> {
     await navigator.clipboard?.writeText(text).catch(() => {});
     return;
   }
-  await invoke("handoff_copy", { text });
+  await commands.handoffCopy(text);
 }
 
 export async function handoffLaunchTerminal(command: string): Promise<void> {
   if (!isTauri()) return;
-  await invoke("handoff_launch_terminal", { command });
+  await commands.handoffLaunchTerminal(command);
 }
 
 export async function remotePairingStart(): Promise<PairingInfo> {
@@ -1210,12 +1193,12 @@ export async function remotePairingStart(): Promise<PairingInfo> {
       expiresAt: Date.now() / 1000 + 600,
     };
   }
-  return invoke<PairingInfo>("remote_pairing_start");
+  return commands.remotePairingStart() as Promise<PairingInfo>;
 }
 
 export async function remotePairingStatus(pairingCode: string): Promise<{ claimed: boolean }> {
   if (!isTauri()) return { claimed: false };
-  return invoke<{ claimed: boolean }>("remote_pairing_status", { pairingCode });
+  return commands.remotePairingStatus(pairingCode) as Promise<{ claimed: boolean }>;
 }
 
 // --- Pull-request review (provider-neutral; GitHub adapter via `gh`) ---
@@ -1227,12 +1210,12 @@ const previewReviewDrafts = new Map<string, ReviewDraft>();
 
 export async function reviewProviderStatus(repoDir: string): Promise<ProviderStatus> {
   if (!isTauri()) return { ...previewProviderStatus };
-  return invoke<ProviderStatus>("review_provider_status", { repoDir });
+  return commands.reviewProviderStatus(repoDir);
 }
 
 export async function reviewListPrs(repoDir: string): Promise<PrSummary[]> {
   if (!isTauri()) return structuredClone(previewPrs);
-  return invoke<PrSummary[]>("review_list_prs", { repoDir });
+  return commands.reviewListPrs(repoDir);
 }
 
 export async function reviewPrDetail(repoDir: string, number: number): Promise<PrDetail> {
@@ -1242,7 +1225,7 @@ export async function reviewPrDetail(repoDir: string, number: number): Promise<P
     if (match) detail.summary = structuredClone(match);
     return detail;
   }
-  return invoke<PrDetail>("review_pr_detail", { repoDir, number });
+  return commands.reviewPrDetail(repoDir, number);
 }
 
 export async function reviewCheckFresh(
@@ -1252,12 +1235,12 @@ export async function reviewCheckFresh(
   knownUpdatedAt: string,
 ): Promise<PrFreshness> {
   if (!isTauri()) return { stale: false, remoteHead: knownHead, remoteUpdatedAt: knownUpdatedAt };
-  return invoke<PrFreshness>("review_check_fresh", { repoDir, number, knownHead, knownUpdatedAt });
+  return commands.reviewCheckFresh(repoDir, number, knownHead, knownUpdatedAt);
 }
 
 export async function reviewLocalDiff(repoDir: string, base: string, head?: string): Promise<PrFile[]> {
   if (!isTauri()) return structuredClone(previewPrDetail.files);
-  return invoke<PrFile[]>("review_local_diff", { repoDir, base, head: head ?? null });
+  return commands.reviewLocalDiff(repoDir, base, head ?? null);
 }
 
 export async function reviewSubmit(
@@ -1268,17 +1251,17 @@ export async function reviewSubmit(
   comments: PendingComment[],
 ): Promise<void> {
   if (!isTauri()) return;
-  await invoke("review_submit", { repoDir, number, event, body, comments });
+  await commands.reviewSubmit(repoDir, number, event, body, comments);
 }
 
 export async function reviewReply(repoDir: string, number: number, commentId: number, body: string): Promise<void> {
   if (!isTauri()) return;
-  await invoke("review_reply", { repoDir, number, commentId, body });
+  await commands.reviewReply(repoDir, number, commentId, body);
 }
 
 export async function reviewResolveThread(repoDir: string, threadId: string): Promise<void> {
   if (!isTauri()) return;
-  await invoke("review_resolve_thread", { repoDir, threadId });
+  await commands.reviewResolveThread(repoDir, threadId);
 }
 
 const reviewDraftKey = (provider: string, repo: string, prNumber: number) => `${provider}:${repo}:${prNumber}`;
@@ -1298,12 +1281,12 @@ export async function reviewSaveDraft(
     });
     return;
   }
-  await invoke("review_save_draft", { provider, repo, prNumber, headSha, payload });
+  await commands.reviewSaveDraft(provider, repo, prNumber, headSha, payload);
 }
 
 export async function reviewLoadDraft(provider: string, repo: string, prNumber: number): Promise<ReviewDraft | null> {
   if (!isTauri()) return previewReviewDrafts.get(reviewDraftKey(provider, repo, prNumber)) ?? null;
-  return invoke<ReviewDraft | null>("review_load_draft", { provider, repo, prNumber });
+  return commands.reviewLoadDraft(provider, repo, prNumber);
 }
 
 export async function reviewDeleteDraft(provider: string, repo: string, prNumber: number): Promise<void> {
@@ -1311,19 +1294,19 @@ export async function reviewDeleteDraft(provider: string, repo: string, prNumber
     previewReviewDrafts.delete(reviewDraftKey(provider, repo, prNumber));
     return;
   }
-  await invoke("review_delete_draft", { provider, repo, prNumber });
+  await commands.reviewDeleteDraft(provider, repo, prNumber);
 }
 
 // --- Remote connections management ---
 
 export async function listConnections(): Promise<RemoteConnection[]> {
   if (!isTauri()) return previewConnections.map((connection) => ({ ...connection }));
-  return invoke<RemoteConnection[]>("list_connections");
+  return commands.listConnections();
 }
 
 export async function refreshConnections(): Promise<RemoteConnection[]> {
   if (!isTauri()) return previewConnections.map((connection) => ({ ...connection }));
-  return invoke<RemoteConnection[]>("refresh_connections");
+  return commands.refreshConnections();
 }
 
 export async function renameConnection(clientId: string, name: string): Promise<void> {
@@ -1332,7 +1315,7 @@ export async function renameConnection(clientId: string, name: string): Promise<
     if (connection && name.trim()) connection.name = name.trim();
     return;
   }
-  await invoke("rename_connection", { clientId, name });
+  await commands.renameConnection(clientId, name);
 }
 
 /** Safe: forgets the local record without revoking the credential. */
@@ -1342,7 +1325,7 @@ export async function disconnectConnection(clientId: string): Promise<void> {
     if (index >= 0) previewConnections.splice(index, 1);
     return;
   }
-  await invoke("disconnect_connection", { clientId });
+  await commands.disconnectConnection(clientId);
 }
 
 /** Destructive: revokes the credential on the relay and drops the local record. */
@@ -1352,7 +1335,7 @@ export async function revokeConnection(clientId: string): Promise<void> {
     if (index >= 0) previewConnections.splice(index, 1);
     return;
   }
-  await invoke("revoke_connection", { clientId });
+  await commands.revokeConnection(clientId);
 }
 
 // --- Quick chat and global hotkeys ---------------------------------------
@@ -1363,7 +1346,7 @@ export const DEFAULT_QUICK_SHORTCUT = "CmdOrCtrl+Shift+Space";
 /** The global shortcut currently bound to the quick-chat window. */
 export async function getQuickShortcut(): Promise<string> {
   if (!isTauri()) return previewQuickShortcut.value;
-  return invoke<string>("get_quick_shortcut");
+  return commands.getQuickShortcut();
 }
 
 /**
@@ -1375,13 +1358,13 @@ export async function setQuickShortcut(accelerator: string): Promise<string> {
     previewQuickShortcut.value = accelerator.trim() || DEFAULT_QUICK_SHORTCUT;
     return previewQuickShortcut.value;
   }
-  return invoke<string>("set_quick_shortcut", { accelerator });
+  return commands.setQuickShortcut(accelerator);
 }
 
 /** Hand a quick-window thread back to the main window and navigate to it. */
 export async function quickOpenFullThread(threadId: string): Promise<void> {
   if (!isTauri()) return;
-  await invoke("quick_open_full_thread", { threadId });
+  await commands.quickOpenFullThread(threadId);
 }
 
 // --- App-owned subagents ---
@@ -1395,13 +1378,13 @@ export async function listAgentRuns(threadId: string): Promise<AgentRun[]> {
   if (!isTauri()) {
     return previewAgentRuns.filter((run) => run.parentThreadId === threadId);
   }
-  return invoke<AgentRun[]>("list_agent_runs", { threadId });
+  return commands.listAgentRuns(threadId);
 }
 
 /** Stop a running agent and kill its process. */
 export async function killAgentRun(runId: string): Promise<void> {
   if (!isTauri()) return;
-  await invoke("kill_agent_run", { runId });
+  await commands.killAgentRun(runId);
 }
 
 /** The agent's own thread, so the user can open its transcript. */
@@ -1409,12 +1392,12 @@ export async function openAgentThread(runId: string): Promise<string | null> {
   if (!isTauri()) {
     return previewAgentRuns.find((run) => run.runId === runId)?.childThreadId ?? null;
   }
-  return invoke<string | null>("open_agent_thread", { runId });
+  return commands.openAgentThread(runId);
 }
 
 export async function readAgentSettings(): Promise<AgentSettings> {
   if (!isTauri()) return structuredClone(previewAgentSettings);
-  return invoke<AgentSettings>("read_agent_settings");
+  return commands.readAgentSettings() as Promise<AgentSettings>;
 }
 
 export async function writeAgentSettings(settings: AgentSettings): Promise<AgentSettings> {
@@ -1422,7 +1405,7 @@ export async function writeAgentSettings(settings: AgentSettings): Promise<Agent
     Object.assign(previewAgentSettings, settings);
     return structuredClone(previewAgentSettings);
   }
-  return invoke<AgentSettings>("write_agent_settings", { settings });
+  return commands.writeAgentSettings(settings) as Promise<AgentSettings>;
 }
 
 // --- Integrations (MCP servers, skills, plugins) ---
@@ -1433,7 +1416,7 @@ export async function writeAgentSettings(settings: AgentSettings): Promise<Agent
  */
 export async function listIntegrations(cwds: string[] = []): Promise<IntegrationsList> {
   if (!isTauri()) return structuredClone(previewIntegrations);
-  return invoke<IntegrationsList>("list_integrations", { cwds });
+  return commands.listIntegrations(cwds);
 }
 
 /**
@@ -1443,7 +1426,7 @@ export async function listIntegrations(cwds: string[] = []): Promise<Integration
  */
 export async function listMcpServerStatus(): Promise<Record<string, McpServerStatus>> {
   const response = isTauri()
-    ? await invoke<{ data?: McpServerStatus[] }>("list_mcp_server_status")
+    ? await (commands.listMcpServerStatus() as Promise<{ data?: McpServerStatus[] }>)
     : previewMcpServerStatus();
   const byName: Record<string, McpServerStatus> = {};
   for (const entry of response.data ?? []) byName[entry.name] = entry;
@@ -1460,19 +1443,19 @@ export async function mcpOauthLogin(name: string): Promise<void> {
     previewMcpOauthLogin(name);
     return;
   }
-  await invoke("mcp_oauth_login", { name });
+  await commands.mcpOauthLogin(name);
 }
 
 /** Make a running Codex re-read `config.toml` without a restart. */
 export async function reloadMcpServers(): Promise<void> {
   if (!isTauri()) return;
-  await invoke("reload_mcp_servers");
+  await commands.reloadMcpServers();
 }
 
 /** Skills Codex would offer for these directories, for the `$` picker. */
 export async function listSkillsFor(cwds: string[]): Promise<SkillSummary[]> {
   if (!isTauri()) return structuredClone(previewIntegrations.skills);
-  const response = await invoke<{ data?: { skills?: SkillSummary[] }[] }>("list_skills_for", { cwds });
+  const response = await (commands.listSkillsFor(cwds) as Promise<{ data?: { skills?: SkillSummary[] }[] }>);
   const byName = new Map<string, SkillSummary>();
   for (const group of response.data ?? []) {
     for (const skill of group.skills ?? []) {
@@ -1488,13 +1471,13 @@ export async function setSkillEnabled(name: string, enabled: boolean): Promise<v
     if (skill) skill.enabled = enabled;
     return;
   }
-  await invoke("set_skill_enabled", { name, enabled });
+  await commands.setSkillEnabled(name, enabled);
 }
 
 /** Raw `SKILL.md` text for a skill; `path` is the directory or the file. */
 export async function readSkill(path: string): Promise<string> {
   if (!isTauri()) return previewReadSkill(path);
-  return invoke<string>("read_skill", { path });
+  return commands.readSkill(path);
 }
 
 /**
@@ -1507,13 +1490,13 @@ export async function createSkill(input: {
   body?: string | null;
 }): Promise<IntegrationsList> {
   if (!isTauri()) return previewCreateSkill(input);
-  return invoke<IntegrationsList>("create_skill", { ...input, body: input.body ?? null });
+  return commands.createSkill(input.name, input.description, input.body ?? null, null);
 }
 
 /** Delete a user-scope skill directory. Refused for anything outside `~/.codex/skills`. */
 export async function deleteSkill(path: string): Promise<IntegrationsList> {
   if (!isTauri()) return previewDeleteSkill(path);
-  return invoke<IntegrationsList>("delete_skill", { path });
+  return commands.deleteSkill(path, null);
 }
 
 /**
@@ -1542,17 +1525,15 @@ export async function saveMcpServer(input: {
     previewSaveMcpServer({ ...input, args, envKeys: input.envKeys ?? Object.keys(env) });
     return structuredClone(previewIntegrations);
   }
-  return invoke<IntegrationsList>("save_mcp_server", {
-    server: {
-      previousName: input.previousName ?? null,
-      name: input.name,
-      command: input.command ?? null,
-      args,
-      env,
-      envKeys: input.envKeys ?? null,
-      url: input.url ?? null,
-      bearerTokenEnvVar: input.bearerTokenEnvVar ?? null,
-    },
+  return commands.saveMcpServer({
+    previousName: input.previousName ?? null,
+    name: input.name,
+    command: input.command ?? null,
+    args,
+    env,
+    envKeys: input.envKeys ?? null,
+    url: input.url ?? null,
+    bearerTokenEnvVar: input.bearerTokenEnvVar ?? null,
   });
 }
 
@@ -1561,7 +1542,7 @@ export async function removeMcpServer(name: string): Promise<IntegrationsList> {
     previewIntegrations.mcpServers = previewIntegrations.mcpServers.filter((server) => server.name !== name);
     return structuredClone(previewIntegrations);
   }
-  return invoke<IntegrationsList>("remove_mcp_server", { name });
+  return commands.removeMcpServer(name);
 }
 
 export async function setMcpEnabled(name: string, enabled: boolean): Promise<IntegrationsList> {
@@ -1570,7 +1551,7 @@ export async function setMcpEnabled(name: string, enabled: boolean): Promise<Int
     if (server) server.enabled = enabled;
     return structuredClone(previewIntegrations);
   }
-  return invoke<IntegrationsList>("set_mcp_enabled", { name, enabled });
+  return commands.setMcpEnabled(name, enabled);
 }
 
 // --- History search and pagination (feature 11) ---
@@ -1586,7 +1567,7 @@ export async function searchThreads(
   generation: number,
 ): Promise<ThreadSearchPage> {
   if (!isTauri()) return previewSearchThreads(query, cursor, filter, generation);
-  return invoke<ThreadSearchPage>("search_threads", { query, cursor, filter, generation });
+  return commands.searchThreads(query, cursor, filter, generation);
 }
 
 /** Page through the app-server thread listing, forwarding its opaque cursor. */
@@ -1597,7 +1578,7 @@ export async function listThreadsPage(
   projectPath: string | null,
 ): Promise<ThreadsPage> {
   if (!isTauri()) return previewThreadsPage(cursor, pageSize, archived, projectPath);
-  return invoke<ThreadsPage>("list_threads_page", { cursor, pageSize, archived, projectPath });
+  return commands.listThreadsPage(cursor, pageSize, archived, projectPath);
 }
 
 // --- Message log (Advanced settings) ---
@@ -1608,16 +1589,16 @@ export async function listThreadsPage(
  */
 export async function setWireLogging(enabled: boolean): Promise<void> {
   if (!isTauri()) return;
-  await invoke("set_wire_logging", { enabled });
+  await commands.setWireLogging(enabled);
 }
 
 /** The buffered messages, oldest first. */
 export async function readWireLog(): Promise<WireMessage[]> {
   if (!isTauri()) return [...previewWireLog];
-  return invoke<WireMessage[]>("read_wire_log");
+  return commands.readWireLog();
 }
 
 export async function clearWireLog(): Promise<void> {
   if (!isTauri()) return;
-  await invoke("clear_wire_log");
+  await commands.clearWireLog();
 }

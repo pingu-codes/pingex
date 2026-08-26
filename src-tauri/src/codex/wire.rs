@@ -23,7 +23,7 @@ const MAX_ENTRIES: usize = 500;
 const MAX_PAYLOAD_BYTES: usize = 32_768;
 
 /// One JSON-RPC message, in whichever direction it travelled.
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WireMessage {
     /// Monotonic within a run; the frontend uses it as a list key.
@@ -40,6 +40,7 @@ pub(crate) struct WireMessage {
     pub(crate) thread_id: Option<String>,
     /// The message body: `params` for requests/notifications, `result` or
     /// `error` for responses.
+    #[specta(type = crate::util::json::Json)]
     pub(crate) payload: Value,
     /// True when `payload` is a preview of an oversized body.
     pub(crate) truncated: bool,
@@ -157,6 +158,7 @@ impl WireLog {
 
 /// Start or stop recording. Stopping clears whatever was captured.
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn set_wire_logging(
     enabled: bool,
     window: tauri::WebviewWindow,
@@ -167,6 +169,7 @@ pub(crate) fn set_wire_logging(
 
 /// The buffered messages, oldest first. Empty while logging is off.
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn read_wire_log(
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
@@ -175,6 +178,7 @@ pub(crate) fn read_wire_log(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn clear_wire_log(window: tauri::WebviewWindow, state: State<'_, AppState>) {
     state.ctx(&window).session.wire().clear();
 }

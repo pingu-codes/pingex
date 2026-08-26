@@ -847,7 +847,7 @@ async function stageSource(clientId: string, source: StageSource, insert: boolea
       mime: staged.mime,
       size: staged.size,
       path: staged.stagedPath,
-      kind: staged.kind,
+      kind: staged.kind as AttachmentPart["kind"],
       state: "ready",
     };
     updateAttachmentChip(editor, clientId, ready, chipHandlers);

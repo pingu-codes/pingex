@@ -22,7 +22,7 @@ pub(crate) mod indexer;
 /// How many items each search group returns per page.
 const SEARCH_PAGE: usize = 20;
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FileMatch {
     /// Path relative to the project root (folder) or the source name (file).
@@ -35,7 +35,7 @@ pub(crate) struct FileMatch {
     name_match: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ThreadMatch {
     thread_id: String,
@@ -43,7 +43,7 @@ pub(crate) struct ThreadMatch {
     cwd: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SearchGroup<T> {
     items: Vec<T>,
@@ -51,7 +51,7 @@ pub(crate) struct SearchGroup<T> {
     has_more: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkspaceResults {
     project_files: SearchGroup<FileMatch>,
@@ -133,6 +133,7 @@ fn spawn_index(app: AppHandle, database: Database, source: StoredProjectSource, 
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn save_project_instructions(
     project_path: String,
     instructions: String,
@@ -144,6 +145,7 @@ pub(crate) async fn save_project_instructions(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn list_project_sources(
     project_path: String,
     window: tauri::WebviewWindow,
@@ -154,6 +156,7 @@ pub(crate) async fn list_project_sources(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn add_project_source(
     project_path: String,
     source_path: String,
@@ -203,6 +206,7 @@ pub(crate) async fn add_project_source(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn remove_project_source(
     id: String,
     project_path: String,
@@ -216,6 +220,7 @@ pub(crate) async fn remove_project_source(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn reindex_source(
     id: String,
     app: AppHandle,
@@ -233,6 +238,7 @@ pub(crate) async fn reindex_source(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn search_workspace(
     project_path: String,
     query: String,

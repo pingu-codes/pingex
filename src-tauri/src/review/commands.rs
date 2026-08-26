@@ -14,6 +14,7 @@ use crate::storage::{self, ReviewDraft};
 use crate::AppState;
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn review_provider_status(repo_dir: String) -> Result<ProviderStatus, String> {
     tauri::async_runtime::spawn_blocking(move || provider_status(Path::new(&repo_dir)))
         .await
@@ -21,6 +22,7 @@ pub(crate) async fn review_provider_status(repo_dir: String) -> Result<ProviderS
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn review_list_prs(repo_dir: String) -> Result<Vec<PrSummary>, String> {
     tauri::async_runtime::spawn_blocking(move || list_open_prs(Path::new(&repo_dir)))
         .await
@@ -28,6 +30,7 @@ pub(crate) async fn review_list_prs(repo_dir: String) -> Result<Vec<PrSummary>, 
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn review_pr_detail(repo_dir: String, number: i64) -> Result<PrDetail, String> {
     tauri::async_runtime::spawn_blocking(move || fetch_pr_detail(Path::new(&repo_dir), number))
         .await
@@ -35,6 +38,7 @@ pub(crate) async fn review_pr_detail(repo_dir: String, number: i64) -> Result<Pr
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn review_check_fresh(
     repo_dir: String,
     number: i64,
@@ -49,6 +53,7 @@ pub(crate) async fn review_check_fresh(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn review_local_diff(
     repo_dir: String,
     base: String,
@@ -62,6 +67,7 @@ pub(crate) async fn review_local_diff(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn review_submit(
     repo_dir: String,
     number: i64,
@@ -77,6 +83,7 @@ pub(crate) async fn review_submit(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn review_reply(
     repo_dir: String,
     number: i64,
@@ -91,6 +98,7 @@ pub(crate) async fn review_reply(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn review_resolve_thread(
     repo_dir: String,
     thread_id: String,
@@ -101,6 +109,7 @@ pub(crate) async fn review_resolve_thread(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn review_save_draft(
     provider: String,
     repo: String,
@@ -123,6 +132,7 @@ pub(crate) async fn review_save_draft(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn review_load_draft(
     provider: String,
     repo: String,
@@ -135,6 +145,7 @@ pub(crate) async fn review_load_draft(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn review_delete_draft(
     provider: String,
     repo: String,

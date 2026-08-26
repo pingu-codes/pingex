@@ -13,7 +13,7 @@ use turso::{params, Database};
 use super::db;
 use crate::util::id::unique_suffix;
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct StoredSidebarFolder {
     pub(crate) id: String,
@@ -26,7 +26,7 @@ pub(crate) struct StoredSidebarFolder {
 }
 
 /// Where one project (root scope) or thread (project scope) was placed.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct StoredPlacement {
     pub(crate) item_key: String,
@@ -35,7 +35,7 @@ pub(crate) struct StoredPlacement {
     pub(crate) ordinal: i64,
 }
 
-#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SidebarLayout {
     pub(crate) folders: Vec<StoredSidebarFolder>,
@@ -43,7 +43,7 @@ pub(crate) struct SidebarLayout {
 }
 
 /// One entry of a parent's ordered children, as the frontend sends it back.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SiblingRef {
     /// "folder" | "item".

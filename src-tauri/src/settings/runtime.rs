@@ -14,7 +14,7 @@ use crate::{HomeContext, RuntimeConfig};
 
 /// The runtime identity as the settings dialog sees it: what is active now,
 /// what is saved as an override, and whether the two have diverged.
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RuntimeSettings {
     codex_home: String,
@@ -26,7 +26,7 @@ pub(crate) struct RuntimeSettings {
 }
 
 /// A saved home the launch picker offers.
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecentHomeInfo {
     path: String,
@@ -37,7 +37,7 @@ pub(crate) struct RecentHomeInfo {
 
 /// State the frontend reads once at startup to decide whether to show the home
 /// picker (non-explicit launch) or boot straight into the active home.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LaunchState {
     codex_home: String,

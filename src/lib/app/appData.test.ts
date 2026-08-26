@@ -6,6 +6,10 @@ const api: Project = {
   name: "API",
   path: "/projects/api",
   kind: "folder",
+  workspaceId: null,
+  archived: false,
+  instructions: "",
+  sources: [],
   pinned: false,
   expanded: true,
   threads: [],
@@ -18,6 +22,9 @@ const data: BootstrapData = {
   account: null,
   sideQuestions: [],
   subagents: [],
+  sections: [],
+  sectionsSupported: false,
+  sidebarLayout: { folders: [], placements: [] },
 };
 
 /** The threads the sidebar would render for the one project. */
@@ -71,6 +78,12 @@ describe("naming a freshly created thread", () => {
       updatedAt: 1,
       status: "idle",
       pinned: false,
+      parentThreadId: null,
+      agentNickname: null,
+      agentRole: null,
+      projectId: null,
+      sectionId: null,
+      subagentCount: 0,
     });
     applyData(caughtUp);
 

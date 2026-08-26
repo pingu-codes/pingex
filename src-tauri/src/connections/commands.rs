@@ -14,6 +14,7 @@ use super::Connection;
 use crate::AppState;
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn list_connections(
     app: AppHandle,
     window: tauri::WebviewWindow,
@@ -26,6 +27,7 @@ pub(crate) async fn list_connections(
 /// Re-poll the relay for fresh health. Identical to `list_connections` today;
 /// kept as a distinct command so the UI's "refresh" affordance reads clearly.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn refresh_connections(
     app: AppHandle,
     window: tauri::WebviewWindow,
@@ -36,6 +38,7 @@ pub(crate) async fn refresh_connections(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn rename_connection(
     client_id: String,
     name: String,
@@ -56,6 +59,7 @@ pub(crate) async fn rename_connection(
 /// Safe action: forget the local record. The credential is untouched, so an
 /// active device reappears on the next refresh with its default name.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn disconnect_connection(
     client_id: String,
     window: tauri::WebviewWindow,
@@ -70,6 +74,7 @@ pub(crate) async fn disconnect_connection(
 /// a missing/already-revoked client is treated as success) and drop the local
 /// record.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn revoke_connection(
     client_id: String,
     app: AppHandle,

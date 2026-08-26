@@ -24,7 +24,7 @@ mod config_doc;
 pub(crate) mod skills_fs;
 
 /// Everything the Integrations settings section needs in one call.
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct IntegrationsList {
     pub(crate) mcp_servers: Vec<McpServerSummary>,
@@ -38,7 +38,7 @@ pub(crate) struct IntegrationsList {
 
 /// Redacted view of one `[mcp_servers.<name>]` entry. Never carries secret
 /// values — only the names of environment variables / bearer tokens.
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct McpServerSummary {
     pub(crate) name: String,
@@ -61,7 +61,7 @@ pub(crate) struct McpServerSummary {
 /// One skill as Codex resolves it. Unlike the directory scrape this replaced,
 /// every field here comes from Codex itself, so descriptions and the real
 /// enabled state are available.
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillSummary {
     /// Possibly namespaced, e.g. `browser-use:browser`.
@@ -77,7 +77,7 @@ pub struct SkillSummary {
     pub short_description: Option<String>,
 }
 
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PluginSummary {
     pub(crate) name: String,

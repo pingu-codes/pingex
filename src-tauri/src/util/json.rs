@@ -55,3 +55,30 @@ mod tests {
         assert!(arr_or_empty(&value, "anything").is_empty());
     }
 }
+
+/// A `serde_json::Value` crossing the IPC boundary. specta's own `Value`
+/// impl recurses without bound during export (rc.25), so this wrapper is
+/// exported as TypeScript `unknown`; the frontend narrows it with its own
+/// hand-written types. Use `#[specta(type = Json)]` on struct fields.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct Json(pub Value);
+
+impl specta::Type for Json {
+    fn definition(_types: &mut specta::Types) -> specta::datatype::DataType {
+        specta::datatype::DataType::Reference(specta_typescript::define("unknown"))
+    }
+}
+
+impl std::ops::Deref for Json {
+    type Target = Value;
+    fn deref(&self) -> &Value {
+        &self.0
+    }
+}
+
+impl From<Value> for Json {
+    fn from(value: Value) -> Self {
+        Json(value)
+    }
+}

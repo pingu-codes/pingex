@@ -9,7 +9,7 @@ use super::db;
 
 const SUPPORTED_KEY: &str = "thread_sections_supported";
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct StoredThreadSection {
     pub(crate) id: String,

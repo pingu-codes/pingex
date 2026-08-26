@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 const MAX_RECENT_HOMES: usize = 10;
 
 /// A Codex home the user has booted into before, newest first.
-#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct RecentHome {
     pub(crate) path: String,
@@ -19,7 +19,7 @@ pub(crate) const DEFAULT_QUICK_SHORTCUT: &str = "CmdOrCtrl+Shift+Space";
 
 /// User-editable runtime overrides saved from the settings dialog. They live
 /// outside CODEX_HOME because they may themselves relocate CODEX_HOME.
-#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct RuntimeOverrides {
     pub(crate) codex_home: Option<String>,

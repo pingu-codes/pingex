@@ -4,13 +4,14 @@
 //! diff, so the sidebar re-renders from a single source of truth. They rebuild
 //! from cache, since none of them change anything Codex knows about.
 
-use serde_json::{json, Value};
+use serde_json::json;
 use std::fs;
 use tauri::{AppHandle, State};
 
 use super::bootstrap::{bootstrap_cached, bootstrap_inner};
 use super::types::BootstrapData;
 use crate::storage::{self, SiblingRef, Store, StoredProject};
+use crate::util::json::Json;
 use crate::AppState;
 
 /// The stored entry for `path`, inserting a default one if it is new.
@@ -35,6 +36,7 @@ fn stored_project_mut<'a>(store: &'a mut Store, path: &str) -> &'a mut StoredPro
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn bootstrap(
     app: AppHandle,
     window: tauri::WebviewWindow,
@@ -48,32 +50,37 @@ pub(crate) async fn bootstrap(
 /// pushes `account/rateLimits/updated` during turns; this is the cold-start
 /// read so the usage meter is populated before the first turn.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn read_account_rate_limits(
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     ctx.session
         .request(&app, "account/rateLimits/read", json!({}))
         .await
+        .map(Json)
 }
 
 /// Per-thread usage estimate: `account/usage/read` scoped by `threadId`.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn read_thread_usage(
     thread_id: String,
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     ctx.session
         .request(&app, "account/usage/read", json!({"threadId": thread_id}))
         .await
+        .map(Json)
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn add_project(
     path: String,
     window: tauri::WebviewWindow,
@@ -92,6 +99,7 @@ pub(crate) async fn add_project(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn rename_project(
     path: String,
     name: String,
@@ -122,6 +130,7 @@ pub(crate) async fn rename_project(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn set_project_pinned(
     path: String,
     pinned: bool,
@@ -136,6 +145,7 @@ pub(crate) async fn set_project_pinned(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn set_project_archived(
     path: String,
     archived: bool,
@@ -151,6 +161,7 @@ pub(crate) async fn set_project_archived(
 
 /// Persist a sidebar-only preference without rebuilding the project tree.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn set_project_expanded(
     path: String,
     expanded: bool,
@@ -162,6 +173,7 @@ pub(crate) async fn set_project_expanded(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn create_sidebar_folder(
     scope: String,
     parent_id: Option<String>,
@@ -179,6 +191,7 @@ pub(crate) async fn create_sidebar_folder(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn rename_sidebar_folder(
     id: String,
     name: String,
@@ -196,6 +209,7 @@ pub(crate) async fn rename_sidebar_folder(
 
 /// Remove a folder; its contents move up to the folder's parent.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn delete_sidebar_folder(
     id: String,
     window: tauri::WebviewWindow,
@@ -208,6 +222,7 @@ pub(crate) async fn delete_sidebar_folder(
 
 /// Persist a sidebar-only preference without rebuilding the project tree.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn set_sidebar_folder_expanded(
     id: String,
     expanded: bool,
@@ -222,6 +237,7 @@ pub(crate) async fn set_sidebar_folder_expanded(
 /// `siblings` as the full order of that parent's children. The frontend owns
 /// the tree, so it sends the resulting order rather than an index.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn place_sidebar_item(
     scope: String,
     item: SiblingRef,
@@ -252,6 +268,7 @@ pub(crate) async fn place_sidebar_item(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn set_thread_pinned(
     thread_id: String,
     pinned: bool,
@@ -269,6 +286,7 @@ pub(crate) async fn set_thread_pinned(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn remove_project(
     path: String,
     app: AppHandle,

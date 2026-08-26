@@ -3,7 +3,7 @@ use std::path::Path;
 
 use crate::util::walk::{walker, MAX_WALKED_FILES};
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FileHit {
     /// Path relative to the searched root.

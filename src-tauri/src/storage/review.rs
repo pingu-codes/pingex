@@ -9,7 +9,7 @@ use turso::{params, Database};
 use super::db;
 use crate::util::time::unix_secs;
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ReviewDraft {
     pub(crate) head_sha: String,

@@ -25,6 +25,7 @@ use crate::storage;
 use crate::AppState;
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn git_repo_info(dir: String) -> Result<GitRepoInfo, String> {
     tauri::async_runtime::spawn_blocking(move || read_repo_info(Path::new(&dir)))
         .await
@@ -32,6 +33,7 @@ pub(crate) async fn git_repo_info(dir: String) -> Result<GitRepoInfo, String> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn git_status(dir: String) -> Result<GitStatus, String> {
     tauri::async_runtime::spawn_blocking(move || read_status(Path::new(&dir)))
         .await
@@ -39,6 +41,7 @@ pub(crate) async fn git_status(dir: String) -> Result<GitStatus, String> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn git_worktrees(
     repo_dir: String,
     window: tauri::WebviewWindow,
@@ -52,6 +55,7 @@ pub(crate) async fn git_worktrees(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn git_recent_commits(
     dir: String,
     limit: Option<usize>,
@@ -63,6 +67,7 @@ pub(crate) async fn git_recent_commits(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn git_branches(
     dir: String,
     limit: Option<usize>,
@@ -74,6 +79,7 @@ pub(crate) async fn git_branches(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn git_worktree_add(
     repo_dir: String,
     request: WorktreeAddRequest,
@@ -133,6 +139,7 @@ pub(crate) async fn git_worktree_add(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn git_worktree_remove(
     repo_dir: String,
     path: String,
@@ -168,6 +175,7 @@ pub(crate) async fn git_worktree_remove(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn git_worktree_prune(repo_dir: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let repo = PathBuf::from(&repo_dir);
@@ -186,6 +194,7 @@ pub(crate) async fn git_worktree_prune(repo_dir: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn git_worktree_lock(
     repo_dir: String,
     path: String,
@@ -215,6 +224,7 @@ pub(crate) async fn git_worktree_lock(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn git_worktree_unlock(repo_dir: String, path: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let repo = PathBuf::from(&repo_dir);
@@ -233,6 +243,7 @@ pub(crate) async fn git_worktree_unlock(repo_dir: String, path: String) -> Resul
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn git_changes_summary(
     dir: String,
     window: tauri::WebviewWindow,
@@ -246,6 +257,7 @@ pub(crate) async fn git_changes_summary(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn git_file_diff(
     dir: String,
     base: String,
@@ -267,6 +279,7 @@ pub(crate) async fn git_file_diff(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn git_worktree_handoff_preflight(
     worktree_path: String,
     target_dir: String,
@@ -289,6 +302,7 @@ pub(crate) async fn git_worktree_handoff_preflight(
 /// Check the temporary worktree's branch out in `target_dir` and remove the
 /// worktree, so the thread can continue in the local checkout.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn git_worktree_handoff(
     worktree_path: String,
     target_dir: String,

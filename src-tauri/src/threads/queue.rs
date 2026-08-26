@@ -16,6 +16,7 @@
 use serde_json::Value;
 use tauri::{AppHandle, State};
 
+use crate::util::json::Json;
 use crate::codex::compat::{error_payload, Feature};
 use crate::codex::requests;
 use crate::AppState;
@@ -53,83 +54,89 @@ async fn queue_request(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn queue_add(
     thread_id: String,
-    input: Value,
+    input: Json,
     client_user_message_id: String,
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
-    let request = requests::queue_add(&thread_id, input, &client_user_message_id);
-    queue_request(&app, &ctx, &thread_id, request).await
+    let request = requests::queue_add(&thread_id, input.0, &client_user_message_id);
+    queue_request(&app, &ctx, &thread_id, request).await.map(Json)
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn queue_list(
     thread_id: String,
     cursor: Option<String>,
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     let request = requests::queue_list(&thread_id, cursor.as_deref());
-    queue_request(&app, &ctx, &thread_id, request).await
+    queue_request(&app, &ctx, &thread_id, request).await.map(Json)
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn queue_update(
     thread_id: String,
     queued_submission_id: String,
-    input: Value,
+    input: Json,
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
-    let request = requests::queue_update(&thread_id, &queued_submission_id, input);
-    queue_request(&app, &ctx, &thread_id, request).await
+    let request = requests::queue_update(&thread_id, &queued_submission_id, input.0);
+    queue_request(&app, &ctx, &thread_id, request).await.map(Json)
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn queue_delete(
     thread_id: String,
     queued_submission_id: String,
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     let request = requests::queue_delete(&thread_id, &queued_submission_id);
-    queue_request(&app, &ctx, &thread_id, request).await
+    queue_request(&app, &ctx, &thread_id, request).await.map(Json)
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn queue_reorder(
     thread_id: String,
     queued_submission_ids: Vec<String>,
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     let request = requests::queue_reorder(&thread_id, &queued_submission_ids);
-    queue_request(&app, &ctx, &thread_id, request).await
+    queue_request(&app, &ctx, &thread_id, request).await.map(Json)
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn queue_start(
     thread_id: String,
     queued_submission_id: Option<String>,
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     let request = requests::queue_start(&thread_id, queued_submission_id.as_deref());
-    queue_request(&app, &ctx, &thread_id, request).await
+    queue_request(&app, &ctx, &thread_id, request).await.map(Json)
 }
 
 #[cfg(test)]

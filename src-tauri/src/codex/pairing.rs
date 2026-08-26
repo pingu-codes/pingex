@@ -5,15 +5,17 @@
 use serde_json::{json, Value};
 use tauri::{AppHandle, State};
 
+use crate::util::json::Json;
 use crate::util::json::str_at;
 use crate::AppState;
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn remote_pairing_start(
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     ctx.session
         .request(&app, "remoteControl/enable", json!({}))
@@ -31,21 +33,22 @@ pub(crate) async fn remote_pairing_start(
         .min_dimensions(220, 220)
         .quiet_zone(true)
         .build();
-    Ok(json!({
+    Ok(Json(json!({
         "qrSvg": qr_svg,
         "pairingCode": pairing_code,
         "manualPairingCode": response.get("manualPairingCode").cloned().unwrap_or(Value::Null),
         "expiresAt": response.get("expiresAt").cloned().unwrap_or(Value::Null),
-    }))
+    })))
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn remote_pairing_status(
     pairing_code: String,
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     ctx.session
         .request(
@@ -53,5 +56,5 @@ pub(crate) async fn remote_pairing_status(
             "remoteControl/pairing/status",
             json!({"pairingCode": pairing_code}),
         )
-        .await
+        .await.map(Json)
 }

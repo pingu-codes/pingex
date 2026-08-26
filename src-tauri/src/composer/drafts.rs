@@ -68,6 +68,7 @@ fn remove_draft(codex_home: &Path, project: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn save_draft(
     project: String,
     content: String,
@@ -79,6 +80,7 @@ pub(crate) fn save_draft(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn load_draft(
     project: String,
     window: tauri::WebviewWindow,
@@ -89,6 +91,7 @@ pub(crate) fn load_draft(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn delete_draft(
     project: String,
     window: tauri::WebviewWindow,

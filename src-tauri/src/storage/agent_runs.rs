@@ -25,7 +25,7 @@ pub(crate) const STATUS_KILLED: &str = "killed";
 pub(crate) const STATUS_ORPHANED: &str = "orphaned";
 
 /// One spawned agent, as the GUI sees it.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AgentRunRow {
     pub(crate) run_id: String,

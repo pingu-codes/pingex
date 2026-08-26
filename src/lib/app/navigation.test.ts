@@ -18,6 +18,10 @@ const api: Project = {
   name: "API",
   path: "/projects/api",
   kind: "folder",
+  workspaceId: null,
+  archived: false,
+  instructions: "",
+  sources: [],
   pinned: false,
   expanded: true,
   threads: [
@@ -28,6 +32,12 @@ const api: Project = {
       updatedAt: 0,
       status: "idle",
       pinned: false,
+      parentThreadId: null,
+      agentNickname: null,
+      agentRole: null,
+      projectId: null,
+      sectionId: null,
+      subagentCount: 0,
     },
   ],
 };
@@ -39,6 +49,9 @@ const data: BootstrapData = {
   account: null,
   sideQuestions: [],
   subagents: [],
+  sections: [],
+  sectionsSupported: false,
+  sidebarLayout: { folders: [], placements: [] },
 };
 
 describe("navigation", () => {
@@ -93,6 +106,12 @@ describe("navigation", () => {
       updatedAt: 0,
       status: "idle",
       pinned: false,
+      parentThreadId: null,
+      agentNickname: null,
+      agentRole: null,
+      projectId: null,
+      sectionId: null,
+      subagentCount: 0,
     });
     appData.data = withWorktreeThread;
 

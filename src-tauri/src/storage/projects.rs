@@ -7,7 +7,7 @@ use turso::{params, Database};
 
 use super::db;
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct StoredProject {
     pub(crate) path: String,
@@ -19,7 +19,7 @@ pub(crate) struct StoredProject {
     pub(crate) archived: bool,
 }
 
-#[derive(Default, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Default, Debug, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct Store {
     pub(crate) projects: Vec<StoredProject>,

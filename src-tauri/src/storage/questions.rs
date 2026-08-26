@@ -111,7 +111,7 @@ pub(crate) async fn read_user_input_answers(
     .await
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SideQuestion {
     pub side_thread_id: String,

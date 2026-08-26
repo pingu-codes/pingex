@@ -214,7 +214,7 @@ pub(crate) struct SpawnArgs {
     pub(crate) files: Vec<String>,
 }
 
-#[derive(Default, Deserialize)]
+#[derive(Default, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", default)]
 struct RawSpawnArgs {
     name: String,

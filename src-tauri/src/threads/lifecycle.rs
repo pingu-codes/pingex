@@ -8,6 +8,7 @@
 use serde_json::{json, Value};
 use tauri::{AppHandle, State};
 
+use crate::util::json::Json;
 use crate::codex::compat::{method_unsupported, Feature};
 use crate::codex::requests;
 use crate::projects::{bootstrap_cached, bootstrap_inner, thread_search_row, BootstrapData};
@@ -19,6 +20,7 @@ use crate::AppState;
 const ARCHIVED_PAGE: usize = 200;
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn rename_thread(
     thread_id: String,
     name: String,
@@ -48,6 +50,7 @@ pub(crate) async fn rename_thread(
 /// model's context. Compaction runs as a turn, so the result streams back as
 /// ordinary thread events; only the cached projection needs clearing here.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn compact_thread(
     thread_id: String,
     app: AppHandle,
@@ -77,16 +80,18 @@ pub(crate) async fn compact_thread(
 /// `turn/started`, so this is the only place the app learns the turn's id, and
 /// Stop needs it to name the turn it is interrupting.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn start_review(
     thread_id: String,
-    target: Option<Value>,
+    target: Option<Json>,
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     ctx.session.ensure_resumed(&app, &thread_id).await?;
     let target = target
+        .map(|target| target.0)
         .filter(|target| target.is_object())
         .unwrap_or_else(|| json!({"type": "uncommittedChanges"}));
     let response = ctx
@@ -100,12 +105,14 @@ pub(crate) async fn start_review(
     response
         .get("turn")
         .cloned()
+        .map(Json)
         .ok_or_else(|| "Codex returned no turn data".to_string())
 }
 
 /// Set or update the goal for a long-running task (`/goal <objective>`).
 /// Only the fields given change; the app-server keeps the rest of the goal.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn thread_goal_set(
     thread_id: String,
     objective: Option<String>,
@@ -113,7 +120,7 @@ pub(crate) async fn thread_goal_set(
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     ctx.session.ensure_resumed(&app, &thread_id).await?;
     let request = requests::thread_goal_set(&thread_id, objective.as_deref(), status.as_deref());
@@ -124,17 +131,19 @@ pub(crate) async fn thread_goal_set(
     response
         .get("goal")
         .cloned()
+        .map(Json)
         .ok_or_else(|| "Codex returned no goal".to_string())
 }
 
 /// Read the thread's goal, if one is set (`/goal` with no argument).
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn thread_goal_get(
     thread_id: String,
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     ctx.session.ensure_resumed(&app, &thread_id).await?;
     let request = requests::thread_goal_get(&thread_id);
@@ -142,11 +151,12 @@ pub(crate) async fn thread_goal_get(
         .session
         .request(&app, request.method, request.params)
         .await?;
-    Ok(response.get("goal").cloned().unwrap_or(Value::Null))
+    Ok(Json(response.get("goal").cloned().unwrap_or(Value::Null)))
 }
 
 /// Drop the thread's goal (`/goal clear`).
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn thread_goal_clear(
     thread_id: String,
     app: AppHandle,
@@ -164,6 +174,7 @@ pub(crate) async fn thread_goal_clear(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn invalidate_thread_cache(
     thread_id: String,
     window: tauri::WebviewWindow,
@@ -186,6 +197,7 @@ async fn remove_thread_locally(ctx: &crate::HomeContext, thread_id: &str) -> Res
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn archive_thread(
     thread_id: String,
     app: AppHandle,
@@ -205,6 +217,7 @@ pub(crate) async fn archive_thread(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn unarchive_thread(
     thread_id: String,
     app: AppHandle,
@@ -223,6 +236,7 @@ pub(crate) async fn unarchive_thread(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn delete_thread(
     thread_id: String,
     app: AppHandle,
@@ -246,11 +260,12 @@ pub(crate) async fn delete_thread(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn list_archived_threads(
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     let response = ctx
         .session
@@ -260,7 +275,7 @@ pub(crate) async fn list_archived_threads(
         )
         .await?;
     index_archived_search(&ctx, &response).await;
-    Ok(response)
+    Ok(Json(response))
 }
 
 /// Mirror an archived `thread/list` response into the local search index so
@@ -275,29 +290,31 @@ async fn index_archived_search(ctx: &crate::HomeContext, response: &Value) {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn list_models(
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     ctx
         .session
         .send(&app, requests::model_list(100, true))
-        .await
+        .await.map(Json)
 }
 
 /// Drop the last `num_turns` turns from a thread, in place. Unlike forking,
 /// this keeps the thread id — which is what editing a past message wants: the
 /// conversation rewinds instead of branching into a second sidebar entry.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn rollback_thread(
     thread_id: String,
     num_turns: u32,
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     ctx.session.ensure_resumed(&app, &thread_id).await?;
     let response = ctx
@@ -317,7 +334,7 @@ pub(crate) async fn rollback_thread(
     storage::retain_thread_turns(&ctx.database(), &thread_id, &kept).await?;
     storage::retain_turn_settings(&ctx.database(), &thread_id, &kept).await?;
     storage::retain_agent_runs(&ctx.database(), &thread_id, &kept).await?;
-    Ok(thread)
+    Ok(Json(thread))
 }
 
 /// Replace the thread's durable history with the prefix before `before_turn_id`
@@ -325,6 +342,7 @@ pub(crate) async fn rollback_thread(
 /// The response carries no turns, so the caller supplies `kept_turn_ids` for
 /// the same journal pruning `rollback_thread` derives from its response.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn revert_thread(
     thread_id: String,
     before_turn_id: String,
@@ -332,7 +350,7 @@ pub(crate) async fn revert_thread(
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     ctx.session.ensure_resumed(&app, &thread_id).await?;
     // Codex 0.146.0 has no `thread/revert`, and 0.149 refuses it for threads
@@ -364,7 +382,7 @@ pub(crate) async fn revert_thread(
     storage::retain_thread_turns(&ctx.database(), &thread_id, &kept_turn_ids).await?;
     storage::retain_turn_settings(&ctx.database(), &thread_id, &kept_turn_ids).await?;
     storage::retain_agent_runs(&ctx.database(), &thread_id, &kept_turn_ids).await?;
-    Ok(response)
+    Ok(Json(response))
 }
 
 fn turn_ids(thread: &Value) -> Vec<String> {
@@ -375,6 +393,7 @@ fn turn_ids(thread: &Value) -> Vec<String> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn fork_thread(
     thread_id: String,
     before_turn_id: Option<String>,
@@ -383,7 +402,7 @@ pub(crate) async fn fork_thread(
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     let mut params = json!({"threadId": thread_id});
     // An explicit cwd is the existing "Move to worktree" operation. It must
@@ -424,5 +443,5 @@ pub(crate) async fn fork_thread(
             }
         }
     }
-    Ok(thread)
+    Ok(Json(thread))
 }

@@ -109,12 +109,14 @@ pub fn delete_skill_on_disk(codex_home: &Path, path: &str) -> Result<(), String>
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn read_skill(path: String) -> Result<String, String> {
     let file = skill_file(&path)?;
     fs::read_to_string(&file).map_err(|e| format!("Could not read {}: {e}", file.display()))
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn create_skill(
     name: String,
     description: String,
@@ -131,6 +133,7 @@ pub(crate) async fn create_skill(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn delete_skill(
     path: String,
     cwds: Option<Vec<String>>,

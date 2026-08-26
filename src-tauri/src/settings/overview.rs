@@ -4,7 +4,7 @@ use std::path::Path;
 
 /// A single MCP server declared in `config.toml`. We only surface the name and
 /// launch command — never secrets like `env` blocks or headers.
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct McpServerInfo {
     pub(crate) name: String,
@@ -14,7 +14,7 @@ pub(crate) struct McpServerInfo {
 /// A skill as Codex resolves it. Supplied by the caller rather than scraped off
 /// disk — Codex looks in several roots and honours enable/disable state, so a
 /// `read_dir` of `CODEX_HOME/skills` disagreed with the Integrations tab.
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SkillInfo {
     pub(crate) name: String,
@@ -24,7 +24,7 @@ pub(crate) struct SkillInfo {
 /// on the homepage dashboard. Everything is best-effort: a missing or
 /// unparseable `config.toml`, or an unreachable Codex, simply yields empty
 /// fields rather than an error.
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct HomeOverview {
     pub(crate) codex_home: String,

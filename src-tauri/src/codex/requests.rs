@@ -8,6 +8,7 @@
 //! it there — the protocol only tells you a field is missing at runtime.
 
 use serde::Deserialize;
+use crate::util::json::Json;
 use serde_json::{json, Value};
 
 /// One outbound JSON-RPC call: the method name and its `params`.
@@ -154,16 +155,16 @@ pub fn model_list(limit: u32, include_hidden: bool) -> Request {
 
 /// Per-turn overrides the composer can set. All optional: an absent field means
 /// "keep whatever the thread already resolved to".
-#[derive(Default, Deserialize, Debug, Clone)]
+#[derive(Default, Deserialize, Debug, Clone, specta::Type)]
 #[serde(rename_all = "camelCase", default)]
 pub struct TurnOptions {
     pub model: Option<String>,
     pub effort: Option<String>,
     pub approval_policy: Option<String>,
     pub sandbox_mode: Option<String>,
-    pub collaboration_mode: Option<Value>,
-    pub subagent_model_policy: Option<Value>,
-    pub subagent_reasoning_effort_policy: Option<Value>,
+    pub collaboration_mode: Option<Json>,
+    pub subagent_model_policy: Option<Json>,
+    pub subagent_reasoning_effort_policy: Option<Json>,
     /// What the composer resolved this turn to run on, including the defaults
     /// it did not have to override. Recorded locally so the transcript can say
     /// what produced each reply; never sent to Codex.
@@ -200,13 +201,13 @@ pub fn apply_turn_options(params: &mut Value, options: TurnOptions) {
         params["sandboxPolicy"] = json!({"type": sandbox_type});
     }
     if let Some(mode) = options.collaboration_mode {
-        params["collaborationMode"] = mode;
+        params["collaborationMode"] = mode.0;
     }
     if let Some(policy) = options.subagent_model_policy {
-        params["subagentModelPolicy"] = policy;
+        params["subagentModelPolicy"] = policy.0;
     }
     if let Some(policy) = options.subagent_reasoning_effort_policy {
-        params["subagentReasoningEffortPolicy"] = policy;
+        params["subagentReasoningEffortPolicy"] = policy.0;
     }
 }
 

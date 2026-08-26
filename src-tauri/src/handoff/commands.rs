@@ -8,6 +8,7 @@ use crate::AppState;
 
 /// Build the reproducible `codex resume` command for the running home.
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn handoff_command(
     thread_id: String,
     cwd: String,
@@ -26,6 +27,7 @@ pub(crate) fn handoff_command(
 
 /// Build the shareable `codex://` link for the running home.
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn handoff_thread_link(
     thread_id: String,
     cwd: String,
@@ -45,12 +47,14 @@ pub(crate) fn handoff_thread_link(
 
 /// Copy text to the system clipboard.
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn handoff_copy(text: String) -> Result<(), String> {
     copy_to_clipboard(&text)
 }
 
 /// Open Terminal.app and run the handoff command.
 #[tauri::command]
+#[specta::specta]
 pub(crate) fn handoff_launch_terminal(command: String) -> Result<(), String> {
     launch_terminal(&command)
 }

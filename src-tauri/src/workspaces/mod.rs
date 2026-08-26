@@ -19,7 +19,7 @@ use hub::{materialize_hub, METADATA_DIR};
 
 /// What a turn needs to run inside a workspace: where to start, which roots the
 /// sandbox may touch, and the prose describing the layout to the model.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkspaceRuntime {
     pub(crate) workspace_id: String,

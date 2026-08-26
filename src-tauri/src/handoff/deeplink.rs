@@ -36,7 +36,7 @@ fn homes_match(a: &Path, b: &Path) -> bool {
 /// Payload emitted to the frontend when a `codex://` link arrives. The frontend
 /// uses `home_matches`/`home_exists` to decide between navigating, offering a
 /// deliberate home switch, or showing an actionable error.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct HandoffOpen {
     /// `thread` or `new`.

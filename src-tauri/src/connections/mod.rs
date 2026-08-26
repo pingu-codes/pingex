@@ -28,7 +28,7 @@ mod store;
 
 /// Locally-persisted metadata for a paired device. Protocol tokens are never
 /// stored here — only display metadata the frontend needs.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DeviceRecord {
     pub(crate) client_id: String,
@@ -53,7 +53,7 @@ pub(crate) struct ProtocolClient {
 
 /// A merged connection returned to the frontend. Health is derived on the
 /// frontend from `last_seen`; the backend stays presentation-free.
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Connection {
     pub(crate) client_id: String,

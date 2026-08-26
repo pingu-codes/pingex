@@ -13,7 +13,7 @@ use crate::storage::{
     StoredWorkspaceMember,
 };
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ThreadSummary {
     pub(crate) id: String,
@@ -27,24 +27,21 @@ pub(crate) struct ThreadSummary {
     pub(crate) agent_role: Option<String>,
     /// The app-server project Codex has the thread filed under, when it has
     /// one (Codex ≥0.149 and the thread was assigned). See `projects::server`.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) project_id: Option<String>,
     /// The thread section it sits in (Codex ≥0.149). See `threads::sections`.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) section_id: Option<String>,
     pub(crate) subagent_count: usize,
 }
 
 /// One row in the sidebar: a real folder, a Codex-managed worktree, or a
 /// workspace hub standing in for several repositories.
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Project {
     pub(crate) path: String,
     pub(crate) name: String,
     /// "folder" | "worktree" | "multiProject".
     pub(crate) kind: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) workspace_id: Option<String>,
     pub(crate) pinned: bool,
     pub(crate) archived: bool,
@@ -56,11 +53,11 @@ pub(crate) struct Project {
     pub(crate) instructions: String,
     /// Attached, indexable folder/file sources for this project.
     pub(crate) sources: Vec<StoredProjectSource>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub(crate) members: Vec<WorkspaceMember>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkspaceMember {
     pub(crate) source_path: String,
@@ -71,14 +68,14 @@ pub(crate) struct WorkspaceMember {
     pub(crate) available: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub(crate) struct Account {
     pub(crate) label: String,
     pub(crate) plan: Option<String>,
     pub(crate) kind: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct BootstrapData {
     pub(crate) codex_home: String,

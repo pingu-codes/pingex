@@ -12,6 +12,7 @@ use crate::AppState;
 /// previous app launches are included; live state arrives separately on
 /// `codex:agentRun`.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn list_agent_runs(
     thread_id: String,
     window: tauri::WebviewWindow,
@@ -22,6 +23,7 @@ pub(crate) async fn list_agent_runs(
 
 /// Stop a running agent from the GUI.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn kill_agent_run(
     run_id: String,
     app: AppHandle,
@@ -41,6 +43,7 @@ pub(crate) async fn kill_agent_run(
 
 /// The thread id to open when the user clicks into an agent.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn open_agent_thread(
     run_id: String,
     window: tauri::WebviewWindow,

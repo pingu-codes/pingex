@@ -10,6 +10,7 @@
 use serde_json::{json, Value};
 use tauri::{AppHandle, State};
 
+use crate::util::json::Json;
 use crate::codex::requests;
 use crate::storage::{self, JournaledItem, TurnSettings, UserInputAnswer};
 use crate::util::json::str_at;
@@ -20,12 +21,13 @@ use crate::AppState;
 const RESOLVED_SETTINGS: [&str; 2] = ["subagentModelPolicy", "subagentReasoningEffortPolicy"];
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn read_thread(
     thread_id: String,
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<Value, String> {
+) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     // Resuming subscribes the app to live updates. Keep this best-effort so a
     // cached thread remains readable while Codex is unavailable.
@@ -37,7 +39,7 @@ pub(crate) async fn read_thread(
         storage::read_thread_detail(&ctx.database(), &thread_id, source_updated_at).await?
     {
         merge_local_items(&ctx, &thread_id, &mut detail).await?;
-        return Ok(with_thread_settings(detail, resume.as_ref()));
+        return Ok(Json(with_thread_settings(detail, resume.as_ref())));
     }
     let response = read_when_rollout_settles(&ctx, &app, &thread_id).await?;
     let mut detail = response
@@ -48,7 +50,7 @@ pub(crate) async fn read_thread(
     // items are layered on at read time so they cannot go stale inside it.
     storage::write_thread_detail(&ctx.database(), &thread_id, source_updated_at, &detail).await?;
     merge_local_items(&ctx, &thread_id, &mut detail).await?;
-    Ok(with_thread_settings(detail, resume.as_ref()))
+    Ok(Json(with_thread_settings(detail, resume.as_ref())))
 }
 
 /// Codex creates a thread's rollout file lazily, and only writes its meta line

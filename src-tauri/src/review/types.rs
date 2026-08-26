@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Availability and auth state of the active review provider.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProviderStatus {
     /// The `gh` executable is on PATH.
@@ -18,7 +18,7 @@ pub(crate) struct ProviderStatus {
 }
 
 /// A single open pull request in the PR picker.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PrSummary {
     pub(crate) number: i64,
@@ -34,7 +34,7 @@ pub(crate) struct PrSummary {
 }
 
 /// One commit on the PR branch.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PrCommit {
     pub(crate) oid: String,
@@ -45,7 +45,7 @@ pub(crate) struct PrCommit {
 
 /// One line inside a parsed diff hunk, carrying stable old/new line numbers so
 /// the UI can anchor an inline comment to an exact side and line.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DiffLine {
     /// `context`, `add`, or `del`.
@@ -58,7 +58,7 @@ pub(crate) struct DiffLine {
 }
 
 /// A single `@@` hunk of a file's diff with parsed lines and stable anchors.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DiffHunk {
     pub(crate) header: String,
@@ -70,7 +70,7 @@ pub(crate) struct DiffHunk {
 }
 
 /// One changed file in a PR (or a local branch diff).
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PrFile {
     pub(crate) path: String,
@@ -89,7 +89,7 @@ pub(crate) struct PrFile {
 
 /// One review or conversation comment, flattened; the frontend groups inline
 /// comments into threads by `thread_id`.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PrComment {
     /// REST `databaseId`; 0 for a conversation comment with no numeric id.
@@ -110,7 +110,7 @@ pub(crate) struct PrComment {
 }
 
 /// A compact rollup of the head commit's status checks.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ChecksSummary {
     pub(crate) total: i64,
@@ -120,7 +120,7 @@ pub(crate) struct ChecksSummary {
 }
 
 /// The full review payload for one PR.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PrDetail {
     pub(crate) summary: PrSummary,
@@ -135,7 +135,7 @@ pub(crate) struct PrDetail {
 }
 
 /// Result of comparing a locally-open PR against the current remote.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PrFreshness {
     pub(crate) stale: bool,
@@ -144,7 +144,7 @@ pub(crate) struct PrFreshness {
 }
 
 /// One pending inline comment to attach to a submitted review.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PendingComment {
     pub(crate) path: String,

@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use tauri::{AppHandle, State};
 
+use crate::util::json::Json;
 use crate::projects::thread_summary_from;
 use crate::util::json::{arr_or_empty, str_at};
 use crate::AppState;
@@ -16,7 +17,7 @@ use crate::AppState;
 /// Upper bound on descendants fetched for one thread.
 const MAX_DESCENDANTS: usize = 1000;
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SubagentDetail {
     id: String,
@@ -79,6 +80,7 @@ fn collect_spawn_details(thread: &Value, details: &mut HashMap<String, SpawnDeta
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn list_subagents(
     thread_id: String,
     app: AppHandle,
@@ -165,10 +167,11 @@ pub(crate) async fn list_subagents(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn update_subagent_policy(
     thread_id: String,
-    model_policy: Value,
-    reasoning_effort_policy: Value,
+    model_policy: Json,
+    reasoning_effort_policy: Json,
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,

@@ -111,6 +111,12 @@ export function trackNewThread(id: string, cwd: string): void {
     updatedAt: Math.floor(Date.now() / 1000),
     status: "idle",
     pinned: false,
+    parentThreadId: null,
+    agentNickname: null,
+    agentRole: null,
+    projectId: null,
+    sectionId: null,
+    subagentCount: 0,
   };
   optimisticThreads.set(id, summary);
   if (appData.data) insertOptimisticThread(appData.data, summary);
@@ -147,6 +153,9 @@ export function trackSubagent(agent: SubagentDetail): void {
     updatedAt: Math.floor(Date.now() / 1000),
     status: agent.status,
     pinned: false,
+    projectId: null,
+    sectionId: null,
+    subagentCount: 0,
     parentThreadId: agent.parentThreadId,
     agentNickname: agent.agentNickname,
     agentRole: agent.agentRole,
