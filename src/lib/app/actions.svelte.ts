@@ -28,7 +28,7 @@ import type { SlashCommandId } from "$lib/composer/slashCommands";
 import DeleteThreadDialog from "$lib/layout/DeleteThreadDialog.svelte";
 import RenameDialog from "$lib/layout/RenameDialog.svelte";
 import SectionPickerDialog from "$lib/layout/SectionPickerDialog.svelte";
-import { buildTree, childrenOf, parentOf, ROOT_SCOPE, refOf } from "$lib/layout/sidebarTree";
+import { buildTree, childrenOf, emptyLayout, parentOf, placeInLayout, ROOT_SCOPE, refOf } from "$lib/layout/sidebarTree";
 import {
   archiveThread,
   createSidebarFolder,
@@ -194,9 +194,14 @@ export async function moveSidebarItem(
   parentId: string | null,
   siblings: SidebarItemRef[],
 ): Promise<void> {
+  const data = appData.data;
+  if (!data) return;
+  const previousLayout = data.sidebarLayout;
+  data.sidebarLayout = placeInLayout(previousLayout ?? emptyLayout(), scope, item, parentId, siblings);
   try {
     applyData(await placeSidebarItem(scope, item, parentId, siblings));
   } catch (cause) {
+    data.sidebarLayout = previousLayout;
     fail(cause);
   }
 }
