@@ -22,7 +22,6 @@ import { onMount } from "svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import {
-  gitRecentCommits,
   gitRepoInfo,
   gitWorktreeAdd,
   gitWorktreeHandoff,
@@ -34,7 +33,7 @@ import {
 } from "$lib/services/api";
 import { type CodexEvent, setThreadHandler } from "$lib/services/codexEvents.svelte";
 import HandoffToLocalDialog from "$lib/thread/HandoffToLocalDialog.svelte";
-import type { GitCommit, GitRepoInfo, Project, WorktreeBranchRequest, WorktreeEntry } from "$lib/types";
+import type { GitRepoInfo, Project, WorktreeBranchRequest, WorktreeEntry } from "$lib/types";
 import CreateWorktreeDialog from "$lib/worktrees/CreateWorktreeDialog.svelte";
 import RemoveWorktreeDialog from "$lib/worktrees/RemoveWorktreeDialog.svelte";
 import { isTempWorktreePath, type WorktreeCard, worktreeCards } from "$lib/worktrees/worktrees";
@@ -65,7 +64,6 @@ let {
 
 let entries = $state<WorktreeEntry[]>([]);
 let repoInfo = $state<GitRepoInfo | null>(null);
-let commits = $state<GitCommit[]>([]);
 let loading = $state(true);
 let error = $state<string | null>(null);
 let actionError = $state<string | null>(null);
@@ -81,14 +79,9 @@ async function load() {
   loading = true;
   error = null;
   try {
-    const [worktrees, info, recent] = await Promise.all([
-      gitWorktrees(repoDir),
-      gitRepoInfo(repoDir),
-      gitRecentCommits(repoDir, 20).catch(() => []),
-    ]);
+    const [worktrees, info] = await Promise.all([gitWorktrees(repoDir), gitRepoInfo(repoDir)]);
     entries = worktrees;
     repoInfo = info;
-    commits = recent;
   } catch (cause) {
     error = cause instanceof Error ? cause.message : String(cause);
   } finally {
@@ -119,7 +112,6 @@ function newWorktree() {
   openDialog(CreateWorktreeDialog, {
     codexHome,
     repoDir,
-    commits,
     submit: async (path: string, branch: WorktreeBranchRequest) => {
       await gitWorktreeAdd(repoDir, path, branch);
       await load();

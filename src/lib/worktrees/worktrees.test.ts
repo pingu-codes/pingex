@@ -6,6 +6,7 @@ import {
   isDirty,
   isTempWorktreePath,
   statusSummary,
+  stripRemotePrefix,
   tempWorktreeLocation,
   threadCountForPath,
   worktreeCards,
@@ -37,6 +38,13 @@ function entry(overrides: Partial<WorktreeEntry> = {}): WorktreeEntry {
 }
 
 describe("worktree helpers", () => {
+  it("strips the remote from a remote-tracking branch name", () => {
+    expect(stripRemotePrefix("origin/feat/x")).toBe("feat/x");
+    expect(stripRemotePrefix("origin/main")).toBe("main");
+    expect(stripRemotePrefix("main")).toBe("main");
+    expect(stripRemotePrefix("/odd")).toBe("/odd");
+  });
+
   it("derives folder names and status summaries", () => {
     expect(folderName("/a/b/c/")).toBe("c");
     expect(folderName("/a/b/c")).toBe("c");

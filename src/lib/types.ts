@@ -118,6 +118,7 @@ export type MenuAction =
   | "newFolder"
   | "deleteFolder"
   | "fork"
+  | "createWorktree"
   | "openDetails";
 
 /**

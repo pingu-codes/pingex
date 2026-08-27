@@ -133,12 +133,15 @@ pub(crate) struct BranchRef {
 }
 
 #[derive(Debug, Deserialize, specta::Type)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub(crate) enum WorktreeBranch {
     /// Check out an existing local branch.
     Existing { name: String },
     /// Create a new branch, optionally from a base revision.
     New { name: String, base: Option<String> },
+    /// Create a local branch that tracks a remote-tracking branch
+    /// (`origin/feature` → `feature`).
+    Tracking { name: String, remote_ref: String },
 }
 
 #[derive(Debug, Deserialize, specta::Type)]

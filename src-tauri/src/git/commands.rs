@@ -117,6 +117,13 @@ pub(crate) async fn git_worktree_add(
                     args.push(base.to_string());
                 }
             }
+            WorktreeBranch::Tracking { name, remote_ref } => {
+                args.push("--track".into());
+                args.push("-b".into());
+                args.push(name.clone());
+                args.push(request.path.clone());
+                args.push(remote_ref.clone());
+            }
         }
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
         let output = run_git(&repo, &arg_refs, WRITE_TIMEOUT)?;

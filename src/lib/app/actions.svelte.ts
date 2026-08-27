@@ -13,6 +13,7 @@ import {
   trackSubagent,
 } from "$lib/app/appData.svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
+import { codexHome } from "$lib/app/launch.svelte";
 import {
   adoptThread,
   clearThread,
@@ -28,7 +29,15 @@ import type { SlashCommandId } from "$lib/composer/slashCommands";
 import DeleteThreadDialog from "$lib/layout/DeleteThreadDialog.svelte";
 import RenameDialog from "$lib/layout/RenameDialog.svelte";
 import SectionPickerDialog from "$lib/layout/SectionPickerDialog.svelte";
-import { buildTree, childrenOf, emptyLayout, parentOf, placeInLayout, ROOT_SCOPE, refOf } from "$lib/layout/sidebarTree";
+import {
+  buildTree,
+  childrenOf,
+  emptyLayout,
+  parentOf,
+  placeInLayout,
+  ROOT_SCOPE,
+  refOf,
+} from "$lib/layout/sidebarTree";
 import {
   archiveThread,
   createSidebarFolder,
@@ -38,6 +47,8 @@ import {
   deleteThread,
   deleteThreadSection,
   forkThread,
+  gitRepoInfo,
+  gitWorktreeAdd,
   moveThreadToSection,
   moveThreadToWorkspace,
   placeSidebarItem,
@@ -53,9 +64,18 @@ import {
   updateThreadSection,
   updateWorkspace,
 } from "$lib/services/api";
-import type { CreateWorkspaceInput, MenuAction, MenuTarget, Project, SidebarItemRef, SubagentDetail } from "$lib/types";
+import type {
+  CreateWorkspaceInput,
+  MenuAction,
+  MenuTarget,
+  Project,
+  SidebarItemRef,
+  SubagentDetail,
+  WorktreeBranchRequest,
+} from "$lib/types";
 import CreateWorkspaceDialog from "$lib/workspaces/CreateWorkspaceDialog.svelte";
 import MoveToWorkspaceDialog from "$lib/workspaces/MoveToWorkspaceDialog.svelte";
+import CreateWorktreeDialog from "$lib/worktrees/CreateWorktreeDialog.svelte";
 
 /** A draft thread has become a real one: keep it on screen and let the
  *  sidebar catch up in the background. */
@@ -233,6 +253,19 @@ async function nudgeProject(project: Project, direction: -1 | 1) {
   await moveSidebarItem(ROOT_SCOPE, ref, parent, siblings);
 }
 
+/** Create a permanent worktree for the repository containing `dir`. */
+async function createWorktreeFor(dir: string): Promise<void> {
+  const repoDir = (await gitRepoInfo(dir).catch(() => null))?.root ?? dir;
+  openDialog(CreateWorktreeDialog, {
+    codexHome: codexHome(),
+    repoDir,
+    submit: async (path: string, branch: WorktreeBranchRequest) => {
+      await gitWorktreeAdd(repoDir, path, branch);
+      quietRefresh();
+    },
+  });
+}
+
 export async function menuAction(action: MenuAction, target: MenuTarget): Promise<void> {
   try {
     if (
@@ -280,6 +313,10 @@ export async function menuAction(action: MenuAction, target: MenuTarget): Promis
       const forked = await forkThread(target.thread.id);
       setView({ projectPath: target.project.path, threadId: forked.id });
       quietRefresh();
+      return;
+    }
+    if (action === "createWorktree") {
+      if (target.kind === "thread") await createWorktreeFor(target.thread.cwd || target.project.path);
       return;
     }
     if (action === "moveToWorkspace") {

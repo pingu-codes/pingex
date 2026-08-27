@@ -8,6 +8,15 @@ export function folderName(path: string): string {
 }
 
 /**
+ * The local branch name a remote-tracking branch would check out as:
+ * `origin/feat/x` → `feat/x`. Local names pass through unchanged.
+ */
+export function stripRemotePrefix(name: string): string {
+  const index = name.indexOf("/");
+  return index > 0 ? name.slice(index + 1) : name;
+}
+
+/**
  * Where a temporary thread worktree lives: under the Codex home (so it
  * survives restarts, unlike the OS temp dir) but in `worktrees-tmp/` so it is
  * never mistaken for a permanent Codex worktree. Mirrors the permanent

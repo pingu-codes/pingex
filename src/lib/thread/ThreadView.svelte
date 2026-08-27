@@ -15,7 +15,6 @@ import {
   copyText,
   getThreadGoal,
   gitChangesSummary,
-  gitRecentCommits,
   gitRepoInfo,
   gitWorktreeAdd,
   interruptTurn,
@@ -95,7 +94,6 @@ import type {
   BootstrapData,
   ChangesSummary,
   FileUpdateChange,
-  GitCommit,
   GitRepoInfo,
   QueuedSubmission,
   ReviewTarget,
@@ -218,19 +216,16 @@ type NewThreadLocation = "project" | "temporary" | "permanent";
 let newThreadLocation = $state<NewThreadLocation>("project");
 let newThreadCwd = $state("");
 let repoInfo = $state<GitRepoInfo | null>(null);
-let commits = $state<GitCommit[]>([]);
 
 $effect(() => {
   if (threadId) return;
   const dir = projectPath || cwd;
-  Promise.all([gitRepoInfo(dir), gitRecentCommits(dir, 20).catch(() => [])])
-    .then(([info, recent]) => {
+  gitRepoInfo(dir)
+    .then((info) => {
       repoInfo = info;
-      commits = recent;
     })
     .catch(() => {
       repoInfo = null;
-      commits = [];
     });
 });
 
@@ -239,7 +234,6 @@ function chooseNewThreadLocation(location: NewThreadLocation) {
     openDialog(CreateWorktreeDialog, {
       codexHome,
       repoDir: repoInfo?.root ?? (projectPath || cwd),
-      commits,
       submit: async (path: string, branch: WorktreeBranchRequest) => {
         await gitWorktreeAdd(repoInfo?.root ?? (projectPath || cwd), path, branch);
         newThreadLocation = "permanent";

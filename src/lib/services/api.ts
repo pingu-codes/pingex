@@ -1084,7 +1084,7 @@ export async function gitWorktreeAdd(repoDir: string, path: string, branch: Work
     previewWorktrees.push({
       path,
       head: null,
-      branch: branch.kind === "existing" ? branch.name : branch.name,
+      branch: branch.name,
       detached: false,
       bare: false,
       locked: false,

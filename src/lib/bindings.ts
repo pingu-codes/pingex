@@ -1240,7 +1240,12 @@ export type WorktreeBranch =
 /**  Check out an existing local branch. */
 { kind: "existing"; name: string } | 
 /**  Create a new branch, optionally from a base revision. */
-{ kind: "new"; name: string; base: string | null };
+{ kind: "new"; name: string; base: string | null } | 
+/**
+ *  Create a local branch that tracks a remote-tracking branch
+ *  (`origin/feature` → `feature`).
+ */
+{ kind: "tracking"; name: string; remoteRef: string };
 
 /**
  *  One entry from `git worktree list --porcelain`, enriched with identity and
