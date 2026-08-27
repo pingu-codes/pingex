@@ -175,6 +175,7 @@ function applySnapshot(snapshot: { parts: ComposerPart[]; caret: number | null }
     parts = readParts(editor);
     placeCaretAtOffset(editor, snapshot.caret ?? Number.MAX_SAFE_INTEGER);
     editor.focus();
+    detectMention();
   } finally {
     // The recording effect runs after this tick; let it see the flag.
     queueMicrotask(() => {
@@ -739,9 +740,33 @@ function closePickers() {
   reviewPicker = false;
 }
 
+/**
+ * Adopts parts produced by a re-render that bypassed the browser (delete-to-
+ * edge, chip removal, undo). Those fire no `input` event, so the pickers must
+ * be re-detected here: a trigger the re-render removed would otherwise keep
+ * its popup open with a `Range` whose text node is gone. A live Range whose
+ * node is removed collapses onto the editor root at index 0, so the next pick
+ * would drop the chip at the very start of the composer, unpadded and
+ * unreachable by the Arrow/Backspace interception.
+ */
+function applyParts(next: ComposerPart[]) {
+  parts = next;
+  detectMention();
+}
+
+/** Whether a picker's range still points into the editor's current text. */
+function usableRange(range: Range | null): range is Range {
+  return (
+    !!range && !!editor && range.startContainer.nodeType === Node.TEXT_NODE && editor.contains(range.startContainer)
+  );
+}
+
 function insertMention(mention: Mention) {
   const range = mentionRange;
-  if (!range) return;
+  if (!usableRange(range)) {
+    closePickers();
+    return;
+  }
   insertMentionChip(range, mention);
   parts = editor ? readParts(editor) : parts;
   mentionQuery = null;
@@ -750,7 +775,10 @@ function insertMention(mention: Mention) {
 
 function insertSkill(skill: SkillSummary) {
   const range = skillRange;
-  if (!range) return;
+  if (!usableRange(range)) {
+    closePickers();
+    return;
+  }
   insertSkillChip(range, skill.name, skill.path, skillLabel(skill));
   parts = editor ? readParts(editor) : parts;
   skillQuery = null;
@@ -765,7 +793,7 @@ function removeMention(chip: HTMLElement) {
     sources.delete(attachmentId);
   }
   removeMentionChip(chip);
-  parts = editor ? readParts(editor) : parts;
+  applyParts(editor ? readParts(editor) : parts);
   editor?.focus();
 }
 
@@ -1037,7 +1065,7 @@ function onKeydown(event: KeyboardEvent) {
       const afterLine = deleteToLineEdge(editor, direction, chipHandlers);
       if (afterLine) {
         event.preventDefault();
-        parts = afterLine;
+        applyParts(afterLine);
       }
       return;
     }
@@ -1047,15 +1075,17 @@ function onKeydown(event: KeyboardEvent) {
       void removeMention(chip);
       return;
     }
-    if (event.altKey) {
+    if (event.altKey || event.ctrlKey) {
       // Option+Backspace/Delete word-deletion through a chip: WebKit's
       // native word motion can strand the caret at the very start of the
       // composer (and leave a stray line break behind) once whitespace next
-      // to a contenteditable=false chip is involved.
+      // to a contenteditable=false chip is involved. Ctrl is word-delete on
+      // Windows/Linux and has no chip-safe native meaning on macOS, so it
+      // takes the same path.
       const afterWord = deleteToWordEdge(editor, direction, chipHandlers);
       if (afterWord) {
         event.preventDefault();
-        parts = afterWord;
+        applyParts(afterWord);
         return;
       }
     }
@@ -1065,7 +1095,7 @@ function onKeydown(event: KeyboardEvent) {
     const afterBreak = deleteLineBreak(editor, direction, chipHandlers);
     if (afterBreak) {
       event.preventDefault();
-      parts = afterBreak;
+      applyParts(afterBreak);
       return;
     }
   }
@@ -1133,7 +1163,7 @@ function onKeydown(event: KeyboardEvent) {
     const afterBreak = insertLineBreak(editor, chipHandlers);
     if (afterBreak) {
       event.preventDefault();
-      parts = afterBreak;
+      applyParts(afterBreak);
     }
   }
 }

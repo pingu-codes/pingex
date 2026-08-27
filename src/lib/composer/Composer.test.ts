@@ -6,6 +6,22 @@ import { type ComposerPrefs, loadPrefs, loadScopedPrefs, savePrefs } from "$lib/
 import { placeCaretBesideChip } from "$lib/composer/richInput";
 import type { SubagentPolicy } from "$lib/types";
 
+// The preview skill fixtures carry no `enabled` flag, which the picker filters on.
+vi.mock("$lib/services/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("$lib/services/api")>()),
+  listSkillsFor: vi.fn().mockResolvedValue([
+    {
+      name: "wrangler",
+      path: "/skills/wrangler/SKILL.md",
+      scope: "user",
+      description: null,
+      enabled: true,
+      displayName: null,
+      shortDescription: null,
+    },
+  ]),
+}));
+
 const textInput = (text: string) => [{ type: "text", text }];
 
 function setup({
@@ -405,6 +421,65 @@ describe("Composer", () => {
     expect(textarea.querySelector("[data-mention-path]")).toBeNull();
     expect(textarea).toHaveTextContent("");
     expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+  });
+
+  it("closes the mention picker when Cmd+Backspace takes the line out from under it", async () => {
+    const user = userEvent.setup();
+    const { textarea } = setup({ cwd: "/proj" });
+
+    await user.type(textarea, "see @util");
+    await screen.findByRole("option", { name: /utils\.ts/ });
+    await fireEvent.keyDown(textarea, { key: "Backspace", metaKey: true });
+
+    expect(textarea).toHaveTextContent("");
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+
+    // A pick after the line is gone must not land a chip at the start.
+    await fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(textarea.querySelector("[data-mention-path]")).toBeNull();
+  });
+
+  it("keeps an existing chip usable after Cmd+Backspace with the picker open", async () => {
+    const user = userEvent.setup();
+    const { textarea } = setup({ cwd: "/proj" });
+
+    await user.type(textarea, "see @util");
+    await user.click(await screen.findByRole("option", { name: /utils\.ts/ }));
+    await user.type(textarea, "{Shift>}{Enter}{/Shift}then @ut");
+    await screen.findByRole("option", { name: /utils\.ts/ });
+
+    await fireEvent.keyDown(textarea, { key: "Backspace", metaKey: true });
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+
+    const chips = textarea.querySelectorAll("[data-mention-path]");
+    expect(chips).toHaveLength(1);
+    const chip = chips[0] as HTMLElement;
+    expect(chip.parentNode).toBe(textarea);
+    expect(chip.previousSibling?.nodeType).toBe(Node.TEXT_NODE);
+    expect(chip.nextSibling?.nodeType).toBe(Node.TEXT_NODE);
+
+    placeCaretBesideChip(chip, "after");
+    await fireEvent.keyDown(textarea, { key: "Backspace" });
+    expect(textarea.querySelector("[data-mention-path]")).toBeNull();
+  });
+
+  it("closes the skill picker when Ctrl+Backspace deletes the trigger", async () => {
+    const user = userEvent.setup();
+    const { textarea } = setup({ cwd: "/proj" });
+
+    await user.type(textarea, "see @util");
+    await user.click(await screen.findByRole("option", { name: /utils\.ts/ }));
+    await user.type(textarea, " $wran");
+    await screen.findByRole("option", { name: /wrangler/ });
+
+    // Ctrl+Backspace word-deletes through the parts model once a chip is in
+    // reach; here the word beside the caret is plain text, so only the picker
+    // bookkeeping matters: Cmd+Backspace takes the whole line, chip included.
+    await fireEvent.keyDown(textarea, { key: "Backspace", ctrlKey: true, metaKey: true });
+    expect(textarea).toHaveTextContent("");
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+    await fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(textarea.querySelector("[data-skill-name]")).toBeNull();
   });
 
   it("sends collaborationMode plan when plan mode is toggled on", async () => {
