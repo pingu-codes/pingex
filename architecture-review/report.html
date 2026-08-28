@@ -32,6 +32,12 @@
     <span><span class="inline-block w-5 h-3 deep rounded-sm align-middle"></span> deep module</span>
     <span class="ml-auto">No <code>CONTEXT.md</code> or ADRs exist yet — nothing to conflict with.</span>
   </div>
+  <div class="rounded border border-slate-300 bg-white p-3 text-xs flex flex-wrap gap-x-5 gap-y-1 items-center">
+    <b>Status 2026-08-28:</b>
+    <span>✓ done: <a href="#c1" class="underline">#1</a> <a href="#c2" class="underline">#2</a> <a href="#c4" class="underline">#4</a></span>
+    <span>✓ done, uncommitted: <a href="#c6" class="underline">#6</a></span>
+    <span>○ not done: <a href="#c3" class="underline">#3</a> <a href="#c5" class="underline">#5</a> <a href="#c7" class="underline">#7</a> <a href="#c8" class="underline">#8</a> <a href="#c9" class="underline">#9</a> <a href="#c10" class="underline">#10</a></span>
+  </div>
   <div class="grid grid-cols-3 gap-3 text-xs pt-3">
     <div class="rounded border border-emerald-200 bg-emerald-50 p-3"><b>Already deep — leave alone:</b> <code>codex/session.rs</code>+<code>child.rs</code> (one seam to codex, <code>ChildSink</code>), <code>codex/journal.rs</code> (11 pure fns, 22 tests), <code>threads/read.rs</code>, <code>storage/db.rs</code>, <code>AppState</code>/<code>HomeContext</code>.</div>
     <div class="rounded border border-slate-200 bg-white p-3"><b>Test surface:</b> Rust 318 tests / 77 modules, but only pure fns + storage; nothing between reachable. TS 65 files / ~10k lines; big untested views: <code>WorkItem</code>, <code>ProjectDetail</code>, <code>HomePage</code>, <code>Connections</code>, <code>App</code>.</div>
@@ -46,10 +52,12 @@
   <div class="flex items-start justify-between gap-4">
     <h2 class="font-serif text-2xl">1 · One Thread Session, mounted or not</h2>
     <div class="flex gap-2 shrink-0">
+      <span class="rounded-full bg-emerald-600 text-white px-3 py-1 text-xs font-bold">✓ Done</span>
       <span class="rounded-full bg-emerald-100 text-emerald-800 px-3 py-1 text-xs font-semibold">Strong</span>
       <span class="rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs">in-process</span>
     </div>
   </div>
+  <p class="text-xs rounded border border-emerald-300 bg-emerald-50 px-3 py-2"><b>Done.</b> <code>thread/threadSession.svelte.ts</code> (342 lines) owns event handling; <code>sessions.svelte.ts</code> is the Map; <code>liveThreads</code> and <code>adoptLive</code>/<code>releaseLive</code> are gone. ThreadView is down to 11 <code>$state</code> declarations. (commit <code>2d7265b</code>)</p>
   <pre class="font-mono text-sm text-slate-600 whitespace-pre-wrap">src/lib/thread/ThreadView.svelte:382-467  handleEvent, adoptLive :325, releaseLive :387
 src/lib/thread/liveThreads.svelte.ts:58-96  onEvent</pre>
   <div class="grid md:grid-cols-2 gap-4">
@@ -106,10 +114,12 @@ flowchart TB
   <div class="flex items-start justify-between gap-4">
     <h2 class="font-serif text-2xl">2 · A Thread Queue that holds the only copy of the message</h2>
     <div class="flex gap-2 shrink-0">
+      <span class="rounded-full bg-emerald-600 text-white px-3 py-1 text-xs font-bold">✓ Done</span>
       <span class="rounded-full bg-emerald-100 text-emerald-800 px-3 py-1 text-xs font-semibold">Strong</span>
       <span class="rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs">in-process</span>
     </div>
   </div>
+  <p class="text-xs rounded border border-emerald-300 bg-emerald-50 px-3 py-2"><b>Done.</b> <code>thread/threadQueue.svelte.ts</code> (209 lines) + <code>threadQueue.test.ts</code>; <code>mergeQueue</code> is only referenced from <code>queueEntries.test.ts</code>. (commit <code>2d7265b</code>)</p>
   <pre class="font-mono text-sm text-slate-600 whitespace-pre-wrap">src/lib/thread/queueEntries.ts  (pure helpers, 55-line test)
 src/lib/thread/ThreadView.svelte:641-757  enqueue · removeQueued · refreshQueue · drain · sendNow · editQueued · cancelQueued
 src/lib/services/api.ts:657-740  queueList/queueAdd/queueDelete envelopes</pre>
@@ -164,10 +174,12 @@ src/lib/services/api.ts:657-740  queueList/queueAdd/queueDelete envelopes</pre>
   <div class="flex items-start justify-between gap-4">
     <h2 class="font-serif text-2xl">3 · Unbraid <code>api.ts</code>: a real Preview adapter</h2>
     <div class="flex gap-2 shrink-0">
+      <span class="rounded-full bg-slate-800 text-white px-3 py-1 text-xs font-bold">○ Not done</span>
       <span class="rounded-full bg-emerald-100 text-emerald-800 px-3 py-1 text-xs font-semibold">Strong</span>
       <span class="rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs">ports &amp; adapters</span>
     </div>
   </div>
+  <p class="text-xs rounded border border-slate-300 bg-slate-50 px-3 py-2"><b>Not done.</b> <code>api.ts</code> is still 1604 lines with 148 <code>isTauri()</code> branches and still imports <code>$lib/layout/sidebarTree</code>; no <code>PreviewBackend</code> exists.</p>
   <pre class="font-mono text-sm text-slate-600 whitespace-pre-wrap">src/lib/services/api.ts (1604 lines, ~160 exports, 148 isTauri() branches vs 149 commands.* calls)
 src/lib/services/preview/fixtures.ts (1437), preview/stream.ts
 api.ts:2 imports $lib/layout/sidebarTree  ← service depends on a layout module, only to fake the backend</pre>
@@ -215,6 +227,7 @@ flowchart LR
   <div class="flex items-start justify-between gap-4">
     <h2 class="font-serif text-2xl">4 · Decode Codex events once</h2>
     <div class="flex gap-2 shrink-0">
+      <span class="rounded-full bg-emerald-600 text-white px-3 py-1 text-xs font-bold">✓ Done</span>
       <span class="rounded-full bg-emerald-100 text-emerald-800 px-3 py-1 text-xs font-semibold">Strong</span>
       <span class="rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs">in-process</span>
     </div>
@@ -272,10 +285,12 @@ flowchart LR
   <div class="flex items-start justify-between gap-4">
     <h2 class="font-serif text-2xl">5 · Thread records: three tables, one key, one module</h2>
     <div class="flex gap-2 shrink-0">
+      <span class="rounded-full bg-slate-800 text-white px-3 py-1 text-xs font-bold">○ Not done</span>
       <span class="rounded-full bg-emerald-100 text-emerald-800 px-3 py-1 text-xs font-semibold">Strong</span>
       <span class="rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs">local-substitutable</span>
     </div>
   </div>
+  <p class="text-xs rounded border border-slate-300 bg-slate-50 px-3 py-2"><b>Not done.</b> <code>lifecycle.rs</code> still calls <code>delete_thread_items</code> / <code>retain_thread_turns</code> / <code>copy_thread_items</code> per table at :254 / :334 / :382 / :433; no <code>storage::thread_records</code>.</p>
   <pre class="font-mono text-sm text-slate-600 whitespace-pre-wrap">src-tauri/src/threads/lifecycle.rs:254-256 (delete) · :334-336 (rollback) · :382-384 (revert) · :433-435 (fork)
 src-tauri/src/storage/items.rs:158/180/208 · turn_settings.rs:63/78/96 · agent_runs.rs:179/196/221</pre>
   <div class="grid md:grid-cols-2 gap-4">
@@ -327,10 +342,12 @@ flowchart LR
   <div class="flex items-start justify-between gap-4">
     <h2 class="font-serif text-2xl">6 · Pull <code>start_thread</code> out of the Tauri command</h2>
     <div class="flex gap-2 shrink-0">
+      <span class="rounded-full bg-amber-500 text-white px-3 py-1 text-xs font-bold">✓ Done · uncommitted</span>
       <span class="rounded-full bg-emerald-100 text-emerald-800 px-3 py-1 text-xs font-semibold">Strong</span>
       <span class="rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs">in-process</span>
     </div>
   </div>
+  <p class="text-xs rounded border border-amber-300 bg-amber-50 px-3 py-2"><b>Done, uncommitted.</b> <code>turn.rs</code> now has <code>build_start_request(&amp;StartInputs) -&gt; Request</code> at :51 with 19 tests in the module; <code>start_thread</code> is at :147. This lives only in the working tree — commit it.</p>
   <pre class="font-mono text-sm text-slate-600 whitespace-pre-wrap">src-tauri/src/threads/turn.rs:15-118  start_thread (104 lines, 0 tests) · :122-173 start_turn
 model: threads/read.rs:25-53 (28-line command, 21 tests underneath) · projects/bootstrap.rs:251 build_bootstrap
 same pattern, lower stakes: integrations/commands.rs:89-120 save_mcp_server · settings/commands.rs:305-341 set_codex_binary</pre>
@@ -371,10 +388,12 @@ same pattern, lower stakes: integrations/commands.rs:89-120 save_mcp_server · s
   <div class="flex items-start justify-between gap-4">
     <h2 class="font-serif text-2xl">7 · Make <code>requests.rs</code> the only way to speak Codex</h2>
     <div class="flex gap-2 shrink-0">
+      <span class="rounded-full bg-slate-800 text-white px-3 py-1 text-xs font-bold">○ Not done</span>
       <span class="rounded-full bg-emerald-100 text-emerald-800 px-3 py-1 text-xs font-semibold">Strong</span>
       <span class="rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs">ports &amp; adapters</span>
     </div>
   </div>
+  <p class="text-xs rounded border border-slate-300 bg-slate-50 px-3 py-2"><b>Not done.</b> <code>CodexSession::request</code> is still <code>pub(crate)</code> and 23 call sites bypass <code>requests.rs</code> (bootstrap.rs:64,81 · projects/commands.rs:61,77 · pairing.rs:21,25,54 · agents/mod.rs:135 · connections/protocol.rs:121,143 · connections/commands.rs:91 …).</p>
   <pre class="font-mono text-sm text-slate-600 whitespace-pre-wrap">src-tauri/src/codex/requests.rs (~50 typed builders) · session.rs:285 send(Request) · :293 request(method, params) — both pub
 bypasses: projects/commands.rs:61,77 · projects/bootstrap.rs:64,81 · codex/pairing.rs:21,25 · agents/mod.rs:135 · connections/protocol.rs:121 · threads/lifecycle.rs:34-38, 97-101, 424</pre>
   <div class="grid md:grid-cols-2 gap-4">
@@ -423,10 +442,12 @@ flowchart LR
   <div class="flex items-start justify-between gap-4">
     <h2 class="font-serif text-2xl">8 · A <code>RichEditor</code> controller instead of 44 exports</h2>
     <div class="flex gap-2 shrink-0">
+      <span class="rounded-full bg-slate-800 text-white px-3 py-1 text-xs font-bold">○ Not done</span>
       <span class="rounded-full bg-amber-100 text-amber-800 px-3 py-1 text-xs font-semibold">Worth exploring</span>
       <span class="rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs">in-process</span>
     </div>
   </div>
+  <p class="text-xs rounded border border-slate-300 bg-slate-50 px-3 py-2"><b>Not done.</b> <code>richInput.ts</code> still 1056 lines / 31 exports; <code>Composer.svelte</code> 1420 lines, no <code>RichEditor</code> controller.</p>
   <pre class="font-mono text-sm text-slate-600 whitespace-pre-wrap">src/lib/composer/richInput.ts (1056 lines, 44 exports, 1 caller) · richInput.test.ts (734)
 src/lib/composer/Composer.svelte:1040-1163 onKeydown (11 call sites, each preventDefault + applyParts) · :155-210 undo stack · :752 applyParts</pre>
   <div class="grid md:grid-cols-2 gap-4">
@@ -469,10 +490,12 @@ src/lib/composer/Composer.svelte:1040-1163 onKeydown (11 call sites, each preven
   <div class="flex items-start justify-between gap-4">
     <h2 class="font-serif text-2xl">9 · <code>ThreadItem</code> as a discriminated union</h2>
     <div class="flex gap-2 shrink-0">
+      <span class="rounded-full bg-slate-800 text-white px-3 py-1 text-xs font-bold">○ Not done</span>
       <span class="rounded-full bg-amber-100 text-amber-800 px-3 py-1 text-xs font-semibold">Worth exploring</span>
       <span class="rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs">in-process</span>
     </div>
   </div>
+  <p class="text-xs rounded border border-slate-300 bg-slate-50 px-3 py-2"><b>Not done.</b> <code>types.ts:267</code> is still <code>interface ThreadItem</code> with optional fields; <code>DRAWN_BY_WORK_ITEM</code> record still in <code>turnSegments.ts:38</code>.</p>
   <pre class="font-mono text-sm text-slate-600 whitespace-pre-wrap">src/lib/types.ts:265-340 (30 optional fields; content?: UserInputPart[] | string[] has two meanings)
 src/lib/thread/WorkItem.svelte (628 lines, untested, ~20 item.type === branches) · turnSegments.ts:37 DRAWN_BY_WORK_ITEM · threadStream.ts:58-77 mergeItem (field sniffing) · as string[] cast</pre>
   <div class="grid md:grid-cols-2 gap-4">
@@ -517,10 +540,12 @@ flowchart TB
   <div class="flex items-start justify-between gap-4">
     <h2 class="font-serif text-2xl">10 · <code>update_store</code>: one read-modify-write for projects</h2>
     <div class="flex gap-2 shrink-0">
+      <span class="rounded-full bg-slate-800 text-white px-3 py-1 text-xs font-bold">○ Not done</span>
       <span class="rounded-full bg-amber-100 text-amber-800 px-3 py-1 text-xs font-semibold">Worth exploring</span>
       <span class="rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs">local-substitutable</span>
     </div>
   </div>
+  <p class="text-xs rounded border border-slate-300 bg-slate-50 px-3 py-2"><b>Not done.</b> No <code>update_store</code> in <code>src-tauri</code>; <code>projects/commands.rs</code> still has 12 <code>read_store</code>/<code>write_store</code> calls.</p>
   <pre class="font-mono text-sm text-slate-600 whitespace-pre-wrap">src-tauri/src/projects/commands.rs:95-97, 111-127, 141-143, 156-158, 279-284, 306-308 (+ threads/lifecycle.rs:190-193)
 related: bootstrap_cached called from 23 sites; unarchive_thread must use bootstrap_inner (lifecycle.rs:232-234, comment-enforced)</pre>
   <div class="grid md:grid-cols-2 gap-4">
@@ -557,10 +582,10 @@ related: bootstrap_cached called from 23 sites; unarchive_thread must use bootst
 </section>
 
 <section id="top-recommendation" class="rounded-xl border-2 border-emerald-600 bg-emerald-50 p-8 space-y-3">
-  <div class="lbl text-emerald-700">Top recommendation</div>
+  <div class="lbl text-emerald-700">Top recommendation — ✓ done (commit 2d7265b)</div>
   <h2 class="font-serif text-3xl"><a href="#c1" class="underline decoration-emerald-400">#1 Thread Session</a> together with <a href="#c2" class="underline decoration-emerald-400">#2 Thread Queue</a></h2>
   <p>They are two halves of the same refactor: both pull state and event handling out of the most-churned file in the repo (<code>ThreadView.svelte</code>, 15 commits, 1269 lines of script) and into modules whose interface is the test surface, killing an already-diverged duplicate implementation in the process. Everything else on the frontend list (#3, #4, #9) gets easier once ThreadView is a renderer.</p>
-  <p class="text-sm text-slate-600">Cheapest quick win on the Rust side: <a href="#c7" class="underline">#7</a> — mechanical, an afternoon, and it makes the live E2E suite's replay complete.</p>
+  <p class="text-sm text-slate-600"><b>Next up:</b> cheapest quick win on the Rust side: <a href="#c7" class="underline">#7</a> — mechanical, an afternoon, and it makes the live E2E suite's replay complete.</p>
 </section>
 
 </main>

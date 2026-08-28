@@ -3,77 +3,75 @@
 
 use tauri::{AppHandle, State};
 
-use crate::util::json::Json;
-use crate::codex::requests;
+use crate::codex::requests::{self, Request};
 use crate::util::json::str_at;
-use crate::{storage, workspaces, AppState};
+use crate::util::json::Json;
+use crate::workspaces::WorkspaceRuntime;
+use crate::{storage, workspaces, AppState, HomeContext};
 
 pub(crate) use crate::codex::requests::TurnOptions;
 
-#[tauri::command]
-#[specta::specta]
-pub(crate) async fn start_thread(
+/// Everything `thread/start` needs, already fetched, so the request itself can
+/// be built without touching the database or Codex.
+struct StartInputs {
+    cwd: String,
+    workspace: Option<WorkspaceRuntime>,
+    /// Stored instructions for the project containing `cwd` (empty when none).
+    project_instructions: String,
+    app_subagents: bool,
+    /// Model ids the spawn tool may offer as an enum; empty leaves it free-form.
+    models: Vec<String>,
+    /// Codex-side project to file the thread under (`None` before Codex 0.149
+    /// or when the cwd is not under a mirrored project).
+    project_id: Option<String>,
+}
+
+/// A workspace's hub is where its threads run, so it wins over the caller's
+/// cwd; a blank cwd means no project has been chosen yet.
+fn resolve_start_cwd(
+    workspace: Option<&WorkspaceRuntime>,
     cwd: Option<String>,
-    workspace_id: Option<String>,
-    app_subagents: Option<bool>,
-    app: AppHandle,
-    window: tauri::WebviewWindow,
-    state: State<'_, AppState>,
-) -> Result<Json, String> {
-    let ctx = state.ctx(&window);
+) -> Result<String, String> {
+    workspace
+        .map(|workspace| workspace.cwd.clone())
+        .or(cwd)
+        .filter(|cwd| !cwd.trim().is_empty())
+        .ok_or_else(|| "Choose a project directory before starting a thread".to_string())
+}
+
+fn append_section(instructions: &mut String, section: &str) {
+    if !instructions.is_empty() {
+        instructions.push_str("\n\n");
+    }
+    instructions.push_str(section);
+}
+
+/// The `thread/start` request for a set of fetched inputs. Pure: every rule
+/// about what the thread is started with lives here.
+fn build_start_request(inputs: &StartInputs) -> Request {
     // Surface the containing project's stored instructions to Codex as this
     // thread's developer instructions. The `thread/start` protocol accepts
     // `developerInstructions` (app-server-protocol v2 `ThreadStartParams`), so
     // instructions are a real context hook, not just UI metadata.
-    let workspace = match workspace_id.as_deref() {
-        Some(workspace_id) => Some(workspaces::runtime_for_workspace(&ctx, workspace_id).await?),
-        None => None,
-    };
-    let cwd = workspace
-        .as_ref()
-        .map(|workspace| workspace.cwd.clone())
-        .or(cwd)
-        .filter(|cwd| !cwd.trim().is_empty())
-        .ok_or("Choose a project directory before starting a thread")?;
-    let mut instructions = storage::read_instructions_for_cwd(&ctx.database(), &cwd)
-        .await?
-        .unwrap_or_default();
-    if let Some(workspace) = &workspace {
-        if !instructions.is_empty() {
-            instructions.push_str("\n\n");
-        }
-        instructions.push_str(&workspace.context);
+    let mut instructions = inputs.project_instructions.clone();
+    if let Some(workspace) = &inputs.workspace {
+        append_section(&mut instructions, &workspace.context);
     }
     // The app's own agent tools are declared here or not at all: `dynamicTools`
     // is only accepted on `thread/start`, so this is a property of the thread
     // rather than something that can be toggled part-way through. (Codex does
     // restore them across `thread/resume`, so the choice survives a restart.)
-    let app_subagents = app_subagents.unwrap_or_else(|| {
-        crate::settings::prefs::read_agent_settings(&crate::settings::prefs::settings_path())
-            .enabled
-    });
     let mut dynamic_tools = None;
-    if app_subagents {
-        // Fetched here, while nothing is in flight, so the spawn tool can offer
-        // the real slugs as an enum. Best effort: an unavailable list leaves the
-        // field free-form rather than blocking the tools entirely.
-        let models = ctx
-            .session
-            .send(&app, requests::model_list(100, false))
-            .await
-            .map(|response| crate::agents::supervisor::collect_model_ids(&response))
-            .unwrap_or_default();
-        dynamic_tools = Some(crate::agents::tools::specs(&models));
+    if inputs.app_subagents {
+        dynamic_tools = Some(crate::agents::tools::specs(&inputs.models));
         // Codex's built-in subagents cannot be switched off, so the delegation
         // policy is what actually steers the model onto ours.
-        if !instructions.is_empty() {
-            instructions.push_str("\n\n");
-        }
-        instructions.push_str(crate::agents::tools::DELEGATION_POLICY);
+        append_section(&mut instructions, crate::agents::tools::DELEGATION_POLICY);
     }
     let mut request = requests::thread_start(
-        &cwd,
-        workspace
+        &inputs.cwd,
+        inputs
+            .workspace
             .as_ref()
             .map(|workspace| workspace.roots.as_slice()),
         Some(&instructions),
@@ -82,6 +80,43 @@ pub(crate) async fn start_thread(
     // File the thread under its sidebar entry's mirrored Codex project from
     // the start (Codex ≥0.149), so the assignment holds even if its cwd
     // later drifts. Unmirrored (older Codex) simply sends no `projectId`.
+    requests::apply_project(&mut request.params, inputs.project_id.as_deref());
+    request
+}
+
+/// The I/O half of starting a thread: everything `build_start_request` needs,
+/// in the order it has to happen.
+async fn fetch_start_inputs(
+    ctx: &HomeContext,
+    app: &AppHandle,
+    cwd: Option<String>,
+    workspace_id: Option<String>,
+    app_subagents: Option<bool>,
+) -> Result<StartInputs, String> {
+    let workspace = match workspace_id.as_deref() {
+        Some(workspace_id) => Some(workspaces::runtime_for_workspace(ctx, workspace_id).await?),
+        None => None,
+    };
+    let cwd = resolve_start_cwd(workspace.as_ref(), cwd)?;
+    let project_instructions = storage::read_instructions_for_cwd(&ctx.database(), &cwd)
+        .await?
+        .unwrap_or_default();
+    let app_subagents = app_subagents.unwrap_or_else(|| {
+        crate::settings::prefs::read_agent_settings(&crate::settings::prefs::settings_path())
+            .enabled
+    });
+    // Fetched here, while nothing is in flight, so the spawn tool can offer
+    // the real slugs as an enum. Best effort: an unavailable list leaves the
+    // field free-form rather than blocking the tools entirely.
+    let models = if app_subagents {
+        ctx.session
+            .send(app, requests::model_list(100, false))
+            .await
+            .map(|response| crate::agents::supervisor::collect_model_ids(&response))
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let project_key = match &workspace {
         // A workspace's cwd is its hub, which is also its local key.
         Some(workspace) => Some(workspace.cwd.clone()),
@@ -94,10 +129,32 @@ pub(crate) async fn start_thread(
         }
     };
     let project_id = match project_key.as_deref() {
-        Some(key) => crate::projects::server::project_id_for(&ctx, key).await?,
+        Some(key) => crate::projects::server::project_id_for(ctx, key).await?,
         None => None,
     };
-    requests::apply_project(&mut request.params, project_id.as_deref());
+    Ok(StartInputs {
+        cwd,
+        workspace,
+        project_instructions,
+        app_subagents,
+        models,
+        project_id,
+    })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn start_thread(
+    cwd: Option<String>,
+    workspace_id: Option<String>,
+    app_subagents: Option<bool>,
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<Json, String> {
+    let ctx = state.ctx(&window);
+    let inputs = fetch_start_inputs(&ctx, &app, cwd, workspace_id, app_subagents).await?;
+    let request = build_start_request(&inputs);
     let response = ctx.session.send(&app, request).await?;
     let thread = response
         .get("thread")
@@ -108,8 +165,8 @@ pub(crate) async fn start_thread(
         // Remembered now so a `pingex_spawn_agent` on this thread's very first
         // message can bound the agent without asking Codex about a thread whose
         // turn is at that moment blocked waiting for the tool's answer.
-        ctx.agents.remember_cwd(id, &cwd);
-        if let Some(workspace) = &workspace {
+        ctx.agents.remember_cwd(id, &inputs.cwd);
+        if let Some(workspace) = &inputs.workspace {
             storage::assign_thread_workspace(&ctx.database(), id, &workspace.workspace_id)
                 .await?;
         }
@@ -351,6 +408,136 @@ mod tests {
     use super::*;
     use requests::apply_turn_options;
     use serde_json::json;
+
+    fn workspace(cwd: &str, context: &str) -> WorkspaceRuntime {
+        WorkspaceRuntime {
+            workspace_id: "ws-1".into(),
+            cwd: cwd.into(),
+            roots: vec!["/a".into(), "/b".into()],
+            context: context.into(),
+        }
+    }
+
+    fn inputs() -> StartInputs {
+        StartInputs {
+            cwd: "/proj".into(),
+            workspace: None,
+            project_instructions: String::new(),
+            app_subagents: false,
+            models: Vec::new(),
+            project_id: None,
+        }
+    }
+
+    #[test]
+    fn workspace_cwd_wins_over_caller_cwd() {
+        let ws = workspace("/hub", "");
+        assert_eq!(
+            resolve_start_cwd(Some(&ws), Some("/elsewhere".into())).unwrap(),
+            "/hub"
+        );
+    }
+
+    #[test]
+    fn caller_cwd_used_without_workspace() {
+        assert_eq!(resolve_start_cwd(None, Some("/proj".into())).unwrap(), "/proj");
+    }
+
+    #[test]
+    fn blank_cwd_is_rejected() {
+        assert!(resolve_start_cwd(None, None).is_err());
+        assert!(resolve_start_cwd(None, Some("   ".into())).is_err());
+    }
+
+    #[test]
+    fn builds_a_thread_start_for_the_cwd() {
+        let request = build_start_request(&inputs());
+        assert_eq!(request.method, "thread/start");
+        assert_eq!(request.params, json!({"cwd": "/proj"}));
+    }
+
+    #[test]
+    fn instructions_order_is_project_then_workspace_then_policy() {
+        let request = build_start_request(&StartInputs {
+            workspace: Some(workspace("/hub", "ctx")),
+            project_instructions: "proj".into(),
+            app_subagents: true,
+            ..inputs()
+        });
+        assert_eq!(
+            request.params["developerInstructions"],
+            format!("proj\n\nctx\n\n{}", crate::agents::tools::DELEGATION_POLICY)
+        );
+    }
+
+    #[test]
+    fn no_separator_when_project_instructions_empty() {
+        let request = build_start_request(&StartInputs {
+            workspace: Some(workspace("/hub", "ctx")),
+            ..inputs()
+        });
+        assert_eq!(request.params["developerInstructions"], "ctx");
+    }
+
+    #[test]
+    fn no_instructions_field_when_everything_empty() {
+        let request = build_start_request(&inputs());
+        assert!(request.params.get("developerInstructions").is_none());
+    }
+
+    #[test]
+    fn subagents_off_sends_no_dynamic_tools_and_no_policy() {
+        let request = build_start_request(&StartInputs {
+            project_instructions: "proj".into(),
+            ..inputs()
+        });
+        assert!(request.params.get("dynamicTools").is_none());
+        assert_eq!(request.params["developerInstructions"], "proj");
+    }
+
+    #[test]
+    fn subagents_on_sends_tool_specs_with_model_enum() {
+        let models = vec!["gpt-5.6".to_string()];
+        let request = build_start_request(&StartInputs {
+            app_subagents: true,
+            models: models.clone(),
+            ..inputs()
+        });
+        assert_eq!(
+            request.params["dynamicTools"],
+            crate::agents::tools::specs(&models)
+        );
+        // No models still declares the tools, just with a free-form model field.
+        let request = build_start_request(&StartInputs {
+            app_subagents: true,
+            ..inputs()
+        });
+        assert_eq!(request.params["dynamicTools"], crate::agents::tools::specs(&[]));
+    }
+
+    #[test]
+    fn workspace_roots_are_sent_only_with_a_workspace() {
+        assert!(build_start_request(&inputs())
+            .params
+            .get("runtimeWorkspaceRoots")
+            .is_none());
+        let request = build_start_request(&StartInputs {
+            workspace: Some(workspace("/hub", "")),
+            ..inputs()
+        });
+        assert_eq!(request.params["cwd"], "/proj");
+        assert_eq!(request.params["runtimeWorkspaceRoots"], json!(["/a", "/b"]));
+    }
+
+    #[test]
+    fn project_id_is_attached_only_when_known() {
+        assert!(build_start_request(&inputs()).params.get("projectId").is_none());
+        let request = build_start_request(&StartInputs {
+            project_id: Some("p1".into()),
+            ..inputs()
+        });
+        assert_eq!(request.params["projectId"], "p1");
+    }
 
     #[test]
     fn maps_supported_turn_options() {
