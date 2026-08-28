@@ -26,6 +26,7 @@ import { activeConnectionCount, hasActiveConnection } from "$lib/layout/connecti
 import SidebarContextMenu from "$lib/layout/SidebarContextMenu.svelte";
 import SidebarSearch from "$lib/layout/SidebarSearch.svelte";
 import { type DragHooks, dnd, draggable, rowId, rowRef } from "$lib/layout/sidebarDnd.svelte";
+import { isStale, sidebarPrefs } from "$lib/layout/sidebarPrefs.svelte";
 import {
   buildTree,
   type DropTarget,
@@ -124,20 +125,27 @@ let {
 const visibleProjects = $derived(projects.filter((project) => !project.archived));
 
 // One busy project shouldn't push every other project off-screen, so expanded
-// projects show a head slice until the user asks for the rest.
+// projects show a head slice until the user asks for the rest. With the
+// "hide old threads" preference on, day-old threads fold behind the same
+// button; pinned and selected threads always stay in view.
 const THREAD_LIMIT = 15;
 let showAllThreads = $state<Record<string, boolean>>({});
 
-function visibleThreads(project: Project) {
-  if (showAllThreads[project.path] || project.threads.length <= THREAD_LIMIT) return project.threads;
-  const head = project.threads.slice(0, THREAD_LIMIT);
+function splitThreads(project: Project): { head: ThreadSummary[]; hidden: number } {
+  const keep = (thread: ThreadSummary) =>
+    thread.pinned || thread.id === selectedThread || !(sidebarPrefs.hideOldThreads && isStale(thread.updatedAt));
+  const head = project.threads.filter(keep).slice(0, THREAD_LIMIT);
   // Selection can come from outside the sidebar; keep it visible even when it
   // sorts past the cap.
   if (selectedThread && !head.some((thread) => thread.id === selectedThread)) {
     const selected = project.threads.find((thread) => thread.id === selectedThread);
     if (selected) head.push(selected);
   }
-  return head;
+  return { head, hidden: project.threads.length - head.length };
+}
+
+function visibleThreads(project: Project) {
+  return showAllThreads[project.path] ? project.threads : splitThreads(project).head;
 }
 
 /** The visible threads split by section: each section that has a thread in
@@ -524,8 +532,9 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
       {#if project.threads.length === 0}
         <p class="px-2 py-2 text-xs text-surface-500">No Codex threads yet</p>
       {:else}
+        {@const hidden = splitThreads(project).hidden}
         {@render threadNodes(project, projectTree(project))}
-        {#if project.threads.length > THREAD_LIMIT}
+        {#if hidden > 0 || showAllThreads[project.path]}
           <button
             type="button"
             onclick={() => (showAllThreads[project.path] = !showAllThreads[project.path])}
@@ -534,7 +543,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
             <ChevronDown class="transition {showAllThreads[project.path] ? '' : '-rotate-90'}" size={12} />
             {showAllThreads[project.path]
               ? "Show less"
-              : `Show ${project.threads.length - THREAD_LIMIT} more`}
+              : `Show ${hidden} more`}
           </button>
         {/if}
       {/if}

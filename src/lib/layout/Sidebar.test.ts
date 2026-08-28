@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Sidebar from "$lib/layout/Sidebar.svelte";
+import { sidebarPrefs } from "$lib/layout/sidebarPrefs.svelte";
 import { setProjectExpanded } from "$lib/services/api";
 import { activeTurns, approvals, unansweredQuestions, userInputRequests } from "$lib/services/codexEvents.svelte";
 import type { Project, SidebarLayout, SideQuestion, ThreadSection } from "$lib/types";
@@ -393,6 +394,46 @@ describe("Sidebar", () => {
 
     expect(screen.getByText("Thread 19")).toBeInTheDocument();
     expect(screen.queryByText("Thread 18")).not.toBeInTheDocument();
+  });
+
+  describe("hide old threads", () => {
+    const DAY = 86400;
+    function projectWithStale(pinned = false): Project {
+      const base = projectWithThreads(2);
+      base.threads[1] = { ...base.threads[1], updatedAt: Date.now() / 1000 - 2 * DAY, pinned };
+      return base;
+    }
+
+    afterEach(() => sidebarPrefs.setHideOldThreads(true));
+
+    it("folds day-old threads behind Show more by default", async () => {
+      const user = userEvent.setup();
+      setup(projectWithStale());
+
+      expect(screen.getByText("Thread 1")).toBeInTheDocument();
+      expect(screen.queryByText("Thread 2")).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Show 1 more" }));
+      expect(screen.getByText("Thread 2")).toBeInTheDocument();
+    });
+
+    it("keeps pinned stale threads visible", () => {
+      setup(projectWithStale(true));
+      expect(screen.getByText("Thread 2")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Show \d+ more/ })).not.toBeInTheDocument();
+    });
+
+    it("keeps the selected stale thread visible", () => {
+      setup(projectWithStale(), [], "thread-2");
+      expect(screen.getByText("Thread 2")).toBeInTheDocument();
+    });
+
+    it("shows stale threads when the preference is off", () => {
+      sidebarPrefs.setHideOldThreads(false);
+      setup(projectWithStale());
+      expect(screen.getByText("Thread 2")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Show \d+ more/ })).not.toBeInTheDocument();
+    });
   });
 
   it("lists archived threads and selects them", async () => {

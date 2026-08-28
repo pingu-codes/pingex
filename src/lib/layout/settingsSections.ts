@@ -9,7 +9,11 @@ export interface SettingsSection {
 
 export const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: "general", label: "General", keywords: ["codex home", "binary", "runtime", "restart"] },
-  { id: "appearance", label: "Appearance", keywords: ["theme", "density", "font size", "text size"] },
+  {
+    id: "appearance",
+    label: "Appearance",
+    keywords: ["theme", "density", "font size", "text size", "hide old threads", "recent threads", "sidebar"],
+  },
   {
     id: "agent",
     label: "Agent",

@@ -20,6 +20,7 @@ import { appearance, FONT_SIZE_MAX, FONT_SIZE_MIN } from "$lib/layout/appearance
 import Connections from "$lib/layout/Connections.svelte";
 import { messageLog } from "$lib/layout/messageLogPrefs.svelte";
 import { filterSections, SETTINGS_SECTIONS } from "$lib/layout/settingsSections";
+import { sidebarPrefs } from "$lib/layout/sidebarPrefs.svelte";
 import { acceleratorFromEvent } from "$lib/quick/quickChat";
 import {
   DEFAULT_QUICK_SHORTCUT,
@@ -403,6 +404,34 @@ async function reveal(path: string | null | undefined) {
                     value={appearance.prefs.fontSize}
                     oninput={(event) => appearance.set({ fontSize: Number(event.currentTarget.value) })}
                   />
+                </div>
+              </div>
+              <div class="flex items-center justify-between gap-4">
+                <div>
+                  <div class="font-medium">Hide threads older than a day</div>
+                  <div class="text-xs text-surface-500">
+                    Threads not touched in 24 hours fold behind “Show more”. Pinned and open threads stay visible.
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  {@render localBadge()}
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={sidebarPrefs.hideOldThreads}
+                    aria-label="Hide threads older than a day"
+                    data-testid="hide-old-threads-switch"
+                    onclick={() => sidebarPrefs.setHideOldThreads(!sidebarPrefs.hideOldThreads)}
+                    class="relative h-5 w-9 shrink-0 rounded-full transition {sidebarPrefs.hideOldThreads
+                      ? 'bg-primary-500'
+                      : 'bg-surface-300-700'}"
+                  >
+                    <span
+                      class="absolute top-0.5 size-4 rounded-full bg-white transition-all {sidebarPrefs.hideOldThreads
+                        ? 'left-[1.125rem]'
+                        : 'left-0.5'}"
+                    ></span>
+                  </button>
                 </div>
               </div>
             </div>
