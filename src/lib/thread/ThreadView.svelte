@@ -1,14 +1,14 @@
 <script lang="ts">
 import { ChevronRight, Pause, Play, Target, X } from "@lucide/svelte";
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
-import { tick } from "svelte";
+import { onDestroy, tick, untrack } from "svelte";
 import { nameNewThread } from "$lib/app/appData.svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import Composer from "$lib/composer/Composer.svelte";
 import type { SlashCommandId } from "$lib/composer/slashCommands";
 import RightPanel, { type PanelView } from "$lib/panels/RightPanel.svelte";
-import { runsFor, setAgentRuns } from "$lib/services/agentRuns.svelte";
+import { runsFor } from "$lib/services/agentRuns.svelte";
 import {
   clearThreadGoal,
   compactThread,
@@ -18,19 +18,9 @@ import {
   gitRepoInfo,
   gitWorktreeAdd,
   interruptTurn,
-  invalidateThreadCache,
-  isQueueUnsupported,
   isRevertUnsupported,
   killAgentRun,
-  listAgentRuns,
-  listSubagents,
   openInZed,
-  queueAdd,
-  queueDelete,
-  queueList,
-  queueReorder,
-  queueUpdate,
-  readThread,
   revealInFinder,
   revertThread,
   reviewLocalDiff,
@@ -42,16 +32,7 @@ import {
   startTurn,
   updateSubagentPolicy,
 } from "$lib/services/api";
-import {
-  activeTurns,
-  approvals,
-  type CodexEvent,
-  elicitations,
-  setThreadHandler,
-  threadTokenUsage,
-  turnPlans,
-  userInputRequests,
-} from "$lib/services/codexEvents.svelte";
+import { approvals, elicitations, turnPlans, userInputRequests } from "$lib/services/codexEvents.svelte";
 import { processes } from "$lib/services/processes.svelte";
 import ApprovalCard from "$lib/thread/ApprovalCard.svelte";
 import { requestAutoName } from "$lib/thread/autoName";
@@ -61,23 +42,17 @@ import ElicitationCard from "$lib/thread/ElicitationCard.svelte";
 import FloatingMenu from "$lib/thread/FloatingMenu.svelte";
 import { collectFileChanges } from "$lib/thread/fileChanges";
 import { cwdBelongsTo } from "$lib/thread/handoff";
-import { adoptLive, releaseLive, trackLive } from "$lib/thread/liveThreads.svelte";
 import { messageText, messageTitle } from "$lib/thread/messageText";
 import { planText } from "$lib/thread/planText";
 import QuestionCard from "$lib/thread/QuestionCard.svelte";
 import QueuedMessageRow from "$lib/thread/QueuedMessageRow.svelte";
-import { isClientQueued, isLocalOnly, localId, mergeQueue, pendingId } from "$lib/thread/queueEntries";
 import ReasoningBlock from "$lib/thread/ReasoningBlock.svelte";
 import RewindThreadDialog from "$lib/thread/RewindThreadDialog.svelte";
 import { isNearBottom, recallScroll, rememberScroll } from "$lib/thread/scrollPositions";
+import { attachSession, draftSession, openSession, releaseSession } from "$lib/thread/sessions.svelte";
 import TurnPlanCard from "$lib/thread/TurnPlanCard.svelte";
-import {
-  applyThreadEvent,
-  BUFFERING_NOTICE,
-  ensureTurn,
-  finalizeRunningTurns,
-  upsertItem,
-} from "$lib/thread/threadStream";
+import type { ThreadSession } from "$lib/thread/threadSession.svelte";
+import { ensureTurn, upsertItem } from "$lib/thread/threadStream";
 import {
   completedSegmentKey,
   segmentKey,
@@ -100,10 +75,7 @@ import type {
   SideQuestion,
   SubagentDetail,
   SubagentPolicy,
-  ThreadDetail,
-  ThreadGoal,
   ThreadItem,
-  ThreadTokenUsage,
   Turn,
   TurnOptions,
   UserInputPart,
@@ -147,7 +119,38 @@ let {
   onOpenSubagent?: (agent: SubagentDetail) => void;
 } = $props();
 
-let thread = $state<ThreadDetail | null>(null);
+/**
+ * The session for the thread on show — its transcript, queue and stream state,
+ * which outlive this view while the thread has work in flight. A draft gets a
+ * session of its own that joins the registry once the thread exists.
+ */
+function bind(id: string | null): ThreadSession {
+  return id ? openSession(id) : draftSession(cwd);
+}
+let session = $state.raw<ThreadSession>(bind(untrack(() => threadId)));
+$effect(() => {
+  const id = threadId;
+  untrack(() => {
+    // The draft's session takes the created thread's id itself, so it stays.
+    if (session.id === id) return;
+    releaseSession(session);
+    session = bind(id);
+  });
+});
+onDestroy(() => releaseSession(untrack(() => session)));
+const thread = $derived(session.thread);
+const liveThreadId = $derived(session.id);
+const activeTurn = $derived(session.activeTurn);
+const loading = $derived(session.loading);
+const error = $derived(session.error);
+const streamError = $derived(session.streamError);
+const notice = $derived(session.notice);
+const goal = $derived(session.goal);
+const starting = $derived(session.starting);
+const compacting = $derived(session.compacting);
+const tokenUsage = $derived(session.tokenUsage);
+const subagentModelPolicy = $derived(session.subagentModelPolicy);
+const subagentReasoningEffortPolicy = $derived(session.subagentReasoningEffortPolicy);
 /** What the thread last ran on, so a turn sent before the model list loads
  *  still carries full collaboration-mode settings. */
 const lastTurnModel = $derived.by(() => {
@@ -158,50 +161,16 @@ const lastTurnModel = $derived.by(() => {
   }
   return null;
 });
-let loading = $state(false);
-let error = $state<string | null>(null);
-let streamError = $state<string | null>(null);
 // Surface stream errors as dismissable, auto-expiring toasts (see ToastHost).
 $effect(() => {
   if (!streamError) return;
   toastError(streamError);
-  streamError = null;
+  session.streamError = null;
 });
-/**
- * The last advisory Codex sent — a warning, a model reroute, a retryable error.
- * Deliberately separate from `streamError`: none of these ended the turn, and
- * showing them in the error card would make a thread that recovered look
- * broken. Cleared when the next turn starts.
- */
-let notice = $state<string | null>(null);
-/**
- * The goal this thread is working towards, or null. Seeded when the thread
- * opens and kept live from `thread/goal/updated`, so the banner reflects what
- * Codex holds — including a goal set from another client or an earlier session
- * — rather than only what was typed here.
- */
-let goal = $state<ThreadGoal | null>(null);
-let liveThreadId = $state<string | null>(null);
-/** False once this view is torn down, so a late read cannot claim the thread. */
-let attached = true;
-let starting = $state(false);
 let scroller: HTMLElement | null = null;
 /** Thread whose remembered scroll offset has been applied to `scroller`. */
 let restoredScrollFor: string | null = null;
 let panelView = $state<PanelView | null>(null);
-let codexSubagents = $state<SubagentDetail[]>([]);
-let subagentModelPolicy = $state<SubagentPolicy | null>(null);
-let subagentReasoningEffortPolicy = $state<SubagentPolicy | null>(null);
-/** Mirror of the server-side queue (`thread/queue/*`) for this thread. */
-let queued = $state<QueuedSubmission[]>([]);
-/** Per-message turn options — the server queue has no field for them, so they
- *  live only in this session, keyed by `clientUserMessageId`. */
-let queuedOptions = new Map<string, TurnOptions>();
-/** Local queue mutations in flight; while > 0, `thread/queue/changed` re-lists
- *  are skipped so they cannot clobber an optimistic entry. */
-let queueMutations = 0;
-let tokenUsage = $state<ThreadTokenUsage | null>(null);
-let compacting = $state(false);
 let composer = $state<{
   implementPlan: () => void;
   implementPlanFresh: (plan?: string | null) => void;
@@ -259,26 +228,6 @@ async function ensureNewThreadCwd(): Promise<string> {
   return path;
 }
 
-// Deliberately two independent requests rather than one `Promise.all`:
-// `listSubagents` resumes and re-reads every descendant thread, so it is slow
-// and can stall. Gating our own runs behind it would leave the transcript's
-// agent cards inert and the menu empty for as long as Codex takes — or forever.
-async function refreshSubagents(id: string) {
-  void (async () => {
-    try {
-      setAgentRuns(id, await listAgentRuns(id));
-    } catch {
-      // Leave whatever the store already had rather than blanking the menu.
-    }
-  })();
-  try {
-    const codex = await listSubagents(id);
-    if (id === liveThreadId) codexSubagents = codex;
-  } catch {
-    if (id === liveThreadId) codexSubagents = [];
-  }
-}
-
 /**
  * The two kinds of agent a thread can have, as one list.
  *
@@ -306,150 +255,18 @@ const appSubagentDetails = $derived(
 );
 
 const subagentDetails = $derived([
-  ...codexSubagents.map((detail) => ({ ...detail, source: "codex" as const })),
+  ...session.subagents.map((detail) => ({ ...detail, source: "codex" as const })),
   ...appSubagentDetails,
 ]);
 
+// Follow the transcript as it streams: `revision` moves on every applied event.
+let seenRevision = untrack(() => session.revision);
 $effect(() => {
-  const id = threadId;
-  if (!id) {
-    if (!liveThreadId) {
-      thread = { id: "", preview: "", cwd, turns: [] };
-      loading = false;
-      error = null;
-    }
-    return;
-  }
-  if (id === liveThreadId) return;
-  liveThreadId = id;
-  restoredScrollFor = null;
-  // Codex replays `thread/tokenUsage/updated` on a thread's first resume; after
-  // that the cached figure is all we have until the next turn reports one.
-  tokenUsage = threadTokenUsage[id] ?? null;
-  goal = null;
-  loadGoal(id);
-  // A thread left mid-work keeps streaming into a retained document; adopt that
-  // instead of re-reading a transcript that stops where the turn began.
-  const held = adoptLive(id);
-  if (held) {
-    thread = held.detail;
-    queued = held.queued;
-    queuedOptions = held.queuedOptions;
-    compacting = held.compacting;
-    streamError = held.streamError;
-    subagentModelPolicy = held.subagentModelPolicy;
-    subagentReasoningEffortPolicy = held.subagentReasoningEffortPolicy;
-    loading = false;
-    error = null;
-    refreshSubagents(id);
-    return;
-  }
-  queued = [];
-  queuedOptions = new Map();
-  compacting = false;
-  thread = null;
-  loading = true;
-  error = null;
-  // The cached detail is keyed by the summary's `updated_at`, which does not
-  // move while a turn runs — for a working thread it is stale by construction.
-  const cacheReady = activeTurns.list.includes(id) ? invalidateThreadCache(id).catch(() => {}) : Promise.resolve();
-  cacheReady
-    .then(() => readThread(id))
-    .then((detail) => {
-      if (!attached || id !== liveThreadId) return;
-      // A turn left `inProgress` by a session that has since died would render
-      // as working forever — nothing can complete it, so show it as what it is.
-      if (!activeTurns.list.includes(id)) {
-        finalizeRunningTurns(detail.turns, "interrupted");
-      }
-      thread = trackLive(id, detail).detail;
-      subagentModelPolicy = detail.subagentModelPolicy ?? null;
-      subagentReasoningEffortPolicy = detail.subagentReasoningEffortPolicy ?? null;
-      refreshSubagents(id);
-      // Messages queued by an earlier session (or another client) are durable
-      // on the server; pick them up so the drain effect can run them.
-      refreshQueue(id);
-    })
-    .catch((cause) => {
-      if (id !== liveThreadId) return;
-      error = cause instanceof Error ? cause.message : String(cause);
-    })
-    .finally(() => {
-      if (id === liveThreadId) loading = false;
-    });
-});
-
-$effect(() => setThreadHandler(handleEvent));
-
-// Hand the working state back on unmount: switching to another thread destroys
-// this view, and a turn in flight has to keep streaming somewhere.
-$effect(() => () => {
-  attached = false;
-  if (!liveThreadId) return;
-  releaseLive(liveThreadId, {
-    queued,
-    queuedOptions,
-    compacting,
-    streamError,
-    subagentModelPolicy,
-    subagentReasoningEffortPolicy,
-  });
-});
-
-function handleEvent(event: CodexEvent) {
-  const { method, params } = event;
-  if (method === "disconnected") {
-    streamError = "Lost connection to Codex.";
-    finalizeRunningTurns(thread?.turns ?? [], "interrupted");
-    return;
-  }
-  if (method === "thread/status/changed" && params?.threadId) {
-    const target = subagentDetails.find((candidate) => candidate.id === params.threadId);
-    if (target) target.status = params.status?.type ?? params.status ?? target.status;
-  }
-  if (method === "thread/started" && liveThreadId && params?.thread?.parentThreadId) {
-    refreshSubagents(liveThreadId);
-  }
-  if (method === "thread/goal/updated" && params?.threadId === liveThreadId) {
-    goal = params.goal ?? null;
-  }
-  if (method === "thread/tokenUsage/updated" && params?.threadId === liveThreadId) {
-    tokenUsage = params.tokenUsage ?? null;
-  }
-  if (method === "thread/compacted" && params?.threadId === liveThreadId) {
-    compacting = false;
-  }
-  if (method === "thread/queue/changed" && params?.threadId === liveThreadId && liveThreadId) {
-    refreshQueue(liveThreadId);
-  }
-  if (method === "thread/reverted" && params?.threadId === liveThreadId && liveThreadId && !starting) {
-    // Another client truncated this thread's history; the local transcript and
-    // cache are both stale. Force a re-read on next load.
-    invalidateThreadCache(liveThreadId).catch(() => {});
-  }
-  if (method === "thread/settings/updated" && params?.threadId === liveThreadId) {
-    subagentModelPolicy = params.threadSettings?.subagentModelPolicy ?? null;
-    subagentReasoningEffortPolicy = params.threadSettings?.subagentReasoningEffortPolicy ?? null;
-  }
-  if (!thread || !params || params.threadId !== liveThreadId) return;
-  if (method === "turn/started") notice = null;
-  const outcome = applyThreadEvent(thread, event);
-  if (outcome.streamError) streamError = outcome.streamError;
-  if (outcome.notice) notice = outcome.notice;
-  // The buffering notice describes an ongoing stall; once the stall ends — or
-  // the turn does — it would just read as a hang, so take it down.
-  if ((outcome.bufferingEnded || outcome.turnCompleted) && notice === BUFFERING_NOTICE) notice = null;
-  // Compaction runs as a turn, so its end — however it ends — releases the meter.
-  if (outcome.turnCompleted) compacting = false;
-  if (outcome.turnCompleted && liveThreadId) invalidateThreadCache(liveThreadId).catch(() => {});
-  // The end of the opening turn is the first moment a title can reflect what the
-  // thread actually turned out to be about, so re-name off the exchange.
-  if (outcome.turnCompleted && liveThreadId && thread.turns.length === 1) {
-    requestAutoName(liveThreadId, "reply");
-  }
-  if (outcome.collabToolCall && liveThreadId) refreshSubagents(liveThreadId);
+  const revision = session.revision;
+  if (revision === seenRevision) return;
+  seenRevision = revision;
   maybeScroll();
-}
+});
 
 function maybeScroll(force = false) {
   const element = scroller;
@@ -485,87 +302,44 @@ $effect(() => {
 /**
  * The thread id to run work on, creating the thread first when this view is
  * still an unsent draft. Callers own `starting` around it: it leaves the draft
- * adopted under its new id either way.
+ * running under its new id either way.
  */
 async function ensureLiveThread(): Promise<string> {
-  if (liveThreadId) return liveThreadId;
-  if (!thread) throw new Error("This thread is not ready yet.");
+  if (session.id) return session.id;
   const newCwd = await ensureNewThreadCwd();
   const created = await startThread(newCwd, workspaceId, composer?.appSubagentsChoice() ?? null);
-  liveThreadId = created.id;
-  thread.id = created.id;
-  // The draft is now a real thread running a turn: retain it under its id so
-  // navigating away mid-turn keeps the stream.
-  trackLive(created.id, thread);
+  // The draft is now a real thread: it runs under its id from here, and is
+  // retained if the view leaves mid-turn.
+  attachSession(session, created.id);
   onThreadCreated?.(created.id, created.cwd ?? newCwd);
   return created.id;
 }
 
-/** Returns whether the message is accounted for — started as a turn or safely
- *  queued. `false` means it reached nothing, so a caller holding the only copy
- *  (see `drain`) must put it back. */
+/** Send from the composer. A draft becomes a real thread (and gets its name)
+ *  first; from there the session owns queueing, the optimistic bubble and the
+ *  turn. Returns whether the message is accounted for. */
 async function send(input: UserInputPart[], options?: TurnOptions): Promise<boolean> {
-  if (!thread) return false;
-  if (activeTurn || starting) {
-    // Codex is mid-turn: park the message on the server-side queue and send it
-    // once the turn ends (completed or interrupted via Stop/Esc).
-    enqueue(input, options);
-    return true;
-  }
-  const text = input
-    .filter((part) => part.type === "text")
-    .map((part) => part.text ?? "")
-    .join("");
-  streamError = null;
-  // Sending again is the retry for a drain that failed, so let the queue move.
-  drainBlocked = false;
-  const localTurnId = `local-${Date.now()}`;
-  try {
-    const isFirstMessage = !liveThreadId;
-    if (isFirstMessage) starting = true;
-    const id = await ensureLiveThread();
-    // Name the thread off its opening message before the turn is even started:
-    // nothing else can title it until its rollout persists, so waiting here is
-    // what leaves the sidebar reading "Untitled thread" for the whole turn.
-    if (isFirstMessage) {
+  if (!session.id && !session.activeTurn && !session.starting) {
+    session.starting = true;
+    try {
+      const id = await ensureLiveThread();
+      // Name the thread off its opening message before the turn is even started:
+      // nothing else can title it until its rollout persists, so waiting here is
+      // what leaves the sidebar reading "Untitled thread" for the whole turn.
       nameNewThread(id, messageTitle(input));
+      const text = messageText(input);
       if (text.trim()) requestAutoName(id, "seed", text);
+    } catch (cause) {
+      session.streamError = cause instanceof Error ? cause.message : String(cause);
+      return false;
+    } finally {
+      session.starting = false;
     }
-    thread.turns.push({
-      id: localTurnId,
-      status: "inProgress",
-      // What this turn runs on, so its replies are labelled as they stream in
-      // rather than only after the thread is read back.
-      model: options?.resolvedModel ?? null,
-      reasoningEffort: options?.resolvedEffort ?? null,
-      items: [
-        {
-          type: "userMessage",
-          id: `local-item-${Date.now()}`,
-          content: input,
-        },
-      ],
-    });
-    maybeScroll(true);
-    const start = startTurn(id, input, options);
-    pendingTurnStart = start;
-    const turn = await start;
-    // `turn/started` may already have renamed the turn to the id Codex actually
-    // runs it under (which can differ from the one returned here); leave that.
-    const pending = thread.turns.find((candidate) => candidate.id === localTurnId);
-    if (pending) {
-      pending.id = turn.id;
-      pending.status = turn.status ?? "inProgress";
-    }
-    return true;
-  } catch (cause) {
-    thread.turns = thread.turns.filter((candidate) => candidate.id !== localTurnId);
-    streamError = cause instanceof Error ? cause.message : String(cause);
-    return false;
-  } finally {
-    starting = false;
-    pendingTurnStart = null;
   }
+  const sent = session.send(input, options);
+  // The optimistic bubble is already in the transcript; follow it.
+  maybeScroll(true);
+  return sent;
 }
 
 /** Editing a past user message rewinds the thread to just before that turn and
@@ -588,8 +362,8 @@ async function submitEdit(turn: Turn, text: string) {
   if (!thread || liveThreadId !== threadIdAtEdit) return;
   const target = turnsToDrop();
   if (!target) return;
-  streamError = null;
-  starting = true;
+  session.streamError = null;
+  session.starting = true;
   try {
     // `thread/revert` is the current truncation API; `thread/rollback` is
     // deprecated upstream but kept as the fallback for codex CLIs (≤0.146)
@@ -604,17 +378,16 @@ async function submitEdit(turn: Turn, text: string) {
     if (!thread || liveThreadId !== threadIdAtEdit) return;
     thread.turns = thread.turns.slice(0, target.index);
   } catch (cause) {
-    streamError = cause instanceof Error ? cause.message : String(cause);
+    session.streamError = cause instanceof Error ? cause.message : String(cause);
     return;
   } finally {
-    starting = false;
+    session.starting = false;
   }
   // `send` owns the optimistic bubble, queueing and turn options, and keeps
   // `liveThreadId` unchanged so the stream events still match this view.
   await send([{ type: "text", text }]);
 }
 
-const activeTurn = $derived(thread?.turns.find((candidate) => candidate.status === "inProgress") ?? null);
 const threadApprovals = $derived(approvals.list.filter((approval) => approval.threadId === liveThreadId));
 const threadQuestions = $derived(userInputRequests.list.filter((request) => request.threadId === liveThreadId));
 const threadElicitations = $derived(elicitations.list.filter((entry) => entry.threadId === liveThreadId));
@@ -646,148 +419,17 @@ const showTypingIndicator = $derived.by(() => {
   return !(last?.type === "agentMessage" && last.streaming);
 });
 
-/** Park a message on the server-side queue, rendering it optimistically.
- *
- *  A failure here never drops the message: the entry stays in `queued` as a
- *  local-only one and still drains when the turn finishes. The server queue is
- *  durable and visible to other clients where the local one is not, so the loss
- *  is persistence, not the message. */
-async function enqueue(input: UserInputPart[], options?: TurnOptions) {
-  const threadIdAtAdd = liveThreadId;
-  const clientUserMessageId = crypto.randomUUID();
-  if (options) queuedOptions.set(clientUserMessageId, options);
-  // Draft thread: there is nothing to queue against yet, so it is local from
-  // the start and drains once the thread exists.
-  const id = threadIdAtAdd ? pendingId(clientUserMessageId) : localId(clientUserMessageId);
-  const optimistic: QueuedSubmission = { id, input, clientUserMessageId };
-  queued.push(optimistic);
-  if (!threadIdAtAdd) return;
-  queueMutations++;
-  try {
-    const submission = await queueAdd(threadIdAtAdd, input, clientUserMessageId);
-    const index = queued.findIndex((entry) => entry.id === optimistic.id);
-    if (index >= 0) queued[index] = submission;
-  } catch (cause) {
-    const index = queued.findIndex((entry) => entry.id === optimistic.id);
-    if (index >= 0) queued[index] = { ...optimistic, id: localId(clientUserMessageId) };
-    // An unsupported queue is a property of this Codex, not something that went
-    // wrong — the chip says "Queued locally" and that is the whole story. Other
-    // failures (a full queue, a lost thread) are worth a word, but as a notice:
-    // nothing ended the turn, and the message is still going to send.
-    if (!isQueueUnsupported(cause)) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      notice = `Queued in this window only — Codex could not hold it (${message}). It will send when this turn finishes.`;
-    }
-  } finally {
-    queueMutations--;
-  }
-}
-
-/** Remove a queued message, server-side first so the chip cannot resurrect. */
-async function removeQueued(entry: QueuedSubmission) {
-  queued = queued.filter((candidate) => candidate.id !== entry.id);
-  queuedOptions.delete(entry.clientUserMessageId);
-  if (!liveThreadId || isClientQueued(entry)) return;
-  queueMutations++;
-  try {
-    await queueDelete(liveThreadId, entry.id);
-  } catch {
-    // Already gone (started or deleted elsewhere) — the re-list will settle it.
-  } finally {
-    queueMutations--;
-  }
-}
-
-/** Re-mirror the server queue, unless our own mutation is still in flight. */
-function refreshQueue(id: string) {
-  if (queueMutations > 0) return;
-  queueList(id)
-    .then((items) => {
-      if (id !== liveThreadId || queueMutations > 0) return;
-      // Keeps the client-only entries the server does not know about — both the
-      // ones still in flight and the ones it will never hold.
-      queued = mergeQueue(items, queued);
-    })
-    .catch(() => {});
-}
-
-let draining = $state(false);
-/** Set when a drain put its message back, because nothing else in the effect's
- *  guard would have changed — without this the retry fires again immediately
- *  and spins. Cleared when the user next sends, which is also the retry. */
-let drainBlocked = $state(false);
-$effect(() => {
-  if (draining || drainBlocked || activeTurn || starting || loading || queued.length === 0) return;
-  const next = queued[0];
-  if (next) drain(next);
-});
-
-/** Run the head of the queue: take it off the server, then send it through the
- *  normal turn path so its options (which the server queue cannot hold) and the
- *  optimistic bubble behave exactly like a direct send.
- *
- *  Between the removal and the send this holds the only copy of the message, so
- *  a failed send puts it back rather than dropping it. */
-async function drain(next: QueuedSubmission) {
-  draining = true;
-  const options = queuedOptions.get(next.clientUserMessageId);
-  try {
-    await removeQueued(next);
-    queuedOptions.delete(next.clientUserMessageId);
-    if (await send(next.input, options)) return;
-    if (options) queuedOptions.set(next.clientUserMessageId, options);
-    queued = [{ ...next, id: localId(next.clientUserMessageId) }, ...queued];
-    drainBlocked = true;
-  } finally {
-    draining = false;
-  }
-}
-
-/** Jump a queued message to the head and stop the running turn so it goes next. */
-async function sendNow(entry: QueuedSubmission) {
-  queued = [entry, ...queued.filter((candidate) => candidate.id !== entry.id)];
-  if (liveThreadId && !queued.some(isClientQueued) && queued.length > 1) {
-    queueMutations++;
-    try {
-      await queueReorder(
-        liveThreadId,
-        queued.map((candidate) => candidate.id),
-      );
-    } catch {
-      // The local order still drives the drain; the server's is only cosmetic.
-    } finally {
-      queueMutations--;
-    }
-  }
-  drainBlocked = false;
-  await interrupt();
-}
-
-/** Replace a queued message's content, on the server too when it lives there. */
-async function editQueued(entry: QueuedSubmission, input: UserInputPart[]) {
-  queued = queued.map((candidate) => (candidate.id === entry.id ? { ...candidate, input } : candidate));
-  if (!liveThreadId || isClientQueued(entry)) return;
-  queueMutations++;
-  try {
-    await queueUpdate(liveThreadId, entry.id, input);
-  } catch (cause) {
-    toastError(`Could not update the queued message: ${cause instanceof Error ? cause.message : String(cause)}`);
-  } finally {
-    queueMutations--;
-  }
-}
-
 /** Take a message off the queue: back into an empty composer, or, when that
  *  would clobber typed text, only after the user agrees to lose it. */
 async function cancelQueued(entry: QueuedSubmission) {
   const text = queuedPreview(entry.input);
   if (composer?.isEmpty()) {
-    await removeQueued(entry);
+    await session.queue.remove(entry);
     composer.restoreText(text);
     return;
   }
   if (!(await openDialog(DiscardQueuedDialog, { preview: text }))) return;
-  await removeQueued(entry);
+  await session.queue.remove(entry);
 }
 
 function queuedPreview(input: UserInputPart[]) {
@@ -797,26 +439,7 @@ function queuedPreview(input: UserInputPart[]) {
     .trim();
 }
 
-/** The in-flight `startTurn` call, so a Stop pressed before it resolves can
- *  wait for the real turn id instead of silently doing nothing. */
-let pendingTurnStart: Promise<unknown> | null = null;
-
-async function interrupt() {
-  if (!liveThreadId || !activeTurn) return;
-  if (activeTurn.id.startsWith("local-")) {
-    // The optimistic turn is still waiting on `turn/start`; Codex has never
-    // heard of it. Wait for the real id, then interrupt that.
-    try {
-      await pendingTurnStart;
-    } catch {
-      return; // send() already surfaced the error and removed the turn.
-    }
-    if (!liveThreadId || !activeTurn || activeTurn.id.startsWith("local-")) return;
-  }
-  interruptTurn(liveThreadId, activeTurn.id).catch((cause) => {
-    streamError = cause instanceof Error ? cause.message : String(cause);
-  });
-}
+const interrupt = () => session.interrupt();
 
 const allItems = $derived((thread?.turns ?? []).flatMap((turn) => turn.items));
 /** Prior prompts, oldest first, for the composer's ↑/↓ recall. */
@@ -934,8 +557,8 @@ function implementPlanFresh() {
  */
 async function startPlanThread(input: UserInputPart[], options?: TurnOptions) {
   if (starting || activeTurn) return;
-  starting = true;
-  streamError = null;
+  session.starting = true;
+  session.streamError = null;
   const dir = workspaceId ? cwd : thread?.cwd || cwd;
   try {
     const created = await startThread(dir, workspaceId, composer?.appSubagentsChoice() ?? null);
@@ -947,9 +570,9 @@ async function startPlanThread(input: UserInputPart[], options?: TurnOptions) {
     const plan = messageText(input);
     if (plan.trim()) requestAutoName(created.id, "seed", plan);
   } catch (cause) {
-    streamError = cause instanceof Error ? cause.message : String(cause);
+    session.streamError = cause instanceof Error ? cause.message : String(cause);
   } finally {
-    starting = false;
+    session.starting = false;
   }
 }
 
@@ -964,13 +587,13 @@ const cwdMismatch = $derived(
 /** `/compact` is answered here rather than in App because it needs the live thread. */
 async function compact() {
   if (!liveThreadId || compacting || activeTurn || starting) return;
-  compacting = true;
-  streamError = null;
+  session.compacting = true;
+  session.streamError = null;
   try {
     await compactThread(liveThreadId);
   } catch (cause) {
-    compacting = false;
-    streamError = cause instanceof Error ? cause.message : String(cause);
+    session.compacting = false;
+    session.streamError = cause instanceof Error ? cause.message : String(cause);
   }
 }
 
@@ -985,9 +608,9 @@ async function compact() {
  */
 async function review(target: ReviewTarget) {
   if (activeTurn || starting) return;
-  streamError = null;
+  session.streamError = null;
   const fresh = !liveThreadId;
-  if (fresh) starting = true;
+  if (fresh) session.starting = true;
   try {
     const turn = await startReview(await ensureLiveThread(), target);
     if (thread) {
@@ -995,9 +618,9 @@ async function review(target: ReviewTarget) {
       maybeScroll(true);
     }
   } catch (cause) {
-    streamError = cause instanceof Error ? cause.message : String(cause);
+    session.streamError = cause instanceof Error ? cause.message : String(cause);
   } finally {
-    if (fresh) starting = false;
+    if (fresh) session.starting = false;
   }
 }
 
@@ -1014,7 +637,7 @@ async function showWorkingDiff() {
     }));
     panelView = { kind: "diffs" };
   } catch (cause) {
-    streamError = cause instanceof Error ? cause.message : String(cause);
+    session.streamError = cause instanceof Error ? cause.message : String(cause);
   }
 }
 
@@ -1044,7 +667,7 @@ function runCommand(command: SlashCommandId, argument = "", typed = "") {
   }
   if (command === "review") {
     if (activeTurn || starting) {
-      notice = "/review can't start while Codex is working — stop the current turn first.";
+      session.notice = "/review can't start while Codex is working — stop the current turn first.";
       return;
     }
     // A typed argument is the review instruction itself; with none, ask what to
@@ -1088,7 +711,7 @@ function runCommand(command: SlashCommandId, argument = "", typed = "") {
 /** A command that could not run: say why, and give the typed line back so the
  *  user can edit it rather than retyping it from scratch. */
 function failCommand(command: SlashCommandId, typed: string, message?: string) {
-  streamError = message ?? `/${command} needs an open thread.`;
+  session.streamError = message ?? `/${command} needs an open thread.`;
   if (typed) composer?.restoreText(typed);
 }
 
@@ -1108,17 +731,20 @@ async function goalCommand(argument: string, typed = "") {
   if (!objective) {
     // Reading or clearing a goal a draft cannot have yet.
     if (!current) {
-      notice = "No goal is set — /goal <objective> sets one.";
+      session.notice = "No goal is set — /goal <objective> sets one.";
       return;
     }
     try {
       if (argument) {
         await clearThreadGoal(current);
-        goal = null;
-        notice = "Goal cleared.";
+        session.goal = null;
+        session.notice = "Goal cleared.";
       } else {
-        goal = await getThreadGoal(current);
-        notice = goal ? `Goal (${goal.status}): ${goal.objective}` : "No goal is set — /goal <objective> sets one.";
+        const held = await getThreadGoal(current);
+        session.goal = held;
+        session.notice = held
+          ? `Goal (${held.status}): ${held.objective}`
+          : "No goal is set — /goal <objective> sets one.";
       }
     } catch (cause) {
       failCommand("goal", typed, cause instanceof Error ? cause.message : String(cause));
@@ -1130,11 +756,12 @@ async function goalCommand(argument: string, typed = "") {
     failCommand("goal", typed, "/goal can't start a thread while Codex is working.");
     return;
   }
-  if (fresh) starting = true;
+  if (fresh) session.starting = true;
   try {
     const id = await ensureLiveThread();
-    goal = await setThreadGoal(id, objective);
-    notice = `Goal set: ${goal.objective}`;
+    const set = await setThreadGoal(id, objective);
+    session.goal = set;
+    session.notice = `Goal set: ${set.objective}`;
     // A goal-only thread has no turn to name it from, so the objective titles
     // it: shown at once, then refined by the namer.
     if (fresh) {
@@ -1144,17 +771,8 @@ async function goalCommand(argument: string, typed = "") {
   } catch (cause) {
     failCommand("goal", typed, cause instanceof Error ? cause.message : String(cause));
   } finally {
-    if (fresh) starting = false;
+    if (fresh) session.starting = false;
   }
-}
-
-/** Read the goal Codex holds for a thread, if any; failures leave no goal shown. */
-function loadGoal(id: string) {
-  void getThreadGoal(id)
-    .then((current) => {
-      if (id === liveThreadId) goal = current;
-    })
-    .catch(() => {});
 }
 
 /** Pause a running goal, or resume a paused (or otherwise stalled) one. */
@@ -1162,7 +780,7 @@ async function toggleGoal() {
   if (!goal || !liveThreadId) return;
   const status = goal.status === "active" ? "paused" : "active";
   try {
-    goal = { ...goal, ...(await setThreadGoalStatus(liveThreadId, status)), objective: goal.objective };
+    session.goal = { ...goal, ...(await setThreadGoalStatus(liveThreadId, status)), objective: goal.objective };
   } catch (cause) {
     toastError(cause instanceof Error ? cause.message : String(cause));
   }
@@ -1172,7 +790,7 @@ async function clearGoal() {
   if (!liveThreadId) return;
   try {
     await clearThreadGoal(liveThreadId);
-    goal = null;
+    session.goal = null;
   } catch (cause) {
     toastError(cause instanceof Error ? cause.message : String(cause));
   }
@@ -1203,14 +821,14 @@ async function copyLastResponse() {
   const items = thread?.turns.flatMap((turn) => turn.items) ?? [];
   const last = [...items].reverse().find((item) => item.type === "agentMessage" && !item.streaming && item.text);
   if (!last?.text) {
-    notice = "No response to copy yet.";
+    session.notice = "No response to copy yet.";
     return;
   }
   try {
     await copyText(last.text);
-    notice = "Copied the last response as markdown.";
+    session.notice = "Copied the last response as markdown.";
   } catch (cause) {
-    streamError = cause instanceof Error ? cause.message : String(cause);
+    session.streamError = cause instanceof Error ? cause.message : String(cause);
   }
 }
 
@@ -1224,14 +842,14 @@ async function exportConversation() {
     }
   }
   if (sections.length === 0) {
-    notice = "Nothing to export yet.";
+    session.notice = "Nothing to export yet.";
     return;
   }
   try {
     await copyText(sections.join("\n\n"));
-    notice = "Copied the conversation as markdown.";
+    session.notice = "Copied the conversation as markdown.";
   } catch (cause) {
-    streamError = cause instanceof Error ? cause.message : String(cause);
+    session.streamError = cause instanceof Error ? cause.message : String(cause);
   }
 }
 
@@ -1245,25 +863,25 @@ async function undoTurns(turns: number) {
   const threadIdAtUndo = liveThreadId;
   const dropped = Math.min(turns, thread.turns.length);
   if (dropped === 0) return;
-  streamError = null;
-  starting = true;
+  session.streamError = null;
+  session.starting = true;
   try {
     await rollbackThread(threadIdAtUndo, dropped);
     if (!thread || liveThreadId !== threadIdAtUndo) return;
     thread.turns = thread.turns.slice(0, thread.turns.length - dropped);
   } catch (cause) {
-    streamError = cause instanceof Error ? cause.message : String(cause);
+    session.streamError = cause instanceof Error ? cause.message : String(cause);
   } finally {
-    starting = false;
+    session.starting = false;
   }
 }
 
 function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: SubagentPolicy | null) {
-  subagentModelPolicy = modelPolicy;
-  subagentReasoningEffortPolicy = effortPolicy;
+  session.subagentModelPolicy = modelPolicy;
+  session.subagentReasoningEffortPolicy = effortPolicy;
   if (!liveThreadId) return;
   updateSubagentPolicy(liveThreadId, modelPolicy, effortPolicy).catch((cause) => {
-    streamError = cause instanceof Error ? cause.message : String(cause);
+    session.streamError = cause instanceof Error ? cause.message : String(cause);
   });
 }
 </script>
@@ -1282,7 +900,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
       {contextStats}
       costUsd={estimateCost(tokenUsage, activeModel)}
       onOpenFinder={() => revealInFinder(thread?.cwd || cwd).catch(() => {})}
-      onOpenZed={() => openInZed(thread?.cwd || cwd).catch((cause) => (streamError = cause instanceof Error ? cause.message : String(cause)))}
+      onOpenZed={() => openInZed(thread?.cwd || cwd).catch((cause) => (session.streamError = cause instanceof Error ? cause.message : String(cause)))}
       onShowPlan={() => (panelView = latestPlan ? { kind: "plan", text: latestPlan } : panelView)}
       onShowSources={() => (panelView = { kind: "sources", queries: sourceQueries })}
       onShowSideQuestions={() => (panelView = { kind: "side" })}
@@ -1301,7 +919,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
       onStopSubagent={async (agent) => {
         if (!agent.runId) return;
         await killAgentRun(agent.runId).catch(() => {});
-        if (threadId) refreshSubagents(threadId);
+        session.refreshSubagents();
       }}
       onOpenProcess={(process) => (panelView = { kind: "process", processKey: process.key })}
     />
@@ -1451,21 +1069,21 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
     <div class="mx-auto w-full max-w-3xl px-6">
       <div class="card preset-tonal-warning mb-2 flex items-start gap-2 px-3 py-2 text-xs">
         <span class="min-w-0 flex-1">{notice}</span>
-        <button type="button" onclick={() => (notice = null)} class="shrink-0 opacity-60 hover:opacity-100" aria-label="Dismiss notice">
+        <button type="button" onclick={() => (session.notice = null)} class="shrink-0 opacity-60 hover:opacity-100" aria-label="Dismiss notice">
           <X size={12} />
         </button>
       </div>
     </div>
   {/if}
 
-  {#if queued.length > 0}
+  {#if session.queue.entries.length > 0}
     <div class="mx-auto w-full max-w-3xl space-y-1 px-6 pb-2">
-      {#each queued as entry, index (entry.id)}
+      {#each session.queue.entries as entry, index (entry.id)}
         <QueuedMessageRow
           {entry}
           canSendNow={activeTurn !== null || index > 0}
-          onSendNow={() => sendNow(entry)}
-          onEdit={(input) => editQueued(entry, input)}
+          onSendNow={() => session.queue.promote(entry)}
+          onEdit={(input) => session.queue.edit(entry, input)}
           onCancel={() => cancelQueued(entry)}
         />
       {/each}
@@ -1562,7 +1180,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
     onStopProcessTurn={(process) => {
       if (process.turnId && process.threadId) {
         interruptTurn(process.threadId, process.turnId).catch((cause) => {
-          streamError = cause instanceof Error ? cause.message : String(cause);
+          session.streamError = cause instanceof Error ? cause.message : String(cause);
         });
       }
     }}

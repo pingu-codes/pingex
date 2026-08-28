@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Architecture review for codex-custom</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+</script>
+<style>
+  .seam { stroke-dasharray: 5 4; }
+  .deep { background: linear-gradient(135deg, #0f172a, #1e293b); color: #e2e8f0; }
+  .lbl { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+  .mod { border: 1.5px solid #64748b; border-radius: 6px; background: #fff; }
+  .leakbox { border-color: #dc2626; }
+  .band { border-left: 4px solid #94a3b8; }
+  .fade { opacity: .45; }
+  pre.mermaid { font-size: 12px; }
+</style>
+</head>
+<body class="bg-stone-50 text-slate-900 font-sans">
+<main class="max-w-5xl mx-auto px-6 py-12 space-y-14">
+
+<header class="space-y-3">
+  <h1 class="font-serif text-4xl">Architecture review · <span class="text-slate-500">codex-custom</span></h1>
+  <p class="text-sm text-slate-500">2026-08-28 · branch <code>feat/tauri-specta</code> · hot spots from 40 commits: ThreadView, api.ts, types.ts, lib.rs, Sidebar, Composer, threads/*.rs, storage/*.rs</p>
+  <div class="flex flex-wrap gap-4 text-xs text-slate-600 pt-2">
+    <span><span class="inline-block w-5 h-3 mod align-middle"></span> module</span>
+    <span><svg width="28" height="10" class="inline align-middle"><line x1="0" y1="5" x2="28" y2="5" stroke="#64748b" stroke-width="2" class="seam"/></svg> seam</span>
+    <span><svg width="28" height="10" class="inline align-middle"><line x1="0" y1="5" x2="28" y2="5" stroke="#dc2626" stroke-width="2"/></svg> leakage</span>
+    <span><span class="inline-block w-5 h-3 deep rounded-sm align-middle"></span> deep module</span>
+    <span class="ml-auto">No <code>CONTEXT.md</code> or ADRs exist yet — nothing to conflict with.</span>
+  </div>
+  <div class="grid grid-cols-3 gap-3 text-xs pt-3">
+    <div class="rounded border border-emerald-200 bg-emerald-50 p-3"><b>Already deep — leave alone:</b> <code>codex/session.rs</code>+<code>child.rs</code> (one seam to codex, <code>ChildSink</code>), <code>codex/journal.rs</code> (11 pure fns, 22 tests), <code>threads/read.rs</code>, <code>storage/db.rs</code>, <code>AppState</code>/<code>HomeContext</code>.</div>
+    <div class="rounded border border-slate-200 bg-white p-3"><b>Test surface:</b> Rust 318 tests / 77 modules, but only pure fns + storage; nothing between reachable. TS 65 files / ~10k lines; big untested views: <code>WorkItem</code>, <code>ProjectDetail</code>, <code>HomePage</code>, <code>Connections</code>, <code>App</code>.</div>
+    <div class="rounded border border-slate-200 bg-white p-3"><b>Generated seam is intact:</b> <code>bindings.ts</code> imported by exactly two files (<code>api.ts</code>, <code>types.ts</code>). 149 <code>#[tauri::command]</code>s.</div>
+  </div>
+</header>
+
+<section id="candidates" class="space-y-12">
+
+<!-- ================= 1 ================= -->
+<article id="c1" class="rounded-xl border border-slate-200 bg-white p-8 space-y-6">
+  <div class="flex items-start justify-between gap-4">
+    <h2 class="font-serif text-2xl">1 · One Thread Session, mounted or not</h2>
+    <div class="flex gap-2 shrink-0">
+      <span class="rounded-full bg-emerald-100 text-emerald-800 px-3 py-1 text-xs font-semibold">Strong</span>
+      <span class="rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs">in-process</span>
+    </div>
+  </div>
+  <pre class="font-mono text-sm text-slate-600 whitespace-pre-wrap">src/lib/thread/ThreadView.svelte:382-467  handleEvent, adoptLive :325, releaseLive :387
+src/lib/thread/liveThreads.svelte.ts:58-96  onEvent</pre>
+  <div class="grid md:grid-cols-2 gap-4">
+    <div class="rounded-lg border border-slate-200 p-4">
+      <div class="lbl text-slate-500 mb-2">Before — two implementations of one concept</div>
+      <pre class="mermaid">
+flowchart TB
+  EV[codex event] --> TV[ThreadView.handleEvent<br/>26 $state · 9 $effect]
+  EV --> LT[liveThreads.onEvent]
+  TV -- "adoptLive: unpack 7 fields" --- LT
+  LT -- "releaseLive: repack 7 fields" --- TV
+  TV --> A[compacted · queue/changed<br/>settings · goal · tokenUsage<br/>status · reverted · autoname]
+  LT --> B[compacted · queue/changed<br/>settings · turnCompleted]
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class TV,LT leak
+      </pre>
+      <p class="text-xs text-red-700 mt-2">Diverged: only the mounted path handles goal / tokenUsage / status / reverted.</p>
+    </div>
+    <div class="rounded-lg border border-slate-200 p-4">
+      <div class="lbl text-slate-500 mb-2">After — one deep module owns the document</div>
+      <div class="relative h-[300px]">
+        <div class="absolute left-2 top-2 mod px-3 py-1 lbl">codex event</div>
+        <svg class="absolute inset-0 w-full h-full pointer-events-none"><line x1="70" y1="40" x2="70" y2="70" stroke="#64748b" stroke-width="2"/><line x1="240" y1="230" x2="240" y2="262" stroke="#64748b" stroke-width="2" class="seam"/></svg>
+        <div class="absolute left-2 right-2 top-[70px] deep rounded-lg p-4 h-[160px]">
+          <div class="lbl">ThreadSession</div>
+          <div class="text-xs mt-1 text-slate-300">interface: <code>thread · queued · goal · usage · subscribe()</code></div>
+          <div class="grid grid-cols-3 gap-2 mt-3 fade text-[10px]">
+            <div class="border border-slate-500 rounded p-1">applyThreadEvent</div>
+            <div class="border border-slate-500 rounded p-1">compaction</div>
+            <div class="border border-slate-500 rounded p-1">settings/goal</div>
+            <div class="border border-slate-500 rounded p-1">token usage</div>
+            <div class="border border-slate-500 rounded p-1">cache invalidate</div>
+            <div class="border border-slate-500 rounded p-1">autoname</div>
+          </div>
+        </div>
+        <div class="absolute left-2 top-[262px] mod px-3 py-1 lbl">ThreadView — render + user intent</div>
+        <div class="absolute right-2 top-[262px] mod px-3 py-1 lbl fade">liveThreads — just a Map&lt;id, session&gt;</div>
+      </div>
+    </div>
+  </div>
+  <p><b>Problem.</b> The "what happens to a thread when an event arrives" implementation exists twice, hand-synced by a 7-field struct copy each way, and has already diverged.</p>
+  <p><b>Solution.</b> A <code>ThreadSession</code> module subscribes for its whole lifetime; <code>ThreadView</code> renders <code>session.*</code> and stops owning event handling.</p>
+  <ul class="grid grid-cols-2 gap-x-6 text-sm list-disc pl-5">
+    <li>locality: one event handler per thread</li>
+    <li>deletes the mounted/unmounted bug class</li>
+    <li>tests: no <code>render()</code> needed</li>
+    <li><code>liveThreads.test</code> + ThreadView §895-939 collapse into one</li>
+    <li>ThreadView sheds ~10 <code>$state</code></li>
+  </ul>
+</article>
+
+<!-- ================= 2 ================= -->
+<article id="c2" class="rounded-xl border border-slate-200 bg-white p-8 space-y-6">
+  <div class="flex items-start justify-between gap-4">
+    <h2 class="font-serif text-2xl">2 · A Thread Queue that holds the only copy of the message</h2>
+    <div class="flex gap-2 shrink-0">
+      <span class="rounded-full bg-emerald-100 text-emerald-800 px-3 py-1 text-xs font-semibold">Strong</span>
+      <span class="rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs">in-process</span>
+    </div>
+  </div>
+  <pre class="font-mono text-sm text-slate-600 whitespace-pre-wrap">src/lib/thread/queueEntries.ts  (pure helpers, 55-line test)
+src/lib/thread/ThreadView.svelte:641-757  enqueue · removeQueued · refreshQueue · drain · sendNow · editQueued · cancelQueued
+src/lib/services/api.ts:657-740  queueList/queueAdd/queueDelete envelopes</pre>
+  <div class="grid md:grid-cols-2 gap-4">
+    <div class="rounded-lg border border-slate-200 p-4">
+      <div class="lbl text-slate-500 mb-3">Before — mass diagram: tested part vs. where bugs live</div>
+      <div class="flex gap-6 items-end h-[260px]">
+        <div class="flex flex-col items-center gap-1 w-1/3">
+          <div class="mod w-full h-[60px] flex items-center justify-center lbl text-center">queueEntries<br/>5 pure fns</div>
+          <div class="text-[10px] text-emerald-700">tested ✓</div>
+        </div>
+        <div class="flex flex-col items-center gap-1 w-2/3">
+          <div class="mod leakbox w-full h-[200px] p-2 text-[10px] space-y-1">
+            <div class="lbl text-red-700">ThreadView locals</div>
+            <div>queueMutations counter — 6 touch sites</div>
+            <div>drainBlocked flag</div>
+            <div>queuedOptions Map (server can't hold)</div>
+            <div>drain $effect guard: draining||drainBlocked||activeTurn||starting||loading</div>
+            <div>mergeQueue called from 2 places that must agree</div>
+            <div>"holds the only copy between remove and send"</div>
+          </div>
+          <div class="text-[10px] text-red-700">9 tests, each needs full render + 5 mocks</div>
+        </div>
+      </div>
+    </div>
+    <div class="rounded-lg border border-slate-200 p-4">
+      <div class="lbl text-slate-500 mb-3">After — small interface, deep implementation</div>
+      <div class="flex gap-6 items-end h-[260px]">
+        <div class="flex flex-col items-center gap-1 w-full">
+          <div class="mod w-full h-[40px] flex items-center justify-center text-[11px] font-mono">add · remove · edit · promote · syncFromServer · takeNext</div>
+          <div class="deep w-full h-[190px] rounded-lg p-3 text-[10px] space-y-1">
+            <div class="lbl">ThreadQueue</div>
+            <div class="fade">local vs server ids · in-flight counter · option side-table · drain policy · envelope unwrapping · <code>send</code> injected</div>
+          </div>
+          <div class="text-[10px] text-emerald-700">9 behaviours → plain unit tests with fake <code>send</code></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p><b>Problem.</b> The pure helpers were extracted for testability, but the invariant ("never lose the message") is spread across four functions and two flags in the caller — no locality.</p>
+  <p><b>Solution.</b> A <code>ThreadQueue</code> module owns the array, counter, side-table and drain policy; <code>ThreadView</code> and <code>ThreadSession</code> (#1) call its six verbs.</p>
+  <ul class="grid grid-cols-2 gap-x-6 text-sm list-disc pl-5">
+    <li>locality: one home for the drain rule</li>
+    <li>leverage: liveThreads stops calling <code>mergeQueue</code></li>
+    <li>tests: no render, fake clock + fake send</li>
+    <li>pairs naturally with #1</li>
+  </ul>
+</article>
+
+<!-- ================= 3 ================= -->
+<article id="c3" class="rounded-xl border border-slate-200 bg-white p-8 space-y-6">
+  <div class="flex items-start justify-between gap-4">
+    <h2 class="font-serif text-2xl">3 · Unbraid <code>api.ts</code>: a real Preview adapter</h2>
+    <div class="flex gap-2 shrink-0">
+      <span class="rounded-full bg-emerald-100 text-emerald-800 px-3 py-1 text-xs font-semibold">Strong</span>
+      <span class="rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs">ports &amp; adapters</span>
+    </div>
+  </div>
+  <pre class="font-mono text-sm text-slate-600 whitespace-pre-wrap">src/lib/services/api.ts (1604 lines, ~160 exports, 148 isTauri() branches vs 149 commands.* calls)
+src/lib/services/preview/fixtures.ts (1437), preview/stream.ts
+api.ts:2 imports $lib/layout/sidebarTree  ← service depends on a layout module, only to fake the backend</pre>
+  <div class="grid md:grid-cols-2 gap-4">
+    <div class="rounded-lg border border-slate-200 p-4">
+      <div class="lbl text-slate-500 mb-3">Before — cross-section of one call</div>
+      <div class="space-y-1 text-xs">
+        <div class="band h-10 flex items-center pl-3 bg-slate-50">caller: <code>renameThread(id, name)</code></div>
+        <div class="band h-10 flex items-center pl-3 bg-slate-50 border-red-500">api.ts:193 — <code>if (!isTauri())</code></div>
+        <div class="grid grid-cols-2 gap-1">
+          <div class="band h-16 flex items-center pl-3 bg-red-50 border-red-500 text-[11px]">mutate <code>previewData</code>, call <code>placeInLayout</code> … a 2nd data model</div>
+          <div class="band h-16 flex items-center pl-3 bg-slate-50 text-[11px]"><code>commands.renameThread</code> + unwrap envelope</div>
+        </div>
+        <div class="band h-10 flex items-center pl-3 bg-slate-50">× 148 functions</div>
+        <div class="text-[11px] text-red-700 pt-1">Tests choose sides inconsistently: <code>Sidebar.test</code>/<code>Composer.test</code> run on fixtures via <code>importOriginal</code>; <code>ThreadView.test</code> hand-mocks 50 keys.</div>
+      </div>
+    </div>
+    <div class="rounded-lg border border-slate-200 p-4">
+      <div class="lbl text-slate-500 mb-3">After — one seam, two adapters</div>
+      <pre class="mermaid">
+flowchart LR
+  C[callers · same import names] --> S{{Backend seam}}
+  S -.-> T[TauriBackend<br/>commands.* + envelope unwrap + pagination]
+  S -.-> P[PreviewBackend<br/>owns previewData as one in-memory store]
+  P --> F[fixtures]
+  classDef deep fill:#0f172a,color:#e2e8f0,stroke:#0f172a;
+  class T,P deep
+      </pre>
+      <p class="text-xs text-slate-600 mt-2">Two adapters already exist in practice — the seam just isn't drawn. Tests install <code>PreviewBackend</code> and seed it.</p>
+    </div>
+  </div>
+  <p><b>Problem.</b> A real seam (Tauri vs. preview) is expressed as 148 inline branches, and the preview side is a second, scattered implementation of the app's data model.</p>
+  <p><b>Solution.</b> Split into a thin generated-call adapter, a <code>PreviewBackend</code> module that owns preview state, and one switch. Callers unchanged.</p>
+  <ul class="grid grid-cols-2 gap-x-6 text-sm list-disc pl-5">
+    <li>leverage: one switch, not 148</li>
+    <li>locality: preview mutations in one module</li>
+    <li>tests: one mocking style, seedable</li>
+    <li>unlocks untested views (ProjectDetail, HomePage, Connections)</li>
+    <li>drops the api→sidebarTree dependency</li>
+  </ul>
+</article>
+
+<!-- ================= 4 ================= -->
+<article id="c4" class="rounded-xl border border-slate-200 bg-white p-8 space-y-6">
+  <div class="flex items-start justify-between gap-4">
+    <h2 class="font-serif text-2xl">4 · Decode Codex events once</h2>
+    <div class="flex gap-2 shrink-0">
+      <span class="rounded-full bg-emerald-100 text-emerald-800 px-3 py-1 text-xs font-semibold">Strong</span>
+      <span class="rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs">in-process</span>
+    </div>
+  </div>
+  <pre class="font-mono text-sm text-slate-600 whitespace-pre-wrap">src/lib/services/codexEvents.svelte.ts:16-19  interface CodexEvent { method: string; params: any }
+dispatch() :169-238 (60-line if-chain) · onServerRequest :242-310 (~40 params?.x ?? "" unwraps)
+subscribers: app/listeners :51 · ThreadView :382 · liveThreads :46 · SideQuestions :78 · QuickChat :125 · Worktrees :95 · connections :45
+threadStream.ts  duplicates willRetry rule (:186) and review-turn suppression (:172-181)</pre>
+  <div class="grid md:grid-cols-2 gap-4">
+    <div class="rounded-lg border border-slate-200 p-4">
+      <div class="lbl text-slate-500 mb-2">Before — 7 subscribers re-parse 32 method strings</div>
+      <pre class="mermaid">
+flowchart LR
+  T[tauri listen] --> D[dispatch<br/>params: any]
+  D --> s1[listeners] & s2[ThreadView] & s3[liveThreads] & s4[SideQuestions] & s5[QuickChat] & s6[Worktrees] & s7[connections]
+  s1 -.->|"item/completed ×8 sites"| X((string<br/>match))
+  s2 -.->|"turn/completed ×7"| X
+  s3 -.->|"disconnected ×5"| X
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class D,X leak
+      </pre>
+    </div>
+    <div class="rounded-lg border border-slate-200 p-4">
+      <div class="lbl text-slate-500 mb-2">After — one decoder, checked tags</div>
+      <div class="space-y-2 text-xs">
+        <div class="mod px-3 py-2 lbl">tauri listen · raw JSON</div>
+        <div class="text-center text-slate-400">↓</div>
+        <div class="deep rounded-lg p-3">
+          <div class="lbl">CodexEvent decoder</div>
+          <div class="fade text-[10px] mt-1">method → discriminated union · field defaults · <code>unknown</code> fallback · willRetry rule · review-turn suppression</div>
+        </div>
+        <div class="text-center text-slate-400">↓ <code>{ method: "turn/completed"; threadId; turn }</code> | …</div>
+        <div class="grid grid-cols-3 gap-1">
+          <div class="mod px-2 py-1 text-[10px] text-center">switch(e.method)</div>
+          <div class="mod px-2 py-1 text-[10px] text-center">switch(e.method)</div>
+          <div class="mod px-2 py-1 text-[10px] text-center">…</div>
+        </div>
+        <div class="text-[11px] text-emerald-700">A typo in a method literal becomes a compile error.</div>
+      </div>
+    </div>
+  </div>
+  <p><b>Problem.</b> The bus is untyped, so every subscriber carries its own parsing and two cross-cutting rules are implemented twice.</p>
+  <p><b>Solution.</b> Decode at the Tauri seam into a discriminated union; subscribers switch on a checked tag. Optionally let <code>setThreadHandler</code> take a method filter.</p>
+  <ul class="grid grid-cols-2 gap-x-6 text-sm list-disc pl-5">
+    <li>leverage: new event = decoder + one branch</li>
+    <li>locality: willRetry / review rules get one home</li>
+    <li>tests: <code>codexEvents.test</code> stops hand-building <code>any</code></li>
+    <li>renamed protocol fields fail loudly</li>
+  </ul>
+</article>
+
+<!-- ================= 5 ================= -->
+<article id="c5" class="rounded-xl border border-slate-200 bg-white p-8 space-y-6">
+  <div class="flex items-start justify-between gap-4">
+    <h2 class="font-serif text-2xl">5 · Thread records: three tables, one key, one module</h2>
+    <div class="flex gap-2 shrink-0">
+      <span class="rounded-full bg-emerald-100 text-emerald-800 px-3 py-1 text-xs font-semibold">Strong</span>
+      <span class="rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs">local-substitutable</span>
+    </div>
+  </div>
+  <pre class="font-mono text-sm text-slate-600 whitespace-pre-wrap">src-tauri/src/threads/lifecycle.rs:254-256 (delete) · :334-336 (rollback) · :382-384 (revert) · :433-435 (fork)
+src-tauri/src/storage/items.rs:158/180/208 · turn_settings.rs:63/78/96 · agent_runs.rs:179/196/221</pre>
+  <div class="grid md:grid-cols-2 gap-4">
+    <div class="rounded-lg border border-slate-200 p-4">
+      <div class="lbl text-slate-500 mb-2">Before — call-graph fan-out, 4 × 3</div>
+      <pre class="mermaid">
+flowchart LR
+  d[delete_thread] --> i1[delete_thread_items] & t1[delete_turn_settings] & a1[delete_agent_runs]
+  r[rollback_thread] --> i2[retain_thread_turns] & t2[retain_turn_settings] & a2[retain_agent_runs]
+  v[revert_thread] --> i2 & t2 & a2
+  f[fork_thread] --> i3[copy_thread_items] & t3[copy_turn_settings] & a3[copy_agent_runs]
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class d,r,v,f leak
+      </pre>
+      <p class="text-xs text-red-700 mt-2">Miss one → silent transcript ghost (the comment at :331-333 describes exactly this).</p>
+    </div>
+    <div class="rounded-lg border border-slate-200 p-4">
+      <div class="lbl text-slate-500 mb-2">After — collapsed</div>
+      <div class="relative h-[280px]">
+        <div class="absolute top-0 left-0 right-0 flex justify-around">
+          <div class="mod px-2 py-1 lbl">delete</div><div class="mod px-2 py-1 lbl">rollback</div><div class="mod px-2 py-1 lbl">revert</div><div class="mod px-2 py-1 lbl">fork</div>
+        </div>
+        <svg class="absolute inset-0 w-full h-full pointer-events-none"><line x1="50%" y1="34" x2="50%" y2="70" stroke="#64748b" stroke-width="2" class="seam"/></svg>
+        <div class="absolute top-[70px] left-6 right-6 deep rounded-lg p-4 h-[190px]">
+          <div class="lbl">storage::thread_records</div>
+          <div class="text-xs text-slate-300 mt-1 font-mono">drop(thread) · keep_only(thread, turns) · fork_onto(src, dst)</div>
+          <div class="grid grid-cols-3 gap-2 mt-4 fade text-[10px]">
+            <div class="border border-slate-500 rounded p-1 text-center">items</div>
+            <div class="border border-slate-500 rounded p-1 text-center">turn_settings</div>
+            <div class="border border-slate-500 rounded p-1 text-center">agent_runs</div>
+          </div>
+          <div class="fade text-[10px] mt-2">one transaction per verb</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p><b>Problem.</b> Nine storage functions in <code>storage/mod.rs</code>'s flat re-export exist only to be called in threes; the invariant lives in four callers' heads.</p>
+  <p><b>Solution.</b> A <code>thread_records</code> module with three verbs, each transactional across the three tables; <code>lifecycle.rs</code> loses 12 lines and the sequencing.</p>
+  <ul class="grid grid-cols-2 gap-x-6 text-sm list-disc pl-5">
+    <li>locality: "these share a key" in one file</li>
+    <li>leverage: a 4th table = one-file change</li>
+    <li>tests: temp-db fixture already exists</li>
+    <li>interface shrinks by 9 exports</li>
+  </ul>
+</article>
+
+<!-- ================= 6 ================= -->
+<article id="c6" class="rounded-xl border border-slate-200 bg-white p-8 space-y-6">
+  <div class="flex items-start justify-between gap-4">
+    <h2 class="font-serif text-2xl">6 · Pull <code>start_thread</code> out of the Tauri command</h2>
+    <div class="flex gap-2 shrink-0">
+      <span class="rounded-full bg-emerald-100 text-emerald-800 px-3 py-1 text-xs font-semibold">Strong</span>
+      <span class="rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs">in-process</span>
+    </div>
+  </div>
+  <pre class="font-mono text-sm text-slate-600 whitespace-pre-wrap">src-tauri/src/threads/turn.rs:15-118  start_thread (104 lines, 0 tests) · :122-173 start_turn
+model: threads/read.rs:25-53 (28-line command, 21 tests underneath) · projects/bootstrap.rs:251 build_bootstrap
+same pattern, lower stakes: integrations/commands.rs:89-120 save_mcp_server · settings/commands.rs:305-341 set_codex_binary</pre>
+  <div class="grid md:grid-cols-2 gap-4">
+    <div class="rounded-lg border border-slate-200 p-4">
+      <div class="lbl text-slate-500 mb-2">Before — 13 steps inside <code>#[tauri::command]</code></div>
+      <div class="mod leakbox p-3 text-[11px] font-mono leading-5">
+        <div class="lbl text-red-700 mb-1">start_thread(State, AppHandle, Window, …)</div>
+        workspace resolve → cwd fallback → instructions from storage → prefs read → <code>model_list</code> round-trip → tool spec build → delegation policy → project key → <code>apply_project</code> → <b>send</b> → mark_resumed → remember_cwd → assign_workspace
+      </div>
+      <p class="text-xs text-red-700 mt-2">Reaches into workspaces, storage, settings::prefs, agents::tools, agents::supervisor, projects::server, requests. Only 2 pure helpers are tested (:349-464).</p>
+    </div>
+    <div class="rounded-lg border border-slate-200 p-4">
+      <div class="lbl text-slate-500 mb-2">After — cross-section</div>
+      <div class="space-y-1 text-xs">
+        <div class="band h-9 flex items-center pl-3 bg-slate-50">command: <code>ctx(&amp;window)</code> → call → return</div>
+        <div class="band h-9 flex items-center pl-3 bg-slate-50">fetch inputs (workspace, instructions, prefs, models)</div>
+        <div class="deep rounded p-3 h-[110px]">
+          <div class="lbl">build_start_request(inputs) → Request</div>
+          <div class="fade text-[10px] mt-1">instruction order · app_subagents default · workspace-vs-cwd precedence · tool spec · project attach — pure, mirrors <code>build_bootstrap</code></div>
+        </div>
+        <div class="band h-9 flex items-center pl-3 bg-slate-50">send · follow-up storage effects</div>
+      </div>
+    </div>
+  </div>
+  <p><b>Problem.</b> The app's most important decision procedure is testable only by launching Tauri.</p>
+  <p><b>Solution.</b> Split the request-building half into a pure function over already-fetched inputs, leaving the command as I/O — the shape <code>threads/read.rs</code> already uses.</p>
+  <ul class="grid grid-cols-2 gap-x-6 text-sm list-disc pl-5">
+    <li>tests: precedence rules become unit tests</li>
+    <li>locality: one function to read</li>
+    <li>leverage: <code>start_turn</code> reuses the builder</li>
+    <li>template for save_mcp_server, set_codex_binary</li>
+  </ul>
+</article>
+
+<!-- ================= 7 ================= -->
+<article id="c7" class="rounded-xl border border-slate-200 bg-white p-8 space-y-6">
+  <div class="flex items-start justify-between gap-4">
+    <h2 class="font-serif text-2xl">7 · Make <code>requests.rs</code> the only way to speak Codex</h2>
+    <div class="flex gap-2 shrink-0">
+      <span class="rounded-full bg-emerald-100 text-emerald-800 px-3 py-1 text-xs font-semibold">Strong</span>
+      <span class="rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs">ports &amp; adapters</span>
+    </div>
+  </div>
+  <pre class="font-mono text-sm text-slate-600 whitespace-pre-wrap">src-tauri/src/codex/requests.rs (~50 typed builders) · session.rs:285 send(Request) · :293 request(method, params) — both pub
+bypasses: projects/commands.rs:61,77 · projects/bootstrap.rs:64,81 · codex/pairing.rs:21,25 · agents/mod.rs:135 · connections/protocol.rs:121 · threads/lifecycle.rs:34-38, 97-101, 424</pre>
+  <div class="grid md:grid-cols-2 gap-4">
+    <div class="rounded-lg border border-slate-200 p-4">
+      <div class="lbl text-slate-500 mb-2">Before — a third of the protocol goes around the adapter</div>
+      <pre class="mermaid">
+flowchart LR
+  R[requests.rs<br/>~50 builders] --> S[CodexSession]
+  L[lifecycle.rs] -->|raw thread/fork| S
+  B[bootstrap.rs] -->|raw thread/list| S
+  P[projects/commands] -->|raw| S
+  X[pairing · agents · connections] -->|raw| S
+  S --> C[codex child]
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class L,B,P,X leak
+  classDef deep fill:#0f172a,color:#e2e8f0,stroke:#0f172a;
+  class R,S deep
+      </pre>
+      <p class="text-xs text-red-700 mt-2"><code>bootstrap.rs:81</code> hand-builds what <code>requests::thread_list</code> (:132) already does.</p>
+    </div>
+    <div class="rounded-lg border border-slate-200 p-4">
+      <div class="lbl text-slate-500 mb-2">After — <code>request()</code> private, one entrance</div>
+      <pre class="mermaid">
+flowchart LR
+  L[lifecycle] & B[bootstrap] & P[projects] & X[pairing · agents · connections] --> R[requests.rs<br/>+10 builders]
+  R --> S[CodexSession::send / send_gated]
+  S --> C[codex child]
+  E[tests/live_codex replays<br/>100% of payloads] -.-> R
+  classDef deep fill:#0f172a,color:#e2e8f0,stroke:#0f172a;
+  class R,S deep
+      </pre>
+    </div>
+  </div>
+  <p><b>Problem.</b> <code>requests.rs</code> is a deep adapter, but ~10 call sites bypass it with hand-built JSON, so the E2E replay covers two-thirds of the payloads the app sends.</p>
+  <p><b>Solution.</b> Move the stragglers into builders; make <code>CodexSession::request</code> private so <code>send(Request)</code> is the only verb.</p>
+  <ul class="grid grid-cols-2 gap-x-6 text-sm list-disc pl-5">
+    <li>leverage: protocol bump = one file</li>
+    <li>interface shrinks by one public fn</li>
+    <li>tests: <code>live_codex</code> coverage → complete</li>
+    <li>small, mechanical, safe first step</li>
+  </ul>
+</article>
+
+<!-- ================= 8 ================= -->
+<article id="c8" class="rounded-xl border border-slate-200 bg-white p-8 space-y-6">
+  <div class="flex items-start justify-between gap-4">
+    <h2 class="font-serif text-2xl">8 · A <code>RichEditor</code> controller instead of 44 exports</h2>
+    <div class="flex gap-2 shrink-0">
+      <span class="rounded-full bg-amber-100 text-amber-800 px-3 py-1 text-xs font-semibold">Worth exploring</span>
+      <span class="rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs">in-process</span>
+    </div>
+  </div>
+  <pre class="font-mono text-sm text-slate-600 whitespace-pre-wrap">src/lib/composer/richInput.ts (1056 lines, 44 exports, 1 caller) · richInput.test.ts (734)
+src/lib/composer/Composer.svelte:1040-1163 onKeydown (11 call sites, each preventDefault + applyParts) · :155-210 undo stack · :752 applyParts</pre>
+  <div class="grid md:grid-cols-2 gap-4">
+    <div class="rounded-lg border border-slate-200 p-4">
+      <div class="lbl text-slate-500 mb-3">Before — interface as wide as implementation</div>
+      <div class="flex gap-4 items-end h-[250px]">
+        <div class="w-1/2 flex flex-col items-center gap-1">
+          <div class="mod w-full h-[200px] p-2 text-[9px] font-mono leading-3 overflow-hidden">readParts renderParts renderPartsWith insertMentionChip insertSkillChip insertAttachmentChip updateAttachmentChip removeMentionChip chipBesideCaret chipAcrossLineBreak placeCaretBesideChip caretOffset placeCaretAtOffset moveCaretVertically moveCaretToLineEdge moveCaretToWordEdge deleteLineBreak deleteToLineEdge deleteToWordEdge insertLineBreak normaliseEditorDom detectQueries …</div>
+          <div class="lbl">interface: 44</div>
+        </div>
+        <div class="w-1/2 flex flex-col items-center gap-1">
+          <div class="mod leakbox w-full h-[200px] p-2 text-[10px]"><div class="lbl text-red-700">Composer owns</div>caret · undo stack · snapshot suppression · DOM↔model sync · 123-line keydown orchestration<br/><br/><span class="text-red-700">WebKit "stranded caret" bugs only manifest here</span></div>
+          <div class="lbl">caller</div>
+        </div>
+      </div>
+    </div>
+    <div class="rounded-lg border border-slate-200 p-4">
+      <div class="lbl text-slate-500 mb-3">After</div>
+      <div class="flex flex-col items-center gap-1 h-[250px] justify-end">
+        <div class="mod w-full h-[36px] flex items-center justify-center text-[11px] font-mono">parts · setParts · insert(chip) · handleKey(e) · detectQueries · undo/redo</div>
+        <div class="deep w-full h-[170px] rounded-lg p-3 text-[10px]">
+          <div class="lbl">RichEditor (bound to element)</div>
+          <div class="fade mt-1">caret model · chip DOM · line/word motion · undo stack · normalise · WebKit workarounds</div>
+        </div>
+        <div class="text-[10px] text-emerald-700">tests: "type this key sequence → assert parts + caret"</div>
+      </div>
+    </div>
+  </div>
+  <p><b>Problem.</b> Deletion test: the DOM logic wouldn't vanish, but the interface does no work — <code>richInput.test</code> tests fragments while the real bugs sit in the caller.</p>
+  <p><b>Solution.</b> A controller that owns parts, caret and undo; Composer's keydown becomes <code>editor.handleKey(e)</code>.</p>
+  <ul class="grid grid-cols-2 gap-x-6 text-sm list-disc pl-5">
+    <li>tests aimed at the level bugs live</li>
+    <li>Composer sheds ~200 lines, 6 locals</li>
+    <li>large mechanical change — existing tests are good</li>
+  </ul>
+</article>
+
+<!-- ================= 9 ================= -->
+<article id="c9" class="rounded-xl border border-slate-200 bg-white p-8 space-y-6">
+  <div class="flex items-start justify-between gap-4">
+    <h2 class="font-serif text-2xl">9 · <code>ThreadItem</code> as a discriminated union</h2>
+    <div class="flex gap-2 shrink-0">
+      <span class="rounded-full bg-amber-100 text-amber-800 px-3 py-1 text-xs font-semibold">Worth exploring</span>
+      <span class="rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs">in-process</span>
+    </div>
+  </div>
+  <pre class="font-mono text-sm text-slate-600 whitespace-pre-wrap">src/lib/types.ts:265-340 (30 optional fields; content?: UserInputPart[] | string[] has two meanings)
+src/lib/thread/WorkItem.svelte (628 lines, untested, ~20 item.type === branches) · turnSegments.ts:37 DRAWN_BY_WORK_ITEM · threadStream.ts:58-77 mergeItem (field sniffing) · as string[] cast</pre>
+  <div class="grid md:grid-cols-2 gap-4">
+    <div class="rounded-lg border border-slate-200 p-4">
+      <div class="lbl text-slate-500 mb-2">Before — union faked by hand</div>
+      <pre class="mermaid">
+flowchart TB
+  TI["ThreadItem { type: string, 30× optional }"]
+  TI --> A[THREAD_ITEM_TYPES list]
+  TI --> B[DRAWN_BY_WORK_ITEM record]
+  TI --> C[RENDERED_TYPES]
+  TI --> D[mergeItem — merges 4 fields blind]
+  TI --> E[WorkItem.svelte — 20 branches]
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class A,B,C,D leak
+      </pre>
+    </div>
+    <div class="rounded-lg border border-slate-200 p-4">
+      <div class="lbl text-slate-500 mb-2">After — compiler-checked</div>
+      <div class="deep rounded-lg p-4 h-[230px] text-xs">
+        <div class="lbl">ThreadItem = Variant₁ | … | Variant₁₉ | Unknown</div>
+        <div class="fade text-[10px] mt-2 space-y-1">
+          <div>per-variant merge rules replace <code>mergeItem</code></div>
+          <div><code>DRAWN_BY_WORK_ITEM</code> → exhaustive switch</div>
+          <div>WorkItem decomposes into per-variant components — testable</div>
+          <div>Unknown fallback keeps "Codex adds types faster than we adopt them"</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p><b>Problem.</b> A 30-field optional bag forces four hand-maintained exhaustiveness scaffolds and a blind merge; <code>types.ts</code> is the 3rd-most-churned file and this is where the churn lands.</p>
+  <p><b>Solution.</b> A discriminated union over known types plus an unknown fallback; merge rules and rendering become per-variant.</p>
+  <ul class="grid grid-cols-2 gap-x-6 text-sm list-disc pl-5">
+    <li>tests: WorkItem becomes decomposable</li>
+    <li>locality: one variant, one merge rule</li>
+    <li>touches many files — do after #1/#2</li>
+  </ul>
+</article>
+
+<!-- ================= 10 ================= -->
+<article id="c10" class="rounded-xl border border-slate-200 bg-white p-8 space-y-6">
+  <div class="flex items-start justify-between gap-4">
+    <h2 class="font-serif text-2xl">10 · <code>update_store</code>: one read-modify-write for projects</h2>
+    <div class="flex gap-2 shrink-0">
+      <span class="rounded-full bg-amber-100 text-amber-800 px-3 py-1 text-xs font-semibold">Worth exploring</span>
+      <span class="rounded-full bg-slate-100 text-slate-700 px-3 py-1 text-xs">local-substitutable</span>
+    </div>
+  </div>
+  <pre class="font-mono text-sm text-slate-600 whitespace-pre-wrap">src-tauri/src/projects/commands.rs:95-97, 111-127, 141-143, 156-158, 279-284, 306-308 (+ threads/lifecycle.rs:190-193)
+related: bootstrap_cached called from 23 sites; unarchive_thread must use bootstrap_inner (lifecycle.rs:232-234, comment-enforced)</pre>
+  <div class="grid md:grid-cols-2 gap-4">
+    <div class="rounded-lg border border-slate-200 p-4">
+      <div class="lbl text-slate-500 mb-3">Before — same four beats, six copies</div>
+      <div class="space-y-1 text-[11px]">
+        <div class="grid grid-cols-4 gap-1 text-center">
+          <div class="band h-8 flex items-center justify-center bg-slate-50">read_store</div>
+          <div class="band h-8 flex items-center justify-center bg-red-50 border-red-500">mutate Vec</div>
+          <div class="band h-8 flex items-center justify-center bg-slate-50">write_store</div>
+          <div class="band h-8 flex items-center justify-center bg-slate-50">bootstrap_cached</div>
+        </div>
+        <div class="text-center text-slate-400">× 6 — pinned · archived · rename+mirror · … all untestable, unsynchronised across windows</div>
+      </div>
+    </div>
+    <div class="rounded-lg border border-slate-200 p-4">
+      <div class="lbl text-slate-500 mb-3">After</div>
+      <div class="space-y-2 text-xs">
+        <div class="deep rounded p-3"><div class="lbl">storage::update_store(&amp;db, |store| …)</div><div class="fade text-[10px]">one read/write pair · the place a lock or transaction goes</div></div>
+        <div class="mod p-2 text-[11px]"><code>projects::edit</code> — pure <code>fn(&amp;mut Store, args)</code> ×6, tested without a db</div>
+        <div class="mod p-2 text-[11px] fade">commands: three lines each</div>
+      </div>
+    </div>
+  </div>
+  <p><b>Problem.</b> Six copies of the ritual hide 2-10 lines of pure store editing inside Tauri commands, and there is nowhere to put the lock that a two-window lost-update needs.</p>
+  <p><b>Solution.</b> One <code>update_store</code> seam plus pure edit functions.</p>
+  <ul class="grid grid-cols-2 gap-x-6 text-sm list-disc pl-5">
+    <li>tests: pure Store edits, no db</li>
+    <li>locality: a home for the race fix</li>
+    <li>leverage: 23 <code>bootstrap_cached</code> tails become one</li>
+  </ul>
+</article>
+
+</section>
+
+<section id="top-recommendation" class="rounded-xl border-2 border-emerald-600 bg-emerald-50 p-8 space-y-3">
+  <div class="lbl text-emerald-700">Top recommendation</div>
+  <h2 class="font-serif text-3xl"><a href="#c1" class="underline decoration-emerald-400">#1 Thread Session</a> together with <a href="#c2" class="underline decoration-emerald-400">#2 Thread Queue</a></h2>
+  <p>They are two halves of the same refactor: both pull state and event handling out of the most-churned file in the repo (<code>ThreadView.svelte</code>, 15 commits, 1269 lines of script) and into modules whose interface is the test surface, killing an already-diverged duplicate implementation in the process. Everything else on the frontend list (#3, #4, #9) gets easier once ThreadView is a renderer.</p>
+  <p class="text-sm text-slate-600">Cheapest quick win on the Rust side: <a href="#c7" class="underline">#7</a> — mechanical, an afternoon, and it makes the live E2E suite's replay complete.</p>
+</section>
+
+</main>
+</body>
+</html>

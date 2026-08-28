@@ -131,7 +131,7 @@ vi.mock("$lib/services/codexEvents.svelte", () => ({
   removeUserInputRequest: vi.fn(),
 }));
 
-import { resetLiveThreads } from "$lib/thread/liveThreads.svelte";
+import { resetSessions } from "$lib/thread/sessions.svelte";
 import ThreadView from "$lib/thread/ThreadView.svelte";
 
 function detail(...turns: Turn[]): ThreadDetail {
@@ -190,7 +190,7 @@ beforeEach(() => {
 
 describe("ThreadView completed work", () => {
   beforeEach(() => {
-    resetLiveThreads();
+    resetSessions();
     mocks.readThread.mockReset();
   });
 
@@ -249,7 +249,7 @@ describe("ThreadView completed work", () => {
 
 describe("ThreadView in-progress work", () => {
   beforeEach(() => {
-    resetLiveThreads();
+    resetSessions();
     mocks.readThread.mockReset();
   });
 
@@ -389,7 +389,7 @@ describe("ThreadView in-progress work", () => {
 
 describe("ThreadView questions stranded by an earlier session", () => {
   beforeEach(() => {
-    resetLiveThreads();
+    resetSessions();
     mocks.readThread.mockReset();
     mocks.startTurn.mockReset();
     mocks.activeTurns.list = [];
@@ -438,7 +438,7 @@ describe("ThreadView questions stranded by an earlier session", () => {
 
 describe("ThreadView file references", () => {
   beforeEach(() => {
-    resetLiveThreads();
+    resetSessions();
     mocks.readThread.mockReset();
   });
 
@@ -467,7 +467,7 @@ describe("ThreadView file references", () => {
 
 describe("ThreadView inline message editing", () => {
   beforeEach(() => {
-    resetLiveThreads();
+    resetSessions();
     mocks.readThread.mockReset();
     mocks.rollbackThread.mockReset();
     mocks.revertThread.mockReset();
@@ -564,7 +564,7 @@ describe("ThreadView inline message editing", () => {
 
 describe("ThreadView right panel", () => {
   beforeEach(() => {
-    resetLiveThreads();
+    resetSessions();
     mocks.readThread.mockReset();
     mocks.listProjectFiles.mockReset();
   });
@@ -621,7 +621,7 @@ describe("ThreadView right panel", () => {
 
 describe("ThreadView context meter and compaction", () => {
   beforeEach(() => {
-    resetLiveThreads();
+    resetSessions();
     mocks.readThread.mockReset();
     mocks.compactThread.mockReset();
     mocks.compactThread.mockResolvedValue(undefined);
@@ -791,7 +791,7 @@ describe("ThreadView workspace starts", () => {
 
 describe("ThreadView thread naming", () => {
   beforeEach(() => {
-    resetLiveThreads();
+    resetSessions();
     mocks.handlers = [];
     mocks.readThread.mockReset();
     mocks.startThread.mockReset();
@@ -894,7 +894,7 @@ describe("ThreadView thread naming", () => {
 
 describe("ThreadView switching between working threads", () => {
   beforeEach(() => {
-    resetLiveThreads();
+    resetSessions();
     mocks.readThread.mockReset();
     mocks.handlers = [];
     mocks.activeTurns.list = ["thread-1"];
@@ -937,12 +937,14 @@ describe("ThreadView switching between working threads", () => {
   });
 });
 
+// The queue's own behaviour (drain order, retries, merging server listings) is
+// covered in threadQueue.test.ts; these check the view is wired to it.
 describe("ThreadView queueing when Codex cannot hold the queue", () => {
   const composerLabel = "Message Codex… (@ to attach files, / for commands)";
   const unsupported = new Error("codex-queue-unsupported: this Codex version is older than the thread/queue APIs");
 
   beforeEach(() => {
-    resetLiveThreads();
+    resetSessions();
     mocks.readThread.mockReset();
     mocks.startTurn.mockReset();
     mocks.handlers = [];
@@ -953,6 +955,12 @@ describe("ThreadView queueing when Codex cannot hold the queue", () => {
   const emit = (method: string, params: Record<string, unknown>) => {
     for (const handler of [...mocks.handlers]) handler({ method, params });
   };
+
+  /** End the live turn, which is what lets the queue drain. */
+  function finishTurn() {
+    mocks.activeTurns.list = [];
+    emit("turn/completed", { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } });
+  }
 
   /** Render thread-1 mid-turn, so anything typed is queued rather than sent. */
   async function renderWorking() {
@@ -967,12 +975,6 @@ describe("ThreadView queueing when Codex cannot hold the queue", () => {
     return screen.findByRole("button", { name: "Stop" });
   }
 
-  /** End the live turn, which is what lets the queue drain. */
-  function finishTurn() {
-    mocks.activeTurns.list = [];
-    emit("turn/completed", { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } });
-  }
-
   it("keeps the message and says it is only held here", async () => {
     const user = userEvent.setup();
     mocks.queueAdd.mockRejectedValue(unsupported);
@@ -984,39 +986,6 @@ describe("ThreadView queueing when Codex cannot hold the queue", () => {
     expect(screen.getByText("Then do this")).toBeVisible();
     // An old Codex is not an error, so nothing red and nothing to read.
     expect(screen.queryByText(/codex-queue-unsupported/)).not.toBeInTheDocument();
-  });
-
-  it("still sends the held message once the turn finishes", async () => {
-    const user = userEvent.setup();
-    mocks.queueAdd.mockRejectedValue(unsupported);
-    await renderWorking();
-    await user.type(screen.getByRole("textbox", { name: composerLabel }), "Then do this{Enter}");
-    await screen.findByText("Queued locally");
-
-    finishTurn();
-
-    await vi.waitFor(() =>
-      expect(mocks.startTurn).toHaveBeenCalledWith(
-        "thread-1",
-        [{ type: "text", text: "Then do this" }],
-        expect.anything(),
-      ),
-    );
-  });
-
-  it("drains messages held here in the order they were typed", async () => {
-    const user = userEvent.setup();
-    mocks.queueAdd.mockRejectedValue(unsupported);
-    await renderWorking();
-    const composer = screen.getByRole("textbox", { name: composerLabel });
-    await user.type(composer, "First{Enter}");
-    await user.type(composer, "Second{Enter}");
-    await vi.waitFor(() => expect(screen.getAllByText("Queued locally")).toHaveLength(2));
-
-    finishTurn();
-
-    await vi.waitFor(() => expect(mocks.startTurn).toHaveBeenCalled());
-    expect(mocks.startTurn.mock.calls[0][1]).toEqual([{ type: "text", text: "First" }]);
   });
 
   it("edits a queued message in place", async () => {
@@ -1035,25 +1004,6 @@ describe("ThreadView queueing when Codex cannot hold the queue", () => {
     finishTurn();
     await vi.waitFor(() => expect(mocks.startTurn).toHaveBeenCalled());
     expect(mocks.startTurn.mock.calls[0][1]).toEqual([{ type: "text", text: "Do that instead" }]);
-  });
-
-  it("send now stops the turn and puts the message first", async () => {
-    const user = userEvent.setup();
-    mocks.queueAdd.mockRejectedValue(unsupported);
-    mocks.interruptTurn.mockReset();
-    mocks.interruptTurn.mockResolvedValue(undefined);
-    await renderWorking();
-    const composer = screen.getByRole("textbox", { name: composerLabel });
-    await user.type(composer, "First{Enter}");
-    await user.type(composer, "Second{Enter}");
-    await vi.waitFor(() => expect(screen.getAllByText("Queued locally")).toHaveLength(2));
-
-    await user.click(screen.getAllByRole("button", { name: "Send now" })[1]);
-
-    expect(mocks.interruptTurn).toHaveBeenCalledWith("thread-1", "turn-1");
-    finishTurn();
-    await vi.waitFor(() => expect(mocks.startTurn).toHaveBeenCalled());
-    expect(mocks.startTurn.mock.calls[0][1]).toEqual([{ type: "text", text: "Second" }]);
   });
 
   it("cancel moves the message back into an empty composer", async () => {
@@ -1104,28 +1054,13 @@ describe("ThreadView queueing when Codex cannot hold the queue", () => {
     expect(screen.getByText("Queued locally")).toBeVisible();
     expect(screen.getByText("One too many")).toBeVisible();
   });
-
-  it("does not let a server listing drop a message only this window has", async () => {
-    const user = userEvent.setup();
-    mocks.queueAdd.mockRejectedValue(unsupported);
-    await renderWorking();
-    await user.type(screen.getByRole("textbox", { name: composerLabel }), "Mine alone{Enter}");
-    await screen.findByText("Queued locally");
-
-    // Another client changed the server queue; ours is not in it.
-    mocks.queueList.mockResolvedValue([]);
-    emit("thread/queue/changed", { threadId: "thread-1" });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(screen.getByText("Mine alone")).toBeVisible();
-  });
 });
 
 describe("ThreadView /review", () => {
   const composerLabel = "Message Codex… (@ to attach files, / for commands)";
 
   beforeEach(() => {
-    resetLiveThreads();
+    resetSessions();
     mocks.readThread.mockReset();
     mocks.startThread.mockReset();
     mocks.startReview.mockReset();
@@ -1230,7 +1165,7 @@ describe("ThreadView /goal", () => {
   const composerLabel = "Message Codex… (@ to attach files, / for commands)";
 
   beforeEach(() => {
-    resetLiveThreads();
+    resetSessions();
     mocks.readThread.mockReset();
     mocks.startThread.mockReset();
     mocks.startThread.mockResolvedValue({ id: "thread-2", cwd: "/projects/example" });

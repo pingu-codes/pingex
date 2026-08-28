@@ -110,7 +110,7 @@ export function slashCommand(command: SlashCommandId, threadId: string | null): 
     newThread();
     return;
   }
-  // `compact` is handled inside ThreadView, which owns the live thread.
+  // `compact` is handled inside ThreadView, against the thread's live session.
   if (command !== "fork" && command !== "archive" && command !== "rename" && command !== "delete") return;
   if (!threadId) return;
   for (const project of projects()) {
