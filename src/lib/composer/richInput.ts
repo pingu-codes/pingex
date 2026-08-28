@@ -1,58 +1,21 @@
+/**
+ * DOM implementation of the composer's rich input: parts <-> contenteditable,
+ * chips, caret motion and the editing verbs WebKit cannot be trusted with.
+ *
+ * Internal to `RichEditor` (`richEditor.svelte.ts`): only that module and the
+ * tests import from here. The parts model itself lives in `composerParts.ts`.
+ */
+import {
+  type AttachmentChipHandlers,
+  type AttachmentPart,
+  type ComposerPart,
+  type DetectedQueries,
+  formatSize,
+  normaliseParts,
+} from "$lib/composer/composerParts";
 import { detectSlashQuery } from "$lib/composer/slashCommands";
-import type { Mention, TurnInputItem } from "$lib/types";
+import type { Mention } from "$lib/types";
 import { fileIconFor, fileIconSvg, iconForPath } from "$lib/utils/fileIcons";
-import { relativeMentionPath } from "$lib/utils/mentions";
-
-/** Progress of a staged attachment: mid-copy, ready to send, or copy failed. */
-export type AttachmentState = "staging" | "ready" | "failed";
-
-/** A file or image the user attached, rendered as an inline chip at the caret. */
-export interface AttachmentPart {
-  type: "attachment";
-  id: string;
-  filename: string;
-  mime: string;
-  size: number;
-  /** Staged copy path (empty while staging/failed). */
-  path: string;
-  kind: "image" | "file";
-  state: AttachmentState;
-}
-
-export type ComposerPart =
-  | { type: "text"; text: string }
-  | { type: "mention"; name: string; path: string }
-  | { type: "skill"; name: string; path: string; label: string }
-  | AttachmentPart;
-
-/** Callbacks wired into every attachment chip's controls. */
-export interface AttachmentChipHandlers {
-  onRetry: (id: string) => void;
-  /** Resolves an image chip's thumbnail src (asset URL / blob), or null. */
-  thumbSrc?: (part: AttachmentPart) => string | null;
-}
-
-/** Human-readable file size for chip labels (e.g. "12 KB", "3.4 MB"). */
-export function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-export function normaliseParts(input: ComposerPart[]): ComposerPart[] {
-  const normalised: ComposerPart[] = [];
-  for (const part of input) {
-    if (part.type === "text") {
-      if (!part.text) continue;
-      const previous = normalised.at(-1);
-      if (previous?.type === "text") previous.text += part.text;
-      else normalised.push(part);
-    } else {
-      normalised.push(part);
-    }
-  }
-  return normalised.length > 0 ? normalised : [{ type: "text", text: "" }];
-}
 
 const isBlock = (node: Node): boolean => /^(DIV|P)$/.test(node.nodeName);
 
@@ -110,60 +73,6 @@ export function readParts(root: HTMLElement): ComposerPart[] {
     return parts;
   };
   return normaliseParts(childParts(root));
-}
-
-/**
- * Turns composer parts into the `turn/start` input array. Images that finished
- * staging become native `localImage` items; non-image files are appended as a
- * clearly-labelled text reference (the protocol has no native file item), in
- * their original position. Attachments still staging or failed are dropped.
- *
- * File mentions go out as cwd-relative markdown links, the form Codex itself
- * writes and round-trips. The protocol's `mention` item looks like a fit but is
- * not one: its `path` is a connector/plugin target (`app://…`, `plugin://…`), so
- * a filesystem path resolves to nothing and is dropped without an error.
- *
- * Skills, by contrast, do have a native item — `{type:"skill", name, path}` —
- * so they go out as themselves rather than as text. (`path` is required by the
- * server; `TurnInputItem` makes leaving it out a type error.)
- */
-export function buildTurnInput(parts: ComposerPart[], cwd = ""): TurnInputItem[] {
-  const input: TurnInputItem[] = [];
-  for (const part of parts) {
-    if (part.type === "text") {
-      input.push({ type: "text", text: part.text });
-    } else if (part.type === "mention") {
-      input.push({ type: "text", text: `[${part.name}](${relativeMentionPath(part.path, cwd)})` });
-    } else if (part.type === "skill") {
-      input.push({ type: "skill", name: part.name, path: part.path });
-    } else if (part.type === "attachment" && part.state === "ready") {
-      if (part.kind === "image") {
-        input.push({ type: "localImage", path: part.path });
-      } else {
-        input.push({ type: "text", text: `\n[Attached file: ${part.filename} — ${part.path}]\n` });
-      }
-    }
-  }
-  return input.length > 0 ? input : [{ type: "text", text: "" }];
-}
-
-/** Whether any part carries sendable content (text or a ready attachment). */
-export function hasSendableContent(parts: ComposerPart[]): boolean {
-  return parts.some(
-    (part) =>
-      (part.type === "text" && part.text.trim().length > 0) ||
-      part.type === "mention" ||
-      part.type === "skill" ||
-      (part.type === "attachment" && part.state === "ready"),
-  );
-}
-
-export interface DetectedQueries {
-  slashQuery: string | null;
-  mentionQuery: string | null;
-  mentionRange: Range | null;
-  skillQuery: string | null;
-  skillRange: Range | null;
 }
 
 /**

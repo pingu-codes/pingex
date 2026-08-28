@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ComposerPart } from "./richInput";
+import type { ComposerPart } from "./composerParts";
 import { COALESCE_MS, UndoStack } from "./undoStack";
 
 const text = (t: string): ComposerPart[] => [{ type: "text", text: t }];

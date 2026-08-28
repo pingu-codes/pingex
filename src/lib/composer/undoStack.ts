@@ -1,4 +1,4 @@
-import type { ComposerPart } from "$lib/composer/richInput";
+import type { ComposerPart } from "$lib/composer/composerParts";
 
 export interface Snapshot {
   parts: ComposerPart[];

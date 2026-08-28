@@ -12,14 +12,8 @@
  * the Rust harness with real paths from the running server.
  */
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  type AttachmentPart,
-  buildTurnInput,
-  type ComposerPart,
-  insertSkillChip,
-  readParts,
-  renderPartsWith,
-} from "$lib/composer/richInput";
+import { type AttachmentPart, buildTurnInput, type ComposerPart } from "$lib/composer/composerParts";
+import { insertSkillChip, readParts, renderPartsWith } from "$lib/composer/richInput";
 import type { TurnInputItem } from "$lib/types";
 
 /** Relative to this file, as `toMatchFileSnapshot` wants. */

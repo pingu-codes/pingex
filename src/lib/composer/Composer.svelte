@@ -8,6 +8,15 @@ import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import ContextMeter from "$lib/composer/ContextMeter.svelte";
 import {
+  type AttachmentPart,
+  buildTurnInput,
+  type ComposerPart,
+  type DetectedQueries,
+  EMPTY_PARTS,
+  hasSendableContent,
+  normaliseParts,
+} from "$lib/composer/composerParts";
+import {
   type ComposerPrefs,
   loadScopedPrefs,
   policyIsEmpty,
@@ -19,41 +28,12 @@ import ModelPopover from "$lib/composer/ModelPopover.svelte";
 import { ensureModels, models as modelList, modelsError as modelListError } from "$lib/composer/models.svelte";
 import PermissionsPopover from "$lib/composer/PermissionsPopover.svelte";
 import ReviewTargetPicker from "$lib/composer/ReviewTargetPicker.svelte";
-import {
-  type AttachmentChipHandlers,
-  type AttachmentPart,
-  buildTurnInput,
-  type ComposerPart,
-  caretOffset,
-  chipAcrossLineBreak,
-  chipBesideCaret,
-  deleteLineBreak,
-  deleteToLineEdge,
-  deleteToWordEdge,
-  detectQueries,
-  hasSendableContent,
-  insertAttachmentChip,
-  insertLineBreak,
-  insertMentionChip,
-  insertSkillChip,
-  moveCaretToLineEdge,
-  moveCaretToWordEdge,
-  moveCaretVertically,
-  normaliseEditorDom,
-  normaliseParts,
-  placeCaretAtOffset,
-  placeCaretBesideChip,
-  readParts,
-  removeMentionChip,
-  renderPartsWith,
-  updateAttachmentChip,
-} from "$lib/composer/richInput";
+import { RichEditor } from "$lib/composer/richEditor.svelte";
 import SkillPicker from "$lib/composer/SkillPicker.svelte";
 import SlashCommandPicker from "$lib/composer/SlashCommandPicker.svelte";
 import SubagentPolicyPopover from "$lib/composer/SubagentPolicyPopover.svelte";
 import { skillLabel } from "$lib/composer/skills";
 import { INIT_PROMPT, parseSlashCommand, type SlashCommand, type SlashCommandId } from "$lib/composer/slashCommands";
-import { UndoStack } from "$lib/composer/undoStack";
 import {
   deleteDraft,
   isTauri,
@@ -67,15 +47,7 @@ import {
 import { openSettings, settingsNav } from "$lib/services/settingsNav.svelte";
 import type { ContextStats } from "$lib/thread/contextUsage";
 import { freshPlanPrompt } from "$lib/thread/planHandoff";
-import type {
-  Mention,
-  Model,
-  ReviewTarget,
-  SkillSummary,
-  SubagentPolicy,
-  TurnOptions,
-  UserInputPart,
-} from "$lib/types";
+import type { Model, ReviewTarget, SkillSummary, SubagentPolicy, TurnOptions, UserInputPart } from "$lib/types";
 import { clickOutside } from "$lib/utils/clickOutside";
 import { loadSize, resizeHandle } from "$lib/utils/resize";
 
@@ -142,112 +114,70 @@ let {
   history?: string[];
 } = $props();
 
-let parts = $state<ComposerPart[]>([{ type: "text", text: "" }]);
 let editor = $state<HTMLDivElement | null>(null);
 let composerBox = $state<HTMLDivElement | null>(null);
-let composing = false;
-let mentionRange: Range | null = null;
 
-// Undo/redo over the parts model. Every change to `parts` lands in the stack
-// through the effect below; typing (flagged by `onEditorInput`) coalesces,
-// everything else gets its own entry. `applyingSnapshot` keeps the restore
-// itself from being recorded as a fresh edit.
-const undoStack = new UndoStack();
-let typingEdit = false;
-let applyingSnapshot = false;
-undoStack.reset({ parts: [{ type: "text", text: "" }], caret: 0 });
-$effect(() => {
-  const snapshot = { parts: JSON.parse(JSON.stringify(parts)) as ComposerPart[], caret: null as number | null };
-  untrack(() => {
-    if (applyingSnapshot) return;
-    snapshot.caret = editor ? caretOffset(editor) : null;
-    undoStack.record(snapshot, typingEdit);
-    typingEdit = false;
-  });
+// The editor proper: parts, caret, undo and trigger queries live in the
+// controller; this component renders it, wires its DOM events and supplies
+// the decisions it does not own (submit, history, pickers, staging).
+const richEditor: RichEditor = new RichEditor({
+  cwd: () => cwd,
+  chipHandlers: {
+    onRetry: (id) => {
+      const source = sources.get(id);
+      if (source) void stageSource(id, source, false);
+    },
+    thumbSrc: (part) => thumbSrc(part),
+  },
+  onChipRemoved: (chip) => {
+    const attachmentId = chip.dataset.attachmentId;
+    if (!attachmentId) return;
+    void removeStagedAttachment(attachmentId).catch(() => {});
+    sources.delete(attachmentId);
+  },
+  pickerActive: () => pickerActive,
+  pickerOpen: () => pickerOpen,
+  suppressQueries: () => reviewPicker,
+  onSubmit: () => submit(),
+  onHistory: (direction) => recallHistory(direction),
+  onEdit: () => {
+    historyIndex = null;
+  },
 });
 
-function applySnapshot(snapshot: { parts: ComposerPart[]; caret: number | null }) {
-  if (!editor) return;
-  applyingSnapshot = true;
-  try {
-    const restored = JSON.parse(JSON.stringify(snapshot.parts)) as ComposerPart[];
-    renderPartsWith(editor, restored, chipHandlers);
-    parts = readParts(editor);
-    placeCaretAtOffset(editor, snapshot.caret ?? Number.MAX_SAFE_INTEGER);
-    editor.focus();
-    detectMention();
-  } finally {
-    // The recording effect runs after this tick; let it see the flag.
-    queueMicrotask(() => {
-      applyingSnapshot = false;
-    });
-  }
-  historyIndex = null;
-}
-
-/** Forget the history: the content just left the composer for good. */
-function resetUndo() {
-  applyingSnapshot = true;
-  undoStack.reset({ parts: [{ type: "text", text: "" }], caret: 0 });
-  historyIndex = null;
-  historyDraft = null;
-  queueMicrotask(() => {
-    applyingSnapshot = false;
-  });
-}
-
-function undo() {
-  const snapshot = undoStack.undo();
-  if (snapshot) applySnapshot(snapshot);
-}
-
-function redo() {
-  const snapshot = undoStack.redo();
-  if (snapshot) applySnapshot(snapshot);
-}
+$effect(() => {
+  if (editor) return richEditor.attach(editor);
+});
 
 // ↑/↓ at the composer's first/last line walk back through `history`, the way
 // a shell does; the unsent draft is stashed on the way in and restored once
-// the walk runs off the newest end.
+// the walk runs off the newest end. Any edit (the editor reports them through
+// `onEdit`) ends the walk.
 let historyIndex: number | null = null;
 let historyDraft: ComposerPart[] | null = null;
 
-function isPlainText() {
-  return parts.every((part) => part.type === "text");
-}
-
-function caretOnEdgeLine(edge: "first" | "last"): boolean {
-  if (!editor) return false;
-  const offset = caretOffset(editor);
-  if (offset === null) return false;
-  const text = parts.map((part) => (part.type === "text" ? part.text : "\u0000")).join("");
-  return edge === "first" ? !text.slice(0, offset).includes("\n") : !text.slice(offset).includes("\n");
-}
-
 function recallHistory(direction: "older" | "newer"): boolean {
   const entries = history ?? [];
-  if (!isPlainText()) return false;
+  if (!richEditor.parts.every((part) => part.type === "text")) return false;
   if (direction === "older") {
-    if (!caretOnEdgeLine("first")) return false;
+    if (!richEditor.caretOnEdgeLine("first")) return false;
     const next = (historyIndex ?? entries.length) - 1;
-    if (next < 0) return entries.length === 0 ? false : true;
-    if (historyIndex === null) historyDraft = JSON.parse(JSON.stringify(parts)) as ComposerPart[];
-    historyIndex = next;
-    setText(entries[next] ?? "");
+    if (next < 0) return entries.length !== 0;
+    if (historyIndex === null) historyDraft = $state.snapshot(richEditor.parts) as ComposerPart[];
+    richEditor.setText(entries[next] ?? "");
     historyIndex = next;
     return true;
   }
-  if (historyIndex === null || !caretOnEdgeLine("last")) return false;
+  if (historyIndex === null || !richEditor.caretOnEdgeLine("last")) return false;
   const next = historyIndex + 1;
   if (next >= entries.length) {
-    const draft = historyDraft ?? [{ type: "text", text: "" }];
+    const draft = historyDraft ?? EMPTY_PARTS();
     historyDraft = null;
-    applySnapshot({ parts: draft, caret: null });
+    richEditor.setParts(draft);
     historyIndex = null;
     return true;
   }
-  historyIndex = next;
-  setText(entries[next] ?? "");
+  richEditor.setText(entries[next] ?? "");
   historyIndex = next;
   return true;
 }
@@ -262,7 +192,7 @@ let lastSavedDraft: string | null = null;
 function serializeDraft(): string | null {
   // Only ready attachments are worth persisting; a staging/failed one has no
   // usable staged path to restore.
-  const persistable = parts.filter((part) => part.type !== "attachment" || part.state === "ready");
+  const persistable = richEditor.parts.filter((part) => part.type !== "attachment" || part.state === "ready");
   const normalised = normaliseParts(persistable.map((part) => ({ ...part })));
   return hasSendableContent(normalised) ? JSON.stringify(normalised) : null;
 }
@@ -280,10 +210,11 @@ onMount(() => {
     if (draftKey) {
       try {
         const stored = await loadDraft(draftKey);
-        const untouched = !parts.some((part) => part.type !== "text" || part.text.length > 0);
-        if (!cancelled && stored && editor && untouched) {
-          renderPartsWith(editor, JSON.parse(stored) as ComposerPart[], chipHandlers);
-          parts = readParts(editor);
+        const untouched = !richEditor.parts.some((part) => part.type !== "text" || part.text.length > 0);
+        if (!cancelled && stored && untouched) {
+          // The restored draft is the floor of the undo history, not an edit.
+          richEditor.setParts(JSON.parse(stored) as ComposerPart[], null, { focus: false });
+          richEditor.resetUndo();
           lastSavedDraft = stored;
         }
       } catch {
@@ -374,7 +305,7 @@ function autogrow() {
 }
 
 $effect(() => {
-  void parts;
+  void richEditor.parts;
   void inputHeight;
   autogrow();
 });
@@ -422,23 +353,21 @@ const models = $derived(modelList());
 const modelsError = $derived(modelListError());
 let popover = $state<"model" | "subagents" | "permissions" | null>(null);
 
-// @-mention picker state
-let mentionQuery = $state<string | null>(null);
-
-// /-command picker state
-let slashQuery = $state<string | null>(null);
-
-// $-skill picker state
-let skillQuery = $state<string | null>(null);
-let skillRange = $state<Range | null>(null);
+// The @-mention, /-command and $-skill pickers are driven by the trigger
+// queries the editor detects (`richEditor.queries`).
+const queries: DetectedQueries = $derived(richEditor.queries);
 
 // `/review` target picker state. Unlike the three above it is not driven by a
 // trigger character, so it opens on request and filters on the whole line.
 let reviewPicker = $state(false);
-const reviewQuery = $derived(parts.length === 1 && parts[0].type === "text" ? parts[0].text : "");
+const reviewQuery = $derived(
+  richEditor.parts.length === 1 && richEditor.parts[0].type === "text" ? richEditor.parts[0].text : "",
+);
 
 /** Whether any picker is open. An open picker always owns Escape. */
-const pickerOpen = $derived(mentionQuery !== null || slashQuery !== null || skillQuery !== null || reviewPicker);
+const pickerOpen: boolean = $derived(
+  queries.mentionQuery !== null || queries.slashQuery !== null || queries.skillQuery !== null || reviewPicker,
+);
 /**
  * Results in the open picker. Arrow/Enter/Tab only belong to it while it has
  * something to pick — otherwise typing `/notacommand` or `@nothingmatches` and
@@ -456,7 +385,7 @@ const subagentEfforts = $derived([
     (models ?? []).flatMap((model) => model.supportedReasoningEfforts.map((option) => option.reasoningEffort)),
   ),
 ]);
-const hasSendable = $derived(hasSendableContent(parts));
+const hasSendable = $derived(hasSendableContent(richEditor.parts));
 
 /**
  * Why this composer refuses to send, or null when it will. A turn carries the
@@ -642,9 +571,7 @@ function keepPlanning() {
 
 /** Empties the editor, leaving the caret in it. */
 function clearText() {
-  parts = [{ type: "text", text: "" }];
-  if (editor) editor.replaceChildren();
-  editor?.focus();
+  richEditor.setParts(EMPTY_PARTS(), 0);
 }
 
 /**
@@ -653,9 +580,7 @@ function clearText() {
  */
 export function openReviewPicker() {
   clearText();
-  mentionQuery = null;
-  slashQuery = null;
-  skillQuery = null;
+  richEditor.closeQueries();
   reviewPicker = true;
 }
 
@@ -668,7 +593,7 @@ function pickReviewTarget(target: ReviewTarget) {
 function runCommand(command: SlashCommand, argument = "") {
   const typed = argument ? `/${command.id} ${argument}` : `/${command.id}`;
   clearText();
-  slashQuery = null;
+  richEditor.closeQueries();
   if (command.id === "plan") {
     togglePlanMode();
   } else if (command.id === "model" || command.id === "permissions") {
@@ -676,7 +601,7 @@ function runCommand(command: SlashCommand, argument = "") {
   } else if (command.id === "init") {
     // `/init` is a prompt, not an action: put it in the composer so the user
     // can adjust the wording before sending.
-    setText(INIT_PROMPT);
+    richEditor.setText(INIT_PROMPT);
   } else if (command.scope === "settings") {
     openSettings("integrations");
   } else {
@@ -690,111 +615,26 @@ function runCommand(command: SlashCommand, argument = "") {
  * text the user typed is not lost behind an error toast.
  */
 export function restoreText(text: string) {
-  setText(text);
+  richEditor.setText(text);
 }
 
 /** True when nothing sendable has been typed or attached. */
 export function isEmpty(): boolean {
-  return !hasSendableContent(normaliseParts(parts.map((part) => ({ ...part }))));
-}
-
-/** Replaces the composer's contents with plain text and puts the caret at the end. */
-function setText(text: string) {
-  parts = [{ type: "text", text }];
-  if (!editor) return;
-  editor.replaceChildren(document.createTextNode(text));
-  const range = document.createRange();
-  range.selectNodeContents(editor);
-  range.collapse(false);
-  const selection = window.getSelection();
-  selection?.removeAllRanges();
-  selection?.addRange(range);
-  editor.focus();
-}
-
-function detectMention() {
-  if (!editor) return;
-  // While the review picker is up the line is its filter, not a trigger: `/`
-  // or `@` typed into it must not open a second picker behind it.
-  if (reviewPicker) return;
-  const detected = detectQueries(editor, cwd);
-  if (!detected) return;
-  slashQuery = detected.slashQuery;
-  mentionQuery = detected.mentionQuery;
-  mentionRange = detected.mentionRange;
-  skillQuery = detected.skillQuery;
-  skillRange = detected.skillRange;
+  return !hasSendableContent(normaliseParts(richEditor.parts.map((part) => ({ ...part }))));
 }
 
 /**
- * Dismisses whichever picker is open. `detectMention` can't do this: it bails
- * when the caret is outside the editor (`detectQueries` returns null), so
- * losing focus would otherwise leave the popup stranded on screen.
+ * Dismisses whichever picker is open. The editor's own re-detection can't do
+ * this: it bails when the caret is outside the editor, so losing focus would
+ * otherwise leave the popup stranded on screen.
  */
 function closePickers() {
-  mentionQuery = null;
-  mentionRange = null;
-  slashQuery = null;
-  skillQuery = null;
-  skillRange = null;
+  richEditor.closeQueries();
   reviewPicker = false;
 }
 
-/**
- * Adopts parts produced by a re-render that bypassed the browser (delete-to-
- * edge, chip removal, undo). Those fire no `input` event, so the pickers must
- * be re-detected here: a trigger the re-render removed would otherwise keep
- * its popup open with a `Range` whose text node is gone. A live Range whose
- * node is removed collapses onto the editor root at index 0, so the next pick
- * would drop the chip at the very start of the composer, unpadded and
- * unreachable by the Arrow/Backspace interception.
- */
-function applyParts(next: ComposerPart[]) {
-  parts = next;
-  detectMention();
-}
-
-/** Whether a picker's range still points into the editor's current text. */
-function usableRange(range: Range | null): range is Range {
-  return (
-    !!range && !!editor && range.startContainer.nodeType === Node.TEXT_NODE && editor.contains(range.startContainer)
-  );
-}
-
-function insertMention(mention: Mention) {
-  const range = mentionRange;
-  if (!usableRange(range)) {
-    closePickers();
-    return;
-  }
-  insertMentionChip(range, mention);
-  parts = editor ? readParts(editor) : parts;
-  mentionQuery = null;
-  editor?.focus();
-}
-
 function insertSkill(skill: SkillSummary) {
-  const range = skillRange;
-  if (!usableRange(range)) {
-    closePickers();
-    return;
-  }
-  insertSkillChip(range, skill.name, skill.path, skillLabel(skill));
-  parts = editor ? readParts(editor) : parts;
-  skillQuery = null;
-  editor?.focus();
-}
-
-/** Removes any chip (mention or attachment) and cleans up its staged file. */
-function removeMention(chip: HTMLElement) {
-  const attachmentId = chip.dataset.attachmentId;
-  if (attachmentId) {
-    void removeStagedAttachment(attachmentId).catch(() => {});
-    sources.delete(attachmentId);
-  }
-  removeMentionChip(chip);
-  applyParts(editor ? readParts(editor) : parts);
-  editor?.focus();
+  richEditor.insertSkill(skill.name, skill.path, skillLabel(skill));
 }
 
 // --- Attachments ---
@@ -839,14 +679,6 @@ const thumbSrc = (part: AttachmentPart): string | null => {
   return isTauri() ? convertFileSrc(part.path) : part.path;
 };
 
-const chipHandlers: AttachmentChipHandlers = {
-  onRetry: (id) => {
-    const source = sources.get(id);
-    if (source) void stageSource(id, source, false);
-  },
-  thumbSrc,
-};
-
 let nextClientId = 0;
 
 /** Insert (or, on retry, refresh) an attachment chip and run its staging. */
@@ -854,13 +686,8 @@ async function stageSource(clientId: string, source: StageSource, insert: boolea
   if (!editor) return;
   sources.set(clientId, source);
   const placeholder = placeholderFor(clientId, source);
-  if (insert) {
-    ensureCaretInEditor();
-    insertAttachmentChip(placeholder, chipHandlers);
-  } else {
-    updateAttachmentChip(editor, clientId, placeholder, chipHandlers);
-  }
-  parts = readParts(editor);
+  if (insert) richEditor.insertAttachment(placeholder);
+  else richEditor.updateAttachment(clientId, placeholder);
   try {
     const staged =
       source.via === "path"
@@ -878,27 +705,12 @@ async function stageSource(clientId: string, source: StageSource, insert: boolea
       kind: staged.kind as AttachmentPart["kind"],
       state: "ready",
     };
-    updateAttachmentChip(editor, clientId, ready, chipHandlers);
+    richEditor.updateAttachment(clientId, ready);
     sources.delete(clientId);
     sources.set(staged.id, source);
   } catch {
-    updateAttachmentChip(editor, clientId, { ...placeholder, state: "failed" }, chipHandlers);
+    richEditor.updateAttachment(clientId, { ...placeholder, state: "failed" });
   }
-  parts = readParts(editor);
-}
-
-/** Focus the editor and drop the caret at its end when it's elsewhere. */
-function ensureCaretInEditor() {
-  if (!editor) return;
-  editor.focus();
-  const selection = window.getSelection();
-  const inside = selection?.rangeCount && editor.contains(selection.getRangeAt(0).startContainer);
-  if (inside) return;
-  const range = document.createRange();
-  range.selectNodeContents(editor);
-  range.collapse(false);
-  selection?.removeAllRanges();
-  selection?.addRange(range);
 }
 
 function attachPaths(paths: string[]) {
@@ -975,6 +787,7 @@ function submit() {
   // A submitted `/command` runs rather than being sent as a message. The picker
   // has already closed by this point if an argument was typed, so this — not
   // the picker — is what makes `/review the auth changes` work.
+  const parts = richEditor.parts;
   const typed = parts.length === 1 && parts[0].type === "text" ? parts[0].text : null;
   const command = typed !== null ? parseSlashCommand(typed) : null;
   if (command) {
@@ -991,12 +804,10 @@ function submit() {
   const trimmedParts = normaliseParts(sentParts);
   if (!hasSendableContent(trimmedParts) || disabled || hasQuestions || invalidReason) return;
   const sent = buildTurnInput(trimmedParts, cwd);
-  parts = [{ type: "text", text: "" }];
-  editor?.replaceChildren();
+  richEditor.clear();
   sources.clear();
   closePickers();
   persistDraft(null);
-  resetUndo();
   void dispatchSend(sent);
 }
 
@@ -1008,18 +819,6 @@ async function dispatchSend(sent: UserInputPart[]) {
     await Promise.race([ensureModels(), new Promise((resolve) => setTimeout(resolve, 3000))]);
   }
   onSend(sent, sendOptions());
-}
-
-function onEditorInput() {
-  if (composing) return;
-  if (!editor) return;
-  typingEdit = true;
-  historyIndex = null;
-  parts = readParts(editor);
-  // The browser answers Enter/paste with its own block lines and strips the
-  // padding around chips; flatten it back before anything reads the caret.
-  parts = normaliseEditorDom(editor, chipHandlers) ?? parts;
-  detectMention();
 }
 
 function onPaste(event: ClipboardEvent) {
@@ -1035,137 +834,6 @@ function onPaste(event: ClipboardEvent) {
   }
   event.preventDefault();
   document.execCommand("insertText", false, event.clipboardData?.getData("text/plain") ?? "");
-}
-
-function onKeydown(event: KeyboardEvent) {
-  const mod = event.metaKey || event.ctrlKey;
-  if (mod && !event.altKey && (event.key === "z" || event.key === "Z" || event.key === "y")) {
-    event.preventDefault();
-    if (event.key === "y" || event.shiftKey) redo();
-    else undo();
-    return;
-  }
-  if (pickerOpen && event.key === "Escape") {
-    event.preventDefault();
-    return;
-  }
-  if (pickerActive && ["ArrowDown", "ArrowUp", "Enter", "Tab"].includes(event.key)) {
-    // The pickers handle these through the window listener.
-    if (event.key !== "Shift") event.preventDefault();
-    return;
-  }
-  if ((event.key === "Backspace" || event.key === "Delete") && event.currentTarget === editor && editor) {
-    const selection = window.getSelection();
-    const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-    const direction = event.key === "Backspace" ? "back" : "forward";
-    if (event.metaKey) {
-      // Delete-to-line-edge, against the parts model for the same reason as
-      // `deleteLineBreak` below — and so it never degrades into "remove the
-      // chip beside the caret", which is what the branches after this do.
-      const afterLine = deleteToLineEdge(editor, direction, chipHandlers);
-      if (afterLine) {
-        event.preventDefault();
-        applyParts(afterLine);
-      }
-      return;
-    }
-    const chip = range ? chipBesideCaret(direction, range) : null;
-    if (chip) {
-      event.preventDefault();
-      void removeMention(chip);
-      return;
-    }
-    if (event.altKey || event.ctrlKey) {
-      // Option+Backspace/Delete word-deletion through a chip: WebKit's
-      // native word motion can strand the caret at the very start of the
-      // composer (and leave a stray line break behind) once whitespace next
-      // to a contenteditable=false chip is involved. Ctrl is word-delete on
-      // Windows/Linux and has no chip-safe native meaning on macOS, so it
-      // takes the same path.
-      const afterWord = deleteToWordEdge(editor, direction, chipHandlers);
-      if (afterWord) {
-        event.preventDefault();
-        applyParts(afterWord);
-        return;
-      }
-    }
-    // Line breaks are deleted against the parts model rather than by the
-    // browser, which merges its own block lines with the composer's `<br>`s and
-    // can take two breaks (or a whole line) for one keystroke.
-    const afterBreak = deleteLineBreak(editor, direction, chipHandlers);
-    if (afterBreak) {
-      event.preventDefault();
-      applyParts(afterBreak);
-      return;
-    }
-  }
-  if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && !event.shiftKey && !event.ctrlKey && editor) {
-    const direction = event.key === "ArrowLeft" ? "back" : "forward";
-    // WebKit's native Cmd/Option+Arrow stalls at contenteditable=false chips.
-    // Meta first, so Cmd+Option+Arrow keeps line semantics.
-    if (event.metaKey) {
-      event.preventDefault();
-      moveCaretToLineEdge(editor, direction);
-      return;
-    }
-    if (event.altKey) {
-      event.preventDefault();
-      moveCaretToWordEdge(editor, direction);
-      return;
-    }
-    const selection = window.getSelection();
-    const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-    const chip = range ? chipBesideCaret(direction, range) : null;
-    if (chip) {
-      event.preventDefault();
-      placeCaretBesideChip(chip, direction === "back" ? "before" : "after");
-      return;
-    }
-    // A chip that starts/ends the line on the other side of a break (e.g. a
-    // Shift+Enter typed just before it): WebKit won't cross the break on its
-    // own, so land the caret beside the chip ourselves.
-    const lineChip = range ? chipAcrossLineBreak(direction, range) : null;
-    if (lineChip) {
-      event.preventDefault();
-      placeCaretBesideChip(lineChip, direction === "back" ? "after" : "before");
-      return;
-    }
-  }
-  if (
-    (event.key === "ArrowDown" || event.key === "ArrowUp") &&
-    !event.shiftKey &&
-    !event.altKey &&
-    !event.metaKey &&
-    !event.ctrlKey &&
-    editor
-  ) {
-    // WebKit's native vertical caret motion refuses to move at all when the
-    // line it's aiming for holds only a chip — from any column in the
-    // current line, not just its very end — so it's driven by hand.
-    if (recallHistory(event.key === "ArrowUp" ? "older" : "newer")) {
-      event.preventDefault();
-      return;
-    }
-    if (moveCaretVertically(editor, event.key === "ArrowDown" ? "down" : "up")) {
-      event.preventDefault();
-    }
-    return;
-  }
-  if (event.key === "Enter" && !event.shiftKey) {
-    event.preventDefault();
-    submit();
-    return;
-  }
-  if (event.key === "Enter" && event.shiftKey && editor) {
-    // Breaks are inserted against the parts model for the same reason they are
-    // deleted against it: beside a chip WebKit writes two `<br>`s and strands
-    // the caret on the empty line between them.
-    const afterBreak = insertLineBreak(editor, chipHandlers);
-    if (afterBreak) {
-      event.preventDefault();
-      applyParts(afterBreak);
-    }
-  }
 }
 </script>
 
@@ -1251,30 +919,30 @@ function onKeydown(event: KeyboardEvent) {
         onCount={(count) => (pickerCount = count)}
         onStageChange={clearText}
       />
-    {:else if mentionQuery !== null}
+    {:else if queries.mentionQuery !== null}
       <MentionPicker
         {cwd}
-        query={mentionQuery}
+        query={queries.mentionQuery}
         scope={editor}
-        onPick={insertMention}
-        onClose={() => (mentionQuery = null)}
+        onPick={(mention) => richEditor.insertMention(mention)}
+        onClose={() => richEditor.closeQueries()}
         onCount={(count) => (pickerCount = count)}
       />
-    {:else if skillQuery !== null}
+    {:else if queries.skillQuery !== null}
       <SkillPicker
         {cwd}
-        query={skillQuery}
+        query={queries.skillQuery}
         scope={editor}
         onPick={insertSkill}
-        onClose={() => (skillQuery = null)}
+        onClose={() => richEditor.closeQueries()}
         onCount={(count) => (pickerCount = count)}
       />
-    {:else if slashQuery !== null}
+    {:else if queries.slashQuery !== null}
       <SlashCommandPicker
-        query={slashQuery}
+        query={queries.slashQuery}
         scope={editor}
         onPick={(command) => runCommand(command)}
-        onClose={() => (slashQuery = null)}
+        onClose={() => richEditor.closeQueries()}
         onCount={(count) => (pickerCount = count)}
       />
     {/if}
@@ -1316,15 +984,12 @@ function onKeydown(event: KeyboardEvent) {
           aria-multiline="true"
           aria-label="Message Codex… (@ to attach files, / for commands)"
           data-placeholder="Message Codex… (@ to attach files, / for commands)"
-          onkeydown={onKeydown}
-          oninput={onEditorInput}
-          onclick={detectMention}
+          onkeydown={richEditor.handleKey}
+          oninput={richEditor.handleInput}
+          onclick={richEditor.handleClick}
           onpaste={onPaste}
-          oncompositionstart={() => (composing = true)}
-          oncompositionend={() => {
-            composing = false;
-            onEditorInput();
-          }}
+          oncompositionstart={richEditor.handleCompositionStart}
+          oncompositionend={richEditor.handleCompositionEnd}
           class="composer-editor flex-1 overflow-y-auto bg-transparent text-sm leading-6 outline-none empty:before:pointer-events-none empty:before:text-surface-500 empty:before:content-[attr(data-placeholder)] {disabled ? 'pointer-events-none opacity-50' : ''}"
         >
         </div>
