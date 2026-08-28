@@ -6,6 +6,7 @@
  * bootstrap refresh transparently updates them.
  */
 import { projectByPath, projectForCwd, projects, threadById } from "$lib/app/appData.svelte";
+import { touchThread } from "$lib/layout/sessionFocus.svelte";
 import type { Project, ThreadSummary } from "$lib/types";
 
 export type View = {
@@ -46,6 +47,9 @@ export const view = $state<View & { epoch: number }>({
 export function setView(patch: Partial<View>, options: { remount?: boolean } = {}): void {
   Object.assign(view, EMPTY, patch);
   if (options.remount !== false) view.epoch += 1;
+  // Opening a thread counts as interacting with it for the sidebar's
+  // session-focus view.
+  touchThread(patch.threadId);
 }
 
 export function currentProject(): Project | null {

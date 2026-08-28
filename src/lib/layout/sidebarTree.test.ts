@@ -3,9 +3,11 @@ import {
   buildTree,
   childrenOf,
   deleteFromLayout,
+  hoistActive,
   isFolderOrDescendant,
   isNoopDrop,
   placeInLayout,
+  pruneEmptyFolders,
   resolveDrop,
   siblingsAfterDrop,
 } from "$lib/layout/sidebarTree";
@@ -158,5 +160,36 @@ describe("layout mutations", () => {
     const next = deleteFromLayout(layout, "inner");
     expect(next.folders.map((f) => f.id)).toEqual(["outer"]);
     expect(next.placements[0].parentId).toBe("outer");
+  });
+});
+
+describe("session focus helpers", () => {
+  const layout: SidebarLayout = {
+    folders: [folder("empty", null, 0), folder("busy", null, 1), folder("nested", "busy", 0)],
+    placements: [
+      { itemKey: "in-busy", scope: "", parentId: "busy", ordinal: 0 },
+      { itemKey: "deep", scope: "", parentId: "nested", ordinal: 0 },
+    ],
+  };
+  const items: Item[] = [{ key: "a" }, { key: "b", pinned: true }, { key: "in-busy" }, { key: "deep" }];
+
+  it("pruneEmptyFolders drops folders with no items, recursively", () => {
+    const tree = pruneEmptyFolders(buildTree(layout, "", items, adapter));
+    expect(ids(tree)).toEqual(["item:b", "folder:busy", "item:a"]);
+    const busy = tree[1];
+    expect(busy.kind === "folder" && ids(busy.children)).toEqual(["folder:nested", "item:in-busy"]);
+    expect(pruneEmptyFolders(buildTree(layout, "", [], adapter))).toEqual([]);
+  });
+
+  it("hoistActive lifts active subtrees without reordering within a group", () => {
+    const tree = buildTree(layout, "", items, adapter);
+    expect(ids(tree)).toEqual(["item:b", "folder:empty", "folder:busy", "item:a"]);
+    const active = new Set(["a", "deep"]);
+    const hoisted = hoistActive(tree, (item) => active.has(item.key));
+    expect(ids(hoisted)).toEqual(["folder:busy", "item:a", "item:b", "folder:empty"]);
+    const busy = hoisted[0];
+    expect(busy.kind === "folder" && ids(busy.children)).toEqual(["folder:nested", "item:in-busy"]);
+    // Input is left untouched.
+    expect(ids(tree)).toEqual(["item:b", "folder:empty", "folder:busy", "item:a"]);
   });
 });

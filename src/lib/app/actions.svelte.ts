@@ -29,6 +29,7 @@ import type { SlashCommandId } from "$lib/composer/slashCommands";
 import DeleteThreadDialog from "$lib/layout/DeleteThreadDialog.svelte";
 import RenameDialog from "$lib/layout/RenameDialog.svelte";
 import SectionPickerDialog from "$lib/layout/SectionPickerDialog.svelte";
+import { touchThread } from "$lib/layout/sessionFocus.svelte";
 import {
   buildTree,
   childrenOf,
@@ -80,6 +81,7 @@ import CreateWorktreeDialog from "$lib/worktrees/CreateWorktreeDialog.svelte";
 /** A draft thread has become a real one: keep it on screen and let the
  *  sidebar catch up in the background. */
 export function threadCreated(id: string, cwd: string): void {
+  touchThread(id);
   trackNewThread(id, cwd);
   adoptThread(id);
   quietRefresh();

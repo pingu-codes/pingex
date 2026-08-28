@@ -12,6 +12,7 @@ import {
   setView,
   view,
 } from "$lib/app/navigation.svelte";
+import { isTouched, resetTouched } from "$lib/layout/sessionFocus.svelte";
 import type { BootstrapData, Project } from "$lib/types";
 
 const api: Project = {
@@ -58,6 +59,15 @@ describe("navigation", () => {
   beforeEach(() => {
     appData.data = structuredClone(data);
     goHome();
+  });
+
+  it("marks an opened thread as touched for session focus", () => {
+    resetTouched();
+    expect(isTouched("thread-1")).toBe(false);
+    openThread(api, "thread-1");
+    expect(isTouched("thread-1")).toBe(true);
+    goHome();
+    expect(isTouched("thread-1")).toBe(true);
   });
 
   it("clears the views a navigation does not name", () => {

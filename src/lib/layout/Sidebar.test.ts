@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Sidebar from "$lib/layout/Sidebar.svelte";
+import { resetTouched, touchThread } from "$lib/layout/sessionFocus.svelte";
 import { sidebarPrefs } from "$lib/layout/sidebarPrefs.svelte";
 import { setProjectExpanded } from "$lib/services/api";
 import { activeTurns, approvals, unansweredQuestions, userInputRequests } from "$lib/services/codexEvents.svelte";
@@ -433,6 +434,96 @@ describe("Sidebar", () => {
       setup(projectWithStale());
       expect(screen.getByText("Thread 2")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /Show \d+ more/ })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("session focus", () => {
+    beforeEach(() => {
+      resetTouched();
+      sidebarPrefs.setSessionFocus(true);
+    });
+    afterEach(() => sidebarPrefs.setSessionFocus(false));
+
+    it("lists only touched threads and folds the rest behind Show more", async () => {
+      const user = userEvent.setup();
+      touchThread("thread-2");
+      setup(projectWithThreads(3));
+
+      expect(screen.getByText("Thread 2")).toBeInTheDocument();
+      expect(screen.queryByText("Thread 1")).not.toBeInTheDocument();
+      expect(screen.getByText("Threads you've touched since launch · 1")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Show 2 more" }));
+      expect(screen.getByText("Thread 1")).toBeInTheDocument();
+      expect(screen.getByText("Thread 3")).toBeInTheDocument();
+    });
+
+    it("keeps the selected thread visible even when untouched", () => {
+      setup(projectWithThreads(2), [], "thread-2");
+      expect(screen.getByText("Thread 2")).toBeInTheDocument();
+      expect(screen.queryByText("Thread 1")).not.toBeInTheDocument();
+    });
+
+    it("floats projects with touched threads above the rest", () => {
+      const idle = projectWithThreads(1);
+      const busy = { ...projectWithThreads(2), name: "busy", path: "/projects/busy" };
+      busy.threads = busy.threads.map((thread) => ({ ...thread, id: `busy-${thread.id}`, cwd: busy.path }));
+      touchThread("busy-thread-2");
+      render(Sidebar, {
+        projects: [idle, busy],
+        account: null,
+        selectedThread: null,
+        loading: false,
+        sideQuestions: [],
+        onAddProject: vi.fn(),
+        onSelectThread: vi.fn(),
+        onNewThread: vi.fn(),
+        onOpenSettings: vi.fn(),
+        onMenuAction: vi.fn(),
+        onSelectArchived: vi.fn(),
+        onUnarchived: vi.fn(),
+      });
+
+      const rows = [...document.querySelectorAll<HTMLElement>("[data-sidebar-row]")].map(
+        (row) => row.dataset.sidebarRow,
+      );
+      expect(rows).toEqual([`item:${busy.path}`, "item:busy-thread-2", `item:${idle.path}`]);
+      // Both projects fold their untouched threads: busy hides 1 of 2, idle hides its only one.
+      expect(screen.getAllByRole("button", { name: "Show 1 more" })).toHaveLength(2);
+    });
+
+    it("hides folders that hold no touched threads but keeps ones that do", () => {
+      const source = projectWithThreads(3);
+      touchThread("thread-3");
+      setup(source, [], null, {
+        sidebarLayout: {
+          folders: [
+            { id: "quiet", scope: source.path, parentId: null, name: "Quiet", expanded: true, ordinal: 0 },
+            { id: "live", scope: source.path, parentId: null, name: "Live", expanded: true, ordinal: 1 },
+          ],
+          placements: [
+            { itemKey: "thread-1", scope: source.path, parentId: "quiet", ordinal: 0 },
+            { itemKey: "thread-3", scope: source.path, parentId: "live", ordinal: 0 },
+          ],
+        },
+      });
+
+      expect(screen.queryByText("Quiet")).not.toBeInTheDocument();
+      expect(screen.getByText("Live").parentElement?.textContent).toContain("1");
+      expect(screen.getByText("Thread 3")).toBeInTheDocument();
+    });
+
+    it("toggles the preference from the header button", async () => {
+      const user = userEvent.setup();
+      setup(projectWithThreads(2));
+      const toggle = screen.getByTestId("session-focus-toggle");
+      expect(toggle).toHaveAttribute("aria-pressed", "true");
+      expect(screen.queryByText("Thread 1")).not.toBeInTheDocument();
+
+      await user.click(toggle);
+      expect(sidebarPrefs.sessionFocus).toBe(false);
+      expect(screen.getByText("Thread 1")).toBeInTheDocument();
+      expect(screen.queryByText(/^Threads you've touched since launch/)).not.toBeInTheDocument();
     });
   });
 

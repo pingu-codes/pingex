@@ -17,6 +17,7 @@ import {
   Smartphone,
   SquarePen,
   Star,
+  Zap,
 } from "@lucide/svelte";
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
 import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
@@ -25,6 +26,7 @@ import ArchivedThreadsSection from "$lib/layout/ArchivedThreadsSection.svelte";
 import { activeConnectionCount, hasActiveConnection } from "$lib/layout/connectionState";
 import SidebarContextMenu from "$lib/layout/SidebarContextMenu.svelte";
 import SidebarSearch from "$lib/layout/SidebarSearch.svelte";
+import { isTouched } from "$lib/layout/sessionFocus.svelte";
 import { type DragHooks, dnd, draggable, rowId, rowRef } from "$lib/layout/sidebarDnd.svelte";
 import { isStale, sidebarPrefs } from "$lib/layout/sidebarPrefs.svelte";
 import {
@@ -32,7 +34,9 @@ import {
   type DropTarget,
   emptyLayout,
   flattenItems,
+  hoistActive,
   isNoopDrop,
+  pruneEmptyFolders,
   ROOT_SCOPE,
   resolveDrop,
   siblingsAfterDrop,
@@ -124,6 +128,15 @@ let {
 
 const visibleProjects = $derived(projects.filter((project) => !project.archived));
 
+// "Session focus": only threads started or opened since launch are listed;
+// every other thread folds behind the same "Show more" button, and projects
+// holding a touched thread float above the rest.
+const focus = $derived(sidebarPrefs.sessionFocus);
+const projectIsActive = (project: Project) => project.threads.some((thread) => isTouched(thread.id));
+const touchedCount = $derived(
+  visibleProjects.reduce((n, project) => n + project.threads.filter((thread) => isTouched(thread.id)).length, 0),
+);
+
 // One busy project shouldn't push every other project off-screen, so expanded
 // projects show a head slice until the user asks for the rest. With the
 // "hide old threads" preference on, day-old threads fold behind the same
@@ -133,7 +146,8 @@ let showAllThreads = $state<Record<string, boolean>>({});
 
 function splitThreads(project: Project): { head: ThreadSummary[]; hidden: number } {
   const keep = (thread: ThreadSummary) =>
-    thread.pinned || thread.id === selectedThread || !(sidebarPrefs.hideOldThreads && isStale(thread.updatedAt));
+    thread.id === selectedThread ||
+    (focus ? isTouched(thread.id) : thread.pinned || !(sidebarPrefs.hideOldThreads && isStale(thread.updatedAt)));
   const head = project.threads.filter(keep).slice(0, THREAD_LIMIT);
   // Selection can come from outside the sidebar; keep it visible even when it
   // sorts past the cap.
@@ -167,9 +181,14 @@ function threadGroups(visible: ThreadSummary[]): { section: ThreadSection | null
 const rootAdapter = { key: (project: Project) => project.path, pinned: (project: Project) => project.pinned };
 const threadAdapter = { key: (thread: ThreadSummary) => thread.id, pinned: (thread: ThreadSummary) => thread.pinned };
 
-const rootTree = $derived(buildTree(sidebarLayout, ROOT_SCOPE, visibleProjects, rootAdapter));
-const projectTree = (project: Project) =>
-  buildTree(sidebarLayout, project.path, visibleThreads(project), threadAdapter);
+const rootTree = $derived.by(() => {
+  const tree = buildTree(sidebarLayout, ROOT_SCOPE, visibleProjects, rootAdapter);
+  return focus ? hoistActive(tree, projectIsActive) : tree;
+});
+const projectTree = (project: Project) => {
+  const tree = buildTree(sidebarLayout, project.path, visibleThreads(project), threadAdapter);
+  return focus && !showAllThreads[project.path] ? pruneEmptyFolders(tree) : tree;
+};
 
 function treeFor(scope: string): TreeNode<Project>[] | TreeNode<ThreadSummary>[] | null {
   if (scope === ROOT_SCOPE) return rootTree;
@@ -475,7 +494,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
 {#snippet projectRow(project: Project)}
   <Collapsible defaultOpen={project.expanded} onOpenChange={({ open }) => persistProjectExpansion(project, open)}>
     <div
-      class="group/project relative flex items-center rounded-md {dropClass({ kind: 'item', id: project.path })}"
+      class="group/project relative flex items-center rounded-md {dropClass({ kind: 'item', id: project.path })} {focus && !projectIsActive(project) ? 'opacity-60' : ''}"
       role="presentation"
       oncontextmenu={(event) => onContextMenu(event, projectTarget(project))}
       use:draggable={dragSource(ROOT_SCOPE, { kind: "item", id: project.path }, project.name)}
@@ -615,6 +634,17 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
     <div class="projects-heading mb-1 flex h-8 items-center justify-between px-2">
       <span class="text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Projects</span>
       <div class="flex items-center gap-0.5">
+        <TooltipButton
+          label={focus ? "Show all threads" : "Session focus: only threads you've touched since launch"}
+          onclick={() => sidebarPrefs.setSessionFocus(!focus)}
+          aria-pressed={focus}
+          data-testid="session-focus-toggle"
+          class="btn-icon btn-icon-sm transition focus:opacity-100 group-hover/projects:opacity-100 {focus
+            ? 'preset-tonal-primary text-primary-500'
+            : 'hover:preset-tonal text-surface-600-400 opacity-0'}"
+        >
+          <Zap size={15} />
+        </TooltipButton>
         {#if onAddWorkspace}
           <TooltipButton
             label="Create multi-project workspace"
@@ -642,6 +672,12 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
         </TooltipButton>
       </div>
     </div>
+
+    {#if focus}
+      <p class="mb-1 px-2 text-[10px] text-surface-500">
+        Threads you've touched since launch · {touchedCount}
+      </p>
+    {/if}
 
     {#if loading}
       <div class="space-y-2 px-2 py-2" aria-label="Loading projects">
