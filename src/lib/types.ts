@@ -7,6 +7,7 @@ import type {
   AgentRunRow,
   AgentSettingsPayload,
   BranchRef,
+  CodexNotification,
   CommitInfo,
   Connection,
   FileMatch,
@@ -16,6 +17,7 @@ import type {
   RecentHomeInfo,
   SearchFilter,
   SearchGroup,
+  ServerRequest,
   SiblingRef,
   StoredPlacement,
   StoredProjectSource,
@@ -676,3 +678,96 @@ export interface McpResourceTemplate {
 // --- History search and pagination (feature 11) ---
 
 export type ThreadSearchFilter = SearchFilter;
+
+// --- Codex events (typed once in `src-tauri/src/codex/events.rs`) ---
+
+/**
+ * A hook run as `hook/completed` reports it. Only the fields the transcript
+ * notice reads; hooks are user code and the rest is free-form.
+ */
+export interface HookRunSummary {
+  status?: string | null;
+  statusMessage?: string | null;
+  eventName?: string | null;
+  entries?: { kind?: string; text?: string }[] | null;
+}
+
+export interface UserInputQuestion {
+  id: string;
+  header: string;
+  question: string;
+  isOther?: boolean;
+  isSecret?: boolean;
+  options?: { label: string; description?: string }[] | null;
+}
+
+type ItemEventParams = { threadId: string; turnId: string; item: ThreadItem };
+type DeltaEventParams = { threadId: string; turnId: string; itemId: string; delta: string };
+type ReasoningEventParams = { threadId: string; turnId: string; itemId: string };
+
+/**
+ * Per-method narrowing of the generated union. The Rust decoder leaves every
+ * structured payload as `unknown` and every scalar nullable; this swaps in the
+ * hand-written shapes and marks required what Codex's own schema declares
+ * non-optional, so reducers read `params.turn.id` without a guard.
+ */
+interface CodexEventOverrides {
+  "thread/started": { thread: { id?: string; parentThreadId?: string | null } | null };
+  "thread/status/changed": { threadId: string };
+  "thread/goal/updated": { threadId: string; goal: ThreadGoal | null };
+  "thread/tokenUsage/updated": { threadId: string; tokenUsage: ThreadTokenUsage | null };
+  "thread/settings/updated": {
+    threadId: string;
+    threadSettings: {
+      subagentModelPolicy?: SubagentPolicy | null;
+      subagentReasoningEffortPolicy?: SubagentPolicy | null;
+    } | null;
+  };
+  "turn/started": { threadId: string; turn: Turn };
+  "turn/completed": { threadId: string; turn: Turn };
+  "turn/plan/updated": { threadId: string; turnId: string; plan: TurnPlanStep[] | null };
+  "item/started": ItemEventParams;
+  "item/updated": ItemEventParams;
+  "item/completed": ItemEventParams;
+  "item/agentMessage/delta": DeltaEventParams;
+  "item/plan/delta": DeltaEventParams;
+  "item/commandExecution/outputDelta": DeltaEventParams;
+  "item/reasoning/summaryPartAdded": ReasoningEventParams & { summaryIndex: number };
+  "item/reasoning/summaryTextDelta": ReasoningEventParams & { summaryIndex: number; delta: string };
+  "item/reasoning/textDelta": ReasoningEventParams & { contentIndex: number; delta: string };
+  "item/commandExecution/terminalInteraction": ReasoningEventParams & { stdin: string };
+  "item/mcpToolCall/progress": ReasoningEventParams & { message: string };
+  "item/fileChange/patchUpdated": ReasoningEventParams & { changes: FileUpdateChange[] };
+  "item/autoApprovalReview/completed": {
+    threadId: string;
+    turnId: string;
+    review: NonNullable<ThreadItem["guardianReview"]> | null;
+  };
+  "hook/completed": { threadId: string; run: HookRunSummary | null };
+  error: { threadId: string; error: { message?: string | null } | null };
+  "account/rateLimits/updated": { rateLimits: RateLimitSnapshot | null };
+}
+
+interface ServerRequestOverrides {
+  "item/fileChange/requestApproval": { changes: FileUpdateChange[] | null };
+  "item/permissions/requestApproval": { permissions: RequestPermissionProfile | null };
+  "item/tool/requestUserInput": { questions: UserInputQuestion[] | null };
+  "mcpServer/elicitation/request": { requestedSchema: McpElicitationSchema | null };
+}
+
+type Override<E, O> = E extends { method: infer M; params: infer P }
+  ? M extends keyof O
+    ? { method: M; params: Omit<P, keyof O[M]> & O[M] }
+    : E
+  : never;
+
+/**
+ * One notification from Codex, discriminated on `method`. `disconnected` is
+ * synthesised by the client when the app-server goes away.
+ */
+export type CodexEvent = Override<CodexNotification, CodexEventOverrides> | { method: "disconnected"; params: null };
+
+export type CodexEventOf<M extends CodexEvent["method"]> = Extract<CodexEvent, { method: M }>;
+
+/** A server request awaiting the user's answer, with the id to answer it under. */
+export type CodexServerRequestEvent = { requestId: number } & Override<ServerRequest, ServerRequestOverrides>;

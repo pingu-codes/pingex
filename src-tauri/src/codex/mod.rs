@@ -5,6 +5,7 @@
 pub(crate) mod binary;
 pub(crate) mod child;
 pub(crate) mod compat;
+pub(crate) mod events;
 pub(crate) mod journal;
 pub(crate) mod pairing;
 pub mod requests;

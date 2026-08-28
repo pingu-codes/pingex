@@ -35,7 +35,7 @@ function control(field: McpElicitationField): FormField["control"] {
   return "text";
 }
 
-export function formFields(schema: McpElicitationSchema | undefined): FormField[] {
+export function formFields(schema: McpElicitationSchema | null | undefined): FormField[] {
   const required = new Set(schema?.required ?? []);
   return Object.entries(schema?.properties ?? {}).map(([name, field]) => {
     const kind = control(field);

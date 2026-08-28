@@ -256,6 +256,7 @@ flowchart LR
       </div>
     </div>
   </div>
+  <p class="text-xs rounded border border-emerald-300 bg-emerald-50 px-3 py-2"><b>Resolved 2026-08-28.</b> <code>src-tauri/src/codex/events.rs</code> decodes once into adjacently-tagged enums exported by tauri-specta (<code>events.codexEvent</code> etc. in <code>bindings.ts</code>); <code>$lib/types</code> narrows the union to the hand-written payload types; <code>services/turnLifecycle.ts</code> is the one home for the willRetry / review-exit rules.</p>
   <p><b>Problem.</b> The bus is untyped, so every subscriber carries its own parsing and two cross-cutting rules are implemented twice.</p>
   <p><b>Solution.</b> Decode at the Tauri seam into a discriminated union; subscribers switch on a checked tag. Optionally let <code>setThreadHandler</code> take a method filter.</p>
   <ul class="grid grid-cols-2 gap-x-6 text-sm list-disc pl-5">

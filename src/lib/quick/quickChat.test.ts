@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { acceleratorFromEvent, applyQuickEvent, emptyQuickResponse } from "$lib/quick/quickChat";
+import {
+  acceleratorFromEvent,
+  applyQuickEvent as applyTyped,
+  emptyQuickResponse,
+  type QuickResponse,
+} from "$lib/quick/quickChat";
+import { type FakeEvent, fakeEvent } from "$lib/testing/codexEvents";
+
+const applyQuickEvent = (state: QuickResponse, event: FakeEvent) => applyTyped(state, fakeEvent(event));
 
 function keydown(init: KeyboardEventInit): KeyboardEvent {
   return new KeyboardEvent("keydown", init);

@@ -1,4 +1,5 @@
 import type { CodexEvent } from "$lib/services/codexEvents.svelte";
+import { threadIdOf } from "$lib/services/turnLifecycle";
 
 /**
  * Non-printing keys that only make sense as a whole-name accelerator token.
@@ -67,8 +68,8 @@ export function emptyQuickResponse(threadId: string | null = null): QuickRespons
  * live session. Reuses the same event shapes as `applyThreadEvent`.
  */
 export function applyQuickEvent(state: QuickResponse, event: CodexEvent): QuickResponse {
+  if (!state.threadId || threadIdOf(event) !== state.threadId) return state;
   const { method, params } = event;
-  if (!state.threadId || params?.threadId !== state.threadId) return state;
   switch (method) {
     case "turn/started":
       return { ...state, streaming: true, error: null };

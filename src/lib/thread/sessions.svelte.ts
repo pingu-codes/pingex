@@ -9,6 +9,7 @@
  * its view goes: reading it back from Codex next time is cheaper and safer.
  */
 import { type CodexEvent, setThreadHandler } from "$lib/services/codexEvents.svelte";
+import { threadIdOf } from "$lib/services/turnLifecycle";
 import { ThreadSession } from "$lib/thread/threadSession.svelte";
 
 const sessions = new Map<string, ThreadSession>();
@@ -31,8 +32,8 @@ function route(event: CodexEvent) {
     }
     return;
   }
-  const id = params?.threadId;
-  if (typeof id !== "string") return;
+  const id = threadIdOf(event);
+  if (!id) return;
   // A subagent reports under its own id; its parent's session shows it.
   if (method === "thread/status/changed") {
     for (const session of sessions.values()) session.setSubagentStatus(id, params.status);

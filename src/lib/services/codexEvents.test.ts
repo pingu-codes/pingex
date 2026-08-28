@@ -6,12 +6,17 @@ import {
   activeTurns,
   approvals,
   elicitations,
-  previewEmit,
-  previewEmitServerRequest,
+  previewEmitServerRequest as emitServerRequestTyped,
+  previewEmit as emitTyped,
   seedActiveTurns,
   turnPlans,
   userInputRequests,
 } from "$lib/services/codexEvents.svelte";
+import { type FakeEvent, fakeEvent, fakeServerRequest } from "$lib/testing/codexEvents";
+
+const previewEmit = (event: FakeEvent) => emitTyped(fakeEvent(event));
+const previewEmitServerRequest = (payload: FakeEvent & { requestId: number }) =>
+  emitServerRequestTyped(fakeServerRequest(payload));
 
 beforeEach(() => {
   approvals.list = [];
@@ -88,11 +93,12 @@ describe("server requests", () => {
   });
 
   // Anything unrecognised stalls its turn until the user is told, so it must
-  // not disappear silently.
+  // not disappear silently. Rust forwards a method it cannot decode under the
+  // `unknown` tag with the wire method and params inside.
   it("warns rather than swallowing a method it does not know", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    previewEmitServerRequest({ requestId: 3, method: "something/new", params: {} });
+    previewEmitServerRequest({ requestId: 3, method: "unknown", params: { method: "something/new", params: {} } });
 
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("something/new"), {});
     expect(approvals.list).toHaveLength(0);

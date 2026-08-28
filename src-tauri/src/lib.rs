@@ -525,6 +525,13 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         os::open_external_url,
         os::open_in_zed,
         ])
+        // Everything the backend pushes at the webview; see `codex::events`.
+        .events(tauri_specta::collect_events![
+            codex::events::CodexEvent,
+            codex::events::CodexServerRequest,
+            codex::events::CodexDisconnected,
+            agents::supervisor::CodexAgentRun,
+        ])
 }
 
 /// Regenerates `src/lib/bindings.ts`. Run via `deno task typegen`.
@@ -571,6 +578,7 @@ pub fn run() {
             "../src/lib/bindings.ts",
         )
         .expect("failed to export TypeScript bindings");
+    let invoke_handler = specta.invoke_handler();
     tauri::Builder::default()
         // Single-instance must be registered first so a second launch forwards
         // its `codex://` argument to the already-running window instead of
@@ -592,7 +600,10 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .setup(|app| {
+        .setup(move |app| {
+            // Typed events panic on emit until their registry is mounted, so
+            // this precedes anything that could spawn an app-server child.
+            specta.mount_events(app);
             // Register the `codex://` scheme at runtime (needed on Linux/Windows
             // dev; a no-op where the OS already routes via the bundle config).
             #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
@@ -616,7 +627,7 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(specta.invoke_handler())
+        .invoke_handler(invoke_handler)
         .build(tauri::generate_context!())
         .expect("error while running Pingex")
         .run(|app, event| {

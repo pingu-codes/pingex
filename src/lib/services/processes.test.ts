@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  applyProcessEvent,
+  applyProcessEvent as applyTyped,
   processByKey,
   processes,
   resetProcesses,
   runningProcessCount,
 } from "$lib/services/processes.svelte";
+import { type FakeEvent, fakeEvent } from "$lib/testing/codexEvents";
+
+const applyProcessEvent = (event: FakeEvent) => applyTyped(fakeEvent(event));
 
 const started = (threadId: string, itemId: string, command = "sleep 60") => ({
   method: "item/started",

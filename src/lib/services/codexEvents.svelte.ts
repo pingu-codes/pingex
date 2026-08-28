@@ -1,22 +1,23 @@
-import { listen } from "@tauri-apps/api/event";
 import { eventMatchesHome } from "$lib/app/launch.svelte";
+import { events } from "$lib/bindings";
 import { applyRateLimitUpdate } from "$lib/services/accountUsage.svelte";
-import { type AgentRunEvent, applyAgentActivity, applyAgentRunEvent } from "$lib/services/agentRuns.svelte";
+import { applyAgentActivity, applyAgentRunEvent } from "$lib/services/agentRuns.svelte";
 import { recordUserInputRequest } from "$lib/services/api";
 import { applyProcessEvent } from "$lib/services/processes.svelte";
 import { isTauri } from "$lib/services/tauri";
+import { reviewTransition, threadIdOf, turnEnd } from "$lib/services/turnLifecycle";
 import type {
+  CodexEvent,
+  CodexServerRequestEvent,
   FileUpdateChange,
   McpElicitationSchema,
   RequestPermissionProfile,
   ThreadTokenUsage,
   TurnPlan,
+  UserInputQuestion,
 } from "$lib/types";
 
-export interface CodexEvent {
-  method: string;
-  params: any;
-}
+export type { CodexEvent, CodexServerRequestEvent, UserInputQuestion } from "$lib/types";
 
 export interface Approval {
   requestId: number;
@@ -24,12 +25,12 @@ export interface Approval {
   threadId: string;
   turnId: string;
   itemId: string;
-  command?: string;
-  cwd?: string;
-  reason?: string;
-  changes?: FileUpdateChange[];
+  command?: string | null;
+  cwd?: string | null;
+  reason?: string | null;
+  changes?: FileUpdateChange[] | null;
   /** What Codex is asking to be allowed, on a `permissions` approval. */
-  permissions?: RequestPermissionProfile;
+  permissions?: RequestPermissionProfile | null;
 }
 
 /**
@@ -45,20 +46,11 @@ export interface Elicitation {
   serverName: string;
   mode: string;
   message: string;
-  requestedSchema?: McpElicitationSchema;
-  url?: string;
+  requestedSchema?: McpElicitationSchema | null;
+  url?: string | null;
   /** Opaque `_meta` from the request (e.g. a `suggestion_id` on newer
    *  Codex builds), echoed back on the response so the server can correlate. */
   meta?: unknown;
-}
-
-export interface UserInputQuestion {
-  id: string;
-  header: string;
-  question: string;
-  isOther?: boolean;
-  isSecret?: boolean;
-  options?: { label: string; description?: string }[] | null;
 }
 
 export interface UserInputRequest {
@@ -181,163 +173,174 @@ function dispatch(event: CodexEvent) {
   // thread that spawned it is a status word that does not move for minutes.
   applyAgentActivity(event);
   applyProcessEvent(event);
-  if (
-    (event.method === "item/started" || event.method === "item/completed") &&
-    event.params?.item?.type === "enteredReviewMode" &&
-    event.params?.threadId
-  ) {
-    reviewThreads.add(event.params.threadId);
+  const threadId = threadIdOf(event);
+  if (threadId && reviewTransition(event) === "entered") reviewThreads.add(threadId);
+  if (event.method === "turn/started" && threadId && !reviewThreads.has(threadId)) {
+    setTurnActive(threadId, true);
   }
-  if (event.method === "turn/started" && !reviewThreads.has(event.params?.threadId)) {
-    setTurnActive(event.params?.threadId, true);
-  }
-  // An error Codex says it will retry leaves the turn running, so the thread
-  // must stay marked active or the sidebar stops showing it as working.
-  if (event.method === "turn/completed" || (event.method === "error" && !event.params?.willRetry)) {
-    setTurnActive(event.params?.threadId, false);
+  // Whatever ends the turn — including a review leaving review mode, and
+  // excluding an error Codex will retry — stops the thread showing as working.
+  const end = turnEnd(event);
+  if (end) {
+    setTurnActive(end.threadId, false);
     // A review that dies on an error never reaches `exitedReviewMode`.
-    reviewThreads.delete(event.params?.threadId);
+    reviewThreads.delete(end.threadId);
   }
-  // A review never sends `turn/completed`, so leaving review mode is the only
-  // notice that the thread has stopped working. Without this the sidebar keeps
-  // showing it as busy, and re-opening it never repairs the stale turn.
-  if (event.method === "item/completed" && event.params?.item?.type === "exitedReviewMode") {
-    setTurnActive(event.params?.threadId, false);
-    reviewThreads.delete(event.params?.threadId);
-  }
-  if (event.method === "disconnected") {
-    activeTurns.list = [];
-    turnPlans.byThread = {};
-    reviewThreads.clear();
-  }
-  if (event.method === "turn/plan/updated" && event.params?.threadId) {
-    turnPlans.byThread[event.params.threadId] = {
-      turnId: event.params.turnId,
-      explanation: event.params.explanation ?? null,
-      steps: event.params.plan ?? [],
-    };
-  }
-  // The plan belongs to the turn that built it. Keyed by turn id so a stale
-  // notification arriving after the next turn started cannot wipe its plan.
-  if (event.method === "turn/completed" && event.params?.threadId) {
-    const plan = turnPlans.byThread[event.params.threadId];
-    if (plan && (!event.params.turn?.id || plan.turnId === event.params.turn.id)) {
-      delete turnPlans.byThread[event.params.threadId];
+  switch (event.method) {
+    case "disconnected":
+      activeTurns.list = [];
+      turnPlans.byThread = {};
+      reviewThreads.clear();
+      break;
+    case "turn/plan/updated":
+      turnPlans.byThread[event.params.threadId] = {
+        turnId: event.params.turnId,
+        explanation: event.params.explanation ?? null,
+        steps: event.params.plan ?? [],
+      };
+      break;
+    // The plan belongs to the turn that built it. Keyed by turn id so a stale
+    // notification arriving after the next turn started cannot wipe its plan.
+    case "turn/completed": {
+      const plan = turnPlans.byThread[event.params.threadId];
+      if (plan && (!event.params.turn?.id || plan.turnId === event.params.turn.id)) {
+        delete turnPlans.byThread[event.params.threadId];
+      }
+      break;
     }
-  }
-  // Codex resolved a request behind our back — it timed out, another client
-  // answered it, or the turn was interrupted. Without this the card sits there
-  // forever waiting for an answer nobody is listening for any more.
-  if (event.method === "serverRequest/resolved" && typeof event.params?.requestId === "number") {
-    removeApproval(event.params.requestId);
-    removeUserInputRequest(event.params.requestId);
-    removeElicitation(event.params.requestId);
-  }
-  if (event.method === "thread/tokenUsage/updated" && event.params?.threadId && event.params.tokenUsage) {
-    threadTokenUsage[event.params.threadId] = event.params.tokenUsage;
-  }
-  // Rolling rate-limit updates are sparse; the store merges them into the last
-  // full snapshot rather than replacing it.
-  if (event.method === "account/rateLimits/updated" && event.params?.rateLimits) {
-    applyRateLimitUpdate(event.params.rateLimits);
-  }
-  // MCP servers start asynchronously and OAuth completes out of band (in the
-  // user's browser), so the Integrations view has to be told to re-read rather
-  // than polling. Both notifications just bump a nonce; whoever is watching
-  // decides whether a refetch is worth it.
-  if (event.method === "mcpServer/startupStatus/updated" || event.method === "mcpServer/oauthLogin/completed") {
-    mcpStatus.nonce += 1;
-    if (event.method === "mcpServer/oauthLogin/completed") {
-      mcpStatus.lastLoginServer = event.params?.name ?? event.params?.serverName ?? null;
-    }
+    // Codex resolved a request behind our back — it timed out, another client
+    // answered it, or the turn was interrupted. Without this the card sits there
+    // forever waiting for an answer nobody is listening for any more.
+    case "serverRequest/resolved":
+      if (typeof event.params.requestId === "number") {
+        removeApproval(event.params.requestId);
+        removeUserInputRequest(event.params.requestId);
+        removeElicitation(event.params.requestId);
+      }
+      break;
+    case "thread/tokenUsage/updated":
+      if (event.params.tokenUsage) threadTokenUsage[event.params.threadId] = event.params.tokenUsage;
+      break;
+    // Rolling rate-limit updates are sparse; the store merges them into the last
+    // full snapshot rather than replacing it.
+    case "account/rateLimits/updated":
+      if (event.params.rateLimits) applyRateLimitUpdate(event.params.rateLimits);
+      break;
+    // MCP servers start asynchronously and OAuth completes out of band (in the
+    // user's browser), so the Integrations view has to be told to re-read rather
+    // than polling. Both notifications just bump a nonce; whoever is watching
+    // decides whether a refetch is worth it.
+    case "mcpServer/startupStatus/updated":
+      mcpStatus.nonce += 1;
+      break;
+    case "mcpServer/oauthLogin/completed":
+      mcpStatus.nonce += 1;
+      mcpStatus.lastLoginServer = event.params.name ?? event.params.serverName ?? null;
+      break;
   }
   for (const handler of [...threadHandlers]) handler(event);
 }
 
-function onServerRequest(payload: { requestId: number; method: string; params: any }) {
-  const { requestId, method, params } = payload;
-  if (method === "item/commandExecution/requestApproval") {
-    approvals.list.push({
-      requestId,
-      kind: "command",
-      threadId: params?.threadId ?? "",
-      turnId: params?.turnId ?? "",
-      itemId: params?.itemId ?? "",
-      command: params?.command,
-      cwd: params?.cwd,
-      reason: params?.reason,
-    });
-  } else if (method === "item/fileChange/requestApproval") {
-    approvals.list.push({
-      requestId,
-      kind: "fileChange",
-      threadId: params?.threadId ?? "",
-      turnId: params?.turnId ?? "",
-      itemId: params?.itemId ?? "",
-      reason: params?.reason,
-      changes: params?.changes,
-    });
-  } else if (method === "item/permissions/requestApproval") {
-    approvals.list.push({
-      requestId,
-      kind: "permissions",
-      threadId: params?.threadId ?? "",
-      turnId: params?.turnId ?? "",
-      itemId: params?.itemId ?? "",
-      cwd: params?.cwd,
-      reason: params?.reason,
-      permissions: params?.permissions ?? {},
-    });
-  } else if (method === "mcpServer/elicitation/request") {
-    elicitations.list.push({
-      requestId,
-      threadId: params?.threadId ?? "",
-      turnId: params?.turnId ?? null,
-      serverName: params?.serverName ?? "",
-      mode: params?.mode ?? "form",
-      message: params?.message ?? "",
-      requestedSchema: params?.requestedSchema,
-      url: params?.url,
-      meta: params?._meta ?? null,
-    });
-  } else if (method === "item/tool/requestUserInput") {
-    const request = {
-      requestId,
-      threadId: params?.threadId ?? "",
-      turnId: params?.turnId ?? "",
-      itemId: params?.itemId ?? "",
-      questions: params?.questions ?? [],
-    };
-    userInputRequests.list.push(request);
-    // The request itself dies with the app-server, so persist the question now:
-    // it is the only copy that survives the app exiting unanswered. The
-    // backend stamps afterItemId with the id of the item that preceded this
-    // question in the real stream order, so it can be spliced back into the
-    // right spot (rather than appended to the end) after a restart.
-    if (request.threadId && request.turnId && request.itemId) {
-      markUnanswered(request.threadId);
-      void recordUserInputRequest({
-        threadId: request.threadId,
-        turnId: request.turnId,
-        itemId: request.itemId,
-        afterItemId: typeof params?.afterItemId === "string" ? params.afterItemId : undefined,
-        item: {
-          type: "userInputAnswered",
-          id: request.itemId,
-          questions: request.questions,
-          answers: {},
-          unanswered: true,
-        },
-      }).catch(() => {});
+function onServerRequest(payload: CodexServerRequestEvent) {
+  const { requestId } = payload;
+  switch (payload.method) {
+    case "item/commandExecution/requestApproval": {
+      const params = payload.params;
+      approvals.list.push({
+        requestId,
+        kind: "command",
+        threadId: params.threadId ?? "",
+        turnId: params.turnId ?? "",
+        itemId: params.itemId ?? "",
+        command: params.command,
+        cwd: params.cwd,
+        reason: params.reason,
+      });
+      break;
     }
-  } else {
-    // The app's own `pingex_*` agent tools never arrive here, and neither do
-    // the ones Rust answers by itself (`currentTime/read`, ...): a response
-    // held by the webview would not survive a reload. Anything still reaching
-    // this branch is a method Codex has added since — and because an
-    // unanswered request stalls its turn, it is worth saying so out loud
-    // rather than letting the thread quietly hang.
-    console.warn(`Unhandled Codex server request: ${method}`, params);
+    case "item/fileChange/requestApproval": {
+      const params = payload.params;
+      approvals.list.push({
+        requestId,
+        kind: "fileChange",
+        threadId: params.threadId ?? "",
+        turnId: params.turnId ?? "",
+        itemId: params.itemId ?? "",
+        reason: params.reason,
+        changes: params.changes,
+      });
+      break;
+    }
+    case "item/permissions/requestApproval": {
+      const params = payload.params;
+      approvals.list.push({
+        requestId,
+        kind: "permissions",
+        threadId: params.threadId ?? "",
+        turnId: params.turnId ?? "",
+        itemId: params.itemId ?? "",
+        cwd: params.cwd,
+        reason: params.reason,
+        permissions: params.permissions ?? {},
+      });
+      break;
+    }
+    case "mcpServer/elicitation/request": {
+      const params = payload.params;
+      elicitations.list.push({
+        requestId,
+        threadId: params.threadId ?? "",
+        turnId: params.turnId ?? null,
+        serverName: params.serverName ?? "",
+        mode: params.mode ?? "form",
+        message: params.message ?? "",
+        requestedSchema: params.requestedSchema,
+        url: params.url,
+        meta: params._meta ?? null,
+      });
+      break;
+    }
+    case "item/tool/requestUserInput": {
+      const params = payload.params;
+      const request = {
+        requestId,
+        threadId: params.threadId ?? "",
+        turnId: params.turnId ?? "",
+        itemId: params.itemId ?? "",
+        questions: params.questions ?? [],
+      };
+      userInputRequests.list.push(request);
+      // The request itself dies with the app-server, so persist the question now:
+      // it is the only copy that survives the app exiting unanswered. The
+      // backend stamps afterItemId with the id of the item that preceded this
+      // question in the real stream order, so it can be spliced back into the
+      // right spot (rather than appended to the end) after a restart.
+      if (request.threadId && request.turnId && request.itemId) {
+        markUnanswered(request.threadId);
+        void recordUserInputRequest({
+          threadId: request.threadId,
+          turnId: request.turnId,
+          itemId: request.itemId,
+          afterItemId: params.afterItemId ?? undefined,
+          item: {
+            type: "userInputAnswered",
+            id: request.itemId,
+            questions: request.questions,
+            answers: {},
+            unanswered: true,
+          },
+        }).catch(() => {});
+      }
+      break;
+    }
+    default:
+      // The app's own `pingex_*` agent tools never arrive here, and neither do
+      // the ones Rust answers by itself (`currentTime/read`, ...): a response
+      // held by the webview would not survive a reload. Anything still reaching
+      // this branch is a method Codex has added since — and because an
+      // unanswered request stalls its turn, it is worth saying so out loud
+      // rather than letting the thread quietly hang.
+      console.warn(`Unhandled Codex server request: ${payload.params.method}`, payload.params.params);
   }
 }
 
@@ -348,23 +351,24 @@ export async function startCodexListeners(): Promise<void> {
   started = true;
   // Backend events are broadcast to every window and tagged with the home
   // they belong to; drop what is meant for a window on another account.
-  await listen<CodexEvent & { codexHome?: string }>("codex:event", (event) => {
-    if (!eventMatchesHome(event.payload.codexHome)) return;
-    dispatch(event.payload);
+  //
+  // The generated payload leaves structured fields (`item`, `turn`, ...) as
+  // `unknown`; this is the one place they are asserted to be the hand-written
+  // shapes in `$lib/types` the reducers read.
+  await events.codexEvent.listen(({ payload }) => {
+    if (!eventMatchesHome(payload.codexHome)) return;
+    dispatch(payload as CodexEvent);
   });
-  await listen<{ requestId: number; method: string; params: any; codexHome?: string }>(
-    "codex:serverRequest",
-    (event) => {
-      if (!eventMatchesHome(event.payload.codexHome)) return;
-      onServerRequest(event.payload);
-    },
-  );
-  await listen<AgentRunEvent & { codexHome?: string }>("codex:agentRun", (event) => {
-    if (!eventMatchesHome(event.payload.codexHome)) return;
-    applyAgentRunEvent(event.payload);
+  await events.codexServerRequest.listen(({ payload }) => {
+    if (!eventMatchesHome(payload.codexHome)) return;
+    onServerRequest(payload as CodexServerRequestEvent);
   });
-  await listen<{ codexHome?: string } | null>("codex:disconnected", (event) => {
-    if (!eventMatchesHome(event.payload?.codexHome)) return;
+  await events.codexAgentRun.listen(({ payload }) => {
+    if (!eventMatchesHome(payload.codexHome)) return;
+    applyAgentRunEvent(payload);
+  });
+  await events.codexDisconnected.listen(({ payload }) => {
+    if (!eventMatchesHome(payload?.codexHome)) return;
     approvals.list = [];
     userInputRequests.list = [];
     elicitations.list = [];
@@ -377,6 +381,6 @@ export function previewEmit(event: CodexEvent): void {
   dispatch(event);
 }
 
-export function previewEmitServerRequest(payload: { requestId: number; method: string; params: any }): void {
+export function previewEmitServerRequest(payload: CodexServerRequestEvent): void {
   onServerRequest(payload);
 }

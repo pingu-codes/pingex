@@ -11,6 +11,7 @@ import {
   startTurn,
 } from "$lib/services/api";
 import { type CodexEvent, setThreadHandler } from "$lib/services/codexEvents.svelte";
+import { threadIdOf } from "$lib/services/turnLifecycle";
 import { applyThreadEvent } from "$lib/thread/threadStream";
 import { messageParts } from "$lib/thread/turnSegments";
 import type { BootstrapData, SideQuestion, ThreadDetail } from "$lib/types";
@@ -85,7 +86,7 @@ function handleEvent(event: CodexEvent) {
     }
     return;
   }
-  if (!sideThread || !params || params.threadId !== activeSideId) return;
+  if (!sideThread || !params || threadIdOf(event) !== activeSideId) return;
   const outcome = applyThreadEvent(sideThread, event);
   if (outcome.streamError) sideError = outcome.streamError;
   if (outcome.turnCompleted && activeSideId) invalidateThreadCache(activeSideId).catch(() => {});

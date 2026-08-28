@@ -12,7 +12,7 @@ function describePath(path: FileSystemPath): string {
 }
 
 /** One line per thing being asked for, ready to list under an approval prompt. */
-export function permissionLines(profile: RequestPermissionProfile | undefined): string[] {
+export function permissionLines(profile: RequestPermissionProfile | null | undefined): string[] {
   const lines: string[] = [];
   if (profile?.network?.enabled) lines.push("network access");
   const files = profile?.fileSystem;

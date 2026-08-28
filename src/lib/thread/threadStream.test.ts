@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { applyThreadEvent, ensureTurn, upsertItem } from "$lib/thread/threadStream";
+import { type FakeEvent, fakeEvent } from "$lib/testing/codexEvents";
+import { applyThreadEvent as applyTyped, ensureTurn, upsertItem } from "$lib/thread/threadStream";
 import type { ThreadDetail, Turn } from "$lib/types";
+
+const applyThreadEvent = (thread: ThreadDetail, event: FakeEvent) => applyTyped(thread, fakeEvent(event));
 
 const makeThread = (turns: Turn[] = []): ThreadDetail => ({ id: "t", preview: "", cwd: "", turns });
 

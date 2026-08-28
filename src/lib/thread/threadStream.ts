@@ -1,6 +1,7 @@
 import type { CodexEvent } from "$lib/services/codexEvents.svelte";
+import { isRetryableError, reviewTransition } from "$lib/services/turnLifecycle";
 import { mergeFileChanges } from "$lib/thread/fileChanges";
-import type { ThreadDetail, ThreadItem, Turn } from "$lib/types";
+import type { HookRunSummary, ThreadDetail, ThreadItem, Turn } from "$lib/types";
 
 export function ensureTurn(turns: Turn[], turnId: string): Turn {
   const turn = turns.find((candidate) => candidate.id === turnId);
@@ -144,7 +145,8 @@ export interface ApplyOutcome {
  * Applies a streaming Codex event to the thread's turns in place. The thread
  * may be a $state proxy; mutations flow through Svelte reactivity.
  */
-export function applyThreadEvent(thread: ThreadDetail, { method, params }: CodexEvent): ApplyOutcome {
+export function applyThreadEvent(thread: ThreadDetail, event: CodexEvent): ApplyOutcome {
+  const { method, params } = event;
   const outcome: ApplyOutcome = { changed: true };
   switch (method) {
     case "turn/started":
@@ -187,7 +189,7 @@ export function applyThreadEvent(thread: ThreadDetail, { method, params }: Codex
       // Leaving review mode is the only end a review gets: Codex sends no
       // `turn/completed` for one. Only the review's own turn ends here — a
       // queued message that raced in must not be marked completed with it.
-      if (method === "item/completed" && params.item?.type === "exitedReviewMode") {
+      if (reviewTransition(event) === "exited") {
         const reviewTurn = thread.turns.find((turn) => turn.items.some((item) => item.id === params.item.id));
         if (reviewTurn) {
           if (reviewTurn.status === "inProgress") reviewTurn.status = "completed";
@@ -273,7 +275,7 @@ export function applyThreadEvent(thread: ThreadDetail, { method, params }: Codex
       const item = thread.turns
         .find((turn) => turn.id === params.turnId)
         ?.items.find((candidate) => candidate.id === params.targetItemId);
-      if (item) item.guardianReview = params.review;
+      if (item) item.guardianReview = params.review ?? undefined;
       break;
     }
     // Codex swapped the model out mid-turn. The user picked the other one, so
@@ -303,7 +305,7 @@ export function applyThreadEvent(thread: ThreadDetail, { method, params }: Codex
     case "error":
       // An error Codex is about to retry is not the end of the turn, so it
       // must not be presented as one.
-      if (params.willRetry) {
+      if (isRetryableError(event)) {
         outcome.notice = `${params.error?.message ?? "Codex reported an error."} Retrying…`;
       } else {
         outcome.streamError = params.error?.message ?? "Codex reported an error.";
@@ -327,7 +329,7 @@ export function applyThreadEvent(thread: ThreadDetail, { method, params }: Codex
 }
 
 /** The first thing a failing hook actually said, when it set no status message. */
-function hookOutput(run: { entries?: { kind?: string; text?: string }[] } | undefined): string {
+function hookOutput(run: HookRunSummary | null | undefined): string {
   const entries = run?.entries ?? [];
   return entries.find((entry) => entry.kind === "error" || entry.kind === "stop")?.text ?? "";
 }
@@ -338,11 +340,11 @@ function hookOutput(run: { entries?: { kind?: string; text?: string }[] } | unde
  * deprecation), so all the spellings are tried rather than guessing per method.
  */
 function noticeText(params: {
-  message?: string;
-  summary?: string;
-  warning?: string;
-  details?: string;
-  additionalDetails?: string;
+  message?: string | null;
+  summary?: string | null;
+  warning?: string | null;
+  details?: string | null;
+  additionalDetails?: string | null;
 }): string {
   const text = params?.message ?? params?.summary ?? params?.warning;
   const detail = params?.details ?? params?.additionalDetails;

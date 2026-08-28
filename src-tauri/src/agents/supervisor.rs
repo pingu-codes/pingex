@@ -11,11 +11,13 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
+use tauri_specta::Event;
 use tokio::sync::watch;
 
 use crate::agents::tools;
 use crate::codex::child::{spawn_child, ChildSink, CodexChild};
+use crate::codex::events::{CodexEvent, CodexNotification};
 use crate::codex::journal::TurnJournal;
 use crate::codex::requests;
 use crate::settings::prefs::AgentSettings;
@@ -243,10 +245,11 @@ impl AgentSink {
 impl ChildSink for AgentSink {
     fn on_notification(&self, method: &str, params: &Value) {
         self.journal.observe(method, params);
-        let _ = self.app.emit(
-            "codex:event",
-            json!({"method": method, "params": params, "codexHome": self.home_key}),
-        );
+        let _ = CodexEvent {
+            codex_home: self.home_key.clone(),
+            event: CodexNotification::decode(method, params),
+        }
+        .emit(&self.app);
         let Some(run) = self.run() else {
             return;
         };
@@ -385,25 +388,43 @@ fn finish(app: &AppHandle, home_key: &str, run: &Arc<AgentRun>, next: AgentRunSt
     persist(app, home_key, run, &next);
 }
 
+/// `codex:agentRun` — a run changed state. The frontend merges it into the
+/// runs it already holds for the parent thread.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type, tauri_specta::Event)]
+#[tauri_specta(event_name = "codex:agentRun")]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CodexAgentRun {
+    pub codex_home: String,
+    pub run_id: String,
+    pub parent_thread_id: String,
+    /// Joins this run to its `dynamicToolCall` row in the parent's transcript.
+    pub call_id: Option<String>,
+    pub child_thread_id: Option<String>,
+    pub name: String,
+    pub status: String,
+    pub result: String,
+    pub error: Option<String>,
+}
+
 /// Write the run's current shape back to the database and emit `codex:agentRun`
 /// so the GUI can update without polling. Best effort: a failed write must not
 /// disturb the run it describes.
 fn persist(app: &AppHandle, home_key: &str, run: &Arc<AgentRun>, state: &AgentRunState) {
-    let payload = json!({
-        "codexHome": home_key,
-        "runId": run.id,
-        "parentThreadId": run.parent_thread_id,
-        "callId": run.call_id,
-        "childThreadId": run.child_thread_id(),
-        "name": run.name,
-        "status": state.status(),
-        "result": run.last_message(),
-        "error": match state {
+    let _ = CodexAgentRun {
+        codex_home: home_key.to_string(),
+        run_id: run.id.clone(),
+        parent_thread_id: run.parent_thread_id.clone(),
+        call_id: run.call_id.clone(),
+        child_thread_id: run.child_thread_id(),
+        name: run.name.clone(),
+        status: state.status().to_string(),
+        result: run.last_message(),
+        error: match state {
             AgentRunState::Failed(message) => Some(message.clone()),
             _ => None,
         },
-    });
-    let _ = app.emit("codex:agentRun", payload);
+    }
+    .emit(app);
 
     let (app, home_key) = (app.clone(), home_key.to_string());
     let (run_id, status) = (run.id.clone(), state.status().to_string());

@@ -1,4 +1,5 @@
-import type { AgentRun } from "$lib/types";
+import { threadIdOf } from "$lib/services/turnLifecycle";
+import type { AgentRun, CodexEvent } from "$lib/types";
 
 /**
  * Agents the app has spawned, keyed by the thread that spawned them.
@@ -193,13 +194,13 @@ export function elapsedLabel(since: number, now: number = agentClock.now): strin
 const orphanedActivity = new Map<string, AgentActivity>();
 
 /** The one-line summary an event contributes, or null to leave the last one. */
-export function activityLabel(event: { method: string; params: any }): string | null {
+export function activityLabel(event: CodexEvent): string | null {
   const { method, params } = event;
   if (method === "turn/started") return "starting…";
   if (method === "item/agentMessage/delta") return "writing…";
   if (method.startsWith("item/reasoning/summary")) return "thinking…";
   if (method !== "item/started" && method !== "item/completed") return null;
-  const item = params?.item;
+  const item = params.item;
   switch (item?.type) {
     case "commandExecution":
       return item.command ? `$ ${item.command}` : "running a command";
@@ -247,9 +248,9 @@ function clearActivity(runId: string): void {
  * threads that are not a known agent — every ordinary thread — fall straight
  * through.
  */
-export function applyAgentActivity(event: { method: string; params: any }): void {
-  const threadId = event.params?.threadId;
-  if (typeof threadId !== "string" || !threadId) return;
+export function applyAgentActivity(event: CodexEvent): void {
+  const threadId = threadIdOf(event);
+  if (!threadId) return;
   const run = runByChildThreadId(threadId);
   if (event.method === "turn/completed" || event.method === "error") {
     // The run's own status takes over from here; a stale "thinking…" beside a

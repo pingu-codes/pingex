@@ -1,10 +1,14 @@
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
+use tauri_specta::Event;
 
 use crate::codex::child::{spawn_child, ChildSink, CodexChild, RequestError};
 use crate::codex::compat::{self, Feature};
+use crate::codex::events::{
+    CodexDisconnected, CodexEvent, CodexNotification, CodexServerRequest, ServerRequest,
+};
 use crate::codex::journal::TurnJournal;
 use crate::codex::wire::WireLog;
 use crate::{RuntimeConfig, SharedRuntime};
@@ -100,14 +104,11 @@ impl ChildSink for MainSessionSink {
         if method == "thread/settings/updated" {
             self.cache_thread_settings(params);
         }
-        let _ = self.app.emit(
-            "codex:event",
-            json!({
-                "method": method,
-                "params": params,
-                "codexHome": self.home_key,
-            }),
-        );
+        let _ = CodexEvent {
+            codex_home: self.home_key.clone(),
+            event: CodexNotification::decode(method, params),
+        }
+        .emit(&self.app);
     }
 
     fn on_server_request(&self, child: &Arc<CodexChild>, id: i64, method: &str, params: &Value) {
@@ -148,42 +149,27 @@ impl ChildSink for MainSessionSink {
             });
             return;
         }
-        let mut params = params.clone();
-        if method == "item/tool/requestUserInput" {
-            let ids = (
-                params
-                    .get("turnId")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-                params
-                    .get("itemId")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-            );
-            if let (Some(turn_id), Some(item_id)) = ids {
-                let anchor = self.journal.anchor_and_advance(&turn_id, &item_id);
-                if let (Some(object), Some(anchor)) = (params.as_object_mut(), anchor) {
-                    object.insert("afterItemId".into(), Value::String(anchor));
-                }
+        let mut request = ServerRequest::decode(method, params);
+        if let ServerRequest::ToolRequestUserInput(question) = &mut request {
+            if let (Some(turn_id), Some(item_id)) = (&question.turn_id, &question.item_id) {
+                question.after_item_id = self.journal.anchor_and_advance(turn_id, item_id);
             }
         }
-        let _ = self.app.emit(
-            "codex:serverRequest",
-            json!({
-                "requestId": id,
-                "method": method,
-                "params": params,
-                "codexHome": self.home_key,
-            }),
-        );
+        let _ = CodexServerRequest {
+            codex_home: self.home_key.clone(),
+            request_id: id,
+            request,
+        }
+        .emit(&self.app);
     }
 
     fn on_closed(&self) {
         // Carries the home so one account's child dying does not tear down a
         // window bound to another account.
-        let _ = self
-            .app
-            .emit("codex:disconnected", json!({ "codexHome": self.home_key }));
+        let _ = CodexDisconnected {
+            codex_home: self.home_key.clone(),
+        }
+        .emit(&self.app);
     }
 }
 

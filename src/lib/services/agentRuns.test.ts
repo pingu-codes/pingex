@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   type AgentRunEvent,
   activityFor,
-  activityLabel,
+  activityLabel as activityLabelTyped,
   agentRuns,
-  applyAgentActivity,
+  applyAgentActivity as applyAgentActivityTyped,
   applyAgentRunEvent,
   elapsedLabel,
   isRunning,
@@ -15,7 +15,11 @@ import {
   runsFor,
   setAgentRuns,
 } from "$lib/services/agentRuns.svelte";
+import { type FakeEvent, fakeEvent } from "$lib/testing/codexEvents";
 import type { AgentRun } from "$lib/types";
+
+const activityLabel = (event: FakeEvent) => activityLabelTyped(fakeEvent(event));
+const applyAgentActivity = (event: FakeEvent) => applyAgentActivityTyped(fakeEvent(event));
 
 beforeEach(() => resetAgentRuns());
 

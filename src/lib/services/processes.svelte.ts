@@ -1,4 +1,5 @@
 import type { CodexEvent } from "$lib/services/codexEvents.svelte";
+import { reviewTransition, threadIdOf, turnEnd } from "$lib/services/turnLifecycle";
 
 /**
  * Commands Codex is running (or ran) across all threads.
@@ -87,8 +88,8 @@ function trimFinished(): void {
 }
 
 /** Fold one Codex event into the registry. Called from `dispatch` for every event. */
-export function applyProcessEvent({ method, params }: CodexEvent): void {
-  if (method === "disconnected") {
+export function applyProcessEvent(event: CodexEvent): void {
+  if (event.method === "disconnected") {
     // Nothing can report these commands finishing any more.
     for (const process of processes.list) {
       if (process.status === "running") finish(process, "interrupted");
@@ -96,11 +97,12 @@ export function applyProcessEvent({ method, params }: CodexEvent): void {
     syncTicker();
     return;
   }
-  const threadId = params?.threadId;
-  if (typeof threadId !== "string" || !threadId) return;
+  const threadId = threadIdOf(event);
+  if (!threadId) return;
+  const { method, params } = event;
 
   // A review ends by leaving review mode, never by `turn/completed`.
-  const reviewExited = method === "item/completed" && params?.item?.type === "exitedReviewMode";
+  const reviewExited = reviewTransition(event) === "exited";
 
   if (!reviewExited && (method === "item/started" || method === "item/completed" || method === "item/updated")) {
     const item = params.item;
@@ -167,8 +169,9 @@ export function applyProcessEvent({ method, params }: CodexEvent): void {
 
   // A turn ending — however it ends — takes its commands with it. Codex runs
   // commands inside the turn; nothing survives it.
-  if (method === "turn/completed" || reviewExited || (method === "error" && !params?.willRetry)) {
-    const failed = method === "error";
+  const end = turnEnd(event);
+  if (end) {
+    const failed = end.outcome === "failed";
     for (const process of processes.list) {
       if (process.threadId === threadId && process.status === "running") {
         finish(process, failed ? "failed" : "completed");

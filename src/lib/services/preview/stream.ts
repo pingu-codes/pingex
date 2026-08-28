@@ -1,4 +1,5 @@
 import { previewEmit, previewEmitServerRequest } from "$lib/services/codexEvents.svelte";
+import type { CodexEvent, CodexEventOf } from "$lib/types";
 import { nextPreviewId } from "./fixtures";
 
 const previewInterrupted = new Set<string>();
@@ -40,9 +41,9 @@ function breakdown(totalTokens: number) {
 }
 
 export function previewStreamTurn(threadId: string, turnId: string, text: string): void {
-  const emit = (method: string, params: any, delay: number) =>
+  const emit = <M extends CodexEvent["method"]>(method: M, params: CodexEventOf<M>["params"], delay: number) =>
     setTimeout(() => {
-      if (!previewInterrupted.has(turnId)) previewEmit({ method, params });
+      if (!previewInterrupted.has(turnId)) previewEmit({ method, params } as CodexEvent);
     }, delay);
   const reasoningId = `preview-reasoning-${nextPreviewId()}`;
   const messageId = `preview-message-${nextPreviewId()}`;
