@@ -1,4 +1,6 @@
-This is a custom frontend for the codex tui.
+This is a custom desktop frontend for agent CLIs. Codex is the first harness;
+Claude Code is specified in `features/13-harnesses.md` and
+`docs/adr/0002-harness-interface.md`. Vocabulary is in `CONTEXT.md`.
 
 A mirror of their source code can be found at `../codex-mirror`
 
@@ -24,3 +26,15 @@ functions and `specta::Type` structs in `src-tauri`. Regenerate it with
 result. Frontend code imports the types via `$lib/types` and calls commands via
 `commands.*` from `$lib/bindings` — never `invoke("...")` directly. Anything
 that crosses the IPC boundary as raw JSON uses `crate::util::json::Json`.
+
+## Harness drivers
+
+Each harness is a `Driver` (`src-tauri/src/harness/`). Drivers translate their
+wire protocol into `HarnessEvent`s and never leak protocol vocabulary past
+their module: the frontend reducer, the journal and the item types are
+harness-neutral. Anything one harness can do that another cannot is a
+`Capability`, declared by the driver or probed once; the frontend hides what
+is absent and never checks the harness kind. Codex-only verbs go through
+`Driver::extension`. When adding a driver, add a golden fixture case under
+`tests/fixtures/protocol/<harness>/` and a live suite under
+`src-tauri/tests/live_<harness>/`.

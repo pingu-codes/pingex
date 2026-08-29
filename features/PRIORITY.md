@@ -4,6 +4,7 @@
 
 - 00 better homepage
 - 01 settings and configs
+- 13 harnesses (Claude Code first, ACP later)
 - 05 pr request and review / 12 git worktrees
 - 10 attachments and media
 - 02 project sources and search
