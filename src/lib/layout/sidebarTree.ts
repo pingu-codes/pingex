@@ -6,7 +6,8 @@
  * sidebar nests them, and only through these pure helpers so the ordering
  * rule lives in exactly one place. Within a parent: pinned items first, then
  * anything with an explicit ordinal (folders always have one), then items
- * that were never dragged, in the order the backend listed them.
+ * that were never dragged — most recently active first when the backend
+ * knows that (`recency`, unreleased Codex), else in the order it listed them.
  */
 import type { SidebarFolder, SidebarItemRef, SidebarLayout, SidebarPlacement } from "$lib/types";
 
@@ -19,6 +20,8 @@ export type TreeNode<T> =
 export interface TreeItemAdapter<T> {
   key: (item: T) => string;
   pinned: (item: T) => boolean;
+  /** When the item was last active (Unix seconds), or null when unknown. */
+  recency?: (item: T) => number | null | undefined;
 }
 
 export const emptyLayout = (): SidebarLayout => ({ folders: [], placements: [] });
@@ -43,14 +46,14 @@ export function buildTree<T>(
   for (const placement of layout.placements) {
     if (placement.scope === scope) placements.set(placement.itemKey, placement);
   }
-  type Entry = { node: TreeNode<T>; parent: string | null; sort: [number, number, number] };
+  type Entry = { node: TreeNode<T>; parent: string | null; sort: [number, number, number, number] };
   const entries: Entry[] = [];
   for (const folder of layout.folders) {
     if (folder.scope !== scope) continue;
     entries.push({
       node: { kind: "folder", id: folder.id, folder, children: [] },
       parent: liveParent(folder.parentId, known),
-      sort: [1, folder.ordinal, 0],
+      sort: [1, folder.ordinal, 0, 0],
     });
   }
   items.forEach((item, index) => {
@@ -59,10 +62,17 @@ export function buildTree<T>(
     entries.push({
       node: { kind: "item", id: key, item },
       parent: placement ? liveParent(placement.parentId, known) : null,
-      sort: [adapter.pinned(item) ? 0 : 1, placement ? placement.ordinal : Number.POSITIVE_INFINITY, index],
+      sort: [
+        adapter.pinned(item) ? 0 : 1,
+        placement ? placement.ordinal : Number.POSITIVE_INFINITY,
+        -(adapter.recency?.(item) ?? 0),
+        index,
+      ],
     });
   });
-  entries.sort((a, b) => a.sort[0] - b.sort[0] || a.sort[1] - b.sort[1] || a.sort[2] - b.sort[2]);
+  entries.sort(
+    (a, b) => a.sort[0] - b.sort[0] || a.sort[1] - b.sort[1] || a.sort[2] - b.sort[2] || a.sort[3] - b.sort[3],
+  );
   const byId = new Map<string, TreeNode<T>>();
   for (const entry of entries) if (entry.node.kind === "folder") byId.set(entry.node.id, entry.node);
   const roots: TreeNode<T>[] = [];

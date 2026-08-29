@@ -126,7 +126,10 @@ pub(crate) async fn bootstrap_inner(
         &thread_cwds,
     );
     match super::server::sync(app, ctx, &locals).await {
-        Ok(mapping) => extras.server_projects = mapping,
+        Ok(synced) => {
+            extras.server_projects = synced.mapping;
+            extras.project_recency = synced.recency;
+        }
         // Never let the mirror take the sidebar down with it.
         Err(error) => eprintln!("could not sync Codex projects: {error}"),
     }
@@ -242,6 +245,7 @@ async fn read_bootstrap_extras(ctx: &HomeContext) -> Result<BootstrapExtras, Str
         workspace_threads: storage::workspace_thread_map(&ctx.database()).await?,
         agent_children: storage::read_agent_run_children(&ctx.database()).await?,
         server_projects: storage::read_server_projects(&ctx.database()).await?,
+        project_recency: storage::read_project_recency(&ctx.database()).await?,
         sections: storage::read_thread_sections(&ctx.database()).await?,
         sections_supported: storage::thread_sections_supported(&ctx.database()).await?,
         sidebar_layout: storage::read_sidebar_layout(&ctx.database()).await?,
@@ -266,6 +270,7 @@ fn build_bootstrap(
         agent_children,
         temp_worktree_parents,
         server_projects,
+        project_recency,
         sections,
         sections_supported,
         sidebar_layout,
@@ -415,6 +420,7 @@ fn build_bootstrap(
             instructions: instructions.get(&entry.path).cloned().unwrap_or_default(),
             sources: sources_by_project.remove(&entry.path).unwrap_or_default(),
             members: Vec::new(),
+            recency_at: project_recency.get(&entry.path).copied(),
             path: entry.path,
         });
     }
@@ -468,6 +474,7 @@ fn build_bootstrap(
                     available: Path::new(&member.effective_path).is_dir(),
                 })
                 .collect(),
+            recency_at: project_recency.get(&workspace.hub_path).copied(),
             path: workspace.hub_path,
         });
     }
@@ -629,6 +636,7 @@ mod tests {
                 temp_worktree_parents: Vec::new(),
                 server_projects: HashMap::new(),
                 sections: Vec::new(),
+                project_recency: HashMap::new(),
                 sections_supported: false,
                 sidebar_layout: Default::default(),
             },
@@ -703,6 +711,7 @@ mod tests {
                 temp_worktree_parents: Vec::new(),
                 server_projects: HashMap::new(),
                 sections: Vec::new(),
+                project_recency: HashMap::new(),
                 sections_supported: false,
                 sidebar_layout: Default::default(),
             },
@@ -762,6 +771,7 @@ mod tests {
                 ],
                 server_projects: HashMap::new(),
                 sections: Vec::new(),
+                project_recency: HashMap::new(),
                 sections_supported: false,
                 sidebar_layout: Default::default(),
             },
@@ -839,6 +849,7 @@ mod tests {
                     ("srv-removed".to_string(), "/gone".to_string()),
                 ]),
                 sections: Vec::new(),
+                project_recency: HashMap::new(),
                 sections_supported: false,
                 sidebar_layout: Default::default(),
             },
@@ -904,6 +915,7 @@ mod tests {
                 temp_worktree_parents: Vec::new(),
                 server_projects: HashMap::new(),
                 sections: Vec::new(),
+                project_recency: HashMap::new(),
                 sections_supported: false,
                 sidebar_layout: Default::default(),
             },

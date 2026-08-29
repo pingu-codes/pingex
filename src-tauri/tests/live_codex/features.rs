@@ -150,8 +150,15 @@ fn goal_survives_restart_pause_and_clear() {
     assert_eq!(goal_status(&paused["goal"]), "paused", "{paused}");
     server.drain_turns(from, GOAL_SETTLE);
 
-    // Clearing sticks across a relaunch too.
+    // Clearing sticks across a relaunch too, and announces itself (the
+    // thread view drops its goal on this notification).
+    let from = server.cursor();
     server.call(requests::thread_goal_clear(&thread_id));
+    server
+        .wait_notification(from, "thread/goal/cleared", Duration::from_secs(10), |p| {
+            p["threadId"] == thread_id
+        })
+        .expect("thread/goal/cleared notification");
     assert!(goal(server, &thread_id).is_null(), "goal not cleared");
     server.restart();
     server.call(requests::thread_resume(&thread_id));

@@ -222,7 +222,7 @@ const DDL: &str = "CREATE TABLE IF NOT EXISTS metadata (
 /// Columns added after their table shipped. Re-running these on an up-to-date
 /// database fails harmlessly ("duplicate column"), which is the only expected
 /// error, so the result is ignored.
-const ADDED_COLUMNS: [&str; 8] = [
+const ADDED_COLUMNS: [&str; 9] = [
     "ALTER TABLE projects ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE thread_summaries ADD COLUMN project_id TEXT",
     "ALTER TABLE thread_summaries ADD COLUMN section_id TEXT",
@@ -231,6 +231,7 @@ const ADDED_COLUMNS: [&str; 8] = [
     "ALTER TABLE thread_summaries ADD COLUMN agent_role TEXT",
     "ALTER TABLE user_input_answers ADD COLUMN after_item_id TEXT",
     "ALTER TABLE thread_items ADD COLUMN after_item_id TEXT",
+    "ALTER TABLE server_projects ADD COLUMN recency_at INTEGER",
 ];
 
 pub(super) async fn initialize(database: &Database, codex_home: &Path) -> Result<(), String> {

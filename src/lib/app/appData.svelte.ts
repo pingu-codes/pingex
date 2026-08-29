@@ -3,7 +3,9 @@
  * shell. Owns the optimistic entries that keep freshly created threads and
  * subagents visible until a bootstrap refresh catches up with them.
  */
+
 import { open } from "@tauri-apps/plugin-dialog";
+import { checkCodexVersion } from "$lib/app/codexVersion.svelte";
 import {
   bootstrap,
   isTauri,
@@ -179,6 +181,9 @@ export async function refresh(): Promise<void> {
     threadsWithActiveTurns()
       .then(seedActiveTurns)
       .catch(() => {});
+    // The child is up by now, so this reads what it reported at `initialize`
+    // rather than spawning one of its own.
+    void checkCodexVersion();
   } catch (cause) {
     fail(cause);
   } finally {

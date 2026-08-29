@@ -654,6 +654,35 @@ export function isRevertUnsupported(cause: unknown): boolean {
   return message.startsWith(REVERT_UNSUPPORTED);
 }
 
+/** Prefix the Rust side puts on a `turn/settings/update` error when this
+ *  Codex predates the API (0.150.1 and earlier). Kept in step with
+ *  `Feature::TURN_SETTINGS` in `src-tauri/src/codex/compat.rs`. */
+export const TURN_SETTINGS_UNSUPPORTED = "codex-turn-settings-unsupported";
+
+export function isTurnSettingsUnsupported(cause: unknown): boolean {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return message.startsWith(TURN_SETTINGS_UNSUPPORTED);
+}
+
+export type TurnSettingsUpdateStatus = "applied" | "targetUnavailable";
+
+/** Change the model and/or effort of the turn running right now. Rejects
+ *  with a `TURN_SETTINGS_UNSUPPORTED` error on a Codex without the API. */
+export async function updateTurnSettings(
+  threadId: string,
+  turnId: string,
+  settings: { model?: string | null; effort?: string | null },
+): Promise<TurnSettingsUpdateStatus> {
+  if (!isTauri()) return "applied";
+  const response = (await commands.updateTurnSettings(
+    threadId,
+    turnId,
+    settings.model ?? null,
+    settings.effort ?? null,
+  )) as { status?: string } | null;
+  return response?.status === "applied" ? "applied" : "targetUnavailable";
+}
+
 export async function queueList(threadId: string): Promise<QueuedSubmission[]> {
   if (!isTauri()) return [...previewQueue(threadId)];
   const submissions: QueuedSubmission[] = [];
@@ -890,7 +919,7 @@ export async function readRuntimeSettings(): Promise<RuntimeSettings> {
 /** What the running `codex app-server` reported about itself at `initialize`. */
 export async function readCodexServerInfo(): Promise<CodexServerInfo> {
   if (!isTauri()) {
-    return { userAgent: "pingex/0.149.1 (preview; arm64) (pingex; 0.0.0)", platformOs: "preview" };
+    return { userAgent: "pingex/0.151.0 (preview; arm64) (pingex; 0.0.0)", platformOs: "preview" };
   }
   return (await (commands.readCodexServerInfo() as Promise<CodexServerInfo | null>)) ?? {};
 }

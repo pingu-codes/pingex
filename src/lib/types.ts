@@ -259,6 +259,7 @@ export const THREAD_ITEM_TYPES = [
   "enteredReviewMode",
   "exitedReviewMode",
   "contextCompaction",
+  "functionCallOutput",
   "userInputAnswered",
 ] as const;
 
@@ -318,6 +319,11 @@ export interface ThreadItem {
   arguments?: Record<string, unknown>;
   // webSearch
   query?: string;
+  // functionCallOutput (Codex ≥0.151): the raw result of a tool the model
+  // called, as `name`/`namespace` plus a text or content-part output
+  name?: string;
+  namespace?: string | null;
+  output?: string | { type: string; text?: string | null }[];
   // userInputAnswered
   questions?: {
     id: string;
@@ -354,11 +360,26 @@ export interface ThreadItem {
   agentsStates?: Record<string, { status: string; message?: string | null }>;
 }
 
+/**
+ * Why Codex stopped a turn for a safety/alignment reason (Codex ≥0.151).
+ * `steer` is the message Codex suggests sending to carry on within bounds.
+ */
+export interface MisalignmentErrorDetails {
+  errorType?: string | null;
+  detailedExplanation?: string | null;
+  steer?: { message?: string | null } | null;
+}
+
+export interface TurnError {
+  message: string;
+  misalignment?: MisalignmentErrorDetails | null;
+}
+
 export interface Turn {
   id: string;
   items: ThreadItem[];
   status: string;
-  error?: { message: string } | null;
+  error?: TurnError | null;
   startedAt?: number | null;
   completedAt?: number | null;
   durationMs?: number | null;
@@ -594,8 +615,8 @@ export type RemoteConnection = Connection;
 export type McpAuthStatus = "unknown" | "unsupported" | "notLoggedIn" | "bearerToken" | "oAuth" | (string & {});
 
 /**
- * Where a server is in its lifecycle, reported by Codex builds newer than
- * 0.149.1 as `runtimeStatus`. Older builds omit it. Kept open-ended: the
+ * Where a server is in its lifecycle, reported by Codex ≥0.150.1 as
+ * `runtimeStatus`. Older builds omit it. Kept open-ended: the
  * upstream enum grows between releases and an unknown value must not break
  * the integrations list.
  */
@@ -715,6 +736,13 @@ interface CodexEventOverrides {
   "thread/started": { thread: { id?: string; parentThreadId?: string | null } | null };
   "thread/status/changed": { threadId: string };
   "thread/goal/updated": { threadId: string; goal: ThreadGoal | null };
+  "thread/goal/cleared": { threadId: string };
+  "thread/archived": { threadId: string };
+  "thread/unarchived": { threadId: string };
+  "thread/deleted": { threadId: string };
+  "thread/closed": { threadId: string };
+  "modelProvider/authRecoveryStarted": { threadId: string; provider: string | null; message: string | null };
+  "modelProvider/authRecoveryCompleted": { threadId: string; provider: string | null; message: string | null };
   "thread/tokenUsage/updated": { threadId: string; tokenUsage: ThreadTokenUsage | null };
   "thread/settings/updated": {
     threadId: string;
@@ -727,7 +755,6 @@ interface CodexEventOverrides {
   "turn/completed": { threadId: string; turn: Turn };
   "turn/plan/updated": { threadId: string; turnId: string; plan: TurnPlanStep[] | null };
   "item/started": ItemEventParams;
-  "item/updated": ItemEventParams;
   "item/completed": ItemEventParams;
   "item/agentMessage/delta": DeltaEventParams;
   "item/plan/delta": DeltaEventParams;
@@ -744,11 +771,20 @@ interface CodexEventOverrides {
     review: NonNullable<ThreadItem["guardianReview"]> | null;
   };
   "hook/completed": { threadId: string; run: HookRunSummary | null };
-  error: { threadId: string; error: { message?: string | null } | null };
+  error: {
+    threadId: string;
+    error: { message?: string | null; misalignment?: MisalignmentErrorDetails | null } | null;
+  };
   "account/rateLimits/updated": { rateLimits: RateLimitSnapshot | null };
 }
 
 interface ServerRequestOverrides {
+  /** `kind` arrived in Codex 0.150: `command` runs one, `writeStdin` feeds a
+   *  running one. Absent on 0.149, which only ever asks about commands. */
+  "item/commandExecution/requestApproval": {
+    kind?: "command" | "writeStdin" | (string & {}) | null;
+    approvalId?: string | null;
+  };
   "item/fileChange/requestApproval": { changes: FileUpdateChange[] | null };
   "item/permissions/requestApproval": { permissions: RequestPermissionProfile | null };
   "item/tool/requestUserInput": { questions: UserInputQuestion[] | null };

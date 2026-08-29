@@ -115,6 +115,13 @@ fn mcp_server_status_lists_the_echo_server_and_its_tool() {
         echo["tools"]
     );
     assert!(echo["authStatus"].is_string(), "authStatus present: {echo}");
+    // 0.150 added the live connection state the Integrations view labels.
+    if server.at_least(0, 150) {
+        assert!(
+            echo.get("runtimeStatus").is_some(),
+            "runtimeStatus present on Codex ≥0.150: {echo}"
+        );
+    }
     // Reload is what every config.toml mutation calls afterwards.
     server.call(requests::mcp_config_reload());
 }
@@ -489,6 +496,13 @@ fn approval_requests_are_answered_with_our_decision_payloads() {
         .wait_server_request(from, "item/commandExecution/requestApproval", TURN_TIMEOUT)
         .expect("server asked for approval");
     assert_eq!(params["threadId"], thread_id, "{params}");
+    // 0.150 tags approvals with a kind; a plain command is `command`, and the
+    // approval card keys its title off that.
+    if server.at_least(0, 150) {
+        assert_eq!(params["kind"], "command", "{params}");
+    } else {
+        assert!(params.get("kind").is_none(), "{params}");
+    }
     server.respond(request_id, requests::approval_result("accept"));
     let outcome = server.await_turn(next, &turn_id);
     assert_eq!(outcome.status, "completed", "{:?}", outcome.item_types());
@@ -569,8 +583,9 @@ fn subagent_thread_turn_and_follow_up_are_accepted() {
 
 // ── version-dependent APIs ────────────────────────────────────────────────
 //
-// The app supports the previous stable (0.146), the current stable (0.149)
-// and the unreleased mirror HEAD. Each of these tests takes the modern branch
+// The app supports the last stable (0.150.1), the current stable (0.151.0)
+// and the unreleased mirror HEAD — see `docs/SUPPORTED_VERSIONS.md`. Each of
+// these tests takes the modern branch
 // where the API exists and, where it does not, checks that the refusal is
 // one the app's classifier recognises — and that the Codex really is old
 // enough for that to be the expected outcome.
@@ -621,22 +636,42 @@ fn server_side_queue_add_list_update_delete() {
         text_input("Wait, then reply with exactly SLOW. First, think briefly."),
         low_effort(server),
     ));
-    let running_id = running.pointer("/turn/id").and_then(Value::as_str).expect("turn id").to_string();
+    let running_id = running
+        .pointer("/turn/id")
+        .and_then(Value::as_str)
+        .expect("turn id")
+        .to_string();
     server
-        .wait_notification(from, "turn/started", TURN_TIMEOUT, |p| p["threadId"] == thread_id)
+        .wait_notification(from, "turn/started", TURN_TIMEOUT, |p| {
+            p["threadId"] == thread_id
+        })
         .expect("turn/started");
 
-    server.call(requests::queue_add(&thread_id, input.clone(), "client-msg-1"));
+    server.call(requests::queue_add(
+        &thread_id,
+        input.clone(),
+        "client-msg-1",
+    ));
     let listed = server.call(requests::queue_list(&thread_id, None));
     let entries = listed["data"].as_array().cloned().unwrap_or_default();
-    assert_eq!(entries.len(), 1, "one queued submission behind the running turn: {listed}");
+    assert_eq!(
+        entries.len(),
+        1,
+        "one queued submission behind the running turn: {listed}"
+    );
     let queued_id = entries[0]["id"].as_str().expect("queued id").to_string();
     server.call(requests::queue_update(&thread_id, &queued_id, input));
-    server.call(requests::queue_reorder(&thread_id, std::slice::from_ref(&queued_id)));
+    server.call(requests::queue_reorder(
+        &thread_id,
+        std::slice::from_ref(&queued_id),
+    ));
     server.call(requests::queue_delete(&thread_id, &queued_id));
     let listed = server.call(requests::queue_list(&thread_id, None));
     assert!(
-        listed["data"].as_array().map(|d| d.is_empty()).unwrap_or(true),
+        listed["data"]
+            .as_array()
+            .map(|d| d.is_empty())
+            .unwrap_or(true),
         "queue empty after delete: {listed}"
     );
 
@@ -666,7 +701,10 @@ fn thread_revert_or_its_classified_absence() {
     match server.request(requests::thread_revert(&thread_id, &second.turn_id)) {
         Ok(_) => {
             let read = server.call(requests::thread_read(&thread_id));
-            let turns = read.pointer("/thread/turns").and_then(Value::as_array).map(Vec::len);
+            let turns = read
+                .pointer("/thread/turns")
+                .and_then(Value::as_array)
+                .map(Vec::len);
             assert_eq!(turns, Some(1), "one turn left after revert: {read}");
         }
         // 0.149 has the method but only serves threads in paginated history
@@ -698,7 +736,7 @@ fn thread_revert_or_its_classified_absence() {
 fn projects_import_assign_rename_delete() {
     let server = live!();
     let (thread_id, _) = server.persisted_thread();
-    match server.request(requests::project_list(None)) {
+    match server.request(requests::project_list(None, None)) {
         Ok(_) => {}
         Err(error) => match error.unsupported(Feature::PROJECTS) {
             Some(reason) => return server.expect_legacy(Feature::PROJECTS, &reason),
@@ -713,8 +751,14 @@ fn projects_import_assign_rename_delete() {
         std::slice::from_ref(&thread_id),
         &format!("e2e-{thread_id}"),
     ));
-    let project_id = imported["project"]["id"].as_str().expect("project id").to_string();
-    assert_eq!(imported["project"]["metadata"]["pingex.key"], cwd, "metadata round-trips");
+    let project_id = imported["project"]["id"]
+        .as_str()
+        .expect("project id")
+        .to_string();
+    assert_eq!(
+        imported["project"]["metadata"]["pingex.key"], cwd,
+        "metadata round-trips"
+    );
 
     let listed = server.call(requests::thread_list(50, None, None, false));
     let thread = listed["data"]
@@ -724,18 +768,40 @@ fn projects_import_assign_rename_delete() {
         .find(|thread| thread["id"] == thread_id)
         .cloned()
         .unwrap_or_else(|| panic!("{thread_id} not in thread/list: {listed}"));
-    assert_eq!(thread["projectId"], project_id, "import filed the thread: {thread}");
+    assert_eq!(
+        thread["projectId"], project_id,
+        "import filed the thread: {thread}"
+    );
 
     // The assignment API the app uses for moves, both directions.
     server.call(requests::thread_set_project(&thread_id, None));
     server.call(requests::thread_set_project(&thread_id, Some(&project_id)));
     let read = server.call(requests::thread_read(&thread_id));
-    assert_eq!(read["thread"]["projectId"], project_id, "re-assigned: {read}");
+    assert_eq!(
+        read["thread"]["projectId"], project_id,
+        "re-assigned: {read}"
+    );
 
-    let renamed = server.call(requests::project_update(&project_id, Some("E2E renamed"), None));
+    let renamed = server.call(requests::project_update(
+        &project_id,
+        Some("E2E renamed"),
+        None,
+    ));
     assert_eq!(renamed["project"]["name"], "E2E renamed");
     server.call(requests::project_delete(&project_id));
-    let projects = server.call(requests::project_list(None));
+    // The sort keys are what the app always sends; releases ignore them so
+    // far, and only the unreleased mirror reports `Project.recencyAt`.
+    let projects = server.call(requests::project_list(None, Some(("recencyAt", "desc"))));
+    if server.version().is_none() {
+        assert!(
+            projects["data"]
+                .as_array()
+                .expect("data")
+                .iter()
+                .all(|project| project.get("recencyAt").is_some()),
+            "unreleased Codex lists Project.recencyAt: {projects}"
+        );
+    }
     assert!(
         !projects["data"]
             .as_array()
@@ -759,8 +825,14 @@ fn thread_sections_create_move_update_delete() {
             None => panic!("threadSection/list rejected: {error}"),
         },
     }
-    let created = server.call(requests::thread_section_create("E2E section", Some("#f59e0b")));
-    let section_id = created["section"]["id"].as_str().expect("section id").to_string();
+    let created = server.call(requests::thread_section_create(
+        "E2E section",
+        Some("#f59e0b"),
+    ));
+    let section_id = created["section"]["id"]
+        .as_str()
+        .expect("section id")
+        .to_string();
     assert_eq!(created["section"]["appearance"]["color"], "#f59e0b");
 
     server.call(requests::thread_section_move(&thread_id, Some(&section_id)));
@@ -772,9 +844,16 @@ fn thread_sections_create_move_update_delete() {
         .find(|thread| thread["id"] == thread_id)
         .cloned()
         .unwrap_or_else(|| panic!("{thread_id} not in thread/list: {listed}"));
-    assert_eq!(thread["section"]["id"], section_id, "thread moved into the section: {thread}");
+    assert_eq!(
+        thread["section"]["id"], section_id,
+        "thread moved into the section: {thread}"
+    );
 
-    let updated = server.call(requests::thread_section_update(&section_id, "E2E renamed", None));
+    let updated = server.call(requests::thread_section_update(
+        &section_id,
+        "E2E renamed",
+        None,
+    ));
     assert_eq!(updated["section"]["name"], "E2E renamed");
     assert!(
         updated["section"]["appearance"]["color"].is_null(),
@@ -782,7 +861,10 @@ fn thread_sections_create_move_update_delete() {
     );
     server.call(requests::thread_section_move(&thread_id, None));
     let read = server.call(requests::thread_read(&thread_id));
-    assert!(read["thread"]["section"].is_null(), "thread left the section: {read}");
+    assert!(
+        read["thread"]["section"].is_null(),
+        "thread left the section: {read}"
+    );
 
     server.call(requests::thread_section_delete(&section_id));
     let sections = server.call(requests::thread_section_list(None));
@@ -831,7 +913,14 @@ fn thread_lifecycle_archive_unarchive_compact_rollback_delete() {
         p["threadId"] == thread_id
     });
 
+    // The lifecycle notifications the sidebar refreshes on.
+    let from = server.cursor();
     server.call(requests::thread_archive(&thread_id));
+    let (from, _) = server
+        .wait_notification(from, "thread/archived", Duration::from_secs(10), |p| {
+            p["threadId"] == thread_id
+        })
+        .expect("thread/archived notification");
     let archived = server.call(requests::thread_list(50, None, None, true));
     let ids: Vec<_> = archived["data"]
         .as_array()
@@ -844,5 +933,62 @@ fn thread_lifecycle_archive_unarchive_compact_rollback_delete() {
         "archived list has it: {ids:?}"
     );
     server.call(requests::thread_unarchive(&thread_id));
+    let (from, _) = server
+        .wait_notification(from, "thread/unarchived", Duration::from_secs(10), |p| {
+            p["threadId"] == thread_id
+        })
+        .expect("thread/unarchived notification");
+    server.call(requests::thread_delete(&thread_id));
+    server
+        .wait_notification(from, "thread/deleted", Duration::from_secs(10), |p| {
+            p["threadId"] == thread_id
+        })
+        .expect("thread/deleted notification");
+}
+
+/// `turn/settings/update` (unreleased): switch model or effort while a turn
+/// runs. On a release build the refusal must be one the app classifies so the
+/// composer falls back to "applies from the next turn".
+#[test]
+fn turn_settings_update_or_its_classified_absence() {
+    let server = live!();
+    let thread_id = server.start_thread();
+    let from = server.cursor();
+    let response = server.call(requests::turn_start(
+        &thread_id,
+        text_input("Count from 1 to 400, one number per line, with no other text."),
+        low_effort(server),
+    ));
+    let turn_id = response
+        .pointer("/turn/id")
+        .and_then(Value::as_str)
+        .expect("turn id")
+        .to_string();
+    server
+        .wait_notification(from, "item/agentMessage/delta", TURN_TIMEOUT, |params| {
+            params["turnId"] == turn_id
+        })
+        .expect("model started streaming");
+    let updated = server.request(requests::turn_settings_update(
+        &thread_id,
+        &turn_id,
+        None,
+        Some("medium"),
+    ));
+    server.call(requests::turn_interrupt(&thread_id, &turn_id));
+    let _ = server.await_turn(from, &turn_id);
+    match updated {
+        Ok(response) => {
+            let status = response["status"].as_str().unwrap_or("");
+            assert!(
+                matches!(status, "applied" | "targetUnavailable"),
+                "turn/settings/update status: {response}"
+            );
+        }
+        Err(error) => match error.unsupported(Feature::TURN_SETTINGS) {
+            Some(reason) => server.expect_legacy(Feature::TURN_SETTINGS, &reason),
+            None => panic!("turn/settings/update rejected: {error}"),
+        },
+    }
     server.call(requests::thread_delete(&thread_id));
 }

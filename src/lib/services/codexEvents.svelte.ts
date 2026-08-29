@@ -22,6 +22,12 @@ export type { CodexEvent, CodexServerRequestEvent, UserInputQuestion } from "$li
 export interface Approval {
   requestId: number;
   kind: "command" | "fileChange" | "permissions";
+  /** On a `command` approval: run a command, or send input to one already
+   *  running (Codex ≥0.150; older builds only ever ask to run). */
+  approvalKind?: "command" | "writeStdin";
+  /** The approval's own id on Codex ≥0.150; informational, the reply is
+   *  keyed by `requestId`. */
+  approvalId?: string | null;
   threadId: string;
   turnId: string;
   itemId: string;
@@ -77,6 +83,17 @@ export const activeTurns = $state<{ list: string[] }>({ list: [] });
 export const mcpStatus = $state<{ nonce: number; lastLoginServer: string | null }>({
   nonce: 0,
   lastLoginServer: null,
+});
+
+/** Bumped on `skills/changed`: the skill set on disk moved under Codex, so
+ *  pickers re-run `skills/list` rather than serving a stale list. */
+export const skillsStatus = $state<{ nonce: number }>({ nonce: 0 });
+
+/** Threads whose turn is paused while Codex re-authenticates with the model
+ *  provider (unstable Codex). Set on `authRecoveryStarted`, gone on
+ *  `authRecoveryCompleted` or whatever else ends the turn. */
+export const authRecovery = $state<{ byThread: Record<string, { provider: string | null; message: string | null }> }>({
+  byThread: {},
 });
 
 /**
@@ -185,12 +202,33 @@ function dispatch(event: CodexEvent) {
     setTurnActive(end.threadId, false);
     // A review that dies on an error never reaches `exitedReviewMode`.
     reviewThreads.delete(end.threadId);
+    delete authRecovery.byThread[end.threadId];
   }
   switch (event.method) {
     case "disconnected":
       activeTurns.list = [];
       turnPlans.byThread = {};
+      authRecovery.byThread = {};
       reviewThreads.clear();
+      break;
+    // Codex dropped the thread from memory (another client closed it, or it
+    // was evicted): nothing can still be running in it.
+    case "thread/closed":
+      setTurnActive(event.params.threadId, false);
+      delete turnPlans.byThread[event.params.threadId];
+      delete authRecovery.byThread[event.params.threadId];
+      break;
+    case "modelProvider/authRecoveryStarted":
+      authRecovery.byThread[event.params.threadId] = {
+        provider: event.params.provider ?? null,
+        message: event.params.message ?? null,
+      };
+      break;
+    case "modelProvider/authRecoveryCompleted":
+      delete authRecovery.byThread[event.params.threadId];
+      break;
+    case "skills/changed":
+      skillsStatus.nonce += 1;
       break;
     case "turn/plan/updated":
       turnPlans.byThread[event.params.threadId] = {
@@ -249,6 +287,9 @@ function onServerRequest(payload: CodexServerRequestEvent) {
       approvals.list.push({
         requestId,
         kind: "command",
+        // Absent before 0.150, when every approval was for running a command.
+        approvalKind: params.kind === "writeStdin" ? "writeStdin" : "command",
+        approvalId: params.approvalId ?? null,
         threadId: params.threadId ?? "",
         turnId: params.turnId ?? "",
         itemId: params.itemId ?? "",

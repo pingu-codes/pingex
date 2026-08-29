@@ -11,6 +11,7 @@ import { Sparkles } from "@lucide/svelte";
 import PickerList from "$lib/composer/PickerList.svelte";
 import { filterSkills, skillHint, skillLabel } from "$lib/composer/skills";
 import { listSkillsFor } from "$lib/services/api";
+import { skillsStatus } from "$lib/services/codexEvents.svelte";
 import type { SkillSummary } from "$lib/types";
 
 let {
@@ -35,6 +36,8 @@ let failed = $state(false);
 
 $effect(() => {
   const currentCwd = cwd;
+  // Re-read whenever Codex says the skills on disk changed.
+  void skillsStatus.nonce;
   let cancelled = false;
   listSkillsFor(currentCwd ? [currentCwd] : [])
     .then((skills) => {

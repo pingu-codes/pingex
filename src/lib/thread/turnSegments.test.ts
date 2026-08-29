@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { rendersSomething, splitTurn, turnSegments } from "$lib/thread/turnSegments";
+import { functionCallOutputText, rendersSomething, splitTurn, turnSegments } from "$lib/thread/turnSegments";
 import type { Turn } from "$lib/types";
 
 describe("splitTurn", () => {
@@ -93,5 +93,19 @@ describe("turnSegments", () => {
       { type: "reasoning", id: "r3", summary: ["c"] },
     ]);
     expect(segments.map((segment) => segment.kind)).toEqual(["reasoning", "item", "reasoning"]);
+  });
+});
+
+describe("functionCallOutputText", () => {
+  it("reads a string output as-is and joins text parts, counting images", () => {
+    expect(functionCallOutputText({ type: "functionCallOutput", id: "i", output: "42" })).toBe("42");
+    expect(
+      functionCallOutputText({
+        type: "functionCallOutput",
+        id: "i",
+        output: [{ type: "inputText", text: "a" }, { type: "inputImage" }, { type: "inputText", text: "b" }],
+      }),
+    ).toBe("a\nb\n[1 image]");
+    expect(functionCallOutputText({ type: "functionCallOutput", id: "i" })).toBe("");
   });
 });

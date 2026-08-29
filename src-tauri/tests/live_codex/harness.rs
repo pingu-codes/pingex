@@ -307,7 +307,7 @@ impl Server {
     /// a current Codex cannot hide behind the legacy path.
     pub fn expect_legacy(&self, feature: Feature, reason: &str) {
         assert!(
-            !self.at_least(0, 149),
+            !self.at_least(feature.since.0, feature.since.1),
             "{} refused {} on a Codex that should have it: {reason}",
             self.user_agent,
             feature.method_prefix

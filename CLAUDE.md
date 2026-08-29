@@ -2,6 +2,18 @@ This is a custom frontend for the codex tui.
 
 A mirror of their source code can be found at `../codex-mirror`
 
+## Supported Codex versions
+
+We support three tiers of Codex at once — unstable (mirror `main`), stable
+(latest release) and last stable — recorded with tags and commits in
+`docs/SUPPORTED_VERSIONS.md` (policy: `docs/adr/0001-three-tier-codex-version-support.md`;
+vocabulary: `CONTEXT.md`). The app never branches on the version: an API some
+tiers lack is a `Feature` in `src-tauri/src/codex/compat.rs`, probed once and
+its refusal cached. When adopting a newer upstream API, add a `Feature` (with
+`since`), a `*_UNSUPPORTED` constant in `src/lib/services/api.ts`, a row in
+the matrix, and a live test that takes the legacy branch via `expect_legacy`.
+`deno task versions:check` fails when the doc drifts from the mirror.
+
 We use skeleton as a styling/component library, you can read their `llms.txt` file at `llms/skeleton.txt` for more information.
 
 ## Rust ↔ TypeScript bindings

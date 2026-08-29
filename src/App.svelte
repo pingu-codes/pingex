@@ -44,6 +44,7 @@ import {
   view,
   worktreesRepo,
 } from "$lib/app/navigation.svelte";
+import VersionBanner from "$lib/app/VersionBanner.svelte";
 import DialogHost from "$lib/components/DialogHost.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import HomePage from "$lib/layout/HomePage.svelte";
@@ -55,6 +56,7 @@ import ReviewView from "$lib/review/ReviewView.svelte";
 import { openHomeWindow, revealInFinder } from "$lib/services/api";
 import { closeSettings, openSettings, settingsNav } from "$lib/services/settingsNav.svelte";
 import ToastHost from "$lib/ToastHost.svelte";
+import AuthRecoveryPill from "$lib/thread/AuthRecoveryPill.svelte";
 import ThreadDebugPopover from "$lib/thread/ThreadDebugPopover.svelte";
 import ThreadHeader from "$lib/thread/ThreadHeader.svelte";
 import ThreadView from "$lib/thread/ThreadView.svelte";
@@ -165,6 +167,7 @@ init();
         </ThreadDebugPopover>
       </div>
       <div class="flex shrink-0 items-center gap-2">
+        <AuthRecoveryPill threadId={view.threadId} />
         {#if (view.threadId || view.draftCwd) && !view.worktreesPath}
           <ThreadHeader
             codexHome={codexHome()}
@@ -181,6 +184,7 @@ init();
         </TooltipButton>
       </div>
     </header>
+    <VersionBanner />
 
     {#if handoff.error}
       <div class="pointer-events-none absolute inset-x-0 top-16 z-30 flex justify-center px-4">

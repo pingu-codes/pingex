@@ -58,6 +58,27 @@ export function statusLabel(status: RowStatus): string {
   return STATUS_LABEL[status];
 }
 
+const RUNTIME_LABEL: Record<string, string> = {
+  notStarted: "Not started",
+  starting: "Starting…",
+  running: "Running",
+  ready: "Running",
+  authenticationRequired: "Sign-in required",
+  failed: "Failed",
+  disabled: "Disabled",
+};
+
+/**
+ * The lifecycle word Codex ≥0.150 reports as `runtimeStatus`, humanised. Null
+ * when the build sends none or the value adds nothing to the row's dot — the
+ * label is a detail beside the verdict, not a second verdict.
+ */
+export function runtimeStatusLabel(status?: McpServerStatus | null): string | null {
+  const runtime = status?.runtimeStatus;
+  if (!runtime) return null;
+  return RUNTIME_LABEL[runtime] ?? runtime;
+}
+
 /** Sorted tool list for a server; `mcpServerStatus/list` keys them by name. */
 export function toolsOf(status?: McpServerStatus | null): McpTool[] {
   return Object.values(status?.tools ?? {}).sort((a, b) => a.name.localeCompare(b.name));

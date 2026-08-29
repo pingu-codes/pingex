@@ -3,6 +3,7 @@
 
 use tauri::{AppHandle, State};
 
+use crate::codex::compat::Feature;
 use crate::codex::requests::{self, Request};
 use crate::util::json::str_at;
 use crate::util::json::Json;
@@ -167,8 +168,7 @@ pub(crate) async fn start_thread(
         // turn is at that moment blocked waiting for the tool's answer.
         ctx.agents.remember_cwd(id, &inputs.cwd);
         if let Some(workspace) = &inputs.workspace {
-            storage::assign_thread_workspace(&ctx.database(), id, &workspace.workspace_id)
-                .await?;
+            storage::assign_thread_workspace(&ctx.database(), id, &workspace.workspace_id).await?;
         }
     }
     Ok(Json(thread))
@@ -196,9 +196,12 @@ pub(crate) async fn start_turn(
             )
         })
         .unwrap_or_default();
-    let mut request = requests::turn_start(&thread_id, input.into_iter().map(|item| item.0).collect(), options);
-    if let Some(workspace_id) = storage::workspace_for_thread(&ctx.database(), &thread_id).await?
-    {
+    let mut request = requests::turn_start(
+        &thread_id,
+        input.into_iter().map(|item| item.0).collect(),
+        options,
+    );
+    if let Some(workspace_id) = storage::workspace_for_thread(&ctx.database(), &thread_id).await? {
         let workspace = workspaces::runtime_for_workspace(&ctx, &workspace_id).await?;
         requests::apply_workspace_params(
             &mut request.params,
@@ -286,6 +289,31 @@ pub(crate) async fn interrupt_turn(
     Ok(())
 }
 
+/// Change the model and/or reasoning effort of the turn that is running right
+/// now (`turn/settings/update`, Codex ≥0.151). Returns the server's
+/// `{status}` — `applied` or `targetUnavailable` — and, on a Codex without the
+/// API, an error prefixed by `Feature::TURN_SETTINGS.error_prefix` so the
+/// frontend can fall back to "applies from the next turn".
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn update_turn_settings(
+    thread_id: String,
+    turn_id: String,
+    model: Option<String>,
+    effort: Option<String>,
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<Json, String> {
+    let ctx = state.ctx(&window);
+    let request =
+        requests::turn_settings_update(&thread_id, &turn_id, model.as_deref(), effort.as_deref());
+    ctx.session
+        .send_gated(&app, Feature::TURN_SETTINGS, request, |_| None)
+        .await
+        .map(Json)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn respond_approval(
@@ -295,8 +323,7 @@ pub(crate) async fn respond_approval(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
-    ctx
-        .session
+    ctx.session
         .respond(request_id, requests::approval_result(&decision))
         .await
 }
@@ -386,8 +413,7 @@ pub(crate) async fn respond_user_input(
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
     if let Some(request_id) = request_id {
-        ctx
-            .session
+        ctx.session
             .respond(request_id, requests::user_input_result(answers.0))
             .await?;
     }
@@ -440,7 +466,10 @@ mod tests {
 
     #[test]
     fn caller_cwd_used_without_workspace() {
-        assert_eq!(resolve_start_cwd(None, Some("/proj".into())).unwrap(), "/proj");
+        assert_eq!(
+            resolve_start_cwd(None, Some("/proj".into())).unwrap(),
+            "/proj"
+        );
     }
 
     #[test]
@@ -512,7 +541,10 @@ mod tests {
             app_subagents: true,
             ..inputs()
         });
-        assert_eq!(request.params["dynamicTools"], crate::agents::tools::specs(&[]));
+        assert_eq!(
+            request.params["dynamicTools"],
+            crate::agents::tools::specs(&[])
+        );
     }
 
     #[test]
@@ -531,7 +563,10 @@ mod tests {
 
     #[test]
     fn project_id_is_attached_only_when_known() {
-        assert!(build_start_request(&inputs()).params.get("projectId").is_none());
+        assert!(build_start_request(&inputs())
+            .params
+            .get("projectId")
+            .is_none());
         let request = build_start_request(&StartInputs {
             project_id: Some("p1".into()),
             ..inputs()

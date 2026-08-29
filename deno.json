@@ -21,6 +21,7 @@
     "rust:lint": "cd src-tauri && cargo clippy --all-targets",
     "rust:fmt": "cd src-tauri && cargo fmt",
     "typegen": "cd src-tauri && cargo test --lib export_bindings",
+    "versions:check": "deno run --allow-read --allow-run=git scripts/versions_check.ts",
     "tauri": "deno run -A npm:@tauri-apps/cli@2.11.4",
     "app:build": "deno task tauri build",
     "app:build:debug": "deno task tauri build --debug"

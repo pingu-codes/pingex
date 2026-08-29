@@ -73,6 +73,7 @@ let {
   onImplementFresh,
   onSubagentPolicyChange,
   onModelChange,
+  onLiveSettingsChange,
 }: {
   busy?: boolean;
   disabled?: boolean;
@@ -107,6 +108,9 @@ let {
   onSubagentPolicyChange?: (modelPolicy: SubagentPolicy | null, effortPolicy: SubagentPolicy | null) => void;
   /** The model turns will actually run on — the picked one, else Codex's default. */
   onModelChange?: (modelId: string | null) => void;
+  /** The user picked a model or effort; the owner decides whether a running
+   *  turn can take it now (`turn/settings/update`) or from the next turn. */
+  onLiveSettingsChange?: (settings: { model: string | null; effort: string | null }) => void;
   /** The model the thread last ran on; backs the collaboration-mode settings
    *  when nothing is picked and the model list has not loaded yet. */
   threadModel?: string | null;
@@ -461,11 +465,13 @@ function chooseModel(model: Model) {
     prefs.effort = model.defaultReasoningEffort;
   }
   persist();
+  onLiveSettingsChange?.({ model: prefs.model ?? null, effort: prefs.effort ?? null });
 }
 
 function chooseEffort(effort: string) {
   prefs.effort = effort;
   persist();
+  onLiveSettingsChange?.({ model: prefs.model ?? null, effort: prefs.effort ?? null });
 }
 
 function choosePermission(id: string) {

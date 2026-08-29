@@ -25,6 +25,20 @@ export function turnSegments(items: ThreadItem[]): Segment[] {
   return segments;
 }
 
+/**
+ * The text of a `functionCallOutput` item. Upstream sends either a string or
+ * content parts; only the text parts are readable here, so images are counted.
+ */
+export function functionCallOutputText(item: ThreadItem): string {
+  const output = item.output;
+  if (typeof output === "string") return output;
+  if (!Array.isArray(output)) return "";
+  const texts = output.filter((part) => typeof part.text === "string").map((part) => part.text as string);
+  const images = output.length - texts.length;
+  if (images > 0) texts.push(`[${images} image${images === 1 ? "" : "s"}]`);
+  return texts.join("\n");
+}
+
 export const segmentKey = (segment: Segment) =>
   segment.kind === "item" ? segment.item.id : `reasoning-${segment.items[0]?.id}`;
 
@@ -39,6 +53,7 @@ const DRAWN_BY_WORK_ITEM: Record<KnownThreadItemType, boolean> = {
   agentMessage: true,
   plan: true,
   contextCompaction: true,
+  functionCallOutput: true,
   userInputAnswered: true,
   hookPrompt: true,
   reasoning: true,

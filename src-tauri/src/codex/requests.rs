@@ -7,8 +7,8 @@
 //! When adding a request elsewhere in the app, add its builder here and cover
 //! it there — the protocol only tells you a field is missing at runtime.
 
-use serde::Deserialize;
 use crate::util::json::Json;
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 /// One outbound JSON-RPC call: the method name and its `params`.
@@ -232,6 +232,25 @@ pub fn apply_workspace_params(params: &mut Value, cwd: &str, roots: &[String], c
     });
 }
 
+/// `turn/settings/update`: change the model and/or effort of a running turn
+/// (Codex ≥0.151; gated by `Feature::TURN_SETTINGS`). The params are
+/// `deny_unknown_fields` upstream, so only the keys given are sent.
+pub fn turn_settings_update(
+    thread_id: &str,
+    turn_id: &str,
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> Request {
+    let mut params = json!({"threadId": thread_id, "turnId": turn_id});
+    if let Some(model) = model {
+        params["model"] = json!(model);
+    }
+    if let Some(effort) = effort {
+        params["effort"] = json!(effort);
+    }
+    request("turn/settings/update", params)
+}
+
 pub fn turn_interrupt(thread_id: &str, turn_id: &str) -> Request {
     request(
         "turn/interrupt",
@@ -363,10 +382,17 @@ pub fn apply_project(params: &mut Value, project_id: Option<&str>) {
 }
 
 /// `project/list`, one page. Experimental; absent before Codex 0.149.
-pub fn project_list(cursor: Option<&str>) -> Request {
+/// `sort` is `(sortKey, sortDirection)` — `("recencyAt", "desc")` orders by
+/// the newest thread; releases without the keys ignore them (the params are
+/// not `deny_unknown_fields`), so it is safe to always send.
+pub fn project_list(cursor: Option<&str>, sort: Option<(&str, &str)>) -> Request {
     let mut params = json!({"limit": 100});
     if let Some(cursor) = cursor {
         params["cursor"] = json!(cursor);
+    }
+    if let Some((key, direction)) = sort {
+        params["sortKey"] = json!(key);
+        params["sortDirection"] = json!(direction);
     }
     request("project/list", params)
 }
@@ -401,7 +427,10 @@ pub fn project_update(project_id: &str, name: Option<&str>, roots: Option<&[Stri
         params["name"] = json!(name);
     }
     if let Some(roots) = roots {
-        params["roots"] = json!(roots.iter().map(|path| json!({"path": path})).collect::<Vec<_>>());
+        params["roots"] = json!(roots
+            .iter()
+            .map(|path| json!({"path": path}))
+            .collect::<Vec<_>>());
     }
     request("project/update", params)
 }

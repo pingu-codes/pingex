@@ -58,6 +58,14 @@ export const commands = {
 	resolvedEffort?: string | null,
 } | null) => __TAURI_INVOKE<unknown>("start_turn", { threadId, input, options }),
 	interruptTurn: (threadId: string, turnId: string) => __TAURI_INVOKE<null>("interrupt_turn", { threadId, turnId }),
+	/**
+	 *  Change the model and/or reasoning effort of the turn that is running right
+	 *  now (`turn/settings/update`, Codex ≥0.151). Returns the server's
+	 *  `{status}` — `applied` or `targetUnavailable` — and, on a Codex without the
+	 *  API, an error prefixed by `Feature::TURN_SETTINGS.error_prefix` so the
+	 *  frontend can fall back to "applies from the next turn".
+	 */
+	updateTurnSettings: (threadId: string, turnId: string, model: string | null, effort: string | null) => __TAURI_INVOKE<unknown>("update_turn_settings", { threadId, turnId, model, effort }),
 	respondApproval: (requestId: number, decision: string) => __TAURI_INVOKE<null>("respond_approval", { requestId, decision }),
 	/**
 	 *  `request_id` is `None` when answering a question whose request died with an
@@ -419,6 +427,11 @@ export type Account = {
 	kind: string,
 };
 
+export type AccountUpdatedParams = {
+	authMode?: string | null,
+	planType?: string | null,
+};
+
 /**  One spawned agent, as the GUI sees it. */
 export type AgentRunRow = {
 	runId: string,
@@ -464,6 +477,13 @@ export type Attachment = {
 	stagedPath: string,
 	/**  "image" | "file". */
 	kind: string,
+};
+
+export type AuthRecoveryParams = {
+	threadId?: string | null,
+	turnId?: string | null,
+	provider?: string | null,
+	message?: string | null,
 };
 
 export type AutoApprovalReviewCompletedParams = {
@@ -580,7 +600,12 @@ export type CodexEvent = {
 } & CodexNotification;
 
 /**  A notification from the app-server, tagged by its JSON-RPC method. */
-export type CodexNotification = { method: "thread/started"; params: ThreadStartedParams } | { method: "thread/status/changed"; params: ThreadStatusChangedParams } | { method: "thread/name/updated"; params: ThreadNameUpdatedParams } | { method: "thread/project/updated"; params: ThreadProjectUpdatedParams } | { method: "thread/goal/updated"; params: ThreadGoalUpdatedParams } | { method: "thread/tokenUsage/updated"; params: ThreadTokenUsageUpdatedParams } | { method: "thread/settings/updated"; params: ThreadSettingsUpdatedParams } | { method: "thread/queue/changed"; params: ThreadParams } | { method: "thread/reverted"; params: ThreadParams } | { method: "thread/compacted"; params: ThreadTurnParams } | { method: "turn/started"; params: TurnParams } | { method: "turn/completed"; params: TurnParams } | { method: "turn/plan/updated"; params: TurnPlanUpdatedParams } | { method: "item/started"; params: ItemParams } | { method: "item/updated"; params: ItemParams } | { method: "item/completed"; params: ItemParams } | { method: "item/agentMessage/delta"; params: DeltaParams } | { method: "item/plan/delta"; params: DeltaParams } | { method: "item/reasoning/summaryPartAdded"; params: SummaryPartAddedParams } | { method: "item/reasoning/summaryTextDelta"; params: SummaryTextDeltaParams } | { method: "item/reasoning/textDelta"; params: ReasoningTextDeltaParams } | { method: "item/commandExecution/outputDelta"; params: DeltaParams } | { method: "item/commandExecution/terminalInteraction"; params: TerminalInteractionParams } | { method: "item/fileChange/patchUpdated"; params: PatchUpdatedParams } | { method: "item/mcpToolCall/progress"; params: McpToolCallProgressParams } | { method: "item/autoApprovalReview/completed"; params: AutoApprovalReviewCompletedParams } | { method: "model/rerouted"; params: ModelReroutedParams } | { method: "model/safetyBuffering/updated"; params: SafetyBufferingUpdatedParams } | { method: "hook/completed"; params: HookCompletedParams } | { method: "error"; params: ErrorParams } | { method: "warning"; params: NoticeParams } | { method: "guardianWarning"; params: NoticeParams } | { method: "deprecationNotice"; params: NoticeParams } | { method: "configWarning"; params: NoticeParams } | { method: "serverRequest/resolved"; params: ServerRequestResolvedParams } | { method: "account/rateLimits/updated"; params: RateLimitsUpdatedParams } | { method: "mcpServer/startupStatus/updated"; params: McpServerParams } | { method: "mcpServer/oauthLogin/completed"; params: McpServerParams } | { method: "project/changed"; params: ProjectChangedParams } | { method: "remoteControl/status/changed"; params: RemoteControlStatusChangedParams } | 
+export type CodexNotification = { method: "thread/started"; params: ThreadStartedParams } | { method: "thread/status/changed"; params: ThreadStatusChangedParams } | { method: "thread/name/updated"; params: ThreadNameUpdatedParams } | { method: "thread/project/updated"; params: ThreadProjectUpdatedParams } | { method: "thread/goal/updated"; params: ThreadGoalUpdatedParams } | { method: "thread/tokenUsage/updated"; params: ThreadTokenUsageUpdatedParams } | { method: "thread/settings/updated"; params: ThreadSettingsUpdatedParams } | { method: "thread/queue/changed"; params: ThreadParams } | { method: "thread/reverted"; params: ThreadParams } | { method: "thread/compacted"; params: ThreadTurnParams } | { method: "thread/archived"; params: ThreadParams } | { method: "thread/unarchived"; params: ThreadParams } | { method: "thread/deleted"; params: ThreadParams } | { method: "thread/closed"; params: ThreadParams } | { method: "thread/goal/cleared"; params: ThreadParams } | { method: "turn/started"; params: TurnParams } | { method: "turn/completed"; params: TurnParams } | { method: "turn/plan/updated"; params: TurnPlanUpdatedParams } | { method: "item/started"; params: ItemParams } | { method: "item/completed"; params: ItemParams } | { method: "item/agentMessage/delta"; params: DeltaParams } | { method: "item/plan/delta"; params: DeltaParams } | { method: "item/reasoning/summaryPartAdded"; params: SummaryPartAddedParams } | { method: "item/reasoning/summaryTextDelta"; params: SummaryTextDeltaParams } | { method: "item/reasoning/textDelta"; params: ReasoningTextDeltaParams } | { method: "item/commandExecution/outputDelta"; params: DeltaParams } | { method: "item/commandExecution/terminalInteraction"; params: TerminalInteractionParams } | { method: "item/fileChange/patchUpdated"; params: PatchUpdatedParams } | { method: "item/mcpToolCall/progress"; params: McpToolCallProgressParams } | { method: "item/autoApprovalReview/completed"; params: AutoApprovalReviewCompletedParams } | { method: "model/rerouted"; params: ModelReroutedParams } | { method: "model/safetyBuffering/updated"; params: SafetyBufferingUpdatedParams } | { method: "hook/completed"; params: HookCompletedParams } | 
+/**
+ *  Codex is re-authenticating with a model provider mid-turn (unreleased
+ *  Codex); the turn resumes on its own once `Completed` arrives.
+ */
+{ method: "modelProvider/authRecoveryStarted"; params: AuthRecoveryParams } | { method: "modelProvider/authRecoveryCompleted"; params: AuthRecoveryParams } | { method: "error"; params: ErrorParams } | { method: "warning"; params: NoticeParams } | { method: "guardianWarning"; params: NoticeParams } | { method: "deprecationNotice"; params: NoticeParams } | { method: "configWarning"; params: NoticeParams } | { method: "serverRequest/resolved"; params: ServerRequestResolvedParams } | { method: "account/rateLimits/updated"; params: RateLimitsUpdatedParams } | { method: "account/updated"; params: AccountUpdatedParams } | { method: "skills/changed"; params: EmptyParams } | { method: "mcpServer/startupStatus/updated"; params: McpServerParams } | { method: "mcpServer/oauthLogin/completed"; params: McpServerParams } | { method: "project/changed"; params: ProjectChangedParams } | { method: "remoteControl/status/changed"; params: RemoteControlStatusChangedParams } | 
 /**
  *  A method this build does not model, carrying the raw line so nothing
  *  is lost. Tagged `unknown` — no Codex method is spelled that way.
@@ -600,6 +625,17 @@ export type CommandApprovalParams = {
 	command?: string | null,
 	cwd?: string | null,
 	reason?: string | null,
+	/**
+	 *  `command` (run it) or `writeStdin` (send input to a running one);
+	 *  absent before Codex 0.150. Kept a plain string so an unfamiliar kind
+	 *  still reaches the user instead of degrading the request to Unknown.
+	 */
+	kind?: string | null,
+	/**
+	 *  The approval's own callback id (Codex ≥0.150). The JSON-RPC reply is
+	 *  keyed by request id, so this is informational.
+	 */
+	approvalId?: string | null,
 };
 
 /**  A recent commit for the base-revision picker and branch context. */
@@ -692,6 +728,9 @@ export type ElicitationParams = {
 	url?: string | null,
 	_meta?: unknown,
 };
+
+/**  A notification that carries no parameters at all. */
+export type EmptyParams = Record<string, never>;
 
 export type ErrorParams = {
 	threadId?: string | null,
@@ -1073,6 +1112,13 @@ export type Project = {
 	/**  Attached, indexable folder/file sources for this project. */
 	sources: StoredProjectSource[],
 	members?: WorkspaceMember[],
+	/**
+	 *  When the project's newest thread was active, in Unix seconds, as the
+	 *  app-server reports it (`Project.recencyAt`, unreleased Codex). `None`
+	 *  on released Codex or a project with no threads; the sidebar then keeps
+	 *  the stored order.
+	 */
+	recencyAt?: number | null,
 };
 
 export type ProjectChangedParams = {

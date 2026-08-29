@@ -15,6 +15,11 @@ const TITLES = {
   permissions: "Codex wants extra access",
 } as const;
 
+/** A `writeStdin` approval (Codex ≥0.150) asks to feed a running command,
+ *  not start one; the payload is the input, not a command line. */
+const stdin = $derived(approval.kind === "command" && approval.approvalKind === "writeStdin");
+const title = $derived(stdin ? "Codex wants to send input to the running command" : TITLES[approval.kind]);
+
 /**
  * A permission request is answered with the profile being granted rather than a
  * decision word: granting echoes back what was asked for, declining sends an
@@ -41,11 +46,11 @@ async function decide(decision: "accept" | "acceptForSession" | "decline") {
 <div class="card preset-tonal-warning space-y-2.5 p-3 text-sm">
   <div class="flex items-center gap-2 text-xs font-semibold">
     <ShieldQuestion size={14} />
-    {TITLES[approval.kind]}
+    {title}
   </div>
   {#if approval.kind === "command"}
     {#if approval.command}
-      <pre class="overflow-x-auto rounded-lg bg-surface-950/80 px-3 py-2 font-mono text-[11px] leading-5 text-surface-50">{approval.command}</pre>
+      <pre aria-label={stdin ? "input" : "command"} class="overflow-x-auto rounded-lg bg-surface-950/80 px-3 py-2 font-mono text-[11px] leading-5 text-surface-50">{approval.command}</pre>
     {/if}
     {#if approval.cwd}
       <div class="text-[11px] opacity-70">in {approval.cwd}</div>

@@ -33,6 +33,24 @@ describe("buildTree", () => {
     expect(ids(tree)).toEqual(["item:a", "item:b"]);
   });
 
+  // Unreleased Codex reports when a project was last active; only never-dragged
+  // items use it, so a deliberate arrangement is never reshuffled.
+  it("orders unplaced items by recency when the adapter knows it", () => {
+    type Recent = Item & { recency?: number | null };
+    const recent = { ...adapter, recency: (item: Recent) => item.recency };
+    const items: Recent[] = [{ key: "old", recency: 10 }, { key: "unknown" }, { key: "new", recency: 20 }];
+    expect(ids(buildTree({ folders: [], placements: [] }, "", items, recent))).toEqual([
+      "item:new",
+      "item:old",
+      "item:unknown",
+    ]);
+    const layout: SidebarLayout = {
+      folders: [],
+      placements: [{ itemKey: "old", scope: "", parentId: null, ordinal: 0 }],
+    };
+    expect(ids(buildTree(layout, "", items, recent))).toEqual(["item:old", "item:new", "item:unknown"]);
+  });
+
   it("orders pinned, then placed by ordinal, then unplaced", () => {
     const layout: SidebarLayout = {
       folders: [folder("f", null, 1)],

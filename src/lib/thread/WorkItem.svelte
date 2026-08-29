@@ -29,7 +29,7 @@ import { activityFor, agentClock, elapsedLabel, isRunning, runForToolCall } from
 import { copyText, killAgentRun } from "$lib/services/api";
 import { openSettings } from "$lib/services/settingsNav.svelte";
 import QuestionCard from "$lib/thread/QuestionCard.svelte";
-import { reasoningContent } from "$lib/thread/turnSegments";
+import { functionCallOutputText, reasoningContent } from "$lib/thread/turnSegments";
 import type { AgentRun, ThreadItem } from "$lib/types";
 import { copyCode } from "$lib/utils/copy";
 import { renderMarkdown } from "$lib/utils/markdown";
@@ -493,6 +493,19 @@ const commandStatusClass = (item: ThreadItem) =>
     </Collapsible.Trigger>
     <Collapsible.Content>
       <div class="mt-1.5 whitespace-pre-wrap break-words border-l-2 border-surface-200-800 pl-3 text-xs leading-5 text-surface-500">{hookPromptText(item)}</div>
+    </Collapsible.Content>
+  </Collapsible>
+{:else if item.type === "functionCallOutput"}
+  <!-- The raw result of a tool the model called (Codex ≥0.151). Text output
+       is shown behind an expander; image parts are just counted. -->
+  <Collapsible>
+    <Collapsible.Trigger class="group flex w-full items-center gap-2 text-left text-xs text-surface-500 hover:text-surface-700-300">
+      <Wrench size={12} class="shrink-0" />
+      <span class="shrink-0 font-mono">{item.namespace ? `${item.namespace}/` : ""}{item.name ?? "tool"} output</span>
+      <ChevronDown size={12} class="shrink-0 transition group-data-[state=open]:rotate-180" />
+    </Collapsible.Trigger>
+    <Collapsible.Content>
+      <div class="mt-1.5 border-l-2 border-surface-200-800 pl-3 text-xs leading-5 text-surface-500 whitespace-pre-wrap break-words">{functionCallOutputText(item)}</div>
     </Collapsible.Content>
   </Collapsible>
 {:else if item.type === "mcpToolCall" || item.type === "dynamicToolCall" || item.type === "webSearch"}

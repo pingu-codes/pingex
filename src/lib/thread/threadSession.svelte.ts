@@ -13,10 +13,12 @@ import {
   getThreadGoal,
   interruptTurn,
   invalidateThreadCache,
+  isTurnSettingsUnsupported,
   listAgentRuns,
   listSubagents,
   readThread,
   startTurn,
+  updateTurnSettings,
 } from "$lib/services/api";
 import { activeTurns, type CodexEvent, threadTokenUsage } from "$lib/services/codexEvents.svelte";
 import { requestAutoName } from "$lib/thread/autoName";
@@ -32,6 +34,10 @@ import type {
   TurnOptions,
   UserInputPart,
 } from "$lib/types";
+
+/** Notices for a model/effort change made mid-turn. */
+export const LIVE_SETTINGS_APPLIED = "Switched the running turn to the new settings.";
+export const LIVE_SETTINGS_NEXT_TURN = "New settings apply from the next turn.";
 
 export class ThreadSession {
   /** Codex's id for the thread; `null` while it is an unsent draft. */
@@ -243,6 +249,26 @@ export class ThreadSession {
     });
   }
 
+  /**
+   * The user changed model or effort while a turn is running. Newer Codex can
+   * switch the running turn over (`turn/settings/update`); everything else —
+   * an older Codex, or a turn past the point of switching — keeps today's
+   * behaviour, where the choice applies from the next turn. Never throws: the
+   * preference itself is already saved by the composer.
+   */
+  async updateLiveSettings(settings: { model?: string | null; effort?: string | null }): Promise<void> {
+    const id = this.id;
+    const active = this.activeTurn;
+    if (!id || !active || active.id.startsWith("local-")) return;
+    try {
+      const status = await updateTurnSettings(id, active.id, settings);
+      this.notice = status === "applied" ? LIVE_SETTINGS_APPLIED : LIVE_SETTINGS_NEXT_TURN;
+    } catch (cause) {
+      if (isTurnSettingsUnsupported(cause)) this.notice = LIVE_SETTINGS_NEXT_TURN;
+      else toastError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
   // Deliberately two independent requests rather than one `Promise.all`:
   // `listSubagents` resumes and re-reads every descendant thread, so it is slow
   // and can stall. Gating our own runs behind it would leave the transcript's
@@ -287,6 +313,10 @@ export class ThreadSession {
     if (!id || !params) return;
     if (method === "thread/goal/updated") {
       this.goal = params.goal ?? null;
+      return;
+    }
+    if (method === "thread/goal/cleared") {
+      this.goal = null;
       return;
     }
     if (method === "thread/tokenUsage/updated") {

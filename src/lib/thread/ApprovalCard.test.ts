@@ -49,6 +49,15 @@ describe("ApprovalCard", () => {
     await waitFor(() => expect(mocks.removeApproval).toHaveBeenCalledWith(42));
   });
 
+  // Codex ≥0.150 also asks before feeding a running command; the same card
+  // answers it, but must say so.
+  it("titles a writeStdin approval as sending input", () => {
+    render(ApprovalCard, { approval: { ...approval, approvalKind: "writeStdin", command: "y\n" } });
+
+    expect(screen.getByText("Codex wants to send input to the running command")).toBeInTheDocument();
+    expect(screen.getByLabelText("input")).toBeInTheDocument();
+  });
+
   describe("permission requests", () => {
     const permissions: Approval = {
       requestId: 7,

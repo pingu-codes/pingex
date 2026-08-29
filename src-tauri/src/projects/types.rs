@@ -55,6 +55,12 @@ pub(crate) struct Project {
     pub(crate) sources: Vec<StoredProjectSource>,
     #[serde(default)]
     pub(crate) members: Vec<WorkspaceMember>,
+    /// When the project's newest thread was active, in Unix seconds, as the
+    /// app-server reports it (`Project.recencyAt`, unreleased Codex). `None`
+    /// on released Codex or a project with no threads; the sidebar then keeps
+    /// the stored order.
+    #[serde(default)]
+    pub(crate) recency_at: Option<i64>,
 }
 
 #[derive(Clone, Serialize, specta::Type)]
@@ -116,6 +122,10 @@ pub(crate) struct BootstrapExtras {
     /// `server project id → local key` for every sidebar entry mirrored to
     /// the app-server. Empty on a Codex without `project/*`.
     pub(crate) server_projects: HashMap<String, String>,
+    /// `local key → recencyAt` (Unix seconds of the newest thread) as the
+    /// app-server reports it. Empty on released Codex (through 0.151), which
+    /// has no `Project.recencyAt`.
+    pub(crate) project_recency: HashMap<String, i64>,
     pub(crate) sections: Vec<StoredThreadSection>,
     pub(crate) sections_supported: bool,
     pub(crate) sidebar_layout: SidebarLayout,

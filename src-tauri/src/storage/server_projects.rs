@@ -48,7 +48,44 @@ pub(crate) async fn replace_server_projects(
     transaction.commit().await.map_err(db::db_error)
 }
 
-pub(crate) async fn remove_server_project(database: &Database, local_key: &str) -> Result<(), String> {
+/// `local key → recencyAt` for every mirrored project the server reported a
+/// recency for (unreleased Codex; released servers leave the column NULL).
+pub(crate) async fn read_project_recency(
+    database: &Database,
+) -> Result<HashMap<String, i64>, String> {
+    let connection = db::conn(database)?;
+    let rows = db::rows(
+        &connection,
+        "SELECT local_key, recency_at FROM server_projects WHERE recency_at IS NOT NULL",
+        (),
+        |row| Ok((db::text(row, 0)?, db::int(row, 1)?)),
+    )
+    .await?;
+    Ok(rows.into_iter().collect())
+}
+
+/// Stamp each mirrored project with the recency the server reported. Keys
+/// absent from `recency` keep whatever they had.
+pub(crate) async fn write_project_recency(
+    database: &Database,
+    recency: &HashMap<String, i64>,
+) -> Result<(), String> {
+    let connection = db::conn(database)?;
+    for (local_key, recency_at) in recency {
+        db::exec(
+            &connection,
+            "UPDATE server_projects SET recency_at = ? WHERE local_key = ?",
+            params![*recency_at, local_key.clone()],
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+pub(crate) async fn remove_server_project(
+    database: &Database,
+    local_key: &str,
+) -> Result<(), String> {
     let connection = db::conn(database)?;
     db::exec(
         &connection,
@@ -73,6 +110,17 @@ mod tests {
         ]);
         replace_server_projects(&database, &mapping).await.unwrap();
         assert_eq!(read_server_projects(&database).await.unwrap(), mapping);
+
+        write_project_recency(
+            &database,
+            &HashMap::from([("/repo/a".to_string(), 1_700_000_000_i64)]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            read_project_recency(&database).await.unwrap(),
+            HashMap::from([("/repo/a".to_string(), 1_700_000_000_i64)])
+        );
 
         remove_server_project(&database, "/repo/a").await.unwrap();
         assert_eq!(

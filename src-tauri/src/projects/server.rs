@@ -13,7 +13,7 @@
 //! Everything here is best-effort: a refusal (older Codex, capability not
 //! granted) leaves the mapping empty and the cwd-based grouping in charge.
 
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use tauri::AppHandle;
@@ -55,7 +55,10 @@ pub(crate) fn local_projects(
         .filter(|project| !project.archived)
         .map(|project| LocalProject {
             key: project.path.clone(),
-            name: project.name.clone().unwrap_or_else(|| folder_name(&project.path)),
+            name: project
+                .name
+                .clone()
+                .unwrap_or_else(|| folder_name(&project.path)),
             roots: vec![project.path.clone()],
             threads: Vec::new(),
         })
@@ -110,16 +113,26 @@ fn folder_name(path: &str) -> String {
         .to_string()
 }
 
+/// What [`sync`] learned from the server.
+#[derive(Debug, Default)]
+pub(crate) struct Synced {
+    /// `server project id → local key`; empty when this Codex has no
+    /// project APIs.
+    pub(crate) mapping: HashMap<String, String>,
+    /// `local key → Project.recencyAt`, only for projects the server reported
+    /// one for (unreleased Codex; no release through 0.151 has it).
+    pub(crate) recency: HashMap<String, i64>,
+}
+
 /// Reconcile the server's projects with the sidebar: read what it has, import
 /// every local entry it does not, and persist the resulting
-/// `server id → local key` mapping. Returns that mapping — empty when this
-/// Codex has no project APIs.
+/// `server id → local key` mapping (plus each project's recency).
 pub(crate) async fn sync(
     app: &AppHandle,
     ctx: &HomeContext,
     locals: &[LocalProject],
-) -> Result<HashMap<String, String>, String> {
-    let mut mapping: HashMap<String, String> = HashMap::new();
+) -> Result<Synced, String> {
+    let mut synced = Synced::default();
     let mut cursor: Option<String> = None;
     loop {
         let page = match ctx
@@ -127,15 +140,15 @@ pub(crate) async fn sync(
             .send_gated(
                 app,
                 Feature::PROJECTS,
-                requests::project_list(cursor.as_deref()),
+                requests::project_list(cursor.as_deref(), Some(("recencyAt", "desc"))),
                 |_| None,
             )
             .await
         {
             Ok(page) => page,
             Err(error) if error.starts_with(Feature::PROJECTS.error_prefix) => {
-                storage::replace_server_projects(&ctx.database(), &mapping).await?;
-                return Ok(mapping);
+                storage::replace_server_projects(&ctx.database(), &synced.mapping).await?;
+                return Ok(synced);
             }
             Err(error) => return Err(error),
         };
@@ -144,7 +157,10 @@ pub(crate) async fn sync(
                 .get("metadata")
                 .and_then(|metadata| str_at(metadata, KEY_METADATA));
             if let (Some(id), Some(key)) = (str_at(project, "id"), key) {
-                mapping.insert(id.to_string(), key.to_string());
+                synced.mapping.insert(id.to_string(), key.to_string());
+                if let Some(recency) = project.get("recencyAt").and_then(Value::as_i64) {
+                    synced.recency.insert(key.to_string(), recency);
+                }
             }
         }
         cursor = str_at(&page, "nextCursor").map(str::to_string);
@@ -153,7 +169,7 @@ pub(crate) async fn sync(
         }
     }
 
-    let mirrored: HashSet<String> = mapping.values().cloned().collect();
+    let mirrored: HashSet<String> = synced.mapping.values().cloned().collect();
     for local in locals.iter().filter(|local| !mirrored.contains(&local.key)) {
         // One entry failing to import (a root that no longer exists, say) must
         // not take the whole bootstrap down with it.
@@ -172,15 +188,19 @@ pub(crate) async fn sync(
             .await;
         match imported {
             Ok(response) => {
-                if let Some(id) = response.get("project").and_then(|project| str_at(project, "id")) {
-                    mapping.insert(id.to_string(), local.key.clone());
+                if let Some(id) = response
+                    .get("project")
+                    .and_then(|project| str_at(project, "id"))
+                {
+                    synced.mapping.insert(id.to_string(), local.key.clone());
                 }
             }
             Err(error) => eprintln!("could not mirror {} to a Codex project: {error}", local.key),
         }
     }
-    storage::replace_server_projects(&ctx.database(), &mapping).await?;
-    Ok(mapping)
+    storage::replace_server_projects(&ctx.database(), &synced.mapping).await?;
+    storage::write_project_recency(&ctx.database(), &synced.recency).await?;
+    Ok(synced)
 }
 
 /// The server project standing for `key`, if the sidebar entry was mirrored.
@@ -216,7 +236,10 @@ pub(crate) async fn assign_thread(
     }
     if let Err(error) = ctx
         .session
-        .send(app, requests::thread_set_project(thread_id, project_id.as_deref()))
+        .send(
+            app,
+            requests::thread_set_project(thread_id, project_id.as_deref()),
+        )
         .await
     {
         eprintln!("could not file thread {thread_id} under a Codex project: {error}");
@@ -349,7 +372,10 @@ mod tests {
         let hub = locals.iter().find(|local| local.key == "/hub").unwrap();
         assert_eq!(hub.roots, vec!["/repo/api".to_string()]);
         assert_eq!(hub.threads, vec!["ws-thread".to_string()]);
-        let api = locals.iter().find(|local| local.key == "/repo/api").unwrap();
+        let api = locals
+            .iter()
+            .find(|local| local.key == "/repo/api")
+            .unwrap();
         assert_eq!(api.threads, vec!["plain".to_string()]);
     }
 

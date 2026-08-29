@@ -466,6 +466,28 @@ describe("applyThreadEvent — reviews", () => {
     expect(thread.turns[0].status).toBe("failed");
   });
 
+  // Codex ≥0.151 explains an alignment stop and suggests how to carry on;
+  // that belongs on the failed turn, not in a toast.
+  it("keeps a misalignment explanation on the failed turn instead of a stream error", () => {
+    const thread = makeThread([{ id: "turn-1", status: "inProgress", items: [] }]);
+    const misalignment = { errorType: "x", detailedExplanation: "Out of bounds.", steer: { message: "Try safer." } };
+    const outcome = applyThreadEvent(thread, {
+      method: "error",
+      params: { threadId: "t", willRetry: false, error: { message: "Stopped.", misalignment } },
+    });
+    expect(outcome.streamError).toBeUndefined();
+    expect(outcome.misalignment).toEqual(misalignment);
+    expect(thread.turns[0].status).toBe("failed");
+    expect(thread.turns[0].error).toEqual({ message: "Stopped.", misalignment });
+
+    // A completion that follows without its own error keeps the details.
+    applyThreadEvent(thread, {
+      method: "turn/completed",
+      params: { threadId: "t", turn: { id: "turn-1", status: "failed" } },
+    });
+    expect(thread.turns[0].error?.misalignment).toEqual(misalignment);
+  });
+
   it("leaves the turn running for an error Codex will retry", () => {
     const thread = makeThread([{ id: "turn-1", status: "inProgress", items: [] }]);
     applyThreadEvent(thread, {

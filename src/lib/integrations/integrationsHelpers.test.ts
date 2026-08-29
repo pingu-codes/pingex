@@ -7,6 +7,7 @@ import {
   formatArgs,
   parseArgs,
   rowStatus,
+  runtimeStatusLabel,
   serverInfoLines,
   splitFrontmatter,
   statusDotClass,
@@ -80,6 +81,16 @@ describe("rowStatus", () => {
     expect(rowStatus(server(), status({ runtimeStatus: "hibernating" }))).toBe("enabled");
     expect(rowStatus(server(), status({ authStatus: "unknown" }))).toBe("enabled");
     expect(rowStatus(server(), status({ authStatus: "somethingNew" }))).toBe("enabled");
+  });
+});
+
+describe("runtimeStatusLabel", () => {
+  it("humanises the 0.150 runtime status and passes unknown values through", () => {
+    expect(runtimeStatusLabel(status({ runtimeStatus: "starting" }))).toBe("Starting…");
+    expect(runtimeStatusLabel(status({ runtimeStatus: "authenticationRequired" }))).toBe("Sign-in required");
+    expect(runtimeStatusLabel(status({ runtimeStatus: "hibernating" }))).toBe("hibernating");
+    expect(runtimeStatusLabel(status({}))).toBeNull();
+    expect(runtimeStatusLabel(null)).toBeNull();
   });
 });
 

@@ -25,6 +25,7 @@ import {
   resourcesOf,
   resourceTemplatesOf,
   rowStatus,
+  runtimeStatusLabel,
   serverInfoLines,
   splitFrontmatter,
   statusDotClass,
@@ -628,6 +629,9 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
               <div class="flex shrink-0 items-center gap-1.5">
                 <span class="size-1.5 rounded-full {statusDotClass(status)}"></span>
                 <span class="text-[10px] text-surface-500">{statusLabel(status)}</span>
+                {#if runtimeStatusLabel(live) && runtimeStatusLabel(live) !== statusLabel(status)}
+                  <span class="text-[10px] text-surface-500" title="Codex runtime status">· {runtimeStatusLabel(live)}</span>
+                {/if}
               </div>
             </div>
 

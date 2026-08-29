@@ -59,7 +59,8 @@ pub(crate) use sections::{
     StoredThreadSection,
 };
 pub(crate) use server_projects::{
-    read_server_projects, remove_server_project, replace_server_projects,
+    read_project_recency, read_server_projects, remove_server_project, replace_server_projects,
+    write_project_recency,
 };
 pub(crate) use sidebar_layout::{
     create_sidebar_folder, delete_sidebar_folder, forget_sidebar_scope, is_folder_or_descendant,

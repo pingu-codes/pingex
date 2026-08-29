@@ -999,7 +999,23 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
             {/if}
           {/each}
           {#if turn.status === "failed" && turn.error}
-            <div class="card preset-tonal-error p-3 text-xs">{turn.error.message}</div>
+            {@const steer = turn.error.misalignment?.steer?.message}
+            <div class="card preset-tonal-error space-y-2 p-3 text-xs">
+              <div>{turn.error.message}</div>
+              {#if turn.error.misalignment?.detailedExplanation}
+                <p class="whitespace-pre-wrap opacity-90">{turn.error.misalignment.detailedExplanation}</p>
+              {/if}
+              {#if steer}
+                <button
+                  type="button"
+                  class="btn btn-sm preset-tonal"
+                  disabled={Boolean(session.activeTurn)}
+                  onclick={() => void send([{ type: "text", text: steer }])}
+                >
+                  Continue with suggested steer
+                </button>
+              {/if}
+            </div>
           {/if}
         {/each}
 
@@ -1155,6 +1171,9 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
     threadModel={lastTurnModel}
     onSubagentPolicyChange={changeSubagentPolicy}
     onModelChange={(modelId) => (activeModel = modelId)}
+    onLiveSettingsChange={(settings) => {
+      if (session.activeTurn) void session.updateLiveSettings(settings);
+    }}
   />
 </div>
 

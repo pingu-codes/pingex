@@ -1,7 +1,7 @@
 import type { CodexEvent } from "$lib/services/codexEvents.svelte";
 import { isRetryableError, reviewTransition } from "$lib/services/turnLifecycle";
 import { mergeFileChanges } from "$lib/thread/fileChanges";
-import type { HookRunSummary, ThreadDetail, ThreadItem, Turn } from "$lib/types";
+import type { HookRunSummary, MisalignmentErrorDetails, ThreadDetail, ThreadItem, Turn } from "$lib/types";
 
 export function ensureTurn(turns: Turn[], turnId: string): Turn {
   const turn = turns.find((candidate) => candidate.id === turnId);
@@ -139,6 +139,9 @@ export interface ApplyOutcome {
   collabToolCall?: boolean;
   /** The event targeted this thread (caller should keep the view scrolled). */
   changed: boolean;
+  /** Codex stopped the turn for an alignment reason; drawn in the transcript
+   *  instead of `streamError`. */
+  misalignment?: MisalignmentErrorDetails;
 }
 
 /**
@@ -167,7 +170,10 @@ export function applyThreadEvent(thread: ThreadDetail, event: CodexEvent): Apply
       const turn = matched ?? thread.turns.find((candidate) => candidate.status === "inProgress");
       if (turn) {
         turn.status = params.turn.status;
-        turn.error = params.turn.error ?? null;
+        // An `error` notification may already have attached the misalignment
+        // details Codex sends only there; a completion without its own error
+        // must not wipe them.
+        turn.error = params.turn.error ?? (turn.status === "failed" ? turn.error : null) ?? null;
         turn.durationMs = params.turn.durationMs ?? turn.durationMs;
         turn.startedAt = params.turn.startedAt ?? turn.startedAt;
         turn.completedAt = params.turn.completedAt ?? turn.completedAt;
@@ -308,12 +314,19 @@ export function applyThreadEvent(thread: ThreadDetail, event: CodexEvent): Apply
       if (isRetryableError(event)) {
         outcome.notice = `${params.error?.message ?? "Codex reported an error."} Retrying…`;
       } else {
-        outcome.streamError = params.error?.message ?? "Codex reported an error.";
+        const message = params.error?.message ?? "Codex reported an error.";
+        const misalignment = params.error?.misalignment ?? null;
+        // A misalignment stop (Codex ≥0.151) carries its own explanation and
+        // a suggested way on; the transcript card shows that, so no toast.
+        if (misalignment?.detailedExplanation) outcome.misalignment = misalignment;
+        else outcome.streamError = message;
         // The turn is over even if no `turn/completed` follows, and the session
         // store already stops counting the thread as working — without this the
         // transcript alone would go on claiming it still is. A `turn/completed`
         // that does arrive overwrites this with Codex's own verdict.
+        const running = thread.turns.filter((turn) => turn.status === "inProgress");
         finalizeRunningTurns(thread.turns, "failed");
+        for (const turn of running) turn.error = { message, misalignment };
       }
       break;
     // Advisories Codex expects the client to show. None of them stop the turn,

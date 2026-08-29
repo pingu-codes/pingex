@@ -25,25 +25,49 @@ pub struct Feature {
     /// Prefix put on the error handed to the frontend so it can tell "absent"
     /// from "failed". The frontend matches these exact strings.
     pub error_prefix: &'static str,
+    /// The first Codex `(major, minor)` release that has the API. Documentation
+    /// for `docs/SUPPORTED_VERSIONS.md` and the live suite's `expect_legacy`;
+    /// the app itself never compares versions.
+    pub since: (u64, u64),
 }
 
 impl Feature {
     pub const REVERT: Feature = Feature {
         method_prefix: "thread/revert",
         error_prefix: "codex-revert-unsupported",
+        since: (0, 149),
     };
     pub const QUEUE: Feature = Feature {
         method_prefix: "thread/queue",
         error_prefix: "codex-queue-unsupported",
+        since: (0, 149),
     };
     pub const PROJECTS: Feature = Feature {
         method_prefix: "project/",
         error_prefix: "codex-projects-unsupported",
+        since: (0, 149),
     };
     pub const SECTIONS: Feature = Feature {
         method_prefix: "threadSection/",
         error_prefix: "codex-sections-unsupported",
+        since: (0, 149),
     };
+    /// `turn/settings/update`: change model or effort while a turn is running
+    /// (Codex ≥0.151).
+    pub const TURN_SETTINGS: Feature = Feature {
+        method_prefix: "turn/settings/update",
+        error_prefix: "codex-turn-settings-unsupported",
+        since: (0, 151),
+    };
+
+    /// Every gated API, for the docs matrix and the live suite.
+    pub const ALL: [Feature; 5] = [
+        Self::REVERT,
+        Self::QUEUE,
+        Self::PROJECTS,
+        Self::SECTIONS,
+        Self::TURN_SETTINGS,
+    ];
 
     pub(crate) fn error(&self, reason: &str) -> String {
         format!("{}: {reason}", self.error_prefix)
@@ -120,6 +144,18 @@ mod tests {
     }
 
     #[test]
+    fn classifies_a_codex_without_turn_settings() {
+        assert!(method_unsupported(
+            &failure(
+                -32600,
+                "Invalid request: unknown variant `turn/settings/update`, expected one of `initialize`"
+            ),
+            super::Feature::TURN_SETTINGS.method_prefix
+        )
+        .is_some());
+    }
+
+    #[test]
     fn classifies_a_withheld_capability() {
         assert!(method_unsupported(
             &failure(-32600, "project/list requires experimentalApi capability"),
@@ -140,7 +176,10 @@ mod tests {
 
     #[test]
     fn passes_through_ordinary_failures() {
-        assert!(method_unsupported(&failure(-32600, "thread not found: abc"), "thread/revert").is_none());
+        assert!(
+            method_unsupported(&failure(-32600, "thread not found: abc"), "thread/revert")
+                .is_none()
+        );
         assert!(method_unsupported("Codex exited before responding", "thread/revert").is_none());
         assert!(method_unsupported("Codex request failed: client not found", "project/").is_none());
     }

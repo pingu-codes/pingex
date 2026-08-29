@@ -178,7 +178,11 @@ function threadGroups(visible: ThreadSummary[]): { section: ThreadSection | null
 
 // --- Folder tree & drag-and-drop -------------------------------------------
 
-const rootAdapter = { key: (project: Project) => project.path, pinned: (project: Project) => project.pinned };
+const rootAdapter = {
+  key: (project: Project) => project.path,
+  pinned: (project: Project) => project.pinned,
+  recency: (project: Project) => project.recencyAt,
+};
 const threadAdapter = { key: (thread: ThreadSummary) => thread.id, pinned: (thread: ThreadSummary) => thread.pinned };
 
 const rootTree = $derived.by(() => {

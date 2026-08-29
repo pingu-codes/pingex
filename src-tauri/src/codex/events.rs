@@ -54,6 +54,16 @@ pub(crate) enum CodexNotification {
     ThreadReverted(ThreadParams),
     #[serde(rename = "thread/compacted")]
     ThreadCompacted(ThreadTurnParams),
+    #[serde(rename = "thread/archived")]
+    ThreadArchived(ThreadParams),
+    #[serde(rename = "thread/unarchived")]
+    ThreadUnarchived(ThreadParams),
+    #[serde(rename = "thread/deleted")]
+    ThreadDeleted(ThreadParams),
+    #[serde(rename = "thread/closed")]
+    ThreadClosed(ThreadParams),
+    #[serde(rename = "thread/goal/cleared")]
+    ThreadGoalCleared(ThreadParams),
 
     #[serde(rename = "turn/started")]
     TurnStarted(TurnParams),
@@ -64,8 +74,6 @@ pub(crate) enum CodexNotification {
 
     #[serde(rename = "item/started")]
     ItemStarted(ItemParams),
-    #[serde(rename = "item/updated")]
-    ItemUpdated(ItemParams),
     #[serde(rename = "item/completed")]
     ItemCompleted(ItemParams),
     #[serde(rename = "item/agentMessage/delta")]
@@ -95,6 +103,12 @@ pub(crate) enum CodexNotification {
     ModelSafetyBufferingUpdated(SafetyBufferingUpdatedParams),
     #[serde(rename = "hook/completed")]
     HookCompleted(HookCompletedParams),
+    /// Codex is re-authenticating with a model provider mid-turn (unreleased
+    /// Codex); the turn resumes on its own once `Completed` arrives.
+    #[serde(rename = "modelProvider/authRecoveryStarted")]
+    AuthRecoveryStarted(AuthRecoveryParams),
+    #[serde(rename = "modelProvider/authRecoveryCompleted")]
+    AuthRecoveryCompleted(AuthRecoveryParams),
 
     #[serde(rename = "error")]
     Error(ErrorParams),
@@ -111,6 +125,10 @@ pub(crate) enum CodexNotification {
     ServerRequestResolved(ServerRequestResolvedParams),
     #[serde(rename = "account/rateLimits/updated")]
     AccountRateLimitsUpdated(RateLimitsUpdatedParams),
+    #[serde(rename = "account/updated")]
+    AccountUpdated(AccountUpdatedParams),
+    #[serde(rename = "skills/changed")]
+    SkillsChanged(EmptyParams),
     #[serde(rename = "mcpServer/startupStatus/updated")]
     McpServerStartupStatusUpdated(McpServerParams),
     #[serde(rename = "mcpServer/oauthLogin/completed")]
@@ -165,11 +183,15 @@ const KNOWN_METHODS: &[&str] = &[
     "thread/queue/changed",
     "thread/reverted",
     "thread/compacted",
+    "thread/archived",
+    "thread/unarchived",
+    "thread/deleted",
+    "thread/closed",
+    "thread/goal/cleared",
     "turn/started",
     "turn/completed",
     "turn/plan/updated",
     "item/started",
-    "item/updated",
     "item/completed",
     "item/agentMessage/delta",
     "item/plan/delta",
@@ -184,6 +206,8 @@ const KNOWN_METHODS: &[&str] = &[
     "model/rerouted",
     "model/safetyBuffering/updated",
     "hook/completed",
+    "modelProvider/authRecoveryStarted",
+    "modelProvider/authRecoveryCompleted",
     "error",
     "warning",
     "guardianWarning",
@@ -191,6 +215,8 @@ const KNOWN_METHODS: &[&str] = &[
     "configWarning",
     "serverRequest/resolved",
     "account/rateLimits/updated",
+    "account/updated",
+    "skills/changed",
     "mcpServer/startupStatus/updated",
     "mcpServer/oauthLogin/completed",
     "project/changed",
@@ -218,6 +244,10 @@ macro_rules! params {
 }
 
 params!(ThreadParams { thread_id: Option<String> });
+params!(
+    /// A notification that carries no parameters at all.
+    EmptyParams {}
+);
 params!(ThreadTurnParams { thread_id: Option<String>, turn_id: Option<String> });
 params!(ThreadStartedParams { #[specta(type = Json)] thread: Option<Json> });
 params!(ThreadStatusChangedParams { thread_id: Option<String>, #[specta(type = Json)] status: Option<Json> });
@@ -272,6 +302,7 @@ params!(AutoApprovalReviewCompletedParams {
 params!(ModelReroutedParams { thread_id: Option<String>, turn_id: Option<String>, from_model: Option<String>, to_model: Option<String> });
 params!(SafetyBufferingUpdatedParams { thread_id: Option<String>, turn_id: Option<String>, show_buffering_ui: Option<bool> });
 params!(HookCompletedParams { thread_id: Option<String>, turn_id: Option<String>, #[specta(type = Json)] run: Option<Json> });
+params!(AuthRecoveryParams { thread_id: Option<String>, turn_id: Option<String>, provider: Option<String>, message: Option<String> });
 
 params!(ErrorParams { thread_id: Option<String>, turn_id: Option<String>, will_retry: Option<bool>, #[specta(type = Json)] error: Option<Json> });
 params!(
@@ -290,6 +321,7 @@ params!(
 
 params!(ServerRequestResolvedParams { thread_id: Option<String>, request_id: Option<i64> });
 params!(RateLimitsUpdatedParams { #[specta(type = Json)] rate_limits: Option<Json> });
+params!(AccountUpdatedParams { auth_mode: Option<String>, plan_type: Option<String> });
 params!(McpServerParams { thread_id: Option<String>, name: Option<String>, server_name: Option<String> });
 params!(ProjectChangedParams { project_id: Option<String>, change_type: Option<String> });
 params!(RemoteControlStatusChangedParams { #[specta(type = Json)] status: Option<Json>, server_name: Option<String> });
@@ -346,6 +378,13 @@ params!(CommandApprovalParams {
     command: Option<String>,
     cwd: Option<String>,
     reason: Option<String>,
+    /// `command` (run it) or `writeStdin` (send input to a running one);
+    /// absent before Codex 0.150. Kept a plain string so an unfamiliar kind
+    /// still reaches the user instead of degrading the request to Unknown.
+    kind: Option<String>,
+    /// The approval's own callback id (Codex ≥0.150). The JSON-RPC reply is
+    /// keyed by request id, so this is informational.
+    approval_id: Option<String>,
 });
 params!(FileChangeApprovalParams {
     thread_id: Option<String>,
@@ -484,6 +523,11 @@ mod tests {
         round_trips("thread/queue/changed", json!({"threadId": "t"}));
         round_trips("thread/reverted", json!({"threadId": "t"}));
         round_trips("thread/compacted", json!({"threadId": "t", "turnId": "u"}));
+        round_trips("thread/archived", json!({"threadId": "t"}));
+        round_trips("thread/unarchived", json!({"threadId": "t"}));
+        round_trips("thread/deleted", json!({"threadId": "t"}));
+        round_trips("thread/closed", json!({"threadId": "t"}));
+        round_trips("thread/goal/cleared", json!({"threadId": "t"}));
         round_trips(
             "turn/started",
             json!({"threadId": "t", "turn": {"id": "u", "status": "inProgress", "items": []}}),
@@ -499,10 +543,6 @@ mod tests {
         round_trips(
             "item/started",
             json!({"threadId": "t", "turnId": "u", "item": {"type": "agentMessage", "id": "i"}}),
-        );
-        round_trips(
-            "item/updated",
-            json!({"threadId": "t", "turnId": "u", "item": {"type": "commandExecution", "id": "i"}}),
         );
         round_trips(
             "item/completed",
@@ -561,8 +601,16 @@ mod tests {
             json!({"threadId": "t", "turnId": "u", "run": {"status": "failed", "entries": []}}),
         );
         round_trips(
+            "modelProvider/authRecoveryStarted",
+            json!({"threadId": "t", "turnId": "u", "provider": "openai", "message": "refreshing"}),
+        );
+        round_trips(
+            "modelProvider/authRecoveryCompleted",
+            json!({"threadId": "t", "turnId": "u", "provider": "openai", "message": "ok"}),
+        );
+        round_trips(
             "error",
-            json!({"threadId": "t", "turnId": "u", "willRetry": true, "error": {"message": "boom"}}),
+            json!({"threadId": "t", "turnId": "u", "willRetry": true, "error": {"message": "boom", "misalignment": {"errorType": "x", "detailedExplanation": "why", "steer": {"message": "go on"}}}}),
         );
         round_trips("warning", json!({"threadId": "t", "message": "careful"}));
         round_trips(
@@ -582,6 +630,11 @@ mod tests {
             "account/rateLimits/updated",
             json!({"rateLimits": {"primary": {}}}),
         );
+        round_trips(
+            "account/updated",
+            json!({"authMode": "chatgpt", "planType": "pro"}),
+        );
+        round_trips("skills/changed", json!({}));
         round_trips(
             "mcpServer/startupStatus/updated",
             json!({"name": "s", "threadId": "t"}),
@@ -697,5 +750,28 @@ mod tests {
             ServerRequest::decode("item/tool/call", &json!({})),
             ServerRequest::Unknown(_)
         ));
+    }
+
+    /// Codex 0.150 tags command approvals with a `kind` (v2 spells the enum
+    /// camelCase: `writeStdin`); 0.149 sends neither field.
+    #[test]
+    fn command_approvals_carry_their_kind_when_codex_sends_one() {
+        match ServerRequest::decode(
+            "item/commandExecution/requestApproval",
+            &json!({"threadId": "t", "command": "y", "kind": "writeStdin", "approvalId": "cb-1"}),
+        ) {
+            ServerRequest::CommandExecutionRequestApproval(inner) => {
+                assert_eq!(inner.kind.as_deref(), Some("writeStdin"));
+                assert_eq!(inner.approval_id.as_deref(), Some("cb-1"));
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        match ServerRequest::decode(
+            "item/commandExecution/requestApproval",
+            &json!({"threadId": "t", "command": "ls"}),
+        ) {
+            ServerRequest::CommandExecutionRequestApproval(inner) => assert_eq!(inner.kind, None),
+            other => panic!("unexpected {other:?}"),
+        }
     }
 }

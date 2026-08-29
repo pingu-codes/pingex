@@ -14,6 +14,7 @@ import {
   Smartphone,
   X,
 } from "@lucide/svelte";
+import { classifyVersion, LAST_STABLE, STABLE, type VersionTier } from "$lib/app/codexVersion.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import IntegrationsSection from "$lib/integrations/IntegrationsSection.svelte";
 import { appearance, FONT_SIZE_MAX, FONT_SIZE_MIN } from "$lib/layout/appearancePrefs.svelte";
@@ -98,6 +99,13 @@ let generalError = $state<string | null>(null);
 let generalSaved = $state(false);
 let serverInfo = $state<CodexServerInfo | null>(null);
 const serverVersion = $derived(codexVersionFromUserAgent(serverInfo?.userAgent));
+const serverTier = $derived(serverVersion ? classifyVersion(serverVersion) : null);
+const TIER_LABEL: Record<VersionTier, string> = {
+  supported: "supported",
+  older: `older than last stable ${LAST_STABLE} — may not work`,
+  newer: `newer than stable ${STABLE} — untested`,
+  unstable: "unreleased build — untested",
+};
 
 // --- config.toml settings (Agent / Model features / Coding) ---
 let configSettings = $state<ConfigSetting[]>([]);
@@ -319,6 +327,9 @@ async function reveal(path: string | null | undefined) {
                   {serverVersion ? `codex ${serverVersion}` : serverInfo.userAgent}
                   {#if serverInfo.platformOs}
                     <span class="text-surface-500"> · {serverInfo.platformOs}</span>
+                  {/if}
+                  {#if serverTier}
+                    <span class={serverTier === "supported" ? "text-surface-500" : "text-warning-600-400"}> · {TIER_LABEL[serverTier]}</span>
                   {/if}
                 </div>
               </div>

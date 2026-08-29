@@ -3,8 +3,10 @@
  * app-server for whichever home is active, so nothing may boot until a home is
  * settled — hence the explicit picker phase before the app phase.
  */
+
 import { open } from "@tauri-apps/plugin-dialog";
 import { appData, refresh } from "$lib/app/appData.svelte";
+import { checkCodexVersion } from "$lib/app/codexVersion.svelte";
 import { closeAllDialogs } from "$lib/app/dialogs.svelte";
 import { goHome } from "$lib/app/navigation.svelte";
 import { refreshAccountUsage } from "$lib/services/accountUsage.svelte";
@@ -93,6 +95,8 @@ export async function browseForHome(): Promise<string | null> {
 export async function setBinary(path: string): Promise<void> {
   launch.state = await setCodexBinary(path);
   launch.error = null;
+  // A different binary may be a different version.
+  void checkCodexVersion();
 }
 
 // Forget a home from the picker's recents list (the folder itself is kept).

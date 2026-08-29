@@ -5,10 +5,12 @@ vi.mock("$lib/services/api", () => ({ recordUserInputRequest: vi.fn().mockResolv
 import {
   activeTurns,
   approvals,
+  authRecovery,
   elicitations,
   previewEmitServerRequest as emitServerRequestTyped,
   previewEmit as emitTyped,
   seedActiveTurns,
+  skillsStatus,
   turnPlans,
   userInputRequests,
 } from "$lib/services/codexEvents.svelte";
@@ -20,6 +22,7 @@ const previewEmitServerRequest = (payload: FakeEvent & { requestId: number }) =>
 
 beforeEach(() => {
   approvals.list = [];
+  authRecovery.byThread = {};
   userInputRequests.list = [];
   elicitations.list = [];
   turnPlans.byThread = {};
@@ -107,6 +110,26 @@ describe("server requests", () => {
 });
 
 describe("serverRequest/resolved", () => {
+  // 0.150 tags command approvals; 0.149 sends no `kind` and only ever asks
+  // to run a command.
+  it("keeps the approval kind Codex sends, defaulting to command", () => {
+    previewEmitServerRequest({
+      requestId: 8,
+      method: "item/commandExecution/requestApproval",
+      params: { threadId: "t", turnId: "turn-1", itemId: "i1", command: "y", kind: "writeStdin", approvalId: "cb" },
+    });
+    previewEmitServerRequest({
+      requestId: 9,
+      method: "item/commandExecution/requestApproval",
+      params: { threadId: "t", turnId: "turn-1", itemId: "i2", command: "ls" },
+    });
+
+    expect(approvals.list.map((a) => [a.requestId, a.approvalKind, a.approvalId])).toEqual([
+      [8, "writeStdin", "cb"],
+      [9, "command", null],
+    ]);
+  });
+
   it("clears whichever card was waiting on that request", () => {
     previewEmitServerRequest({
       requestId: 4,
@@ -123,6 +146,37 @@ describe("serverRequest/resolved", () => {
 
     expect(approvals.list).toHaveLength(0);
     expect(elicitations.list).toHaveLength(1);
+  });
+});
+
+describe("auth recovery", () => {
+  it("tracks the thread from started until completed or the turn ends", () => {
+    previewEmit({
+      method: "modelProvider/authRecoveryStarted",
+      params: { threadId: "t", turnId: "u", provider: "openai", message: "refreshing" },
+    });
+    expect(authRecovery.byThread.t).toEqual({ provider: "openai", message: "refreshing" });
+    previewEmit({ method: "modelProvider/authRecoveryCompleted", params: { threadId: "t", turnId: "u" } });
+    expect(authRecovery.byThread.t).toBeUndefined();
+
+    previewEmit({ method: "modelProvider/authRecoveryStarted", params: { threadId: "t", provider: "openai" } });
+    previewEmit({ method: "turn/completed", params: { threadId: "t", turn: { id: "u", status: "completed" } } });
+    expect(authRecovery.byThread.t).toBeUndefined();
+  });
+});
+
+describe("lifecycle notifications", () => {
+  it("stops counting a closed thread as working", () => {
+    previewEmit({ method: "turn/started", params: { threadId: "t", turn: { id: "u", status: "inProgress" } } });
+    expect(activeTurns.list).toEqual(["t"]);
+    previewEmit({ method: "thread/closed", params: { threadId: "t" } });
+    expect(activeTurns.list).toEqual([]);
+  });
+
+  it("bumps the skills nonce when Codex says the skills changed", () => {
+    const before = skillsStatus.nonce;
+    previewEmit({ method: "skills/changed", params: {} });
+    expect(skillsStatus.nonce).toBe(before + 1);
   });
 });
 

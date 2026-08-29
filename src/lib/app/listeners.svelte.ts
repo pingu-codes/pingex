@@ -58,13 +58,19 @@ export function startApp(): void {
     // visible to thread/list once its rollout is persisted, which happens after
     // the thread/started refresh has already run.
     // project/changed and thread/project/updated come from Codex ≥0.149 when
-    // another client reorganises the projects this sidebar mirrors.
+    // another client reorganises the projects this sidebar mirrors; the
+    // archive/delete lifecycle and account/updated are how another client's
+    // housekeeping (or a plan change) reaches this window.
     if (
       event.method !== "thread/started" &&
       event.method !== "thread/name/updated" &&
       event.method !== "turn/completed" &&
       event.method !== "project/changed" &&
-      event.method !== "thread/project/updated"
+      event.method !== "thread/project/updated" &&
+      event.method !== "thread/archived" &&
+      event.method !== "thread/unarchived" &&
+      event.method !== "thread/deleted" &&
+      event.method !== "account/updated"
     )
       return;
     if (sidebarRefreshTimer) clearTimeout(sidebarRefreshTimer);

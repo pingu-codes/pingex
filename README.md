@@ -27,7 +27,9 @@ Pingex covers the core Codex desktop experience — threads with reasoning and c
     - In the future we aim to support other platforms
 - [Deno](https://deno.com/) 2+
 - Rust toolchain
-- A `codex` CLI on `PATH`, or a path configured in Pingex settings
+- A `codex` CLI on `PATH`, or a path configured in Pingex settings — see
+  [Supported Codex versions](docs/SUPPORTED_VERSIONS.md) for which releases
+  are tested (the current stable, the one before it, and upstream `main`)
 
 ## Development
 

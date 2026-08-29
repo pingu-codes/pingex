@@ -381,6 +381,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         threads::turn::start_thread,
         threads::turn::start_turn,
         threads::turn::interrupt_turn,
+        threads::turn::update_turn_settings,
         threads::turn::respond_approval,
         threads::turn::respond_user_input,
         threads::turn::respond_server_request,

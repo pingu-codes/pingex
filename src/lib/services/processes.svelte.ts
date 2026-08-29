@@ -104,7 +104,7 @@ export function applyProcessEvent(event: CodexEvent): void {
   // A review ends by leaving review mode, never by `turn/completed`.
   const reviewExited = reviewTransition(event) === "exited";
 
-  if (!reviewExited && (method === "item/started" || method === "item/completed" || method === "item/updated")) {
+  if (!reviewExited && (method === "item/started" || method === "item/completed")) {
     const item = params.item;
     if (item?.type !== "commandExecution" || !item.id) return;
     const key = processKey(threadId, item.id);
