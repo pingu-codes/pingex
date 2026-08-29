@@ -40,7 +40,7 @@ export const commands = {
 	updateWorkspace: (input: UpdateWorkspaceInput) => __TAURI_INVOKE<BootstrapData>("update_workspace", { input }),
 	moveThreadToWorkspace: (threadId: string, workspaceId: string) => __TAURI_INVOKE<BootstrapData>("move_thread_to_workspace", { threadId, workspaceId }),
 	readThread: (threadId: string) => __TAURI_INVOKE<unknown>("read_thread", { threadId }),
-	startThread: (cwd: string | null, workspaceId: string | null, appSubagents: boolean | null) => __TAURI_INVOKE<unknown>("start_thread", { cwd, workspaceId, appSubagents }),
+	startThread: (cwd: string | null, workspaceId: string | null, appSubagents: boolean | null, harness: string | null) => __TAURI_INVOKE<unknown>("start_thread", { cwd, workspaceId, appSubagents, harness }),
 	startTurn: (threadId: string, input: unknown[], options: {
 	model?: string | null,
 	effort?: string | null,
@@ -151,12 +151,17 @@ export const commands = {
 	deleteThread: (threadId: string) => __TAURI_INVOKE<BootstrapData>("delete_thread", { threadId }),
 	listArchivedThreads: () => __TAURI_INVOKE<unknown>("list_archived_threads"),
 	listModels: () => __TAURI_INVOKE<unknown>("list_models"),
-	forkThread: (threadId: string, beforeTurnId: string | null, lastTurnId: string | null, cwd: string | null) => __TAURI_INVOKE<unknown>("fork_thread", { threadId, beforeTurnId, lastTurnId, cwd }),
 	/**
 	 *  Drop the last `num_turns` turns from a thread, in place. Unlike forking,
 	 *  this keeps the thread id — which is what editing a past message wants: the
 	 *  conversation rewinds instead of branching into a second sidebar entry.
+	 *  The models a harness offers the composer. Codex answers `model/list`;
+	 *  Claude has a fixed alias list.
 	 */
+	listHarnessModels: (harness: string) => __TAURI_INVOKE<unknown>("list_harness_models", { harness }),
+	/**  Whether a usable `claude` binary is installed for this home. */
+	readClaudeStatus: () => __TAURI_INVOKE<ClaudeStatus>("read_claude_status"),
+	forkThread: (threadId: string, beforeTurnId: string | null, lastTurnId: string | null, cwd: string | null) => __TAURI_INVOKE<unknown>("fork_thread", { threadId, beforeTurnId, lastTurnId, cwd }),
 	rollbackThread: (threadId: string, numTurns: number) => __TAURI_INVOKE<unknown>("rollback_thread", { threadId, numTurns }),
 	/**
 	 *  Replace the thread's durable history with the prefix before `before_turn_id`
@@ -418,6 +423,8 @@ export const events = {
 	codexDisconnected: makeEvent<CodexDisconnected>("codex:disconnected"),
 	codexEvent: makeEvent<CodexEvent>("codex:event"),
 	codexServerRequest: makeEvent<CodexServerRequest>("codex:serverRequest"),
+	harnessEvent: makeEvent<HarnessEventEnvelope>("harness:event"),
+	harnessRequest: makeEvent<HarnessRequestEnvelope>("harness:request"),
 };
 
 /* Types */
@@ -567,6 +574,20 @@ export type ChecksSummary = {
 	passing: number,
 	failing: number,
 	pending: number,
+};
+
+/**
+ *  What the settings page and the harness picker need to know: whether a
+ *  `claude` binary resolves, where, and what it reports as its version.
+ */
+export type ClaudeStatus = {
+	available: boolean,
+	path: string | null,
+	version: string | null,
+	configDir: string,
+	/**  The oldest CLI the driver can drive. */
+	protocolFloor: string,
+	message: string | null,
 };
 
 /**
@@ -819,6 +840,56 @@ export type HandoffPreflight = {
 };
 
 /**
+ *  Everything a driver can say about a thread. Codex-only detail rides in
+ *  `ext` under the driver's own key and never on the root.
+ */
+export type HarnessEvent = { type: "turn_started"; turnId: string; model: string | null } | { type: "turn_ended"; turnId: string; stopReason: StopReason; error: string | null; durationMs: number | null; usage: TurnUsage | null } | { type: "user_message"; itemId: string; text: string } | { type: "agent_message_chunk"; itemId: string; text: string; 
+/**
+ *  The chunk closes the item; `text` is the final full text, or empty
+ *  when everything already streamed.
+ */
+done: boolean } | { type: "agent_thought_chunk"; itemId: string; text: string; done: boolean } | { type: "tool_call"; itemId: string; title: string; kind: ToolKind; status: ToolCallStatus; name: string; content: ToolCallContent[]; rawInput: unknown } | { type: "tool_call_update"; itemId: string; status: ToolCallStatus | null; content: ToolCallContent[] | null; outputDelta: string | null } | { type: "plan"; entries: PlanEntry[] } | { type: "compaction"; itemId: string; trigger: string } | { type: "notice"; level: string; text: string } | { type: "request_cancelled"; requestId: number };
+
+/**  `harness:event` — one neutral event, tagged with the home and the thread. */
+export type HarnessEventEnvelope = {
+	codexHome: string,
+	harness: HarnessKind,
+	threadId: string,
+	turnId: string | null,
+	seq: number,
+	event: HarnessEvent,
+};
+
+/**  Which agent CLI a thread runs on. */
+export type HarnessKind = "codex" | "claude";
+
+/**  A question the harness needs answered before it can go on. */
+export type HarnessRequest = { type: "permission"; title: string; description: string | null; kind: ToolKind; name: string; content: ToolCallContent[]; options: PermissionOption[]; 
+/**  Why the harness is asking (Claude `decision_reason`), ANSI stripped. */
+reason: string | null; defaultToReject: boolean; 
+/**  The command line, for an `execute` request. */
+command: string | null; cwd: string | null; 
+/**
+ *  Codex-shaped `FileUpdateChange[]` for an `edit` request, so the
+ *  existing diff card draws it.
+ */
+changes: unknown } | { type: "user_input"; questions: unknown };
+
+/**
+ *  `harness:request` — a request awaiting the user's answer. Answered through
+ *  the same `respond_*` commands as Codex requests; the id says who owns it.
+ */
+export type HarnessRequestEnvelope = {
+	codexHome: string,
+	harness: HarnessKind,
+	requestId: number,
+	threadId: string,
+	turnId: string,
+	itemId: string,
+	request: HarnessRequest,
+};
+
+/**
  *  Read-only snapshot of the active Codex home's default configuration, shown
  *  on the homepage dashboard. Everything is best-effort: a missing or
  *  unparseable `config.toml`, or an unreachable Codex, simply yields empty
@@ -995,6 +1066,14 @@ export type PendingComment = {
 	body: string,
 };
 
+/**  One option on a permission request, ACP-shaped. */
+export type PermissionOption = {
+	optionId: string,
+	name: string,
+	/**  `allow_once` | `allow_always` | `reject_once` | `reject_always` */
+	kind: string,
+};
+
 export type PermissionsApprovalParams = {
 	threadId?: string | null,
 	turnId?: string | null,
@@ -1002,6 +1081,12 @@ export type PermissionsApprovalParams = {
 	cwd?: string | null,
 	reason?: string | null,
 	permissions?: unknown,
+};
+
+export type PlanEntry = {
+	content: string,
+	priority: string,
+	status: string,
 };
 
 export type PluginSummary = {
@@ -1304,6 +1389,8 @@ export type StatusFile = {
 	code: string,
 };
 
+export type StopReason = "end_turn" | "max_tokens" | "max_turn_requests" | "refusal" | "cancelled" | "error";
+
 /**  Where one project (root scope) or thread (project scope) was placed. */
 export type StoredPlacement = {
 	itemKey: string,
@@ -1461,6 +1548,8 @@ export type ThreadSummary = {
 	/**  The thread section it sits in (Codex ≥0.149). See `threads::sections`. */
 	sectionId: string | null,
 	subagentCount: number,
+	/**  Which harness runs the thread; `None` means Codex. */
+	harness?: string | null,
 };
 
 export type ThreadTokenUsageUpdatedParams = {
@@ -1483,6 +1572,14 @@ export type ThreadsPage = {
 	items: ThreadSummary[],
 	nextCursor: string | null,
 };
+
+/**  One piece of what a tool call shows: text, a diff, or terminal output. */
+export type ToolCallContent = { type: "content"; text: string } | { type: "diff"; path: string; oldText: string | null; newText: string } | { type: "terminal"; text: string; exitCode: number | null; cwd: string | null };
+
+export type ToolCallStatus = "pending" | "in_progress" | "completed" | "failed" | "cancelled";
+
+/**  ACP's tool kinds, used to pick a card. */
+export type ToolKind = "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "switch_mode" | "other";
 
 /**
  *  Per-turn overrides the composer can set. All optional: an absent field means
@@ -1515,6 +1612,14 @@ export type TurnPlanUpdatedParams = {
 	turnId?: string | null,
 	explanation?: string | null,
 	plan?: unknown,
+};
+
+export type TurnUsage = {
+	inputTokens: number,
+	cachedInputTokens: number,
+	outputTokens: number,
+	contextWindow: number | null,
+	costUsd: number | null,
 };
 
 export type UnknownNotification = {

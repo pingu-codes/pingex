@@ -305,15 +305,56 @@ export async function updateSubagentPolicy(
 export interface StartedThread {
   id: string;
   cwd?: string;
+  /** Which harness the thread runs on; absent means Codex. */
+  harness?: string | null;
 }
+
+export type HarnessKind = "codex" | "claude";
 
 export async function startThread(
   cwd: string,
   workspaceId?: string | null,
   appSubagents?: boolean | null,
+  harness?: HarnessKind | null,
 ): Promise<StartedThread> {
-  if (!isTauri()) return { id: `preview-${nextPreviewId()}`, cwd };
-  return commands.startThread(cwd, workspaceId ?? null, appSubagents ?? null) as Promise<StartedThread>;
+  if (!isTauri()) return { id: `preview-${nextPreviewId()}`, cwd, harness: harness ?? null };
+  return commands.startThread(
+    cwd,
+    workspaceId ?? null,
+    appSubagents ?? null,
+    harness ?? null,
+  ) as Promise<StartedThread>;
+}
+
+/** The models a harness offers. Codex answers `model/list`; Claude has a fixed alias list. */
+export async function listHarnessModels(harness: HarnessKind): Promise<Model[]> {
+  if (!isTauri()) return previewModels;
+  const response = await (commands.listHarnessModels(harness) as Promise<{ data?: Model[] }>);
+  return response.data ?? [];
+}
+
+export interface ClaudeStatus {
+  available: boolean;
+  path: string | null;
+  version: string | null;
+  configDir: string;
+  protocolFloor: string;
+  message: string | null;
+}
+
+/** Whether a usable `claude` binary is installed. */
+export async function readClaudeStatus(): Promise<ClaudeStatus> {
+  if (!isTauri()) {
+    return {
+      available: true,
+      path: "/usr/local/bin/claude",
+      version: "2.1.251",
+      configDir: "~/.claude",
+      protocolFloor: "1.0.59",
+      message: null,
+    };
+  }
+  return commands.readClaudeStatus();
 }
 
 export async function startTurn(threadId: string, input: UserInputPart[], options?: TurnOptions): Promise<Turn> {
@@ -336,7 +377,8 @@ export async function interruptTurn(threadId: string, turnId: string): Promise<v
 
 export async function respondApproval(
   requestId: number,
-  decision: "accept" | "acceptForSession" | "decline",
+  /** A Codex decision word, or an option id from another harness's request. */
+  decision: string,
 ): Promise<void> {
   if (!isTauri()) return;
   await commands.respondApproval(requestId, decision);

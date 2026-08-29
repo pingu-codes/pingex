@@ -44,6 +44,9 @@ async fn queue_request(
     thread_id: &str,
     request: requests::Request,
 ) -> Result<Value, String> {
+    if crate::storage::thread_harness(&ctx.database(), thread_id).await?.is_some() {
+        return Err(Feature::QUEUE.error("Claude threads queue in the app, not on a server"));
+    }
     if let Some(reason) = ctx.session.unsupported(app, Feature::QUEUE).await? {
         return Err(Feature::QUEUE.error(&reason));
     }

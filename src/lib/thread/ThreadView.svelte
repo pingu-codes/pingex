@@ -175,6 +175,7 @@ let composer = $state<{
   implementPlan: () => void;
   implementPlanFresh: (plan?: string | null) => void;
   appSubagentsChoice: () => boolean | null;
+  harnessChoice: () => "codex" | "claude" | null;
   openReviewPicker: () => void;
   restoreText: (text: string) => void;
   isEmpty: () => boolean;
@@ -307,7 +308,13 @@ $effect(() => {
 async function ensureLiveThread(): Promise<string> {
   if (session.id) return session.id;
   const newCwd = await ensureNewThreadCwd();
-  const created = await startThread(newCwd, workspaceId, composer?.appSubagentsChoice() ?? null);
+  const created = await startThread(
+    newCwd,
+    workspaceId,
+    composer?.appSubagentsChoice() ?? null,
+    composer?.harnessChoice() ?? null,
+  );
+  if (session.thread) session.thread.harness = created.harness ?? null;
   // The draft is now a real thread: it runs under its id from here, and is
   // retained if the view leaves mid-turn.
   attachSession(session, created.id);
@@ -561,7 +568,12 @@ async function startPlanThread(input: UserInputPart[], options?: TurnOptions) {
   session.streamError = null;
   const dir = workspaceId ? cwd : thread?.cwd || cwd;
   try {
-    const created = await startThread(dir, workspaceId, composer?.appSubagentsChoice() ?? null);
+    const created = await startThread(
+      dir,
+      workspaceId,
+      composer?.appSubagentsChoice() ?? null,
+      thread?.harness === "claude" ? "claude" : null,
+    );
     await startTurn(created.id, input, options);
     // Adopting the new thread re-drives the load effect, so the view swaps to it.
     onThreadCreated?.(created.id, created.cwd ?? dir);
@@ -1159,6 +1171,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
     history={messageHistory}
     projectKey={projectPath || cwd}
     {threadId}
+    threadHarness={thread?.harness === "claude" ? "claude" : threadId ? "codex" : null}
     onSend={send}
     onInterrupt={interrupt}
     onCommand={runCommand}

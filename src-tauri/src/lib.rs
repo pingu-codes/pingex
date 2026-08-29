@@ -28,7 +28,9 @@ use std::sync::{Arc, RwLock};
 use tauri::Manager;
 
 mod agents;
+mod claude;
 mod codex;
+mod harness;
 mod composer;
 mod connections;
 mod files;
@@ -101,6 +103,9 @@ pub(crate) struct HomeContext {
     runtime: SharedRuntime,
     database: RwLock<turso::Database>,
     pub(crate) session: CodexSession,
+    /// The Claude Code driver for this home: one `claude` process per active
+    /// Claude thread. Spawned lazily, like the app-server child.
+    pub(crate) claude: claude::ClaudeDriver,
     /// Subagent processes this home owns. Same lifetime as `session`: reached
     /// from Tauri commands and from the session's reader thread.
     pub(crate) agents: agents::supervisor::AgentSupervisor,
@@ -110,8 +115,15 @@ impl HomeContext {
     fn new(runtime: RuntimeConfig, database: turso::Database) -> Arc<Self> {
         let home_key = canonical_home(&runtime.codex_home);
         let runtime: SharedRuntime = Arc::new(RwLock::new(runtime));
+        let session = CodexSession::new(runtime.clone(), home_key.clone());
+        let claude = claude::ClaudeDriver::new(
+            home_key.clone(),
+            claude::driver::ClaudeRuntime::from_env(),
+            session.wire().clone(),
+        );
         Arc::new(Self {
-            session: CodexSession::new(runtime.clone(), home_key.clone()),
+            session,
+            claude,
             agents: agents::supervisor::AgentSupervisor::default(),
             runtime,
             database: RwLock::new(database),
@@ -146,6 +158,7 @@ impl HomeContext {
     /// of this process too, and nothing else will reap them once dropped.
     pub(crate) fn shutdown(&self) {
         self.agents.kill_all();
+        self.claude.kill_all();
         self.session.kill_child();
     }
 }
@@ -398,6 +411,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         threads::lifecycle::delete_thread,
         threads::lifecycle::list_archived_threads,
         threads::lifecycle::list_models,
+        threads::lifecycle::list_harness_models,
+        threads::lifecycle::read_claude_status,
         threads::lifecycle::fork_thread,
         threads::lifecycle::rollback_thread,
         threads::lifecycle::revert_thread,
@@ -531,6 +546,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             codex::events::CodexEvent,
             codex::events::CodexServerRequest,
             codex::events::CodexDisconnected,
+            harness::HarnessEventEnvelope,
+            harness::HarnessRequestEnvelope,
             agents::supervisor::CodexAgentRun,
         ])
 }

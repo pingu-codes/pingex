@@ -736,7 +736,7 @@ describe("ThreadView plan handoff", () => {
 
     // The third argument is the per-thread agent-tools choice; null follows the
     // global setting.
-    expect(mocks.startThread).toHaveBeenCalledWith("/projects/example", null, null);
+    expect(mocks.startThread).toHaveBeenCalledWith("/projects/example", null, null, null);
     const [threadId, input] = mocks.startTurn.mock.calls[0];
     expect(threadId).toBe("thread-2");
     expect(input[0].text).toContain("1. Rewire the composer");
@@ -768,7 +768,7 @@ describe("ThreadView workspace starts", () => {
     expect(screen.queryByRole("button", { name: "Temporary worktree" })).not.toBeInTheDocument();
     await user.type(message, "Coordinate the release{Enter}");
 
-    expect(mocks.startThread).toHaveBeenCalledWith("/workspace/hub", "workspace-1", null);
+    expect(mocks.startThread).toHaveBeenCalledWith("/workspace/hub", "workspace-1", null, null);
     // No per-turn overrides beyond the resolved pair the transcript labels
     // replies with and the collaboration mode every turn restates.
     expect(mocks.startTurn).toHaveBeenCalledWith(
@@ -1109,7 +1109,7 @@ describe("ThreadView /review", () => {
     await user.type(screen.getByRole("textbox", { name: composerLabel }), "/review{Enter}");
     await user.click(await screen.findByRole("option", { name: "Review uncommitted changes" }));
 
-    expect(mocks.startThread).toHaveBeenCalledWith("/projects/example", null, null);
+    expect(mocks.startThread).toHaveBeenCalledWith("/projects/example", null, null, null);
     expect(mocks.startReview).toHaveBeenCalledWith("thread-2", { type: "uncommittedChanges" });
   });
 
@@ -1192,7 +1192,7 @@ describe("ThreadView /goal", () => {
     const user = userEvent.setup();
     await user.type(renderDraft(), "/goal ship the auth refactor{Enter}");
 
-    expect(mocks.startThread).toHaveBeenCalledWith("/projects/example", null, null);
+    expect(mocks.startThread).toHaveBeenCalledWith("/projects/example", null, null, null);
     expect(mocks.setThreadGoal).toHaveBeenCalledWith("thread-2", "ship the auth refactor");
     expect(await screen.findByText("Goal set: ship the auth refactor")).toBeVisible();
     // No turn: the goal is the whole command, the composer stays free for the

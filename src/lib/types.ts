@@ -459,6 +459,8 @@ export interface ThreadDetail {
   id: string;
   preview: string;
   name?: string | null;
+  /** Which harness runs the thread; absent means Codex. */
+  harness?: string | null;
   cwd: string;
   turns: Turn[];
   subagentModelPolicy?: SubagentPolicy | null;

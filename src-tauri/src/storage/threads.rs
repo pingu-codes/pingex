@@ -11,7 +11,7 @@ use turso::{params, Database};
 use super::db;
 
 const SUMMARY_COLUMNS: &str = "thread_id, cwd, title, updated_at, status,
-     parent_thread_id, agent_nickname, agent_role, project_id, section_id";
+     parent_thread_id, agent_nickname, agent_role, project_id, section_id, harness";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct StoredThreadSummary {
@@ -27,6 +27,8 @@ pub(crate) struct StoredThreadSummary {
     pub(crate) project_id: Option<String>,
     /// The thread section it sits in (Codex ≥0.149).
     pub(crate) section_id: Option<String>,
+    /// `None` for a Codex thread; the harness kind otherwise.
+    pub(crate) harness: Option<String>,
 }
 
 fn summary_from_row(row: &turso::Row) -> Result<StoredThreadSummary, String> {
@@ -41,6 +43,7 @@ fn summary_from_row(row: &turso::Row) -> Result<StoredThreadSummary, String> {
         agent_role: db::opt_text(row, 7)?,
         project_id: db::opt_text(row, 8)?,
         section_id: db::opt_text(row, 9)?,
+        harness: db::opt_text(row, 10)?,
     })
 }
 
@@ -59,8 +62,8 @@ pub(crate) async fn replace_thread_summaries(
             &transaction,
             "INSERT INTO thread_summaries(
                 thread_id, cwd, title, updated_at, status,
-                parent_thread_id, agent_nickname, agent_role, project_id, section_id
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                parent_thread_id, agent_nickname, agent_role, project_id, section_id, harness
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 summary.id.clone(),
                 summary.cwd.clone(),
@@ -71,7 +74,8 @@ pub(crate) async fn replace_thread_summaries(
                 summary.agent_nickname.clone(),
                 summary.agent_role.clone(),
                 summary.project_id.clone(),
-                summary.section_id.clone()
+                summary.section_id.clone(),
+                summary.harness.clone()
             ],
         )
         .await?;
@@ -297,6 +301,7 @@ mod tests {
             agent_role: None,
             project_id: None,
             section_id: None,
+            harness: None,
         }
     }
 

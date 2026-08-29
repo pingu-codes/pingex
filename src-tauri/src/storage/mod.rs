@@ -15,6 +15,7 @@ pub(crate) mod db;
 
 mod account;
 mod agent_runs;
+mod harness;
 mod items;
 mod project_expansion;
 mod projects;
@@ -35,6 +36,10 @@ pub(crate) use agent_runs::{
     copy_agent_runs, delete_agent_runs, orphan_running_agent_runs, read_agent_run,
     read_agent_run_children, read_agent_runs, record_agent_run, retain_agent_runs,
     update_agent_run, AgentRunRow, STATUS_DONE, STATUS_FAILED, STATUS_KILLED, STATUS_RUNNING,
+};
+pub(crate) use harness::{
+    delete_harness_thread, read_harness_threads, record_harness_thread, rename_harness_thread,
+    set_harness_thread_archived, thread_harness, touch_harness_thread, HarnessThread,
 };
 pub(crate) use items::{
     copy_thread_items, delete_thread_items, mark_turn_complete, read_complete_turns,

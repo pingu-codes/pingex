@@ -212,6 +212,15 @@ const DDL: &str = "CREATE TABLE IF NOT EXISTS metadata (
      expanded INTEGER NOT NULL DEFAULT 1,
      ordinal INTEGER NOT NULL DEFAULT 0
  );
+ CREATE TABLE IF NOT EXISTS harness_threads (
+     thread_id TEXT PRIMARY KEY,
+     harness TEXT NOT NULL,
+     cwd TEXT NOT NULL,
+     title TEXT NOT NULL,
+     created_at INTEGER NOT NULL,
+     updated_at INTEGER NOT NULL,
+     archived INTEGER NOT NULL DEFAULT 0
+ );
  CREATE TABLE IF NOT EXISTS sidebar_placements (
      item_key TEXT PRIMARY KEY,
      scope TEXT NOT NULL,
@@ -222,7 +231,8 @@ const DDL: &str = "CREATE TABLE IF NOT EXISTS metadata (
 /// Columns added after their table shipped. Re-running these on an up-to-date
 /// database fails harmlessly ("duplicate column"), which is the only expected
 /// error, so the result is ignored.
-const ADDED_COLUMNS: [&str; 9] = [
+const ADDED_COLUMNS: [&str; 10] = [
+    "ALTER TABLE thread_summaries ADD COLUMN harness TEXT",
     "ALTER TABLE projects ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE thread_summaries ADD COLUMN project_id TEXT",
     "ALTER TABLE thread_summaries ADD COLUMN section_id TEXT",

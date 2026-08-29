@@ -7,11 +7,39 @@
  * round-trips and no way for a component that never opens a picker to label
  * anything, so the list lives here and the in-flight request is shared.
  */
-import { listModels } from "$lib/services/api";
+import { listHarnessModels, listModels } from "$lib/services/api";
 import type { Model } from "$lib/types";
 
 const state = $state<{ models: Model[] | null; error: string | null }>({ models: null, error: null });
 let inFlight: Promise<void> | null = null;
+
+const claudeState = $state<{ models: Model[] | null; error: string | null }>({ models: null, error: null });
+let claudeInFlight: Promise<void> | null = null;
+
+/** Claude's models, or null before the first fetch. */
+export function claudeModels(): Model[] | null {
+  return claudeState.models;
+}
+
+export function claudeModelsError(): string | null {
+  return claudeState.error;
+}
+
+export function ensureClaudeModels(): Promise<void> {
+  if (claudeState.models !== null) return Promise.resolve();
+  claudeInFlight ??= (async () => {
+    try {
+      claudeState.models = await listHarnessModels("claude");
+      claudeState.error = null;
+    } catch (cause) {
+      claudeState.error = cause instanceof Error ? cause.message : String(cause);
+      claudeState.models = [];
+    } finally {
+      claudeInFlight = null;
+    }
+  })();
+  return claudeInFlight;
+}
 
 /** The models, or null before the first successful fetch. */
 export function models(): Model[] | null {

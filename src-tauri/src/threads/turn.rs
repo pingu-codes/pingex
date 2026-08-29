@@ -149,11 +149,15 @@ pub(crate) async fn start_thread(
     cwd: Option<String>,
     workspace_id: Option<String>,
     app_subagents: Option<bool>,
+    harness: Option<String>,
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
+    if harness.as_deref() == Some("claude") {
+        return start_claude_thread(&ctx, cwd, workspace_id).await;
+    }
     let inputs = fetch_start_inputs(&ctx, &app, cwd, workspace_id, app_subagents).await?;
     let request = build_start_request(&inputs);
     let response = ctx.session.send(&app, request).await?;
@@ -174,6 +178,69 @@ pub(crate) async fn start_thread(
     Ok(Json(thread))
 }
 
+/// A Claude thread is a row and an id; the process is spawned by its first
+/// turn, which is what carries the model and mode to start it with.
+async fn start_claude_thread(
+    ctx: &HomeContext,
+    cwd: Option<String>,
+    workspace_id: Option<String>,
+) -> Result<Json, String> {
+    let workspace = match workspace_id.as_deref() {
+        Some(workspace_id) => Some(workspaces::runtime_for_workspace(ctx, workspace_id).await?),
+        None => None,
+    };
+    let cwd = resolve_start_cwd(workspace.as_ref(), cwd)?;
+    let id = uuid::Uuid::new_v4().to_string();
+    storage::record_harness_thread(
+        &ctx.database(),
+        &id,
+        "claude",
+        &cwd,
+        "Untitled thread",
+        crate::util::time::unix_secs(),
+    )
+    .await?;
+    if let Some(workspace) = &workspace {
+        storage::assign_thread_workspace(&ctx.database(), &id, &workspace.workspace_id).await?;
+    }
+    Ok(Json(serde_json::json!({"id": id, "cwd": cwd, "harness": "claude"})))
+}
+
+/// Run a turn on a Claude thread. The process is resumed from disk when the
+/// thread already has journaled turns from an earlier process.
+async fn start_claude_turn(
+    ctx: &HomeContext,
+    app: &AppHandle,
+    thread: &storage::HarnessThread,
+    input: Vec<Json>,
+    options: Option<TurnOptions>,
+) -> Result<Json, String> {
+    let thread_id = &thread.thread_id;
+    let resume = !storage::read_complete_turns(&ctx.database(), thread_id)
+        .await?
+        .is_empty();
+    let resolved = options
+        .as_ref()
+        .map(|options| (options.resolved_model.clone(), options.resolved_effort.clone()))
+        .unwrap_or_default();
+    let parts: Vec<serde_json::Value> = input.into_iter().map(|item| item.0).collect();
+    let turn_id = ctx
+        .claude
+        .start_turn(app, thread_id, &thread.cwd, resume, &parts, options.as_ref())
+        .await?;
+    let (model, effort) = &resolved;
+    storage::record_turn_settings(
+        &ctx.database(),
+        thread_id,
+        &turn_id,
+        model.as_deref(),
+        effort.as_deref(),
+    )
+    .await?;
+    storage::touch_harness_thread(&ctx.database(), thread_id, crate::util::time::unix_secs()).await?;
+    Ok(Json(serde_json::json!({"id": turn_id, "status": "inProgress"})))
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn start_turn(
@@ -185,6 +252,9 @@ pub(crate) async fn start_turn(
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
+    if let Some(thread) = storage::thread_harness(&ctx.database(), &thread_id).await? {
+        return start_claude_turn(&ctx, &app, &thread, input, options).await;
+    }
     ctx.session.ensure_resumed(&app, &thread_id).await?;
     storage::invalidate_thread_detail(&ctx.database(), &thread_id).await?;
     let resolved = options
@@ -263,6 +333,9 @@ pub(crate) async fn interrupt_turn(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
+    if storage::thread_harness(&ctx.database(), &thread_id).await?.is_some() {
+        return ctx.claude.interrupt(&thread_id).await;
+    }
     let mut turn_id = turn_id;
     // One retry, and only for a turn-id mismatch: Codex has told us which turn
     // it considers active, so resending is the same Stop the user asked for
@@ -323,6 +396,9 @@ pub(crate) async fn respond_approval(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
+    if ctx.claude.owns_request(request_id) {
+        return ctx.claude.respond_option(request_id, &decision);
+    }
     ctx.session
         .respond(request_id, requests::approval_result(&decision))
         .await
@@ -340,6 +416,17 @@ pub(crate) async fn respond_server_request(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
+    if ctx.claude.owns_request(request_id) {
+        // A permission-profile answer: a non-empty grant is an allow.
+        let granted = result
+            .0
+            .get("permissions")
+            .and_then(serde_json::Value::as_object)
+            .is_some_and(|profile| !profile.is_empty());
+        return ctx
+            .claude
+            .respond_option(request_id, if granted { "accept" } else { "decline" });
+    }
     ctx.session.respond(request_id, result.0).await
 }
 
@@ -392,7 +479,9 @@ pub(crate) async fn threads_with_active_turns(
     state: State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
     let ctx = state.ctx(&window);
-    Ok(ctx.session.active_threads().await)
+    let mut threads = ctx.session.active_threads().await;
+    threads.extend(ctx.claude.active_threads());
+    Ok(threads)
 }
 
 /// `request_id` is `None` when answering a question whose request died with an
@@ -413,9 +502,13 @@ pub(crate) async fn respond_user_input(
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
     if let Some(request_id) = request_id {
-        ctx.session
-            .respond(request_id, requests::user_input_result(answers.0))
-            .await?;
+        if ctx.claude.owns_request(request_id) {
+            ctx.claude.respond_user_input(request_id, &answers.0)?;
+        } else {
+            ctx.session
+                .respond(request_id, requests::user_input_result(answers.0))
+                .await?;
+        }
     }
     // Codex's thread/read projection has no item for request_user_input, so the
     // answered question (a client-built item, secrets already masked) is

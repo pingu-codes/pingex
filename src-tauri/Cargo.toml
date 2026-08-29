@@ -30,6 +30,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "proce
 toml = { version = "0.8", default-features = false, features = ["parse"] }
 toml_edit = "0.22"
 turso = { version = "0.7", default-features = false }
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 tempfile = "3"

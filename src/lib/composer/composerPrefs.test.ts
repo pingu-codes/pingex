@@ -77,6 +77,7 @@ describe("scoped prefs", () => {
 
   it("falls back to defaults for a project nobody has used", () => {
     expect(loadScopedPrefs("/repo", null)).toEqual({
+      harness: null,
       model: null,
       effort: null,
       permissionPreset: null,

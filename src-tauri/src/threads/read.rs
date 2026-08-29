@@ -29,6 +29,9 @@ pub(crate) async fn read_thread(
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
+    if let Some(thread) = storage::thread_harness(&ctx.database(), &thread_id).await? {
+        return read_harness_thread(&ctx, &thread).await.map(Json);
+    }
     // Resuming subscribes the app to live updates. Keep this best-effort so a
     // cached thread remains readable while Codex is unavailable.
     let resume = ctx.session.ensure_resumed(&app, &thread_id).await.ok();
@@ -51,6 +54,62 @@ pub(crate) async fn read_thread(
     storage::write_thread_detail(&ctx.database(), &thread_id, source_updated_at, &detail).await?;
     merge_local_items(&ctx, &thread_id, &mut detail).await?;
     Ok(Json(with_thread_settings(detail, resume.as_ref())))
+}
+
+/// A thread on another harness has no projection to fetch: the journal is
+/// its transcript. Turns come back in the order their items were recorded,
+/// with any turn still open on the live process marked as running.
+async fn read_harness_thread(
+    ctx: &crate::HomeContext,
+    thread: &storage::HarnessThread,
+) -> Result<Value, String> {
+    let database = ctx.database();
+    let items = storage::read_thread_items(&database, &thread.thread_id).await?;
+    let complete = storage::read_complete_turns(&database, &thread.thread_id).await?;
+    let running = storage::read_running_turns(&database, &thread.thread_id).await?;
+    let mut order: Vec<String> = Vec::new();
+    for item in &items {
+        if !order.contains(&item.turn_id) {
+            order.push(item.turn_id.clone());
+        }
+    }
+    for turn_id in complete.iter().chain(running.iter()) {
+        if !order.contains(turn_id) {
+            order.push(turn_id.clone());
+        }
+    }
+    let turns: Vec<Value> = order
+        .iter()
+        .map(|turn_id| {
+            let status = if running.contains(turn_id) {
+                "inProgress"
+            } else {
+                "completed"
+            };
+            json!({
+                "id": turn_id,
+                "status": status,
+                "items": items
+                    .iter()
+                    .filter(|item| &item.turn_id == turn_id)
+                    .map(|item| item.payload.clone())
+                    .collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    let mut detail = json!({
+        "id": thread.thread_id,
+        "preview": thread.title,
+        "name": thread.title,
+        "cwd": thread.cwd,
+        "harness": thread.harness,
+        "turns": turns,
+    });
+    let answers = storage::read_user_input_answers(&database, &thread.thread_id).await?;
+    merge_user_input_answers(&mut detail, &answers);
+    let settings = storage::read_turn_settings(&database, &thread.thread_id).await?;
+    merge_turn_settings(&mut detail, &settings);
+    Ok(detail)
 }
 
 /// Codex creates a thread's rollout file lazily, and only writes its meta line

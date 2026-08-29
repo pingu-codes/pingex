@@ -14,6 +14,17 @@ the app branches on the version (see below), but a release older than *last
 stable* gets a warning banner on connect, and so does anything newer than
 *stable* — including an unstable build — since it is untested.
 
+## Other harnesses
+
+| Harness | Tested version | Protocol floor | Where the floor is enforced |
+|---|---|---|---|
+| Claude Code (`claude`) | `2.1.251` | `1.0.59` (`--permission-prompt-tool stdio`) | `src-tauri/src/claude/driver.rs` `status()`; the harness picker is disabled below it |
+
+Claude Code has no tiers: the driver supports whatever is installed, probes
+`system/init.capabilities[]`, and refuses to start only below the floor. The
+recorded streams under `tests/fixtures/protocol/claude/` are from the tested
+version. `deno task versions:check` does not cover Claude yet.
+
 ## What "support" means
 
 - **One code path.** The app never pins a Codex version. An API that only some

@@ -18,18 +18,32 @@ const TITLES = {
 /** A `writeStdin` approval (Codex ≥0.150) asks to feed a running command,
  *  not start one; the payload is the input, not a command line. */
 const stdin = $derived(approval.kind === "command" && approval.approvalKind === "writeStdin");
-const title = $derived(stdin ? "Codex wants to send input to the running command" : TITLES[approval.kind]);
+const HARNESS_TITLES = {
+  command: "Claude wants to run a command",
+  fileChange: "Claude wants to edit files",
+  permissions: "Claude wants to use a tool",
+} as const;
+const title = $derived(
+  approval.harness === "claude"
+    ? `${HARNESS_TITLES[approval.kind]}${approval.kind === "permissions" && approval.title ? `: ${approval.title}` : ""}`
+    : stdin
+      ? "Codex wants to send input to the running command"
+      : TITLES[approval.kind],
+);
 
 /**
  * A permission request is answered with the profile being granted rather than a
  * decision word: granting echoes back what was asked for, declining sends an
  * empty profile. Everything else takes the plain `{decision}` shape.
  */
-async function decide(decision: "accept" | "acceptForSession" | "decline") {
+async function decide(decision: string) {
   if (submitting) return;
   submitting = true;
   try {
-    if (approval.kind === "permissions") {
+    if (approval.options) {
+      // Another harness: the option id is the whole answer.
+      await respondApproval(approval.requestId, decision);
+    } else if (approval.kind === "permissions") {
       await respondServerRequest(approval.requestId, {
         permissions: decision === "decline" ? {} : (approval.permissions ?? {}),
         scope: decision === "acceptForSession" ? "session" : "turn",
@@ -55,6 +69,10 @@ async function decide(decision: "accept" | "acceptForSession" | "decline") {
     {#if approval.cwd}
       <div class="text-[11px] opacity-70">in {approval.cwd}</div>
     {/if}
+  {:else if approval.kind === "permissions" && approval.options}
+    {#if approval.description}
+      <p class="text-xs opacity-80">{approval.description}</p>
+    {/if}
   {:else if approval.kind === "permissions"}
     <ul class="space-y-1">
       {#each permissionLines(approval.permissions) as line (line)}
@@ -72,9 +90,21 @@ async function decide(decision: "accept" | "acceptForSession" | "decline") {
   {#if approval.reason}
     <p class="text-xs opacity-80">{approval.reason}</p>
   {/if}
-  <div class="flex gap-2 pt-0.5">
-    <button onclick={() => decide("accept")} disabled={submitting} class="btn btn-sm preset-filled-primary-500">Allow</button>
-    <button onclick={() => decide("acceptForSession")} disabled={submitting} class="btn btn-sm preset-tonal">Allow for session</button>
-    <button onclick={() => decide("decline")} disabled={submitting} class="btn btn-sm preset-tonal">Decline</button>
+  <div class="flex flex-wrap gap-2 pt-0.5">
+    {#if approval.options}
+      {#each approval.options as option, index (option.optionId)}
+        <button
+          onclick={() => decide(option.optionId)}
+          disabled={submitting}
+          class="btn btn-sm {index === 0 && !approval.defaultToReject ? 'preset-filled-primary-500' : 'preset-tonal'}"
+        >
+          {option.name}
+        </button>
+      {/each}
+    {:else}
+      <button onclick={() => decide("accept")} disabled={submitting} class="btn btn-sm preset-filled-primary-500">Allow</button>
+      <button onclick={() => decide("acceptForSession")} disabled={submitting} class="btn btn-sm preset-tonal">Allow for session</button>
+      <button onclick={() => decide("decline")} disabled={submitting} class="btn btn-sm preset-tonal">Decline</button>
+    {/if}
   </div>
 </div>

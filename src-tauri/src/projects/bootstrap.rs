@@ -96,6 +96,26 @@ pub(crate) async fn bootstrap_inner(
         }
     }
 
+    // Threads on other harnesses exist only locally; Codex's listing never
+    // has them.
+    for thread in storage::read_harness_threads(&ctx.database(), false).await? {
+        all_threads.push(ThreadSummary {
+            pinned: pinned_threads.contains(thread.thread_id.as_str()),
+            id: thread.thread_id,
+            cwd: thread.cwd,
+            title: thread.title,
+            updated_at: thread.updated_at,
+            status: "idle".into(),
+            parent_thread_id: None,
+            agent_nickname: None,
+            agent_role: None,
+            project_id: None,
+            section_id: None,
+            subagent_count: 0,
+            harness: Some(thread.harness),
+        });
+    }
+    all_threads.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     let stored_summaries: Vec<_> = all_threads.iter().map(StoredThreadSummary::from).collect();
     storage::replace_thread_summaries(&ctx.database(), &stored_summaries).await?;
     // Keep the local search index in step with the active thread listing.
@@ -537,6 +557,7 @@ mod tests {
             project_id: None,
             section_id: None,
             subagent_count: 0,
+            harness: None,
         }
     }
 

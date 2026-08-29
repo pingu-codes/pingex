@@ -115,6 +115,7 @@ pub(crate) fn thread_summary_from(
             .and_then(|section| str_at(section, "id"))
             .map(str::to_string),
         subagent_count: 0,
+        harness: None,
     })
 }
 
@@ -181,6 +182,7 @@ impl From<&ThreadSummary> for StoredThreadSummary {
             agent_role: thread.agent_role.clone(),
             project_id: thread.project_id.clone(),
             section_id: thread.section_id.clone(),
+            harness: thread.harness.clone(),
         }
     }
 }
@@ -200,6 +202,7 @@ impl From<StoredThreadSummary> for ThreadSummary {
             project_id: thread.project_id,
             section_id: thread.section_id,
             subagent_count: 0,
+            harness: thread.harness,
         }
     }
 }
@@ -223,6 +226,7 @@ mod tests {
             project_id: None,
             section_id: None,
             subagent_count: 0,
+            harness: None,
         }
     }
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-import { ArrowUp, Map as MapIcon, Paperclip, Square } from "@lucide/svelte";
+import { ArrowUp, Bot, Map as MapIcon, Paperclip, Square } from "@lucide/svelte";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
@@ -18,6 +18,7 @@ import {
 } from "$lib/composer/composerParts";
 import {
   type ComposerPrefs,
+  type HarnessChoice,
   loadScopedPrefs,
   policyIsEmpty,
   saveScopedPrefs,
@@ -25,7 +26,14 @@ import {
 } from "$lib/composer/composerPrefs.svelte";
 import MentionPicker from "$lib/composer/MentionPicker.svelte";
 import ModelPopover from "$lib/composer/ModelPopover.svelte";
-import { ensureModels, models as modelList, modelsError as modelListError } from "$lib/composer/models.svelte";
+import {
+  claudeModels as claudeModelList,
+  claudeModelsError as claudeModelListError,
+  ensureClaudeModels,
+  ensureModels,
+  models as modelList,
+  modelsError as modelListError,
+} from "$lib/composer/models.svelte";
 import PermissionsPopover from "$lib/composer/PermissionsPopover.svelte";
 import ReviewTargetPicker from "$lib/composer/ReviewTargetPicker.svelte";
 import { RichEditor } from "$lib/composer/richEditor.svelte";
@@ -66,6 +74,7 @@ let {
   subagentReasoningEffortPolicy = null,
   threadModel = null,
   history = [],
+  threadHarness = null,
   onSend,
   onInterrupt,
   onCommand,
@@ -116,6 +125,8 @@ let {
   threadModel?: string | null;
   /** Prior user messages, oldest first, for ↑/↓ recall from the composer's edges. */
   history?: string[];
+  /** The harness an existing thread runs on. A draft reads the pref instead. */
+  threadHarness?: HarnessChoice | null;
 } = $props();
 
 let editor = $state<HTMLDivElement | null>(null);
@@ -353,8 +364,15 @@ $effect(() => {
     if (seed) seedSubagentPolicy();
   });
 });
-const models = $derived(modelList());
-const modelsError = $derived(modelListError());
+/** Which harness this composer is talking to: the thread's own, else the
+ *  draft's chosen one, else Codex. */
+const harness = $derived<HarnessChoice>(threadHarness ?? prefs.harness ?? "codex");
+const models = $derived(harness === "claude" ? claudeModelList() : modelList());
+const modelsError = $derived(harness === "claude" ? claudeModelListError() : modelListError());
+
+function ensureHarnessModels(): Promise<void> {
+  return harness === "claude" ? ensureClaudeModels() : ensureModels();
+}
 let popover = $state<"model" | "subagents" | "permissions" | null>(null);
 
 // The @-mention, /-command and $-skill pickers are driven by the trigger
@@ -449,14 +467,14 @@ function sendOptions(): TurnOptions | undefined {
 
 async function togglePopover(which: "model" | "subagents" | "permissions") {
   popover = popover === which ? null : which;
-  if (popover === "model" || popover === "subagents") await ensureModels();
+  if (popover === "model" || popover === "subagents") await ensureHarnessModels();
 }
 
 // Every turn sends an explicit collaboration mode (plan or default), and its
 // settings need a concrete model, so make sure the model list is available
 // before the first send.
 $effect(() => {
-  void ensureModels();
+  void ensureHarnessModels();
 });
 
 function chooseModel(model: Model) {
@@ -555,6 +573,23 @@ function planTurnOptions() {
  */
 export function appSubagentsChoice(): boolean | null {
   return prefs.appSubagents;
+}
+
+/**
+ * Which harness a draft starts on. Read by ThreadView at thread creation;
+ * an existing thread never switches.
+ */
+export function harnessChoice(): HarnessChoice | null {
+  return prefs.harness;
+}
+
+/** Codex ids and Claude aliases do not overlap, so a switch drops the
+ *  picked model and effort and lets the other harness's defaults apply. */
+function toggleHarness() {
+  prefs.harness = harness === "claude" ? "codex" : "claude";
+  prefs.model = null;
+  prefs.effort = null;
+  persist();
 }
 
 export function implementPlan() {
@@ -1035,6 +1070,17 @@ function onPaste(event: ClipboardEvent) {
         >
           <Paperclip size={14} />
         </TooltipButton>
+        {#if !threadId}
+          <TooltipButton
+            label={harness === "claude" ? "New threads run on Claude Code. Switch to Codex" : "New threads run on Codex. Switch to Claude Code"}
+            onclick={toggleHarness}
+            aria-label="Choose harness"
+            class="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] transition {harness === 'claude' ? 'preset-tonal-primary' : 'text-surface-500 hover:bg-surface-200-800 hover:text-surface-800-200'}"
+          >
+            <Bot size={12} />
+            {harness === "claude" ? "Claude" : "Codex"}
+          </TooltipButton>
+        {/if}
         <TooltipButton
           label={prefs.planMode ? "Plan mode on" : "Toggle plan mode"}
           onclick={togglePlanMode}
@@ -1075,6 +1121,7 @@ function onPaste(event: ClipboardEvent) {
           open={popover === "permissions"}
           selectedId={prefs.permissionPreset}
           onToggle={() => togglePopover("permissions")}
+          harness={harness}
           onChoose={choosePermission}
         />
         <div class="ml-auto">

@@ -31,6 +31,9 @@ pub(crate) struct ThreadSummary {
     /// The thread section it sits in (Codex ≥0.149). See `threads::sections`.
     pub(crate) section_id: Option<String>,
     pub(crate) subagent_count: usize,
+    /// Which harness runs the thread; `None` means Codex.
+    #[specta(optional)]
+    pub(crate) harness: Option<String>,
 }
 
 /// One row in the sidebar: a real folder, a Codex-managed worktree, or a

@@ -19,8 +19,13 @@ export interface SubagentPrefs {
   subagentReasoningEffortPolicy: SubagentPolicy | null;
 }
 
+export type HarnessChoice = "codex" | "claude";
+
 /** Composer model/effort/permission choices, persisted in localStorage. */
 export interface ComposerPrefs extends SubagentPrefs {
+  /** Which harness a new thread starts on; `null` means Codex. Only read
+   *  when a draft is sent: an existing thread never switches. */
+  harness: HarnessChoice | null;
   model: string | null;
   effort: string | null;
   permissionPreset: string | null;
@@ -59,6 +64,37 @@ export const PERMISSION_PRESETS: PermissionPreset[] = [
   },
 ];
 
+/** The same three levels on Claude, in its own words. The ids match Codex's
+ *  so a preset choice carries across harnesses; the driver maps each onto a
+ *  Claude permission mode. */
+export const CLAUDE_PERMISSION_PRESETS: PermissionPreset[] = [
+  {
+    id: "read-only",
+    label: "Ask",
+    description: "Claude asks before every edit and command",
+    approvalPolicy: "on-request",
+    sandboxMode: "read-only",
+  },
+  {
+    id: "auto",
+    label: "Accept edits",
+    description: "Claude edits files without asking; commands still need approval",
+    approvalPolicy: "on-request",
+    sandboxMode: "workspace-write",
+  },
+  {
+    id: "full-access",
+    label: "Bypass permissions",
+    description: "No prompts at all. Use with care",
+    approvalPolicy: "never",
+    sandboxMode: "danger-full-access",
+  },
+];
+
+export function permissionPresetsFor(harness: HarnessChoice | null | undefined): PermissionPreset[] {
+  return harness === "claude" ? CLAUDE_PERMISSION_PRESETS : PERMISSION_PRESETS;
+}
+
 const STORAGE_KEY = "pingex-composer-prefs";
 const LEGACY_STORAGE_KEY = "pingu-composer-prefs";
 /** Cap on remembered threads, so the store can't grow without bound. */
@@ -84,6 +120,7 @@ interface PrefsStore {
 }
 
 const defaults = (): ComposerPrefs => ({
+  harness: null,
   model: null,
   effort: null,
   permissionPreset: null,

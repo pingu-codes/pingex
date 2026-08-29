@@ -401,6 +401,53 @@ whichever channel has text; turn-level cancellation marks unfinished calls;
 Claude text-block item ids are synthesised as `<turn>-m<n>-b<index>` and the
 journal accepts driver-made ids.
 
+## Implementation status
+
+Branch `feat/claude-harness`, first slice, verified against Claude Code
+2.1.251 on 2026-08-30. What is built:
+
+- `src-tauri/src/harness/`: the neutral `HarnessEvent` and `HarnessRequest`
+  types (tauri-specta, emitted on `harness:event` and `harness:request`) and
+  `project.rs`, which turns neutral events into Codex-shaped notifications.
+- `src-tauri/src/claude/`: the process wrapper (`child.rs`), the stream-json
+  translator (`translate.rs`), the per-tool card and permission mapping
+  (`tools.rs`, `permissions.rs`) and the driver (`driver.rs`): one process per
+  active thread, `--session-id` on first use and `--resume` after a restart,
+  `set_model` / `set_permission_mode` control requests when the composer's
+  choice changes, interrupt that denies every pending prompt, a protocol
+  floor check against `1.0.59`.
+- Storage: `harness_threads` (thread id, harness, cwd, title, timestamps,
+  archived) and a `harness` column on `thread_summaries`. The journal is the
+  transcript for a Claude thread; `read_thread` rebuilds turns from it.
+- Commands route by `storage::thread_harness`: `start_thread` takes a
+  `harness`, and `start_turn`, `interrupt_turn`, `read_thread`,
+  `respond_approval`, `respond_user_input`, `respond_server_request`,
+  `rename_thread`, `archive_thread`, `delete_thread`,
+  `threads_with_active_turns` do the right thing for a Claude thread.
+  Codex-only verbs (queue, goals, subagents, auto-naming) answer without a
+  Codex round trip. New: `list_harness_models`, `read_claude_status`.
+- Frontend: a harness chip on the draft composer (persisted in composer
+  prefs, per project), Claude's model aliases and permission presets in the
+  existing popovers, option buttons on the approval card, a "Claude" badge in
+  the sidebar, and `harness:request` feeding the approval and question stores.
+- Tests: unit tests per module, plus two golden streams recorded from the
+  real CLI under `tests/fixtures/protocol/claude/` (a Bash call, a Write
+  that prompts for permission).
+
+Deliberate differences from the sections above, to land a working slice:
+
+- The transcript still consumes Codex-shaped notifications. The Claude
+  driver emits neutral events and `harness/project.rs` projects them; the
+  reducer migration to `kind`-shaped items is the next slice.
+- No Profile database yet. Claude threads live in the current Codex home's
+  `pingex.db` under `harness_threads`, and the thread id doubles as the
+  Claude session id. The Profile migration is unchanged as a plan.
+- Idle reaping of Claude processes, importing external sessions, the
+  `test:e2e:claude` live suite, `versions:check` for Claude, and the
+  settings-page Home selector are not built.
+- `MultiEdit` diffs, `AskUserQuestion` and `ExitPlanMode` are mapped and unit
+  tested but not yet exercised live.
+
 ## Not yet specified
 
 - Pingex app-owned subagents on Claude (likely an SDK-hosted MCP server over

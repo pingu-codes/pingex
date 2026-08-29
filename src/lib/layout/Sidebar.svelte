@@ -384,6 +384,11 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
         <Star class="shrink-0 fill-warning-500 text-warning-500" size={11} />
       {/if}
       <span class="min-w-0 flex-1 truncate" title={thread.title}>{thread.title}</span>
+      {#if thread.harness === "claude"}
+        <span class="shrink-0 rounded px-1 text-[9px] font-semibold uppercase tracking-wide text-surface-500 preset-tonal" title="Runs on Claude Code">
+          Claude
+        </span>
+      {/if}
       {#if isTempWorktreePath(thread.cwd ?? "")}
         <span
           class="grid shrink-0 place-items-center text-surface-500"

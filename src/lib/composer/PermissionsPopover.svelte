@@ -1,20 +1,23 @@
 <script lang="ts">
 import { Check, ChevronDown, Shield } from "@lucide/svelte";
-import { PERMISSION_PRESETS } from "$lib/composer/composerPrefs.svelte";
+import { type HarnessChoice, permissionPresetsFor } from "$lib/composer/composerPrefs.svelte";
 
 let {
   open,
   selectedId,
+  harness = null,
   onToggle,
   onChoose,
 }: {
   open: boolean;
   selectedId: string | null;
+  harness?: HarnessChoice | null;
   onToggle: () => void;
   onChoose: (id: string) => void;
 } = $props();
 
-const selectedLabel = $derived(PERMISSION_PRESETS.find((preset) => preset.id === selectedId)?.label ?? "Permissions");
+const presets = $derived(permissionPresetsFor(harness));
+const selectedLabel = $derived(presets.find((preset) => preset.id === selectedId)?.label ?? "Permissions");
 </script>
 
 <div class="relative">
@@ -41,7 +44,7 @@ const selectedLabel = $derived(PERMISSION_PRESETS.find((preset) => preset.id ===
     >
       <span class="px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-surface-500">Permissions</span>
       <div class="mt-1 space-y-0.5">
-        {#each PERMISSION_PRESETS as preset (preset.id)}
+        {#each presets as preset (preset.id)}
           <button
             onclick={() => onChoose(preset.id)}
             class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal"

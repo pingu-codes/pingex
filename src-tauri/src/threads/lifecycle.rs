@@ -30,14 +30,18 @@ pub(crate) async fn rename_thread(
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
     let name = name.trim();
-    ctx
-        .session
-        .request(
-            &app,
-            "thread/name/set",
-            json!({"threadId": thread_id, "name": name}),
-        )
-        .await?;
+    if storage::thread_harness(&ctx.database(), &thread_id).await?.is_some() {
+        storage::rename_harness_thread(&ctx.database(), &thread_id, name).await?;
+        ctx.claude.rename(&thread_id, name).await;
+    } else {
+        ctx.session
+            .request(
+                &app,
+                "thread/name/set",
+                json!({"threadId": thread_id, "name": name}),
+            )
+            .await?;
+    }
     storage::rename_thread_summary(&ctx.database(), &thread_id, name).await?;
     storage::rename_thread_search(&ctx.database(), &thread_id, name).await?;
     storage::invalidate_thread_detail(&ctx.database(), &thread_id).await?;
@@ -145,6 +149,9 @@ pub(crate) async fn thread_goal_get(
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
+    if storage::thread_harness(&ctx.database(), &thread_id).await?.is_some() {
+        return Ok(Json(Value::Null));
+    }
     ctx.session.ensure_resumed(&app, &thread_id).await?;
     let request = requests::thread_goal_get(&thread_id);
     let response = ctx
@@ -205,10 +212,14 @@ pub(crate) async fn archive_thread(
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
-    ctx
-        .session
-        .send(&app, requests::thread_archive(&thread_id))
-        .await?;
+    if storage::thread_harness(&ctx.database(), &thread_id).await?.is_some() {
+        ctx.claude.close_thread(&thread_id);
+        storage::set_harness_thread_archived(&ctx.database(), &thread_id, true).await?;
+    } else {
+        ctx.session
+            .send(&app, requests::thread_archive(&thread_id))
+            .await?;
+    }
     // Archiving keeps the thread searchable; the search row flips its flag
     // instead of being deleted.
     storage::set_thread_search_archived(&ctx.database(), &thread_id, true).await?;
@@ -244,10 +255,14 @@ pub(crate) async fn delete_thread(
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
-    ctx
-        .session
-        .send(&app, requests::thread_delete(&thread_id))
-        .await?;
+    if storage::thread_harness(&ctx.database(), &thread_id).await?.is_some() {
+        ctx.claude.close_thread(&thread_id);
+        storage::delete_harness_thread(&ctx.database(), &thread_id).await?;
+    } else {
+        ctx.session
+            .send(&app, requests::thread_delete(&thread_id))
+            .await?;
+    }
     storage::delete_thread_search(&ctx.database(), &thread_id).await?;
     // Archiving keeps the journal (unarchiving expects its transcript back);
     // deleting is the one path that owns dropping it.
@@ -306,6 +321,40 @@ pub(crate) async fn list_models(
 /// Drop the last `num_turns` turns from a thread, in place. Unlike forking,
 /// this keeps the thread id — which is what editing a past message wants: the
 /// conversation rewinds instead of branching into a second sidebar entry.
+/// The models a harness offers the composer. Codex answers `model/list`;
+/// Claude has a fixed alias list.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn list_harness_models(
+    harness: String,
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<Json, String> {
+    if harness == "claude" {
+        return Ok(Json(crate::claude::driver::models()));
+    }
+    let ctx = state.ctx(&window);
+    ctx.session
+        .send(&app, requests::model_list(100, false))
+        .await
+        .map(Json)
+}
+
+/// Whether a usable `claude` binary is installed for this home.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn read_claude_status(
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<crate::claude::driver::ClaudeStatus, String> {
+    let ctx = state.ctx(&window);
+    let runtime = ctx.claude.runtime().clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || crate::claude::driver::status(&runtime))
+        .await
+        .map_err(|error| error.to_string())?)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn rollback_thread(

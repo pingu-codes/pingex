@@ -1,5 +1,5 @@
 import { eventMatchesHome } from "$lib/app/launch.svelte";
-import { events } from "$lib/bindings";
+import { events, type HarnessRequestEnvelope } from "$lib/bindings";
 import { applyRateLimitUpdate } from "$lib/services/accountUsage.svelte";
 import { applyAgentActivity, applyAgentRunEvent } from "$lib/services/agentRuns.svelte";
 import { recordUserInputRequest } from "$lib/services/api";
@@ -37,6 +37,14 @@ export interface Approval {
   changes?: FileUpdateChange[] | null;
   /** What Codex is asking to be allowed, on a `permissions` approval. */
   permissions?: RequestPermissionProfile | null;
+  /** Set on a request from another harness; the card then draws `options`
+   *  instead of the Codex decision buttons. */
+  harness?: "claude";
+  options?: { optionId: string; name: string; kind: string }[];
+  title?: string;
+  description?: string | null;
+  /** Focus Decline rather than Allow (the harness flagged the request). */
+  defaultToReject?: boolean;
 }
 
 /**
@@ -385,6 +393,50 @@ function onServerRequest(payload: CodexServerRequestEvent) {
   }
 }
 
+/**
+ * A request from a non-Codex harness. Permissions become approvals on the
+ * card their tool kind suggests; questions go where Codex's questions go,
+ * persisted the same way so an unanswered one survives a reload.
+ */
+export function onHarnessRequest(payload: HarnessRequestEnvelope) {
+  const { requestId, threadId, turnId, itemId, request } = payload;
+  if (request.type === "user_input") {
+    const questions = (request.questions ?? []) as UserInputQuestion[];
+    userInputRequests.list.push({ requestId, threadId, turnId, itemId, questions });
+    markUnanswered(threadId);
+    void recordUserInputRequest({
+      threadId,
+      turnId,
+      itemId,
+      item: { type: "userInputAnswered", id: itemId, questions, answers: {}, unanswered: true },
+    }).catch(() => {});
+    return;
+  }
+  const kind: Approval["kind"] =
+    request.kind === "execute" && request.command != null
+      ? "command"
+      : request.kind === "edit" && Array.isArray(request.changes) && request.changes.length > 0
+        ? "fileChange"
+        : "permissions";
+  approvals.list.push({
+    requestId,
+    kind,
+    harness: "claude",
+    threadId,
+    turnId,
+    itemId,
+    command: request.command ?? null,
+    cwd: request.cwd ?? null,
+    reason: request.reason ?? null,
+    changes: kind === "fileChange" ? (request.changes as FileUpdateChange[]) : null,
+    permissions: null,
+    options: request.options,
+    title: request.title,
+    description: request.description ?? null,
+    defaultToReject: request.defaultToReject,
+  });
+}
+
 let started = false;
 
 export async function startCodexListeners(): Promise<void> {
@@ -403,6 +455,10 @@ export async function startCodexListeners(): Promise<void> {
   await events.codexServerRequest.listen(({ payload }) => {
     if (!eventMatchesHome(payload.codexHome)) return;
     onServerRequest(payload as CodexServerRequestEvent);
+  });
+  await events.harnessRequest.listen(({ payload }) => {
+    if (!eventMatchesHome(payload.codexHome)) return;
+    onHarnessRequest(payload);
   });
   await events.codexAgentRun.listen(({ payload }) => {
     if (!eventMatchesHome(payload.codexHome)) return;

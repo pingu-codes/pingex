@@ -76,6 +76,11 @@ pub(crate) async fn auto_name_thread(
         return Ok(None);
     }
 
+    // The namer runs on Codex; a thread on another harness keeps the title
+    // its opening message gave it.
+    if storage::thread_harness(&ctx.database(), &thread_id).await?.is_some() {
+        return Ok(None);
+    }
     let Some(seed) = resolve_seed(seed, &thread_id, &app, &ctx).await else {
         return Ok(None);
     };
