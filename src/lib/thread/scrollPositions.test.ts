@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { recallScroll, rememberScroll, resetScrollPositions } from "./scrollPositions";
+import { nextFollowing, recallScroll, rememberScroll, resetScrollPositions } from "./scrollPositions";
 
 function scroller(scrollTop: number, scrollHeight = 2000, clientHeight = 500): HTMLElement {
   return { scrollTop, scrollHeight, clientHeight } as HTMLElement;
@@ -30,5 +30,25 @@ describe("scrollPositions", () => {
     rememberScroll("a", scroller(10));
     resetScrollPositions();
     expect(recallScroll("a")).toBeNull();
+  });
+
+  describe("nextFollowing", () => {
+    it("detaches on any move up, even inside the near-bottom band", () => {
+      // 1500 is the very bottom (2000 - 500); 1450 is 50px up, well inside 120px.
+      expect(nextFollowing(true, 1500, scroller(1450))).toBe(false);
+    });
+
+    it("re-attaches when a move down lands near the bottom", () => {
+      expect(nextFollowing(false, 300, scroller(1400))).toBe(true);
+    });
+
+    it("stays detached when a move down is still far from the bottom", () => {
+      expect(nextFollowing(false, 300, scroller(600))).toBe(false);
+    });
+
+    it("keeps the previous state when the offset did not move", () => {
+      expect(nextFollowing(true, 1500, scroller(1500))).toBe(true);
+      expect(nextFollowing(false, 600, scroller(600))).toBe(false);
+    });
   });
 });

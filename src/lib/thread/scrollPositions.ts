@@ -20,6 +20,18 @@ export function isNearBottom(el: HTMLElement): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
 }
 
+/**
+ * Whether the transcript should keep following the live bottom after a
+ * user-initiated scroll. Any move up detaches — even inside the near-bottom
+ * band, otherwise a single wheel tick during fast streaming is snapped back
+ * before the next one lands. Moving down re-attaches only once near the bottom.
+ */
+export function nextFollowing(prev: boolean, lastTop: number, el: HTMLElement): boolean {
+  if (el.scrollTop < lastTop) return false;
+  if (isNearBottom(el)) return true;
+  return prev;
+}
+
 export function rememberScroll(threadId: string, el: HTMLElement): void {
   positions[threadId] = { top: el.scrollTop, atBottom: isNearBottom(el) };
 }

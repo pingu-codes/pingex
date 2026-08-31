@@ -1,5 +1,5 @@
 <script lang="ts">
-import { ChevronRight, Pause, Pencil, Play, Target, X } from "@lucide/svelte";
+import { ArrowDown, ChevronRight, Pause, Pencil, Play, Target, X } from "@lucide/svelte";
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
 import { onDestroy, tick, untrack } from "svelte";
 import { nameNewThread } from "$lib/app/appData.svelte";
@@ -49,7 +49,7 @@ import QueuedMessageRow from "$lib/thread/QueuedMessageRow.svelte";
 import ReasoningBlock from "$lib/thread/ReasoningBlock.svelte";
 import ReplaceGoalDialog from "$lib/thread/ReplaceGoalDialog.svelte";
 import RewindThreadDialog from "$lib/thread/RewindThreadDialog.svelte";
-import { isNearBottom, recallScroll, rememberScroll } from "$lib/thread/scrollPositions";
+import { nextFollowing, recallScroll, rememberScroll } from "$lib/thread/scrollPositions";
 import { attachSession, draftSession, openSession, releaseSession } from "$lib/thread/sessions.svelte";
 import TurnPlanCard from "$lib/thread/TurnPlanCard.svelte";
 import type { ThreadSession } from "$lib/thread/threadSession.svelte";
@@ -171,6 +171,13 @@ $effect(() => {
 let scroller: HTMLElement | null = null;
 /** Thread whose remembered scroll offset has been applied to `scroller`. */
 let restoredScrollFor: string | null = null;
+/** Whether the transcript tracks the live bottom. Only user scrolling changes it;
+ *  position is a poor proxy for intent while content streams in fast. */
+let following = $state(true);
+/** Set right before we assign `scrollTop` so the resulting scroll event is not
+ *  mistaken for the user's. One-shot, deliberately not reactive. */
+let programmaticScroll = false;
+let lastScrollTop = 0;
 let panelView = $state<PanelView | null>(null);
 let composer = $state<{
   implementPlan: () => void;
@@ -273,15 +280,37 @@ $effect(() => {
 function maybeScroll(force = false) {
   const element = scroller;
   if (!element) return;
-  if (force || isNearBottom(element)) {
-    requestAnimationFrame(() => {
-      element.scrollTop = element.scrollHeight;
-    });
-  }
+  if (force) following = true;
+  if (!following) return;
+  requestAnimationFrame(() => scrollProgrammatically(element, element.scrollHeight));
+}
+
+/** Assign `scrollTop` without the resulting scroll event flipping `following`.
+ *  When nothing moves no event fires, so drop the guard at once rather than let
+ *  it swallow the next real user scroll. */
+function scrollProgrammatically(element: HTMLElement, top: number) {
+  const before = element.scrollTop;
+  programmaticScroll = true;
+  element.scrollTop = top;
+  if (element.scrollTop === before) programmaticScroll = false;
 }
 
 function onScroll() {
-  if (liveThreadId && scroller) rememberScroll(liveThreadId, scroller);
+  const element = scroller;
+  if (!element) return;
+  if (programmaticScroll) {
+    programmaticScroll = false;
+  } else {
+    following = nextFollowing(following, lastScrollTop, element);
+  }
+  lastScrollTop = element.scrollTop;
+  if (liveThreadId) rememberScroll(liveThreadId, element);
+}
+
+/** A wheel-up and a programmatic scroll-down can land in the same frame, so the
+ *  net scroll event alone may read as "moved down"; detach on the intent itself. */
+function onWheel(event: WheelEvent) {
+  if (event.deltaY < 0) following = false;
 }
 
 // Switching threads remounts this view, so the scroller opens at the top; put
@@ -296,7 +325,9 @@ $effect(() => {
     requestAnimationFrame(() => {
       const element = scroller;
       if (!element || liveThreadId !== id) return;
-      element.scrollTop = saved.atBottom ? element.scrollHeight : saved.top;
+      following = saved.atBottom;
+      scrollProgrammatically(element, saved.atBottom ? element.scrollHeight : saved.top);
+      lastScrollTop = element.scrollTop;
     });
   });
 });
@@ -992,120 +1023,137 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
       </div>
     </div>
   {/if}
-  <div class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto" bind:this={scroller} onscroll={onScroll}>
-    <div class="mx-auto min-w-0 max-w-3xl space-y-5 px-6 py-8">
-      {#if loading}
-        <div class="space-y-3" aria-label="Loading thread">
-          <div class="placeholder h-16 animate-pulse rounded-xl"></div>
-          <div class="placeholder h-24 animate-pulse rounded-xl opacity-70"></div>
-          <div class="placeholder h-16 animate-pulse rounded-xl opacity-40"></div>
-        </div>
-      {:else if error}
-        <div class="card preset-tonal-error p-4 text-sm">
-          <div class="font-semibold">Could not load this thread</div>
-          <p class="mt-1 text-xs leading-5">{error}</p>
-        </div>
-      {:else if thread}
-        {#each thread.turns as turn (turn.id)}
-          {@const parts = splitTurn(turn)}
-          {@const collapseDiffs = turnDiffCount(turn) > 1}
-          {@const liveSegment = turn.status === "inProgress" ? parts.body.at(-1) : undefined}
-          {#each parts.users as item (item.id)}
-            <UserMessageBubble
-              {item}
-              cwd={thread?.cwd || cwd}
-              editable={!!liveThreadId && !turn.id.startsWith("local-")}
-              onSubmitEdit={(text) => submitEdit(turn, text)}
-            />
-          {/each}
-          {@const firstWork = parts.body.find((segment) => segment.kind === "work")}
-          {#each parts.body as segment (completedSegmentKey(segment))}
-            {#if segment.kind === "message"}
-              <WorkItem
-                item={segment.item}
-                stranded={strandedContext(segment.item, turn.id)}
-                model={turn.model}
-                effort={turn.reasoningEffort}
+  <div class="relative flex min-h-0 flex-1 flex-col">
+    <div
+      class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+      bind:this={scroller}
+      onscroll={onScroll}
+      onwheel={onWheel}
+    >
+      <div class="mx-auto min-w-0 max-w-3xl space-y-5 px-6 py-8">
+        {#if loading}
+          <div class="space-y-3" aria-label="Loading thread">
+            <div class="placeholder h-16 animate-pulse rounded-xl"></div>
+            <div class="placeholder h-24 animate-pulse rounded-xl opacity-70"></div>
+            <div class="placeholder h-16 animate-pulse rounded-xl opacity-40"></div>
+          </div>
+        {:else if error}
+          <div class="card preset-tonal-error p-4 text-sm">
+            <div class="font-semibold">Could not load this thread</div>
+            <p class="mt-1 text-xs leading-5">{error}</p>
+          </div>
+        {:else if thread}
+          {#each thread.turns as turn (turn.id)}
+            {@const parts = splitTurn(turn)}
+            {@const collapseDiffs = turnDiffCount(turn) > 1}
+            {@const liveSegment = turn.status === "inProgress" ? parts.body.at(-1) : undefined}
+            {#each parts.users as item (item.id)}
+              <UserMessageBubble
+                {item}
+                cwd={thread?.cwd || cwd}
+                editable={!!liveThreadId && !turn.id.startsWith("local-")}
+                onSubmitEdit={(text) => submitEdit(turn, text)}
               />
-            {:else if segment === liveSegment}
-              {@const liveSegments = turnSegments(segment.items)}
-              {#each liveSegments as liveSeg, liveIndex (segmentKey(liveSeg))}
-                {#if liveSeg.kind === "reasoning"}
-                  <ReasoningBlock
-                    items={liveSeg.items}
-                    live={liveIndex === liveSegments.length - 1}
-                  />
-                {:else}
-                  <WorkItem item={liveSeg.item} {collapseDiffs} />
+            {/each}
+            {@const firstWork = parts.body.find((segment) => segment.kind === "work")}
+            {#each parts.body as segment (completedSegmentKey(segment))}
+              {#if segment.kind === "message"}
+                <WorkItem
+                  item={segment.item}
+                  stranded={strandedContext(segment.item, turn.id)}
+                  model={turn.model}
+                  effort={turn.reasoningEffort}
+                />
+              {:else if segment === liveSegment}
+                {@const liveSegments = turnSegments(segment.items)}
+                {#each liveSegments as liveSeg, liveIndex (segmentKey(liveSeg))}
+                  {#if liveSeg.kind === "reasoning"}
+                    <ReasoningBlock
+                      items={liveSeg.items}
+                      live={liveIndex === liveSegments.length - 1}
+                    />
+                  {:else}
+                    <WorkItem item={liveSeg.item} {collapseDiffs} />
+                  {/if}
+                {/each}
+              {:else}
+                <div>
+                  <Collapsible>
+                    <Collapsible.Trigger class="group flex items-center gap-1 text-sm text-surface-500 hover:text-surface-700-300">
+                      <span>{segment === firstWork && turn.status !== "inProgress" ? workedLabel(turn) : "Worked"}</span>
+                      <ChevronRight size={14} class="transition group-data-[state=open]:rotate-90" />
+                    </Collapsible.Trigger>
+                    <Collapsible.Content>
+                      <div class="mt-3 space-y-4 border-l-2 border-surface-200-800 pl-4">
+                        {#each segment.items as item (item.id)}
+                          <WorkItem {item} {collapseDiffs} />
+                        {/each}
+                      </div>
+                    </Collapsible.Content>
+                  </Collapsible>
+                  <hr class="mt-3 border-surface-200-800" />
+                </div>
+              {/if}
+            {/each}
+            {#if turn.status === "failed" && turn.error}
+              {@const steer = turn.error.misalignment?.steer?.message}
+              <div class="card preset-tonal-error space-y-2 p-3 text-xs">
+                <div>{turn.error.message}</div>
+                {#if turn.error.misalignment?.detailedExplanation}
+                  <p class="whitespace-pre-wrap opacity-90">{turn.error.misalignment.detailedExplanation}</p>
                 {/if}
-              {/each}
-            {:else}
-              <div>
-                <Collapsible>
-                  <Collapsible.Trigger class="group flex items-center gap-1 text-sm text-surface-500 hover:text-surface-700-300">
-                    <span>{segment === firstWork && turn.status !== "inProgress" ? workedLabel(turn) : "Worked"}</span>
-                    <ChevronRight size={14} class="transition group-data-[state=open]:rotate-90" />
-                  </Collapsible.Trigger>
-                  <Collapsible.Content>
-                    <div class="mt-3 space-y-4 border-l-2 border-surface-200-800 pl-4">
-                      {#each segment.items as item (item.id)}
-                        <WorkItem {item} {collapseDiffs} />
-                      {/each}
-                    </div>
-                  </Collapsible.Content>
-                </Collapsible>
-                <hr class="mt-3 border-surface-200-800" />
+                {#if steer}
+                  <button
+                    type="button"
+                    class="btn btn-sm preset-tonal"
+                    disabled={Boolean(session.activeTurn)}
+                    onclick={() => void send([{ type: "text", text: steer }])}
+                  >
+                    Continue with suggested steer
+                  </button>
+                {/if}
               </div>
             {/if}
           {/each}
-          {#if turn.status === "failed" && turn.error}
-            {@const steer = turn.error.misalignment?.steer?.message}
-            <div class="card preset-tonal-error space-y-2 p-3 text-xs">
-              <div>{turn.error.message}</div>
-              {#if turn.error.misalignment?.detailedExplanation}
-                <p class="whitespace-pre-wrap opacity-90">{turn.error.misalignment.detailedExplanation}</p>
-              {/if}
-              {#if steer}
-                <button
-                  type="button"
-                  class="btn btn-sm preset-tonal"
-                  disabled={Boolean(session.activeTurn)}
-                  onclick={() => void send([{ type: "text", text: steer }])}
-                >
-                  Continue with suggested steer
-                </button>
-              {/if}
+
+          {#each threadApprovals as approval (approval.requestId)}
+            <ApprovalCard {approval} />
+          {/each}
+
+          {#each threadQuestions as request (request.requestId)}
+            <QuestionCard {request} onAnswered={(item) => thread && upsertItem(thread.turns, request.turnId, item)} />
+          {/each}
+
+          {#each threadElicitations as elicitation (elicitation.requestId)}
+            <ElicitationCard {elicitation} />
+          {/each}
+
+          {#if showTypingIndicator}
+            <div class="flex items-center gap-1.5 py-1" aria-label="Codex is working">
+              <span class="typing-dot"></span>
+              <span class="typing-dot" style="animation-delay: 0.18s"></span>
+              <span class="typing-dot" style="animation-delay: 0.36s"></span>
             </div>
           {/if}
-        {/each}
 
-        {#each threadApprovals as approval (approval.requestId)}
-          <ApprovalCard {approval} />
-        {/each}
-
-        {#each threadQuestions as request (request.requestId)}
-          <QuestionCard {request} onAnswered={(item) => thread && upsertItem(thread.turns, request.turnId, item)} />
-        {/each}
-
-        {#each threadElicitations as elicitation (elicitation.requestId)}
-          <ElicitationCard {elicitation} />
-        {/each}
-
-        {#if showTypingIndicator}
-          <div class="flex items-center gap-1.5 py-1" aria-label="Codex is working">
-            <span class="typing-dot"></span>
-            <span class="typing-dot" style="animation-delay: 0.18s"></span>
-            <span class="typing-dot" style="animation-delay: 0.36s"></span>
-          </div>
+          {#if thread.turns.length === 0}
+            <p class="py-16 text-center text-sm text-surface-500">
+              {threadId ? "This thread has no messages yet." : "Send a message to start a new thread."}
+            </p>
+          {/if}
         {/if}
-
-        {#if thread.turns.length === 0}
-          <p class="py-16 text-center text-sm text-surface-500">
-            {threadId ? "This thread has no messages yet." : "Send a message to start a new thread."}
-          </p>
-        {/if}
-      {/if}
+      </div>
     </div>
+    {#if !following && !loading && thread}
+      <button
+        type="button"
+        class="btn btn-sm preset-filled absolute bottom-3 left-1/2 -translate-x-1/2 gap-1 rounded-full shadow-lg"
+        onclick={() => maybeScroll(true)}
+      >
+        <ArrowDown class="size-3.5" />
+        Jump to latest
+      </button>
+    {/if}
   </div>
 
   {#if turnPlan && turnPlan.steps.length > 0}
