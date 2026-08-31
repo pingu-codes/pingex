@@ -201,6 +201,25 @@ describe("Composer", () => {
     );
   });
 
+  it("picks the harness for a draft from the menu", async () => {
+    const user = userEvent.setup();
+    setup({ projectKey: "/repo" });
+
+    const trigger = screen.getByRole("button", { name: "Choose harness" });
+    expect(trigger).toHaveTextContent("Codex");
+    await user.click(trigger);
+    await user.click(await screen.findByRole("menuitemradio", { name: "Claude Code" }));
+
+    await waitFor(() => expect(trigger).toHaveTextContent("Claude Code"));
+    expect(loadScopedPrefs("/repo", null).harness).toBe("claude");
+    expect(loadScopedPrefs("/repo", null).model).toBeNull();
+  });
+
+  it("hides the harness menu on an existing thread", () => {
+    setup({ threadId: "thr_1" });
+    expect(screen.queryByRole("button", { name: "Choose harness" })).toBeNull();
+  });
+
   describe("invalid settings", () => {
     const blocked = async (props: Parameters<typeof setup>[0], reason: string) => {
       const user = userEvent.setup();

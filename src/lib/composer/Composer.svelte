@@ -25,6 +25,7 @@ import {
   turnOptionsFrom,
 } from "$lib/composer/composerPrefs.svelte";
 import MentionPicker from "$lib/composer/MentionPicker.svelte";
+import HarnessMenu from "$lib/composer/HarnessMenu.svelte";
 import ModelPopover from "$lib/composer/ModelPopover.svelte";
 import {
   claudeModels as claudeModelList,
@@ -1122,16 +1123,7 @@ function onPaste(event: ClipboardEvent) {
         />
         <div class="ml-auto flex items-center gap-1.5">
           {#if !threadId}
-            <select
-              aria-label="Choose harness"
-              title="Harness new threads run on"
-              class="select select-sm w-auto text-[11px]"
-              value={harness}
-              onchange={(event) => chooseHarness(event.currentTarget.value as HarnessChoice)}
-            >
-              <option value="codex">Codex</option>
-              <option value="claude">Claude Code</option>
-            </select>
+            <HarnessMenu {harness} onChoose={chooseHarness} />
           {/if}
           <ContextMeter
             stats={contextStats}
