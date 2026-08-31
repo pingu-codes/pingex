@@ -110,6 +110,8 @@ export const commands = {
 	projects: Project[],
 	account: Account | null,
 	sideQuestions: SideQuestion[],
+	/**  Every message-version branch, hidden from the project listings. */
+	threadBranches: ThreadBranch[],
 	subagents: ThreadSummary[],
 	/**
 	 *  The app-server's thread sections, in its order; threads reference them
@@ -197,6 +199,16 @@ export const commands = {
 	listSubagents: (threadId: string) => __TAURI_INVOKE<SubagentDetail[]>("list_subagents", { threadId }),
 	updateSubagentPolicy: (threadId: string, modelPolicy: unknown, reasoningEffortPolicy: unknown) => __TAURI_INVOKE<null>("update_subagent_policy", { threadId, modelPolicy, reasoningEffortPolicy }),
 	addSideQuestion: (parentThreadId: string, sideThreadId: string, title: string, inheritedTurns: number | null) => __TAURI_INVOKE<BootstrapData>("add_side_question", { parentThreadId, sideThreadId, title, inheritedTurns }),
+	/**
+	 *  Record a fork as a version of the message whose turn it replaced. Editing
+	 *  an edit adds to the original message's group rather than nesting.
+	 */
+	addThreadBranch: (parentThreadId: string, threadId: string, replacedTurnId: string, inheritedTurns: number) => __TAURI_INVOKE<BootstrapData>("add_thread_branch", { parentThreadId, threadId, replacedTurnId, inheritedTurns }),
+	/**
+	 *  Remember which turn in a branch is the edited message, once Codex has
+	 *  assigned it an id.
+	 */
+	setThreadBranchEditTurn: (threadId: string, editTurnId: string) => __TAURI_INVOKE<null>("set_thread_branch_edit_turn", { threadId, editTurnId }),
 	/**
 	 *  Stop tracking a thread as a side question. The thread itself survives and
 	 *  reappears as an ordinary thread in its project.
@@ -521,6 +533,8 @@ export type BootstrapData = {
 	projects: Project[],
 	account: Account | null,
 	sideQuestions: SideQuestion[],
+	/**  Every message-version branch, hidden from the project listings. */
+	threadBranches: ThreadBranch[],
 	subagents: ThreadSummary[],
 	/**
 	 *  The app-server's thread sections, in its order; threads reference them
@@ -1480,6 +1494,30 @@ export type TerminalInteractionParams = {
 	itemId?: string | null,
 	processId?: string | null,
 	stdin?: string | null,
+};
+
+export type ThreadBranch = {
+	/**  The fork. */
+	threadId: string,
+	/**  The thread the fork was taken from. */
+	parentThreadId: string,
+	/**  Turn id of the original message being versioned. */
+	groupTurnId: string,
+	/**
+	 *  The turn the fork excluded — the original, or a sibling's edit turn when
+	 *  an edit was itself edited.
+	 */
+	replacedTurnId: string,
+	/**  How many turns the fork inherited; the edit turn is the next one. */
+	inheritedTurns: number,
+	/**  The fork's first own turn, once known. */
+	editTurnId: string | null,
+	createdAt: number,
+	/**
+	 *  Last activity, filled in from the thread listing at bootstrap so the UI
+	 *  can land on the newest leaf of a family. Not stored.
+	 */
+	updatedAt: number | null,
 };
 
 export type ThreadGoalUpdatedParams = {

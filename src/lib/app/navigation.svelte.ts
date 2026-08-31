@@ -5,8 +5,9 @@
  * fields. Projects are held by path and resolved against `appData`, so a
  * bootstrap refresh transparently updates them.
  */
-import { projectByPath, projectForCwd, projects, threadById } from "$lib/app/appData.svelte";
+import { appData, projectByPath, projectForCwd, projects, threadById } from "$lib/app/appData.svelte";
 import { touchThread } from "$lib/layout/sessionFocus.svelte";
+import { newestLeaf, rootThreadId } from "$lib/thread/messageVersions";
 import type { Project, ThreadSummary } from "$lib/types";
 
 export type View = {
@@ -76,16 +77,30 @@ export function goHome(): void {
   setView({});
 }
 
-/** Open a thread from the sidebar, where the project is already known. */
-export function openThread(project: Project, threadId: string): void {
-  setView({ projectPath: project.path, threadId });
+const branches = () => appData.data?.threadBranches ?? [];
+
+/** An edited message leaves its thread as a family of versions; the sidebar
+ *  lists only the root, and opening it lands on whichever was active last. */
+function newestVersion(threadId: string): string {
+  return newestLeaf(threadId, branches(), (id) => threadById(id)?.updatedAt);
 }
 
-/** Open a thread by id, resolving its project from the thread's cwd. */
+/** Open a thread from the sidebar, where the project is already known. */
+export function openThread(project: Project, threadId: string): void {
+  setView({ projectPath: project.path, threadId: newestVersion(threadId) });
+}
+
+/** Open a thread by id, resolving its project from the thread's cwd. A
+ *  version branch resolves through its root, which is the listed one. */
 export function openThreadById(threadId: string): void {
-  const thread = threadById(threadId);
+  const thread = threadById(threadId) ?? threadById(rootThreadId(threadId, branches()) ?? "");
   if (!thread) return;
-  setView({ threadId, projectPath: projectForCwd(thread.cwd)?.path ?? view.projectPath });
+  setView({ threadId: newestVersion(threadId), projectPath: projectForCwd(thread.cwd)?.path ?? view.projectPath });
+}
+
+/** Open a specific version of an edited message's thread, as it is. */
+export function openVersion(threadId: string): void {
+  setView({ threadId, projectPath: view.projectPath });
 }
 
 /** Open a thread found outside the sidebar (search hit, archived thread). */

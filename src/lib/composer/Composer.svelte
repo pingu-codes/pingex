@@ -661,6 +661,12 @@ export function restoreText(text: string) {
 }
 
 /** True when nothing sendable has been typed or attached. */
+/** What a turn sent right now would run with — for sends that bypass the
+ *  composer's text, such as an edited message. */
+export function turnOptions(): TurnOptions | undefined {
+  return sendOptions();
+}
+
 export function isEmpty(): boolean {
   return !hasSendableContent(normaliseParts(richEditor.parts.map((part) => ({ ...part }))));
 }

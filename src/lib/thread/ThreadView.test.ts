@@ -1,9 +1,9 @@
 import { render, screen, waitFor, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appData, trackNewThread } from "$lib/app/appData.svelte";
 import { loadPrefs, savePrefs } from "$lib/composer/composerPrefs.svelte";
-import type { ThreadDetail, Turn } from "$lib/types";
+import type { BootstrapData, ThreadDetail, Turn } from "$lib/types";
 
 type ThreadEventHandler = (event: { method: string; params: Record<string, unknown> }) => void;
 
@@ -13,6 +13,9 @@ const mocks = vi.hoisted(() => ({
   listProjectFiles: vi.fn(),
   rollbackThread: vi.fn(),
   revertThread: vi.fn(),
+  forkThread: vi.fn(),
+  addThreadBranch: vi.fn(),
+  setThreadBranchEditTurn: vi.fn(),
   openDialog: vi.fn(),
   startThread: vi.fn(),
   startTurn: vi.fn(),
@@ -63,7 +66,6 @@ vi.mock("$lib/services/api", () => ({
   loadDraft: vi.fn().mockResolvedValue(null),
   saveDraft: vi.fn().mockResolvedValue(undefined),
   deleteDraft: vi.fn().mockResolvedValue(undefined),
-  forkThread: vi.fn(),
   gitRepoInfo: mocks.gitRepoInfo,
   gitRecentCommits: mocks.gitRecentCommits,
   gitBranches: mocks.gitBranches,
@@ -107,6 +109,9 @@ vi.mock("$lib/services/api", () => ({
   revealInFinder: vi.fn(),
   revertThread: mocks.revertThread,
   rollbackThread: mocks.rollbackThread,
+  forkThread: mocks.forkThread,
+  addThreadBranch: mocks.addThreadBranch,
+  setThreadBranchEditTurn: mocks.setThreadBranchEditTurn,
   startThread: mocks.startThread,
   startTurn: mocks.startTurn,
   updateSubagentPolicy: vi.fn(),
@@ -466,22 +471,47 @@ describe("ThreadView file references", () => {
 });
 
 describe("ThreadView inline message editing", () => {
+  const onSelectVersion = vi.fn();
+  const onDataChanged = vi.fn();
+  const branchData = { threadBranches: [] } as unknown as BootstrapData;
+  let activeBefore: string[] = [];
+
   beforeEach(() => {
+    activeBefore = mocks.activeTurns.list;
     resetSessions();
     mocks.readThread.mockReset();
     mocks.rollbackThread.mockReset();
     mocks.revertThread.mockReset();
-    // The default stand-in is a codex CLI too old for `thread/revert`, so the
-    // rewind goes through the deprecated rollback API.
-    mocks.revertThread.mockRejectedValue(new Error("codex-revert-unsupported: too old"));
+    mocks.forkThread.mockReset();
+    mocks.addThreadBranch.mockReset();
+    mocks.addThreadBranch.mockResolvedValue(branchData);
+    mocks.setThreadBranchEditTurn.mockReset();
+    mocks.setThreadBranchEditTurn.mockResolvedValue(undefined);
     mocks.startTurn.mockReset();
     mocks.openDialog.mockReset();
-    mocks.openDialog.mockResolvedValue(true);
+    onSelectVersion.mockReset();
+    onDataChanged.mockReset();
   });
 
-  async function edit(text: string) {
+  afterEach(() => {
+    // `edit` leaves a persistent fork transcript on `readThread`, and a
+    // running turn keeps its session retained past the test.
+    mocks.readThread.mockReset();
+    mocks.activeTurns.list = activeBefore;
+    resetSessions();
+  });
+
+  function forkDetail(): ThreadDetail {
+    return { ...detail(), id: "fork-1" };
+  }
+
+  async function edit(text: string, turn: Turn = completedTurn()) {
     const user = userEvent.setup();
-    await renderTurn(completedTurn());
+    mocks.readThread.mockResolvedValueOnce(detail(turn));
+    // The fork starts with the history before the edited turn — here, none.
+    mocks.readThread.mockResolvedValue(forkDetail());
+    render(ThreadView, { threadId: "thread-1", cwd: "/projects/example", onSelectVersion, onDataChanged });
+    await screen.findByRole("button", { name: /Worked/ });
 
     await user.click(screen.getByRole("button", { name: "Edit and resend" }));
     const editor = screen.getByRole("textbox", { name: "Edit message" });
@@ -492,63 +522,75 @@ describe("ThreadView inline message editing", () => {
     await user.click(screen.getByRole("button", { name: "Send" }));
   }
 
-  it("rewinds the same thread to the edited turn and resends on it", async () => {
-    mocks.rollbackThread.mockResolvedValue({ id: "thread-1" });
+  it("forks before the edited turn, sends on the fork and opens it", async () => {
+    mocks.forkThread.mockResolvedValue({ id: "fork-1" });
     mocks.startTurn.mockResolvedValue({ id: "turn-2", status: "inProgress" });
 
     await edit("Do different work");
 
-    // One turn dropped: the edited one, which is the last in the transcript.
-    expect(mocks.rollbackThread).toHaveBeenCalledWith("thread-1", 1);
-    expect(mocks.startTurn).toHaveBeenCalledWith("thread-1", [{ type: "text", text: "Do different work" }], undefined);
-    // The rewound turn is gone and the edited message is visible immediately.
-    expect(screen.queryByText("Final answer")).not.toBeInTheDocument();
-    expect(screen.getByText("Do different work")).toBeVisible();
-  });
-
-  it("leaves the thread untouched when the confirmation is dismissed", async () => {
-    mocks.openDialog.mockResolvedValue(null);
-
-    await edit("Do different work");
-
+    await vi.waitFor(() => expect(onSelectVersion).toHaveBeenCalledWith("fork-1"));
+    expect(mocks.forkThread).toHaveBeenCalledWith("thread-1", "turn-1");
+    // First turn edited: the fork inherited nothing.
+    expect(mocks.addThreadBranch).toHaveBeenCalledWith("thread-1", "fork-1", "turn-1", 0);
+    expect(onDataChanged).toHaveBeenCalledWith(branchData);
+    expect(mocks.startTurn).toHaveBeenCalledWith(
+      "fork-1",
+      [{ type: "text", text: "Do different work" }],
+      expect.anything(),
+    );
+    expect(mocks.setThreadBranchEditTurn).toHaveBeenCalledWith("fork-1", "turn-2");
+    // Nothing was rewound: the original stays as it was.
     expect(mocks.rollbackThread).not.toHaveBeenCalled();
-    expect(mocks.startTurn).not.toHaveBeenCalled();
+    expect(mocks.revertThread).not.toHaveBeenCalled();
+    expect(mocks.openDialog).not.toHaveBeenCalled();
     expect(screen.getByText("Final answer")).toBeVisible();
   });
 
-  it("reports a failed rewind without dropping history or resending", async () => {
-    mocks.rollbackThread.mockRejectedValue(new Error("Rollback unsupported"));
+  it("keeps attachments in place and only replaces the text", async () => {
+    mocks.forkThread.mockResolvedValue({ id: "fork-1" });
+    mocks.startTurn.mockResolvedValue({ id: "turn-2", status: "inProgress" });
+
+    await edit(
+      "Do different work",
+      completedTurn({
+        items: [
+          {
+            id: "user-1",
+            type: "userMessage",
+            content: [
+              { type: "image", url: "data:image/png;base64,AAA" },
+              { type: "text", text: "Do the work" },
+              { type: "skill", name: "deploy" },
+            ],
+          },
+          { id: "reasoning-1", type: "reasoning", summary: ["Private work summary"] },
+          { id: "answer-1", type: "agentMessage", text: "Final answer" },
+        ],
+      }),
+    );
+
+    await vi.waitFor(() => expect(mocks.startTurn).toHaveBeenCalled());
+    expect(mocks.startTurn.mock.calls[0][1]).toEqual([
+      { type: "image", url: "data:image/png;base64,AAA" },
+      { type: "text", text: "Do different work" },
+      { type: "skill", name: "deploy" },
+    ]);
+  });
+
+  it("reports a failed fork without sending or moving", async () => {
+    mocks.forkThread.mockRejectedValue(new Error("fork refused"));
 
     await edit("Do different work");
 
-    await vi.waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("Rollback unsupported"));
+    await vi.waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("fork refused"));
+    expect(mocks.addThreadBranch).not.toHaveBeenCalled();
     expect(mocks.startTurn).not.toHaveBeenCalled();
+    expect(onSelectVersion).not.toHaveBeenCalled();
     expect(screen.getByText("Do the work")).toBeVisible();
     expect(screen.getByText("Final answer")).toBeVisible();
   });
 
-  it("rewinds with thread/revert on a codex that has it", async () => {
-    mocks.revertThread.mockResolvedValue({ thread: { id: "thread-1", turns: [] } });
-    mocks.startTurn.mockResolvedValue({ id: "turn-2", status: "inProgress" });
-
-    await edit("Do different work");
-
-    expect(mocks.revertThread).toHaveBeenCalledWith("thread-1", "turn-1", []);
-    expect(mocks.rollbackThread).not.toHaveBeenCalled();
-    expect(mocks.startTurn).toHaveBeenCalled();
-  });
-
-  it("does not fall back to rollback when revert fails for a real reason", async () => {
-    mocks.revertThread.mockRejectedValue(new Error("thread not found"));
-
-    await edit("Do different work");
-
-    await vi.waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("thread not found"));
-    expect(mocks.rollbackThread).not.toHaveBeenCalled();
-    expect(mocks.startTurn).not.toHaveBeenCalled();
-  });
-
-  it("cancels an in-place edit with Escape without rewinding", async () => {
+  it("cancels an in-place edit with Escape without forking", async () => {
     const user = userEvent.setup();
     await renderTurn(completedTurn());
 
@@ -557,8 +599,55 @@ describe("ThreadView inline message editing", () => {
 
     expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
     expect(screen.getByText("Do the work")).toBeVisible();
-    expect(mocks.openDialog).not.toHaveBeenCalled();
-    expect(mocks.rollbackThread).not.toHaveBeenCalled();
+    expect(mocks.forkThread).not.toHaveBeenCalled();
+  });
+
+  it("offers no edit while a turn is running", async () => {
+    // The session owns thread-1's turn, so the loaded in-progress turn is live.
+    mocks.activeTurns.list = ["thread-1"];
+    mocks.readThread.mockResolvedValueOnce(
+      detail(completedTurn(), completedTurn({ id: "turn-2", status: "inProgress" })),
+    );
+    render(ThreadView, { threadId: "thread-1", cwd: "/projects/example" });
+    await screen.findAllByRole("button", { name: /Worked/ });
+
+    expect(screen.queryByRole("button", { name: "Edit and resend" })).not.toBeInTheDocument();
+  });
+
+  it("offers no edit on a Claude thread, which cannot fork", async () => {
+    mocks.readThread.mockResolvedValueOnce({ ...detail(completedTurn()), harness: "claude" });
+    render(ThreadView, { threadId: "thread-1", cwd: "/projects/example" });
+    await screen.findByRole("button", { name: /Worked/ });
+
+    expect(screen.queryByRole("button", { name: "Edit and resend" })).not.toBeInTheDocument();
+  });
+
+  it("pages between the versions of an edited message", async () => {
+    const user = userEvent.setup();
+    mocks.readThread.mockResolvedValueOnce(detail(completedTurn()));
+    render(ThreadView, {
+      threadId: "thread-1",
+      cwd: "/projects/example",
+      onSelectVersion,
+      threadBranches: [
+        {
+          threadId: "fork-1",
+          parentThreadId: "thread-1",
+          groupTurnId: "turn-1",
+          replacedTurnId: "turn-1",
+          inheritedTurns: 0,
+          editTurnId: "turn-1b",
+          createdAt: 1,
+          updatedAt: null,
+        },
+      ],
+    });
+    await screen.findByRole("button", { name: /Worked/ });
+
+    expect(screen.getByText("1 / 2")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Previous version" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Next version" }));
+    expect(onSelectVersion).toHaveBeenCalledWith("fork-1");
   });
 });
 
@@ -840,6 +929,7 @@ describe("ThreadView thread naming", () => {
       ],
       account: null,
       sideQuestions: [],
+      threadBranches: [],
       subagents: [],
       sections: [],
       sectionsSupported: false,

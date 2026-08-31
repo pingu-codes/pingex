@@ -19,7 +19,7 @@ use super::worktrees::{
 };
 use crate::storage::{
     self, SideQuestion, Store, StoredProject, StoredProjectSource, StoredThreadSummary,
-    StoredWorkspaceMember,
+    StoredWorkspaceMember, ThreadBranch,
 };
 use crate::util::json::{arr_or_empty, str_at};
 use crate::{HomeContext, RuntimeConfig};
@@ -129,6 +129,7 @@ pub(crate) async fn bootstrap_inner(
         .map_err(|error| error.to_string())?;
     storage::write_account_cache(&ctx.database(), account_json.as_deref()).await?;
     let side_questions = storage::read_side_questions(&ctx.database()).await?;
+    let thread_branches = storage::read_thread_branches(&ctx.database()).await?;
     let mut extras = read_bootstrap_extras(ctx).await?;
     // Mirror the sidebar to app-server projects (Codex ≥0.149) so threads carry
     // a durable assignment; on an older Codex this is a no-op and the cwd
@@ -166,6 +167,7 @@ pub(crate) async fn bootstrap_inner(
         all_threads,
         account,
         side_questions,
+        thread_branches,
         extras,
     )
 }
@@ -190,6 +192,7 @@ pub(crate) async fn bootstrap_cached(ctx: &HomeContext) -> Result<BootstrapData,
         .transpose()
         .map_err(|error| format!("Could not parse cached account: {error}"))?;
     let side_questions = storage::read_side_questions(&ctx.database()).await?;
+    let thread_branches = storage::read_thread_branches(&ctx.database()).await?;
     let extras = read_bootstrap_extras(ctx).await?;
     build_bootstrap(
         &ctx.runtime(),
@@ -197,6 +200,7 @@ pub(crate) async fn bootstrap_cached(ctx: &HomeContext) -> Result<BootstrapData,
         all_threads,
         account,
         side_questions,
+        thread_branches,
         extras,
     )
 }
@@ -278,6 +282,7 @@ fn build_bootstrap(
     all_threads: Vec<ThreadSummary>,
     account: Option<Account>,
     side_questions: Vec<SideQuestion>,
+    mut thread_branches: Vec<ThreadBranch>,
     extras: BootstrapExtras,
 ) -> Result<BootstrapData, String> {
     let BootstrapExtras {
@@ -295,11 +300,25 @@ fn build_bootstrap(
         sections_supported,
         sidebar_layout,
     } = extras;
+    // Branches need their last activity so the UI can open the newest one;
+    // the listing is the only place that knows it.
+    for branch in &mut thread_branches {
+        branch.updated_at = all_threads
+            .iter()
+            .find(|thread| thread.id == branch.thread_id)
+            .map(|thread| thread.updated_at);
+    }
     // Threads that belong under something else rather than in a project:
-    // side questions, and the threads app-owned subagents run in.
+    // side questions, message-version branches, and the threads app-owned
+    // subagents run in.
     let hidden_ids: HashSet<&str> = side_questions
         .iter()
         .map(|question| question.side_thread_id.as_str())
+        .chain(
+            thread_branches
+                .iter()
+                .map(|branch| branch.thread_id.as_str()),
+        )
         .chain(agent_children.iter().map(|(child, _)| child.as_str()))
         .collect();
     // How many app-owned agents each thread spawned. Codex's own descendant
@@ -505,6 +524,7 @@ fn build_bootstrap(
         projects,
         account,
         side_questions,
+        thread_branches,
         subagents,
         sections,
         sections_supported,
@@ -632,6 +652,7 @@ mod tests {
             ],
             None,
             Vec::new(),
+            Vec::new(),
             BootstrapExtras {
                 instructions: HashMap::new(),
                 sources_by_project: HashMap::new(),
@@ -713,6 +734,7 @@ mod tests {
             vec![
                 thread("main-thread", &project_path, 2),
                 thread("side-thread", &project_path, 1),
+                thread("branch-thread", &project_path, 7),
             ],
             None,
             vec![SideQuestion {
@@ -721,6 +743,16 @@ mod tests {
                 title: "What about tests?".into(),
                 created_at: 1,
                 inherited_turns: None,
+            }],
+            vec![ThreadBranch {
+                thread_id: "branch-thread".into(),
+                parent_thread_id: "main-thread".into(),
+                group_turn_id: "turn-1".into(),
+                replaced_turn_id: "turn-1".into(),
+                inherited_turns: 0,
+                edit_turn_id: None,
+                created_at: 2,
+                updated_at: None,
             }],
             BootstrapExtras {
                 instructions: HashMap::new(),
@@ -743,6 +775,9 @@ mod tests {
         let threads = &data.projects[0].threads;
         assert_eq!(threads.len(), 1);
         assert_eq!(threads[0].id, "main-thread");
+        // The branch is still reported, with the listing's activity stamped on.
+        assert_eq!(data.thread_branches.len(), 1);
+        assert_eq!(data.thread_branches[0].updated_at, Some(7));
     }
 
     #[test]
@@ -778,6 +813,7 @@ mod tests {
                 thread("gone-worktree-thread", &gone_path, 1),
             ],
             None,
+            Vec::new(),
             Vec::new(),
             BootstrapExtras {
                 instructions: HashMap::new(),
@@ -857,6 +893,7 @@ mod tests {
             vec![moved, orphaned, thread("plain", &api_path, 1)],
             None,
             Vec::new(),
+            Vec::new(),
             BootstrapExtras {
                 instructions: HashMap::new(),
                 sources_by_project: HashMap::new(),
@@ -922,6 +959,7 @@ mod tests {
                 thread("agent-thread-2", &project_path, 1),
             ],
             None,
+            Vec::new(),
             Vec::new(),
             BootstrapExtras {
                 instructions: HashMap::new(),

@@ -38,6 +38,7 @@ import {
   openThread,
   openThreadById,
   openThreadInCwd,
+  openVersion,
   openWorktrees,
   reviewRepo,
   selectedThreadInfo,
@@ -57,6 +58,7 @@ import { openHomeWindow, revealInFinder } from "$lib/services/api";
 import { closeSettings, openSettings, settingsNav } from "$lib/services/settingsNav.svelte";
 import ToastHost from "$lib/ToastHost.svelte";
 import AuthRecoveryPill from "$lib/thread/AuthRecoveryPill.svelte";
+import { rootThreadId } from "$lib/thread/messageVersions";
 import ThreadDebugPopover from "$lib/thread/ThreadDebugPopover.svelte";
 import ThreadHeader from "$lib/thread/ThreadHeader.svelte";
 import ThreadView from "$lib/thread/ThreadView.svelte";
@@ -110,7 +112,7 @@ init();
     sideQuestions={appData.data?.sideQuestions ?? []}
     sections={appData.data?.sections ?? []}
     sectionsSupported={appData.data?.sectionsSupported ?? false}
-    selectedThread={view.threadId}
+    selectedThread={rootThreadId(view.threadId, appData.data?.threadBranches ?? []) ?? view.threadId}
     loading={appData.loading}
     onAddProject={addProject}
     onAddWorkspace={() => openWorkspaceDialog()}
@@ -229,7 +231,9 @@ init();
             codexHome={codexHome()}
             expectedCwd={expectedCwdFor(view.threadId)}
             sideQuestions={appData.data?.sideQuestions ?? []}
+            threadBranches={appData.data?.threadBranches ?? []}
             onSelectThread={openThreadById}
+            onSelectVersion={openVersion}
             onOpenSubagent={openSubagent}
             onThreadCreated={threadCreated}
             onDataChanged={applyData}

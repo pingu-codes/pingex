@@ -70,6 +70,7 @@ export type {
   SkillSummary,
   StatusCounts,
   StatusFile,
+  ThreadBranch,
   ThreadSearchItem,
   ThreadSearchPage,
   ThreadSummary,

@@ -36,6 +36,25 @@ remembered. The UI hides what is absent. Feature is the probed half, kept
 under that name inside the Codex driver.
 _Avoid_: flag, feature flag, version gate, support level
 
+**Version**:
+One of the texts a user message has had. Editing a message never rewrites
+it: the edit becomes a new Version, shown under the message as `‹ 2 / 3 ›`,
+and every Version keeps the replies that followed it.
+_Avoid_: revision, edit (the act, not the result), history
+
+**Branch**:
+The thread a Version lives in. Editing forks the thread strictly before the
+edited message's turn and sends the new text on the fork; Pingex records the
+fork in `thread_branches` and keeps it out of the sidebar. Turn ids survive a
+fork, so the original turn's id names the whole group of Versions.
+_Avoid_: fork (the operation that makes one), child thread, side question (a different hidden thread)
+
+**Root thread**:
+The thread at the top of a family of Branches — the one the sidebar lists and
+highlights whichever Branch is on show. Opening it lands on the most recently
+active Branch.
+_Avoid_: parent (a Branch's parent may itself be a Branch), main thread
+
 **Codex**:
 The upstream CLI (`codex`) whose `app-server` subcommand Pingex spawns and
 talks JSON-RPC to. One of the harnesses.

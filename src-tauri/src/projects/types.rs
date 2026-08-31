@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use crate::storage::{
     SideQuestion, SidebarLayout, StoredProjectSource, StoredThreadSection, StoredWorkspace,
-    StoredWorkspaceMember,
+    StoredWorkspaceMember, ThreadBranch,
 };
 
 #[derive(Clone, Serialize, specta::Type)]
@@ -92,6 +92,8 @@ pub(crate) struct BootstrapData {
     pub(crate) projects: Vec<Project>,
     pub(crate) account: Option<Account>,
     pub(crate) side_questions: Vec<SideQuestion>,
+    /// Every message-version branch, hidden from the project listings.
+    pub(crate) thread_branches: Vec<ThreadBranch>,
     pub(crate) subagents: Vec<ThreadSummary>,
     /// The app-server's thread sections, in its order; threads reference them
     /// by `section_id`. Empty — and `sections_supported` false — on a Codex

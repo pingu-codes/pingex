@@ -261,26 +261,40 @@ pub(crate) async fn delete_thread(
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
-    if storage::thread_harness(&ctx.database(), &thread_id)
+    // Message-version branches are hidden threads only reachable through
+    // their parent, so they go with it rather than lingering as orphans.
+    for branch_id in storage::branch_descendants(&ctx.database(), &thread_id).await? {
+        delete_one_thread(&app, &ctx, &branch_id).await?;
+    }
+    delete_one_thread(&app, &ctx, &thread_id).await?;
+    bootstrap_cached(&ctx).await
+}
+
+async fn delete_one_thread(
+    app: &AppHandle,
+    ctx: &crate::HomeContext,
+    thread_id: &str,
+) -> Result<(), String> {
+    if storage::thread_harness(&ctx.database(), thread_id)
         .await?
         .is_some()
     {
-        ctx.claude.close_thread(&thread_id);
-        storage::delete_harness_thread(&ctx.database(), &thread_id).await?;
+        ctx.claude.close_thread(thread_id);
+        storage::delete_harness_thread(&ctx.database(), thread_id).await?;
     } else {
         ctx.session
-            .send(&app, requests::thread_delete(&thread_id))
+            .send(app, requests::thread_delete(thread_id))
             .await?;
     }
-    storage::delete_thread_search(&ctx.database(), &thread_id).await?;
+    storage::delete_thread_search(&ctx.database(), thread_id).await?;
     // Archiving keeps the journal (unarchiving expects its transcript back);
     // deleting is the one path that owns dropping it.
-    storage::delete_thread_items(&ctx.database(), &thread_id).await?;
-    storage::delete_turn_settings(&ctx.database(), &thread_id).await?;
-    storage::delete_agent_runs(&ctx.database(), &thread_id).await?;
-    remove_thread_locally(&ctx, &thread_id).await?;
-    storage::unassign_thread_workspace(&ctx.database(), &thread_id).await?;
-    bootstrap_cached(&ctx).await
+    storage::delete_thread_items(&ctx.database(), thread_id).await?;
+    storage::delete_turn_settings(&ctx.database(), thread_id).await?;
+    storage::delete_agent_runs(&ctx.database(), thread_id).await?;
+    storage::delete_thread_branch(&ctx.database(), thread_id).await?;
+    remove_thread_locally(ctx, thread_id).await?;
+    storage::unassign_thread_workspace(&ctx.database(), thread_id).await
 }
 
 #[tauri::command]
@@ -466,6 +480,12 @@ pub(crate) async fn fork_thread(
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
+    if storage::thread_harness(&ctx.database(), &thread_id)
+        .await?
+        .is_some()
+    {
+        return Err("Only Codex threads can be forked".to_string());
+    }
     let mut params = json!({"threadId": thread_id});
     // An explicit cwd is the existing "Move to worktree" operation. It must
     // leave the virtual workspace instead of having its next turn overridden

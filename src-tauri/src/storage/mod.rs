@@ -15,6 +15,7 @@ pub(crate) mod db;
 
 mod account;
 mod agent_runs;
+mod branches;
 mod harness;
 mod items;
 mod project_expansion;
@@ -37,6 +38,11 @@ pub(crate) use agent_runs::{
     read_agent_run_children, read_agent_runs, record_agent_run, retain_agent_runs,
     update_agent_run, AgentRunRow, STATUS_DONE, STATUS_FAILED, STATUS_KILLED, STATUS_RUNNING,
 };
+pub use branches::{
+    add_thread_branch, delete_thread_branch, read_thread_branches, set_branch_edit_turn,
+    ThreadBranch,
+};
+pub(crate) use branches::{branch_descendants, branch_group_for_turn};
 pub(crate) use harness::{
     delete_harness_thread, read_harness_threads, record_harness_thread, rename_harness_thread,
     set_harness_thread_archived, thread_harness, touch_harness_thread, HarnessThread,

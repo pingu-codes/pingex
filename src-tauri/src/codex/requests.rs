@@ -121,6 +121,16 @@ pub fn thread_revert(thread_id: &str, before_turn_id: &str) -> Request {
     )
 }
 
+/// `thread/fork` with history strictly before `before_turn_id`: the fork
+/// excludes that turn and everything after it. Turn and item ids carry over
+/// verbatim, which the journal copy and message versions both rely on.
+pub fn thread_fork_before(thread_id: &str, before_turn_id: &str) -> Request {
+    request(
+        "thread/fork",
+        json!({"threadId": thread_id, "beforeTurnId": before_turn_id}),
+    )
+}
+
 pub fn thread_rollback(thread_id: &str, num_turns: u32) -> Request {
     request(
         "thread/rollback",

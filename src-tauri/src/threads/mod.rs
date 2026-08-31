@@ -5,6 +5,7 @@
 //! the search index).
 
 pub(crate) mod autoname;
+pub(crate) mod branches;
 pub(crate) mod lifecycle;
 pub(crate) mod queue;
 pub(crate) mod read;

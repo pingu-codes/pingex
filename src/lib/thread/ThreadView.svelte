@@ -10,21 +10,22 @@ import type { SlashCommandId } from "$lib/composer/slashCommands";
 import RightPanel, { type PanelView } from "$lib/panels/RightPanel.svelte";
 import { runsFor } from "$lib/services/agentRuns.svelte";
 import {
+  addThreadBranch,
   clearThreadGoal,
   compactThread,
   copyText,
+  forkThread,
   getThreadGoal,
   gitChangesSummary,
   gitRepoInfo,
   gitWorktreeAdd,
   interruptTurn,
-  isRevertUnsupported,
   killAgentRun,
   openInZed,
   revealInFinder,
-  revertThread,
   reviewLocalDiff,
   rollbackThread,
+  setThreadBranchEditTurn,
   setThreadGoal,
   setThreadGoalStatus,
   startReview,
@@ -43,6 +44,7 @@ import FloatingMenu from "$lib/thread/FloatingMenu.svelte";
 import { collectFileChanges } from "$lib/thread/fileChanges";
 import { cwdBelongsTo } from "$lib/thread/handoff";
 import { messageText, messageTitle } from "$lib/thread/messageText";
+import { groupForTurn, isPendingEditTurn, versionsForTurn } from "$lib/thread/messageVersions";
 import { planText } from "$lib/thread/planText";
 import QuestionCard from "$lib/thread/QuestionCard.svelte";
 import QueuedMessageRow from "$lib/thread/QueuedMessageRow.svelte";
@@ -76,6 +78,7 @@ import type {
   SideQuestion,
   SubagentDetail,
   SubagentPolicy,
+  ThreadBranch,
   ThreadItem,
   Turn,
   TurnOptions,
@@ -93,11 +96,13 @@ let {
   codexHome = null,
   expectedCwd = null,
   sideQuestions = [],
+  threadBranches = [],
   onThreadCreated,
   onDataChanged,
   onCommand,
   onSelectThread,
   onOpenSubagent,
+  onSelectVersion,
 }: {
   threadId: string | null;
   cwd: string;
@@ -110,6 +115,8 @@ let {
   /** Worktree a deep link asked for; a banner warns if the thread's cwd differs. */
   expectedCwd?: string | null;
   sideQuestions?: SideQuestion[];
+  /** Every message-version branch; the bubbles find their own in here. */
+  threadBranches?: ThreadBranch[];
   onThreadCreated?: (id: string, cwd: string) => void;
   onDataChanged?: (data: BootstrapData) => void;
   /** Thread-level slash commands from the composer (new, fork, archive, rename). */
@@ -118,6 +125,8 @@ let {
   /** Open a subagent thread; the full detail lets the app navigate to
    *  subagents that bootstrap hasn't picked up yet (e.g. mid plan mode). */
   onOpenSubagent?: (agent: SubagentDetail) => void;
+  /** Open the thread holding another version of an edited message. */
+  onSelectVersion?: (threadId: string) => void;
 } = $props();
 
 /**
@@ -186,6 +195,7 @@ let composer = $state<{
   harnessChoice: () => "codex" | "claude" | null;
   openReviewPicker: () => void;
   restoreText: (text: string) => void;
+  turnOptions: () => TurnOptions | undefined;
   isEmpty: () => boolean;
 } | null>(null);
 /** Model the composer will run turns on — priced for the usage estimate. */
@@ -381,50 +391,40 @@ async function send(input: UserInputPart[], options?: TurnOptions): Promise<bool
   return sent;
 }
 
-/** Editing a past user message rewinds the thread to just before that turn and
- *  resends on the same thread — no fork, so the conversation keeps its id and
- *  its place in the sidebar. Destructive, hence the confirmation. */
-async function submitEdit(turn: Turn, text: string) {
-  if (!thread || !liveThreadId || turn.id.startsWith("local-")) return;
+/** Editing a past user message forks the thread to just before that turn and
+ *  sends the edit on the fork, so the original and every later edit survive
+ *  as versions the bubble can page between. The fork's session is primed and
+ *  sent to before the view moves there, so the edit is already streaming when
+ *  the remounted view picks the session up. */
+async function submitEdit(turn: Turn, parts: UserInputPart[]) {
+  if (!thread || !liveThreadId || turn.id.startsWith("local-") || activeTurn) return;
   const threadIdAtEdit = liveThreadId;
-  const turnsToDrop = () => {
-    const turns = thread?.turns;
-    if (!turns) return null;
-    const index = turns.findIndex((candidate) => candidate.id === turn.id);
-    return index === -1 ? null : { index, count: turns.length - index };
-  };
-  const before = turnsToDrop();
-  if (!before) return;
-  if (!(await openDialog(RewindThreadDialog, { turnCount: before.count }))) return;
-  // The view may have moved on, or the transcript grown, while the dialog was
-  // open — re-resolve the turn against current state before truncating.
-  if (!thread || liveThreadId !== threadIdAtEdit) return;
-  const target = turnsToDrop();
-  if (!target) return;
+  const index = thread.turns.findIndex((candidate) => candidate.id === turn.id);
+  if (index === -1) return;
   session.streamError = null;
   session.starting = true;
   try {
-    // `thread/revert` is the current truncation API; `thread/rollback` is
-    // deprecated upstream but kept as the fallback for codex CLIs (≤0.146)
-    // that predate revert. Any other revert failure is a real error.
-    const keptTurnIds = thread.turns.slice(0, target.index).map((candidate) => candidate.id);
+    const forked = await forkThread(threadIdAtEdit, turn.id);
+    onDataChanged?.(await addThreadBranch(threadIdAtEdit, forked.id, turn.id, index));
+    const forkSession = openSession(forked.id);
     try {
-      await revertThread(threadIdAtEdit, turn.id, keptTurnIds);
-    } catch (cause) {
-      if (!isRevertUnsupported(cause)) throw cause;
-      await rollbackThread(threadIdAtEdit, target.count);
+      await forkSession.load();
+      const sent = await forkSession.send(parts, composer?.turnOptions());
+      if (!sent) throw new Error(forkSession.streamError ?? "Could not send the edited message");
+      const editTurnId = forkSession.thread?.turns.at(-1)?.id;
+      if (editTurnId && !editTurnId.startsWith("local-")) {
+        setThreadBranchEditTurn(forked.id, editTurnId).catch(() => {});
+      }
+    } finally {
+      // Retained while its turn runs; the view that opens it takes it over.
+      releaseSession(forkSession);
     }
-    if (!thread || liveThreadId !== threadIdAtEdit) return;
-    thread.turns = thread.turns.slice(0, target.index);
+    onSelectVersion?.(forked.id);
   } catch (cause) {
     session.streamError = cause instanceof Error ? cause.message : String(cause);
-    return;
   } finally {
     session.starting = false;
   }
-  // `send` owns the optimistic bubble, queueing and turn options, and keeps
-  // `liveThreadId` unchanged so the stream events still match this view.
-  await send([{ type: "text", text }]);
 }
 
 const threadApprovals = $derived(approvals.list.filter((approval) => approval.threadId === liveThreadId));
@@ -1043,7 +1043,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
             <p class="mt-1 text-xs leading-5">{error}</p>
           </div>
         {:else if thread}
-          {#each thread.turns as turn (turn.id)}
+          {#each thread.turns as turn, turnIndex (turn.id)}
             {@const parts = splitTurn(turn)}
             {@const collapseDiffs = turnDiffCount(turn) > 1}
             {@const liveSegment = turn.status === "inProgress" ? parts.body.at(-1) : undefined}
@@ -1051,8 +1051,14 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
               <UserMessageBubble
                 {item}
                 cwd={thread?.cwd || cwd}
-                editable={!!liveThreadId && !turn.id.startsWith("local-")}
-                onSubmitEdit={(text) => submitEdit(turn, text)}
+                editable={!!liveThreadId && !turn.id.startsWith("local-") && !activeTurn && thread?.harness !== "claude"}
+                versions={versionsForTurn(
+                  isPendingEditTurn(liveThreadId, turnIndex, threadBranches) ? "" : turn.id,
+                  threadBranches,
+                  liveThreadId,
+                )}
+                onSubmitEdit={(parts) => submitEdit(turn, parts)}
+                {onSelectVersion}
               />
             {/each}
             {@const firstWork = parts.body.find((segment) => segment.kind === "work")}

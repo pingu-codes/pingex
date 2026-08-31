@@ -172,9 +172,10 @@ pub(crate) async fn write_thread_name_source(
 }
 
 /// Threads that belong under something else rather than in a project listing:
-/// side questions, and the threads app-owned subagents run in.
+/// side questions, message-version branches, and the threads app-owned
+/// subagents run in.
 ///
-/// Both are ordinary Codex threads in an ordinary cwd, so every path that lists
+/// All are ordinary Codex threads in an ordinary cwd, so every path that lists
 /// threads has to exclude them explicitly or they surface as if the user had
 /// started them.
 pub(crate) async fn read_hidden_thread_ids(
@@ -184,6 +185,8 @@ pub(crate) async fn read_hidden_thread_ids(
     let ids = db::rows(
         &connection,
         "SELECT side_thread_id FROM side_questions
+         UNION
+         SELECT thread_id FROM thread_branches
          UNION
          SELECT child_thread_id FROM agent_runs WHERE child_thread_id IS NOT NULL",
         (),
@@ -463,8 +466,25 @@ mod tests {
         .await
         .unwrap();
 
+        crate::storage::add_thread_branch(
+            &database,
+            &crate::storage::ThreadBranch {
+                thread_id: "branch-1".into(),
+                parent_thread_id: "parent-1".into(),
+                group_turn_id: "turn-1".into(),
+                replaced_turn_id: "turn-1".into(),
+                inherited_turns: 0,
+                edit_turn_id: None,
+                created_at: 1,
+                updated_at: None,
+            },
+        )
+        .await
+        .unwrap();
+
         let hidden = read_hidden_thread_ids(&database).await.unwrap();
         assert!(hidden.contains("side-1"));
+        assert!(hidden.contains("branch-1"));
         assert!(hidden.contains("agent-thread-1"));
         // The threads that spawned them are ordinary threads and stay listed.
         assert!(!hidden.contains("parent-1"));

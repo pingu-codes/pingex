@@ -679,6 +679,61 @@ fn server_side_queue_add_list_update_delete() {
     server.call(requests::thread_delete(&thread_id));
 }
 
+/// Editing a message forks the thread strictly before that message's turn.
+/// The fork must keep the earlier turns under their original ids (the
+/// journal copy and message versions key on them) and drop the rest.
+#[test]
+fn thread_fork_before_a_turn_keeps_the_prefix_under_its_ids() {
+    let server = live!();
+    let thread_id = server.start_thread();
+    let first = server.run_turn(requests::turn_start(
+        &thread_id,
+        text_input("Reply with exactly ONE"),
+        low_effort(server),
+    ));
+    assert_reply_contains(&first, "ONE", "first");
+    let second = server.run_turn(requests::turn_start(
+        &thread_id,
+        text_input("Reply with exactly TWO"),
+        low_effort(server),
+    ));
+    assert_reply_contains(&second, "TWO", "second");
+
+    let forked = server.call(requests::thread_fork_before(&thread_id, &second.turn_id));
+    let fork_id = forked
+        .pointer("/thread/id")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("fork has no thread id: {forked}"))
+        .to_string();
+    assert_ne!(fork_id, thread_id, "fork is a new thread");
+    let turn_ids: Vec<&str> = forked
+        .pointer("/thread/turns")
+        .and_then(Value::as_array)
+        .map(|turns| {
+            turns
+                .iter()
+                .filter_map(|turn| turn.get("id").and_then(Value::as_str))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert_eq!(
+        turn_ids,
+        vec![first.turn_id.as_str()],
+        "fork holds exactly the turn before the cut, under its original id: {forked}"
+    );
+
+    // The original is untouched by the fork.
+    let read = server.call(requests::thread_read(&thread_id));
+    let original_turns = read
+        .pointer("/thread/turns")
+        .and_then(Value::as_array)
+        .map(Vec::len);
+    assert_eq!(original_turns, Some(2), "original keeps both turns: {read}");
+
+    server.call(requests::thread_delete(&fork_id));
+    server.call(requests::thread_delete(&thread_id));
+}
+
 /// `thread/revert` replaced `thread/rollback` in 0.149; the app tries revert
 /// first and falls back to rollback only on the classified refusal.
 #[test]

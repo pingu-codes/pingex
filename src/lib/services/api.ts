@@ -831,6 +831,43 @@ export async function addSideQuestion(
   return commands.addSideQuestion(parentThreadId, sideThreadId, title, inheritedTurns);
 }
 
+/** Record a fork as a version of the message whose turn it replaced. */
+export async function addThreadBranch(
+  parentThreadId: string,
+  threadId: string,
+  replacedTurnId: string,
+  inheritedTurns: number,
+): Promise<BootstrapData> {
+  if (!isTauri()) {
+    previewData.threadBranches = [
+      ...(previewData.threadBranches ?? []),
+      {
+        threadId,
+        parentThreadId,
+        groupTurnId:
+          previewData.threadBranches?.find((b) => b.editTurnId === replacedTurnId)?.groupTurnId ?? replacedTurnId,
+        replacedTurnId,
+        inheritedTurns,
+        editTurnId: null,
+        createdAt: Date.now() / 1000,
+        updatedAt: null,
+      },
+    ];
+    return previewSort();
+  }
+  return commands.addThreadBranch(parentThreadId, threadId, replacedTurnId, inheritedTurns);
+}
+
+/** Remember which turn in a branch carries the edited message. */
+export async function setThreadBranchEditTurn(threadId: string, editTurnId: string): Promise<void> {
+  if (!isTauri()) {
+    const branch = previewData.threadBranches?.find((b) => b.threadId === threadId);
+    if (branch) branch.editTurnId = editTurnId;
+    return;
+  }
+  await commands.setThreadBranchEditTurn(threadId, editTurnId);
+}
+
 export async function removeSideQuestion(sideThreadId: string): Promise<BootstrapData> {
   if (!isTauri()) {
     previewData.sideQuestions = previewData.sideQuestions.filter((entry) => entry.sideThreadId !== sideThreadId);

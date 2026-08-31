@@ -49,6 +49,7 @@ const data: BootstrapData = {
   projects: [api],
   account: null,
   sideQuestions: [],
+  threadBranches: [],
   subagents: [],
   sections: [],
   sectionsSupported: false,

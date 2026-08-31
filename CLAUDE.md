@@ -4,6 +4,10 @@ Claude Code is specified in `features/13-harnesses.md` and
 
 A mirror of their source code can be found at `../codex-mirror`
 
+## Frontend Best Practices
+
+We use "Skeleton" as a component / styling library. Before creating a new component always check if it already exists in Skeleton.
+
 ## Supported Codex versions
 
 We support three tiers of Codex at once — unstable (mirror `main`), stable

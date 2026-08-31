@@ -62,6 +62,19 @@ const DDL: &str = "CREATE TABLE IF NOT EXISTS metadata (
  );
  CREATE INDEX IF NOT EXISTS side_questions_parent
      ON side_questions(parent_thread_id, created_at DESC);
+ CREATE TABLE IF NOT EXISTS thread_branches (
+     thread_id TEXT PRIMARY KEY,
+     parent_thread_id TEXT NOT NULL,
+     group_turn_id TEXT NOT NULL,
+     replaced_turn_id TEXT NOT NULL,
+     inherited_turns INTEGER NOT NULL,
+     edit_turn_id TEXT,
+     created_at INTEGER NOT NULL
+ );
+ CREATE INDEX IF NOT EXISTS thread_branches_group
+     ON thread_branches(group_turn_id, created_at);
+ CREATE INDEX IF NOT EXISTS thread_branches_parent
+     ON thread_branches(parent_thread_id);
  CREATE TABLE IF NOT EXISTS user_input_answers (
      item_id TEXT PRIMARY KEY,
      thread_id TEXT NOT NULL,

@@ -438,6 +438,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             threads::subagents::list_subagents,
             threads::subagents::update_subagent_policy,
             threads::side_questions::add_side_question,
+            threads::branches::add_thread_branch,
+            threads::branches::set_thread_branch_edit_turn,
             threads::side_questions::remove_side_question,
             threads::search::search_threads,
             threads::search::list_threads_page,

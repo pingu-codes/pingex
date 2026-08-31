@@ -17,3 +17,4 @@ They target Codex desktop parity. Full ChatGPT conversation history, account bil
 - [History search and pagination](11-history-search-and-pagination.md)
 - [Git worktrees and desktop handoff](12-git-worktrees-and-handoffs.md)
 - [Harnesses: Claude Code and ACP alongside Codex](13-harnesses.md)
+- [Message versions](14-message-versions.md)
