@@ -51,7 +51,7 @@ import QueuedMessageRow from "$lib/thread/QueuedMessageRow.svelte";
 import ReasoningBlock from "$lib/thread/ReasoningBlock.svelte";
 import ReplaceGoalDialog from "$lib/thread/ReplaceGoalDialog.svelte";
 import RewindThreadDialog from "$lib/thread/RewindThreadDialog.svelte";
-import { nextFollowing, recallScroll, rememberScroll } from "$lib/thread/scrollPositions";
+import { isAtBottom, nextFollowing, recallScroll, rememberScroll } from "$lib/thread/scrollPositions";
 import { attachSession, draftSession, openSession, releaseSession } from "$lib/thread/sessions.svelte";
 import TurnPlanCard from "$lib/thread/TurnPlanCard.svelte";
 import type { ThreadSession } from "$lib/thread/threadSession.svelte";
@@ -187,6 +187,9 @@ let following = $state(true);
  *  mistaken for the user's. One-shot, deliberately not reactive. */
 let programmaticScroll = false;
 let lastScrollTop = 0;
+/** Measured: the scroller is pinned to the very bottom. Gates the jump pill so
+ *  a wheel-up that cannot move anything (rubber-band at the end) never shows it. */
+let atBottom = $state(true);
 let panelView = $state<PanelView | null>(null);
 let composer = $state<{
   implementPlan: () => void;
@@ -291,7 +294,11 @@ function maybeScroll(force = false) {
   const element = scroller;
   if (!element) return;
   if (force) following = true;
-  if (!following) return;
+  if (!following) {
+    // Streamed content grows scrollHeight without a scroll event.
+    atBottom = isAtBottom(element);
+    return;
+  }
   requestAnimationFrame(() => scrollProgrammatically(element, element.scrollHeight));
 }
 
@@ -314,6 +321,7 @@ function onScroll() {
     following = nextFollowing(following, lastScrollTop, element);
   }
   lastScrollTop = element.scrollTop;
+  atBottom = isAtBottom(element);
   if (liveThreadId) rememberScroll(liveThreadId, element);
 }
 
@@ -338,6 +346,7 @@ $effect(() => {
       following = saved.atBottom;
       scrollProgrammatically(element, saved.atBottom ? element.scrollHeight : saved.top);
       lastScrollTop = element.scrollTop;
+      atBottom = isAtBottom(element);
     });
   });
 });
@@ -1150,7 +1159,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
         {/if}
       </div>
     </div>
-    {#if !following && !loading && thread}
+    {#if !following && !atBottom && !loading && thread}
       <button
         type="button"
         class="btn btn-sm preset-filled absolute bottom-3 left-1/2 -translate-x-1/2 gap-1 rounded-full shadow-lg"

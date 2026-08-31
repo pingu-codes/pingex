@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { nextFollowing, recallScroll, rememberScroll, resetScrollPositions } from "./scrollPositions";
+import { isAtBottom, nextFollowing, recallScroll, rememberScroll, resetScrollPositions } from "./scrollPositions";
 
 function scroller(scrollTop: number, scrollHeight = 2000, clientHeight = 500): HTMLElement {
   return { scrollTop, scrollHeight, clientHeight } as HTMLElement;
@@ -30,6 +30,21 @@ describe("scrollPositions", () => {
     rememberScroll("a", scroller(10));
     resetScrollPositions();
     expect(recallScroll("a")).toBeNull();
+  });
+
+  describe("isAtBottom", () => {
+    it("is true exactly at the bottom", () => {
+      expect(isAtBottom(scroller(1500))).toBe(true);
+    });
+
+    it("is true within the rounding slop", () => {
+      expect(isAtBottom(scroller(1498))).toBe(true);
+    });
+
+    it("is false beyond the slop, even inside the near-bottom band", () => {
+      expect(isAtBottom(scroller(1497))).toBe(false);
+      expect(isAtBottom(scroller(1400))).toBe(false);
+    });
   });
 
   describe("nextFollowing", () => {

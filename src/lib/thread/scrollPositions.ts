@@ -32,6 +32,14 @@ export function nextFollowing(prev: boolean, lastTop: number, el: HTMLElement): 
   return prev;
 }
 
+/**
+ * Whether the scroller is pinned to the very bottom (within `slop` px of
+ * rounding error), as opposed to the wide `isNearBottom` re-attach band.
+ */
+export function isAtBottom(el: HTMLElement, slop = 2): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= slop;
+}
+
 export function rememberScroll(threadId: string, el: HTMLElement): void {
   positions[threadId] = { top: el.scrollTop, atBottom: isNearBottom(el) };
 }
