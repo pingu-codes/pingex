@@ -37,6 +37,11 @@ let question = $state("");
 let lastParentId: string | null | undefined;
 
 const mine = $derived(sideQuestions.filter((entry) => entry.parentThreadId === parentThreadId));
+const active = $derived(mine.find((entry) => entry.sideThreadId === activeSideId) ?? null);
+// The fork carries the parent's history so the model has full context, but the
+// panel shows only the side conversation. Questions recorded before the fork
+// point was tracked have no count and show the whole fork.
+const visibleTurns = $derived(sideThread?.turns.slice(active?.inheritedTurns ?? 0) ?? []);
 const activeTurn = $derived(sideThread?.turns.find((turn) => turn.status === "inProgress") ?? null);
 const busy = $derived(activeTurn !== null || starting);
 
@@ -106,9 +111,12 @@ async function ask() {
     if (!id) {
       const forked = await forkThread(parentThreadId);
       id = forked.id;
+      // Read the fork before recording it: the turns it carries at this point
+      // are the parent's, and the panel hides exactly that many.
+      const inherited = await readThread(id);
       activeSideId = id;
-      sideThread = { id, preview: text, cwd: "", turns: [] };
-      onDataChanged(await addSideQuestion(parentThreadId, id, text));
+      sideThread = { ...inherited, turns: [...inherited.turns] };
+      onDataChanged(await addSideQuestion(parentThreadId, id, text, inherited.turns.length));
     }
     sideThread?.turns.push({
       id: localTurnId,
@@ -191,7 +199,7 @@ function openSide(entry: SideQuestion) {
     </div>
   {:else if sideThread}
     <div class="space-y-3">
-      {#each sideThread.turns as turn (turn.id)}
+      {#each visibleTurns as turn (turn.id)}
         {#each turn.items as item (item.id)}
           {#if item.type === "userMessage"}
             <div class="flex justify-end">

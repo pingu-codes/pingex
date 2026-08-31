@@ -5,8 +5,14 @@ import RightPanel from "$lib/panels/RightPanel.svelte";
 import type { FileUpdateChange, SideQuestion } from "$lib/types";
 
 const sideQuestions: SideQuestion[] = [
-  { sideThreadId: "side-1", parentThreadId: "parent-1", title: "Why trailing edge?", createdAt: 10 },
-  { sideThreadId: "side-2", parentThreadId: "other-parent", title: "Unrelated", createdAt: 20 },
+  {
+    sideThreadId: "side-1",
+    parentThreadId: "parent-1",
+    title: "Why trailing edge?",
+    createdAt: 10,
+    inheritedTurns: null,
+  },
+  { sideThreadId: "side-2", parentThreadId: "other-parent", title: "Unrelated", createdAt: 20, inheritedTurns: null },
 ];
 
 function setup(
@@ -103,6 +109,35 @@ describe("RightPanel", () => {
 
     expect(screen.getByText("Why trailing edge?")).toBeInTheDocument();
     expect(screen.queryByText("Unrelated")).not.toBeInTheDocument();
+  });
+
+  it("hides the turns a side question inherited from its parent", async () => {
+    const user = userEvent.setup();
+    // The preview fork carries one parent turn; recording it as inherited
+    // leaves nothing of the parent transcript to render.
+    render(RightPanel, {
+      view: { kind: "side" },
+      parentThreadId: "parent-1",
+      sideQuestions: [{ ...sideQuestions[0], inheritedTurns: 1 }],
+      changes: [],
+      cwd: "/project",
+      onClose: vi.fn(),
+      onDataChanged: vi.fn(),
+    });
+
+    await user.click(screen.getByText("Why trailing edge?"));
+
+    expect(await screen.findByPlaceholderText("Follow up…")).toBeInTheDocument();
+    expect(screen.queryByText(/Add a debounce helper/)).not.toBeInTheDocument();
+  });
+
+  it("shows the whole fork for a side question recorded without a fork point", async () => {
+    const user = userEvent.setup();
+    setup({ kind: "side" });
+
+    await user.click(screen.getByText("Why trailing edge?"));
+
+    expect(await screen.findByText(/Add a debounce helper/)).toBeInTheDocument();
   });
 
   it("creates a side question via fork on first ask", async () => {

@@ -196,7 +196,7 @@ export const commands = {
 	threadGoalClear: (threadId: string) => __TAURI_INVOKE<null>("thread_goal_clear", { threadId }),
 	listSubagents: (threadId: string) => __TAURI_INVOKE<SubagentDetail[]>("list_subagents", { threadId }),
 	updateSubagentPolicy: (threadId: string, modelPolicy: unknown, reasoningEffortPolicy: unknown) => __TAURI_INVOKE<null>("update_subagent_policy", { threadId, modelPolicy, reasoningEffortPolicy }),
-	addSideQuestion: (parentThreadId: string, sideThreadId: string, title: string) => __TAURI_INVOKE<BootstrapData>("add_side_question", { parentThreadId, sideThreadId, title }),
+	addSideQuestion: (parentThreadId: string, sideThreadId: string, title: string, inheritedTurns: number | null) => __TAURI_INVOKE<BootstrapData>("add_side_question", { parentThreadId, sideThreadId, title, inheritedTurns }),
 	/**
 	 *  Stop tracking a thread as a side question. The thread itself survives and
 	 *  reappears as an ordinary thread in its project.
@@ -1344,6 +1344,12 @@ export type SideQuestion = {
 	parentThreadId: string,
 	title: string,
 	createdAt: number,
+	/**
+	 *  How many turns the fork inherited from its parent when the side
+	 *  question was asked. The panel hides them; `None` on rows recorded
+	 *  before this was tracked, which then show the whole fork.
+	 */
+	inheritedTurns: number | null,
 };
 
 export type SidebarLayout = {

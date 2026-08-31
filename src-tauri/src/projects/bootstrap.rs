@@ -720,6 +720,7 @@ mod tests {
                 parent_thread_id: "main-thread".into(),
                 title: "What about tests?".into(),
                 created_at: 1,
+                inherited_turns: None,
             }],
             BootstrapExtras {
                 instructions: HashMap::new(),

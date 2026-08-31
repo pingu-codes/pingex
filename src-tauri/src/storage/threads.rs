@@ -435,6 +435,7 @@ mod tests {
                 parent_thread_id: "parent-1".into(),
                 title: "Why?".into(),
                 created_at: 1,
+                inherited_turns: None,
             },
         )
         .await

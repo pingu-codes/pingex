@@ -17,6 +17,7 @@ pub(crate) async fn add_side_question(
     parent_thread_id: String,
     side_thread_id: String,
     title: String,
+    inherited_turns: Option<u32>,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
@@ -28,6 +29,7 @@ pub(crate) async fn add_side_question(
             parent_thread_id,
             title: title.trim().chars().take(MAX_TITLE_CHARS).collect(),
             created_at: unix_secs(),
+            inherited_turns,
         },
     )
     .await?;

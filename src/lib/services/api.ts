@@ -816,12 +816,19 @@ export async function addSideQuestion(
   parentThreadId: string,
   sideThreadId: string,
   title: string,
+  inheritedTurns: number,
 ): Promise<BootstrapData> {
   if (!isTauri()) {
-    previewData.sideQuestions.unshift({ parentThreadId, sideThreadId, title, createdAt: Date.now() / 1000 });
+    previewData.sideQuestions.unshift({
+      parentThreadId,
+      sideThreadId,
+      title,
+      createdAt: Date.now() / 1000,
+      inheritedTurns,
+    });
     return previewSort();
   }
-  return commands.addSideQuestion(parentThreadId, sideThreadId, title);
+  return commands.addSideQuestion(parentThreadId, sideThreadId, title, inheritedTurns);
 }
 
 export async function removeSideQuestion(sideThreadId: string): Promise<BootstrapData> {

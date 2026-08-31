@@ -118,6 +118,10 @@ pub struct SideQuestion {
     pub parent_thread_id: String,
     pub title: String,
     pub created_at: i64,
+    /// How many turns the fork inherited from its parent when the side
+    /// question was asked. The panel hides them; `None` on rows recorded
+    /// before this was tracked, which then show the whole fork.
+    pub inherited_turns: Option<u32>,
 }
 
 pub async fn add_side_question(
@@ -127,15 +131,17 @@ pub async fn add_side_question(
     let connection = db::conn(database)?;
     db::exec(
         &connection,
-        "INSERT INTO side_questions(side_thread_id, parent_thread_id, title, created_at)
-         VALUES (?, ?, ?, ?)
+        "INSERT INTO side_questions(side_thread_id, parent_thread_id, title, created_at, inherited_turns)
+         VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(side_thread_id) DO UPDATE SET
-             title = excluded.title",
+             title = excluded.title,
+             inherited_turns = excluded.inherited_turns",
         params![
             side_question.side_thread_id.clone(),
             side_question.parent_thread_id.clone(),
             side_question.title.clone(),
-            side_question.created_at
+            side_question.created_at,
+            side_question.inherited_turns
         ],
     )
     .await
@@ -145,7 +151,7 @@ pub async fn read_side_questions(database: &Database) -> Result<Vec<SideQuestion
     let connection = db::conn(database)?;
     db::rows(
         &connection,
-        "SELECT side_thread_id, parent_thread_id, title, created_at
+        "SELECT side_thread_id, parent_thread_id, title, created_at, inherited_turns
          FROM side_questions ORDER BY created_at DESC",
         (),
         |row| {
@@ -154,6 +160,7 @@ pub async fn read_side_questions(database: &Database) -> Result<Vec<SideQuestion
                 parent_thread_id: db::text(row, 1)?,
                 title: db::text(row, 2)?,
                 created_at: db::int(row, 3)?,
+                inherited_turns: db::opt_int(row, 4)?.and_then(|count| u32::try_from(count).ok()),
             })
         },
     )
@@ -185,6 +192,7 @@ mod tests {
             parent_thread_id: "parent-1".into(),
             title: "What about tests?".into(),
             created_at: 10,
+            inherited_turns: Some(3),
         };
         add_side_question(&database, &side_question).await.unwrap();
         add_side_question(
@@ -194,6 +202,7 @@ mod tests {
                 parent_thread_id: "parent-1".into(),
                 title: "Second".into(),
                 created_at: 20,
+                inherited_turns: None,
             },
         )
         .await
@@ -202,6 +211,7 @@ mod tests {
         let listed = read_side_questions(&database).await.unwrap();
         assert_eq!(listed.len(), 2);
         assert_eq!(listed[0].side_thread_id, "side-2");
+        assert_eq!(listed[0].inherited_turns, None);
         assert_eq!(listed[1], side_question);
 
         delete_side_question(&database, "side-1").await.unwrap();

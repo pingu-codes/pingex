@@ -433,6 +433,7 @@ fn side_question_link_survives_restart() {
             parent_thread_id: parent.clone(),
             title: title.clone(),
             created_at: 1_700_000_000,
+            inherited_turns: None,
         },
     ))
     .expect("add side question");
@@ -491,6 +492,7 @@ fn side_question_link_survives_restart() {
             parent_thread_id: parent.clone(),
             title: "Renamed".into(),
             created_at: 1_800_000_000,
+            inherited_turns: None,
         },
     ))
     .expect("re-add side question");
