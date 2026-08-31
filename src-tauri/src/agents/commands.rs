@@ -49,7 +49,9 @@ pub(crate) async fn open_agent_thread(
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Option<String>, String> {
-    Ok(storage::read_agent_run(&state.ctx(&window).database(), &run_id)
-        .await?
-        .and_then(|run| run.child_thread_id))
+    Ok(
+        storage::read_agent_run(&state.ctx(&window).database(), &run_id)
+            .await?
+            .and_then(|run| run.child_thread_id),
+    )
 }

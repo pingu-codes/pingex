@@ -1174,6 +1174,7 @@ describe("ThreadView /goal", () => {
     mocks.setThreadGoal.mockReset();
     mocks.getThreadGoal.mockReset();
     mocks.clearThreadGoal.mockReset();
+    mocks.openDialog.mockReset();
     mocks.setThreadGoal.mockImplementation((threadId: string, objective: string) =>
       Promise.resolve({ threadId, objective, status: "active", tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 0 }),
     );
@@ -1200,7 +1201,7 @@ describe("ThreadView /goal", () => {
     expect(mocks.startTurn).not.toHaveBeenCalled();
     // The goal stays visible after the notice is gone.
     const banner = screen.getByTestId("goal-banner");
-    expect(banner).toHaveTextContent("Goal · active");
+    expect(within(banner).getByTestId("goal-status")).toHaveTextContent("active");
     expect(banner).toHaveTextContent("ship the auth refactor");
     expect(screen.getByRole("button", { name: "Pause goal" })).toBeVisible();
   });
@@ -1215,7 +1216,7 @@ describe("ThreadView /goal", () => {
       timeUsedSeconds: 0,
     });
     render(ThreadView, { threadId: "thread-1", cwd: "/projects/example", projectPath: "/projects/example" });
-    expect(await screen.findByTestId("goal-banner")).toHaveTextContent("Goal · paused");
+    expect(within(await screen.findByTestId("goal-banner")).getByTestId("goal-status")).toHaveTextContent("paused");
     expect(screen.getByRole("button", { name: "Resume goal" })).toBeVisible();
 
     for (const handler of [...mocks.handlers]) {
@@ -1234,7 +1235,7 @@ describe("ThreadView /goal", () => {
         },
       });
     }
-    await waitFor(() => expect(screen.getByTestId("goal-banner")).toHaveTextContent("Goal · complete"));
+    await waitFor(() => expect(screen.getByTestId("goal-status")).toHaveTextContent("complete"));
   });
 
   it("names the new thread from the objective, since it has no turn to name it from", async () => {
@@ -1283,5 +1284,150 @@ describe("ThreadView /goal", () => {
     expect(mocks.setThreadGoal).toHaveBeenCalledWith("thread-1", "ship the auth refactor");
     expect(mocks.startThread).not.toHaveBeenCalled();
     expect(mocks.requestAutoName).not.toHaveBeenCalled();
+  });
+
+  it("confirms before replacing an existing goal, then replaces on accept", async () => {
+    const user = userEvent.setup();
+    mocks.openDialog.mockResolvedValue(true);
+    const editor = renderDraft();
+
+    await user.type(editor, "/goal ship the auth refactor{Enter}");
+    await screen.findByTestId("goal-banner");
+    await user.type(editor, "/goal rewrite the parser{Enter}");
+
+    await waitFor(() => expect(mocks.openDialog).toHaveBeenCalledTimes(1));
+    expect(mocks.openDialog).toHaveBeenCalledWith(expect.anything(), {
+      current: "ship the auth refactor",
+      next: "rewrite the parser",
+    });
+    await waitFor(() => expect(mocks.setThreadGoal).toHaveBeenCalledWith("thread-2", "rewrite the parser"));
+    // Replacing never starts a second thread.
+    expect(mocks.startThread).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.getByTestId("goal-banner")).toHaveTextContent("rewrite the parser"));
+  });
+
+  it("keeps the goal and gives the command back when the replace is cancelled", async () => {
+    const user = userEvent.setup();
+    mocks.openDialog.mockResolvedValue(null);
+    const editor = renderDraft();
+
+    await user.type(editor, "/goal ship the auth refactor{Enter}");
+    await screen.findByTestId("goal-banner");
+    await user.type(editor, "/goal rewrite the parser{Enter}");
+
+    await waitFor(() => expect(mocks.openDialog).toHaveBeenCalledTimes(1));
+    expect(mocks.setThreadGoal).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("goal-banner")).toHaveTextContent("ship the auth refactor");
+    expect(editor).toHaveTextContent("/goal rewrite the parser");
+  });
+
+  it("keeps the goal when an update event arrives without a goal payload", async () => {
+    mocks.getThreadGoal.mockResolvedValue({
+      threadId: "thread-1",
+      objective: "keep the build green",
+      status: "active",
+      tokenBudget: null,
+      tokensUsed: 0,
+      timeUsedSeconds: 0,
+    });
+    render(ThreadView, { threadId: "thread-1", cwd: "/projects/example", projectPath: "/projects/example" });
+    await screen.findByTestId("goal-banner");
+
+    // Bookkeeping-only update (e.g. after a turn): must not blank the banner.
+    for (const handler of [...mocks.handlers]) {
+      handler({ method: "thread/goal/updated", params: { threadId: "thread-1" } });
+    }
+    expect(screen.getByTestId("goal-banner")).toHaveTextContent("keep the build green");
+
+    for (const handler of [...mocks.handlers]) {
+      handler({ method: "thread/goal/cleared", params: { threadId: "thread-1" } });
+    }
+    await waitFor(() => expect(screen.queryByTestId("goal-banner")).not.toBeInTheDocument());
+  });
+
+  it("edits the objective inline from the banner", async () => {
+    const user = userEvent.setup();
+    mocks.getThreadGoal.mockResolvedValue({
+      threadId: "thread-1",
+      objective: "keep the build green",
+      status: "active",
+      tokenBudget: null,
+      tokensUsed: 0,
+      timeUsedSeconds: 0,
+    });
+    render(ThreadView, { threadId: "thread-1", cwd: "/projects/example", projectPath: "/projects/example" });
+    await screen.findByTestId("goal-banner");
+
+    await user.click(screen.getByRole("button", { name: "Edit goal" }));
+    const input = screen.getByRole("textbox", { name: "Goal objective" });
+    await user.clear(input);
+    await user.type(input, "ship the release{Enter}");
+
+    await waitFor(() => expect(mocks.setThreadGoal).toHaveBeenCalledWith("thread-1", "ship the release"));
+    await waitFor(() => expect(screen.getByTestId("goal-banner")).toHaveTextContent("ship the release"));
+    // No dialog for an explicit edit of the visible goal.
+    expect(mocks.openDialog).not.toHaveBeenCalled();
+  });
+
+  it("abandons an inline edit on Escape", async () => {
+    const user = userEvent.setup();
+    mocks.getThreadGoal.mockResolvedValue({
+      threadId: "thread-1",
+      objective: "keep the build green",
+      status: "active",
+      tokenBudget: null,
+      tokensUsed: 0,
+      timeUsedSeconds: 0,
+    });
+    render(ThreadView, { threadId: "thread-1", cwd: "/projects/example", projectPath: "/projects/example" });
+    await screen.findByTestId("goal-banner");
+
+    await user.click(screen.getByRole("button", { name: "Edit goal" }));
+    await user.type(screen.getByRole("textbox", { name: "Goal objective" }), " but faster{Escape}");
+
+    expect(mocks.setThreadGoal).not.toHaveBeenCalled();
+    expect(screen.getByTestId("goal-banner")).toHaveTextContent("keep the build green");
+  });
+
+  it("shows each status as its own pill", async () => {
+    mocks.getThreadGoal.mockResolvedValue({
+      threadId: "thread-1",
+      objective: "keep the build green",
+      status: "blocked",
+      tokenBudget: null,
+      tokensUsed: 0,
+      timeUsedSeconds: 0,
+    });
+    render(ThreadView, { threadId: "thread-1", cwd: "/projects/example", projectPath: "/projects/example" });
+
+    expect(await screen.findByTestId("goal-status")).toHaveTextContent("blocked");
+  });
+
+  it("drops a stale goal fetch that resolves after a local set", async () => {
+    const user = userEvent.setup();
+    let resolveFetch: (value: unknown) => void = () => {};
+    // First call: the session load's fetch, held open. Later calls (the
+    // replace-confirm's lookup) see no goal.
+    mocks.getThreadGoal
+      .mockImplementationOnce(() => new Promise((resolve) => (resolveFetch = resolve)))
+      .mockResolvedValue(null);
+    mocks.readThread.mockResolvedValueOnce(detail(completedTurn()));
+    render(ThreadView, { threadId: "thread-1", cwd: "/projects/example" });
+    await screen.findByRole("button", { name: /Worked/ });
+
+    await user.type(screen.getByRole("textbox", { name: composerLabel }), "/goal ship the release{Enter}");
+    await waitFor(() => expect(screen.getByTestId("goal-banner")).toHaveTextContent("ship the release"));
+
+    // The load-time fetch finally resolves with the old state: it must lose.
+    resolveFetch({
+      threadId: "thread-1",
+      objective: "an older objective",
+      status: "paused",
+      tokenBudget: null,
+      tokensUsed: 0,
+      timeUsedSeconds: 0,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByTestId("goal-banner")).toHaveTextContent("ship the release");
   });
 });

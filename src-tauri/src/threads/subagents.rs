@@ -9,8 +9,8 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use tauri::{AppHandle, State};
 
-use crate::util::json::Json;
 use crate::projects::thread_summary_from;
+use crate::util::json::Json;
 use crate::util::json::{arr_or_empty, str_at};
 use crate::AppState;
 
@@ -88,7 +88,10 @@ pub(crate) async fn list_subagents(
     state: State<'_, AppState>,
 ) -> Result<Vec<SubagentDetail>, String> {
     let ctx = state.ctx(&window);
-    if crate::storage::thread_harness(&ctx.database(), &thread_id).await?.is_some() {
+    if crate::storage::thread_harness(&ctx.database(), &thread_id)
+        .await?
+        .is_some()
+    {
         return Ok(Vec::new());
     }
     let response = ctx
@@ -181,8 +184,7 @@ pub(crate) async fn update_subagent_policy(
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
     ctx.session.ensure_resumed(&app, &thread_id).await?;
-    ctx
-        .session
+    ctx.session
         .request(
             &app,
             "thread/settings/update",

@@ -10,10 +10,10 @@
 use serde_json::{json, Value};
 use tauri::{AppHandle, State};
 
-use crate::util::json::Json;
 use crate::codex::requests;
 use crate::storage::{self, JournaledItem, TurnSettings, UserInputAnswer};
 use crate::util::json::str_at;
+use crate::util::json::Json;
 use crate::AppState;
 
 /// Thread settings that are resolved at resume time rather than stored on the
@@ -125,7 +125,11 @@ async fn read_when_rollout_settles(
     const BACKOFF: std::time::Duration = std::time::Duration::from_millis(250);
     let mut attempt = 1;
     loop {
-        match ctx.session.send(app, requests::thread_read(thread_id)).await {
+        match ctx
+            .session
+            .send(app, requests::thread_read(thread_id))
+            .await
+        {
             Err(error) if is_empty_rollout(&error) && attempt < ATTEMPTS => {
                 attempt += 1;
                 tokio::time::sleep(BACKOFF).await;

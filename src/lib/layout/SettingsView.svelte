@@ -95,6 +95,8 @@ const currentSection = $derived(
 let runtimeSettings = $state<RuntimeSettings | null>(null);
 let settingsHome = $state("");
 let settingsBinary = $state("");
+let settingsClaudeBinary = $state("");
+let settingsClaudeConfig = $state("");
 let generalError = $state<string | null>(null);
 let generalSaved = $state(false);
 let serverInfo = $state<CodexServerInfo | null>(null);
@@ -175,6 +177,8 @@ $effect(() => {
       runtimeSettings = settings;
       settingsHome = settings.overrideCodexHome ?? "";
       settingsBinary = settings.overrideCodexBinary ?? "";
+      settingsClaudeBinary = settings.overrideClaudeBinary ?? "";
+      settingsClaudeConfig = settings.overrideClaudeConfigDir ?? "";
     })
     .catch((cause) => (generalError = cause instanceof Error ? cause.message : String(cause)));
   // Best effort: a Codex that will not start is already reported elsewhere.
@@ -208,7 +212,12 @@ async function saveGeneral(event: SubmitEvent) {
   generalError = null;
   generalSaved = false;
   try {
-    runtimeSettings = await updateRuntimeSettings(settingsHome.trim() || null, settingsBinary.trim() || null);
+    runtimeSettings = await updateRuntimeSettings(
+      settingsHome.trim() || null,
+      settingsBinary.trim() || null,
+      settingsClaudeBinary.trim() || null,
+      settingsClaudeConfig.trim() || null,
+    );
     generalSaved = true;
   } catch (cause) {
     generalError = cause instanceof Error ? cause.message : String(cause);
@@ -358,6 +367,28 @@ async function reveal(path: string | null | undefined) {
                   placeholder={runtimeSettings?.codexBinary ?? codexBinary ?? "codex"}
                   class="input mt-1 w-full font-mono text-xs"
                 />
+              </div>
+              <div>
+                <label for="settings-claude-binary" class="text-xs font-medium text-surface-500">Claude binary</label>
+                <input
+                  id="settings-claude-binary"
+                  bind:value={settingsClaudeBinary}
+                  placeholder="claude"
+                  class="input mt-1 w-full font-mono text-xs"
+                />
+              </div>
+              <div>
+                <label for="settings-claude-config" class="text-xs font-medium text-surface-500">Claude config directory</label>
+                <input
+                  id="settings-claude-config"
+                  bind:value={settingsClaudeConfig}
+                  placeholder="~/.claude"
+                  class="input mt-1 w-full font-mono text-xs"
+                />
+                <p class="mt-1 text-[11px] leading-4 text-surface-500">
+                  Where Claude Code keeps its login (CLAUDE_CONFIG_DIR). Set this if you log in with
+                  a non-default directory — a GUI launch does not see shell exports.
+                </p>
               </div>
               <div class="flex items-center gap-3">
                 <button type="submit" class="btn btn-sm preset-filled-primary-500">Save</button>

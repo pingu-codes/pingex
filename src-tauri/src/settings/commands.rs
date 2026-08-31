@@ -106,7 +106,11 @@ pub(crate) async fn open_home_window(
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     let label = state.next_window_label();
-    if let Some(path) = path.as_deref().map(str::trim).filter(|path| !path.is_empty()) {
+    if let Some(path) = path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+    {
         let home = binary::expand_tilde(path);
         let configured = state.default_context().runtime().codex_binary;
         if binary::resolve(&configured).is_none() {
@@ -220,6 +224,8 @@ pub(crate) fn write_config_setting(
 pub(crate) fn update_runtime_settings(
     codex_home: Option<String>,
     codex_binary: Option<String>,
+    claude_binary: Option<String>,
+    claude_config_dir: Option<String>,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<RuntimeSettings, String> {
@@ -234,10 +240,25 @@ pub(crate) fn update_runtime_settings(
     }
     // Read-modify-write so unrelated overrides (recent homes, the quick-chat
     // shortcut) survive a save from the runtime-identity form.
+    let claude_binary = normalize_override(claude_binary);
+    if let Some(candidate) = &claude_binary {
+        let candidate = PathBuf::from(candidate);
+        if binary::resolve(&candidate).is_none() {
+            return Err(binary::missing_message(&candidate));
+        }
+    }
     let mut overrides = prefs::read_overrides(&prefs::settings_path());
     overrides.codex_home = normalize_override(codex_home);
     overrides.codex_binary = codex_binary;
+    overrides.claude_binary = claude_binary;
+    overrides.claude_config_dir = normalize_override(claude_config_dir);
     prefs::write_overrides(&prefs::settings_path(), &overrides)?;
+    // Claude has no long-lived server: the next spawn on any home picks the
+    // new runtime up; processes already running keep what they had.
+    let claude_runtime = crate::claude::driver::ClaudeRuntime::resolve(&overrides);
+    for context in state.all_contexts() {
+        context.claude.set_runtime(claude_runtime.clone());
+    }
     Ok(runtime_settings(&state.ctx(&window).runtime(), &overrides))
 }
 

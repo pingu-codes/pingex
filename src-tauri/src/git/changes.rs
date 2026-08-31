@@ -394,13 +394,22 @@ pub(crate) fn handoff(
         .map(str::trim)
         .filter(|name| !name.is_empty() && *name != branch);
     if let Some(name) = new_name {
-        let valid = run_git(target, &["check-ref-format", "--branch", name], WRITE_TIMEOUT)?;
+        let valid = run_git(
+            target,
+            &["check-ref-format", "--branch", name],
+            WRITE_TIMEOUT,
+        )?;
         if !valid.ok {
             return Err(format!("\"{name}\" is not a valid branch name"));
         }
         let exists = run_git(
             target,
-            &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{name}")],
+            &[
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                &format!("refs/heads/{name}"),
+            ],
             WRITE_TIMEOUT,
         )?;
         if exists.ok {

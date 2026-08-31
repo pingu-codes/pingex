@@ -1394,6 +1394,8 @@ export const previewRuntimeSettings: RuntimeSettings = {
   codexBinary: "codex",
   overrideCodexHome: null,
   overrideCodexBinary: null,
+  overrideClaudeBinary: null,
+  overrideClaudeConfigDir: null,
   settingsPath: "~/Library/Application Support/pingex/settings.json",
   restartRequired: false,
 };

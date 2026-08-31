@@ -16,9 +16,9 @@
 use serde_json::Value;
 use tauri::{AppHandle, State};
 
-use crate::util::json::Json;
 use crate::codex::compat::{error_payload, Feature};
 use crate::codex::requests;
+use crate::util::json::Json;
 use crate::AppState;
 
 /// The queue-specific refusal on top of the generic ones: a build that has the
@@ -44,7 +44,10 @@ async fn queue_request(
     thread_id: &str,
     request: requests::Request,
 ) -> Result<Value, String> {
-    if crate::storage::thread_harness(&ctx.database(), thread_id).await?.is_some() {
+    if crate::storage::thread_harness(&ctx.database(), thread_id)
+        .await?
+        .is_some()
+    {
         return Err(Feature::QUEUE.error("Claude threads queue in the app, not on a server"));
     }
     if let Some(reason) = ctx.session.unsupported(app, Feature::QUEUE).await? {
@@ -68,7 +71,9 @@ pub(crate) async fn queue_add(
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     let request = requests::queue_add(&thread_id, input.0, &client_user_message_id);
-    queue_request(&app, &ctx, &thread_id, request).await.map(Json)
+    queue_request(&app, &ctx, &thread_id, request)
+        .await
+        .map(Json)
 }
 
 #[tauri::command]
@@ -82,7 +87,9 @@ pub(crate) async fn queue_list(
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     let request = requests::queue_list(&thread_id, cursor.as_deref());
-    queue_request(&app, &ctx, &thread_id, request).await.map(Json)
+    queue_request(&app, &ctx, &thread_id, request)
+        .await
+        .map(Json)
 }
 
 #[tauri::command]
@@ -97,7 +104,9 @@ pub(crate) async fn queue_update(
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     let request = requests::queue_update(&thread_id, &queued_submission_id, input.0);
-    queue_request(&app, &ctx, &thread_id, request).await.map(Json)
+    queue_request(&app, &ctx, &thread_id, request)
+        .await
+        .map(Json)
 }
 
 #[tauri::command]
@@ -111,7 +120,9 @@ pub(crate) async fn queue_delete(
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     let request = requests::queue_delete(&thread_id, &queued_submission_id);
-    queue_request(&app, &ctx, &thread_id, request).await.map(Json)
+    queue_request(&app, &ctx, &thread_id, request)
+        .await
+        .map(Json)
 }
 
 #[tauri::command]
@@ -125,7 +136,9 @@ pub(crate) async fn queue_reorder(
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     let request = requests::queue_reorder(&thread_id, &queued_submission_ids);
-    queue_request(&app, &ctx, &thread_id, request).await.map(Json)
+    queue_request(&app, &ctx, &thread_id, request)
+        .await
+        .map(Json)
 }
 
 #[tauri::command]
@@ -139,7 +152,9 @@ pub(crate) async fn queue_start(
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     let request = requests::queue_start(&thread_id, queued_submission_id.as_deref());
-    queue_request(&app, &ctx, &thread_id, request).await.map(Json)
+    queue_request(&app, &ctx, &thread_id, request)
+        .await
+        .map(Json)
 }
 
 #[cfg(test)]
@@ -157,7 +172,8 @@ mod tests {
 
     /// Either refusal shape `send_gated` would act on for the queue feature.
     fn unsupported(error: &str) -> bool {
-        method_unsupported(error, Feature::QUEUE.method_prefix).is_some() || classify(error).is_some()
+        method_unsupported(error, Feature::QUEUE.method_prefix).is_some()
+            || classify(error).is_some()
     }
 
     #[test]
@@ -184,7 +200,10 @@ mod tests {
             -32600,
             "thread/queue/add requires experimentalApi capability"
         )));
-        assert!(unsupported(&failure(-32600, "user message queue is unavailable")));
+        assert!(unsupported(&failure(
+            -32600,
+            "user message queue is unavailable"
+        )));
     }
 
     #[test]
@@ -199,7 +218,10 @@ mod tests {
             -32600,
             "thread already has an active or pending turn"
         )));
-        assert!(!unsupported(&failure(-32600, "invalid queue pagination cursor: x")));
+        assert!(!unsupported(&failure(
+            -32600,
+            "invalid queue pagination cursor: x"
+        )));
         assert!(!unsupported(&failure(-32600, "thread not found: abc")));
     }
 

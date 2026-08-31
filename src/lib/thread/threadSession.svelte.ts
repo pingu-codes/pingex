@@ -84,6 +84,16 @@ export class ThreadSession {
    *  wait for the real turn id instead of silently doing nothing. */
   private pendingTurnStart: Promise<unknown> | null = null;
   private disposed = false;
+  /** Bumped by every deliberate goal write, so the async fetch in `load()`
+   *  can tell when its result has been overtaken and must be dropped. */
+  #goalEpoch = 0;
+
+  /** Set the goal. All writes go through here so they invalidate any
+   *  still-in-flight `getThreadGoal` from `load()`. */
+  setGoal(goal: ThreadGoal | null): void {
+    this.#goalEpoch++;
+    this.goal = goal;
+  }
 
   constructor(id: string | null, draftCwd?: string) {
     this.id = id;
@@ -127,9 +137,12 @@ export class ThreadSession {
     // Codex replays `thread/tokenUsage/updated` on a thread's first resume; after
     // that the cached figure is all we have until the next turn reports one.
     this.tokenUsage = threadTokenUsage[id] ?? null;
+    // A goal set locally (e.g. `/goal` while this fetch is in flight) must not
+    // be clobbered by a late resolve: apply only if nothing wrote since.
+    const goalEpoch = ++this.#goalEpoch;
     void getThreadGoal(id)
       .then((current) => {
-        if (!this.disposed) this.goal = current;
+        if (!this.disposed && this.#goalEpoch === goalEpoch) this.goal = current;
       })
       .catch(() => {});
     try {
@@ -312,11 +325,13 @@ export class ThreadSession {
     const id = this.id;
     if (!id || !params) return;
     if (method === "thread/goal/updated") {
-      this.goal = params.goal ?? null;
+      // Updates without a goal payload (usage/turn bookkeeping) must not blank
+      // the goal; only `thread/goal/cleared` removes it.
+      if (params.goal) this.setGoal(params.goal);
       return;
     }
     if (method === "thread/goal/cleared") {
-      this.goal = null;
+      this.setGoal(null);
       return;
     }
     if (method === "thread/tokenUsage/updated") {

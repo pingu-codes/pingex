@@ -18,6 +18,7 @@
     "demo:index": "deno run -A demo/index.ts",
     "rust:test": "cd src-tauri && cargo test",
     "test:e2e:codex": "cd src-tauri && PINGEX_LIVE_E2E=1 cargo test --test live_codex -- --test-threads=1",
+    "test:e2e:claude": "cd src-tauri && PINGEX_LIVE_E2E=1 cargo test --test live_claude -- --test-threads=1",
     "rust:lint": "cd src-tauri && cargo clippy --all-targets",
     "rust:fmt": "cd src-tauri && cargo fmt",
     "typegen": "cd src-tauri && cargo test --lib export_bindings",

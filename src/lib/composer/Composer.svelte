@@ -1,5 +1,5 @@
 <script lang="ts">
-import { ArrowUp, Bot, Map as MapIcon, Paperclip, Square } from "@lucide/svelte";
+import { ArrowUp, Map as MapIcon, Paperclip, Square } from "@lucide/svelte";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
@@ -585,8 +585,9 @@ export function harnessChoice(): HarnessChoice | null {
 
 /** Codex ids and Claude aliases do not overlap, so a switch drops the
  *  picked model and effort and lets the other harness's defaults apply. */
-function toggleHarness() {
-  prefs.harness = harness === "claude" ? "codex" : "claude";
+function chooseHarness(next: HarnessChoice) {
+  if (next === harness) return;
+  prefs.harness = next;
   prefs.model = null;
   prefs.effort = null;
   persist();
@@ -1070,17 +1071,6 @@ function onPaste(event: ClipboardEvent) {
         >
           <Paperclip size={14} />
         </TooltipButton>
-        {#if !threadId}
-          <TooltipButton
-            label={harness === "claude" ? "New threads run on Claude Code. Switch to Codex" : "New threads run on Codex. Switch to Claude Code"}
-            onclick={toggleHarness}
-            aria-label="Choose harness"
-            class="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] transition {harness === 'claude' ? 'preset-tonal-primary' : 'text-surface-500 hover:bg-surface-200-800 hover:text-surface-800-200'}"
-          >
-            <Bot size={12} />
-            {harness === "claude" ? "Claude" : "Codex"}
-          </TooltipButton>
-        {/if}
         <TooltipButton
           label={prefs.planMode ? "Plan mode on" : "Toggle plan mode"}
           onclick={togglePlanMode}
@@ -1124,7 +1114,19 @@ function onPaste(event: ClipboardEvent) {
           harness={harness}
           onChoose={choosePermission}
         />
-        <div class="ml-auto">
+        <div class="ml-auto flex items-center gap-1.5">
+          {#if !threadId}
+            <select
+              aria-label="Choose harness"
+              title="Harness new threads run on"
+              class="select select-sm w-auto text-[11px]"
+              value={harness}
+              onchange={(event) => chooseHarness(event.currentTarget.value as HarnessChoice)}
+            >
+              <option value="codex">Codex</option>
+              <option value="claude">Claude Code</option>
+            </select>
+          {/if}
           <ContextMeter
             stats={contextStats}
             {compacting}

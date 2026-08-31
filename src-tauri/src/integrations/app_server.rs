@@ -25,8 +25,8 @@ use serde_json::Value;
 use tauri::{AppHandle, State};
 
 use super::SkillSummary;
-use crate::util::json::Json;
 use crate::codex::requests;
+use crate::util::json::Json;
 use crate::AppState;
 
 #[tauri::command]
@@ -39,7 +39,8 @@ pub(crate) async fn list_mcp_server_status(
     let ctx = state.ctx(&window);
     ctx.session
         .send(&app, requests::mcp_server_status_list())
-        .await.map(Json)
+        .await
+        .map(Json)
 }
 
 /// Start an OAuth login for one server. Resolves as soon as Codex has the flow
@@ -56,7 +57,8 @@ pub(crate) async fn mcp_oauth_login(
     let ctx = state.ctx(&window);
     ctx.session
         .send(&app, requests::mcp_oauth_login(&name))
-        .await.map(Json)
+        .await
+        .map(Json)
 }
 
 /// Make a running Codex pick up `config.toml` edits. Also called after every
@@ -91,7 +93,10 @@ pub(crate) async fn list_skills_for(
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
-    ctx.session.send(&app, requests::skills_list(&cwds)).await.map(Json)
+    ctx.session
+        .send(&app, requests::skills_list(&cwds))
+        .await
+        .map(Json)
 }
 
 /// Enable or disable a skill by name. `skills/config/write` requires exactly
@@ -108,7 +113,8 @@ pub(crate) async fn set_skill_enabled(
     let ctx = state.ctx(&window);
     ctx.session
         .send(&app, requests::skill_config_write(&name, enabled))
-        .await.map(Json)
+        .await
+        .map(Json)
 }
 
 /// Skills for the typed `IntegrationsList`, deduped by name across the

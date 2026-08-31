@@ -553,7 +553,12 @@ pub(crate) async fn spawn_agent(
     {
         Ok(child) => child,
         Err(error) => {
-            finish(app, &ctx.home_key, &run, AgentRunState::Failed(error.clone()));
+            finish(
+                app,
+                &ctx.home_key,
+                &run,
+                AgentRunState::Failed(error.clone()),
+            );
             return Err(error);
         }
     };
@@ -576,13 +581,23 @@ pub(crate) async fn spawn_agent(
             .and_then(Value::as_str)
             .map(str::to_string),
         Err(error) => {
-            finish(app, &ctx.home_key, &run, AgentRunState::Failed(error.clone()));
+            finish(
+                app,
+                &ctx.home_key,
+                &run,
+                AgentRunState::Failed(error.clone()),
+            );
             return Err(error);
         }
     };
     let Some(child_thread_id) = child_thread_id else {
         let error = "The agent's process returned no thread.".to_string();
-        finish(app, &ctx.home_key, &run, AgentRunState::Failed(error.clone()));
+        finish(
+            app,
+            &ctx.home_key,
+            &run,
+            AgentRunState::Failed(error.clone()),
+        );
         return Err(error);
     };
     if let Ok(mut slot) = run.child_thread_id.lock() {
@@ -627,7 +642,12 @@ pub(crate) async fn spawn_agent(
             }
         }
         Err(error) => {
-            finish(app, &ctx.home_key, &run, AgentRunState::Failed(error.clone()));
+            finish(
+                app,
+                &ctx.home_key,
+                &run,
+                AgentRunState::Failed(error.clone()),
+            );
             return Err(error);
         }
     }
@@ -762,7 +782,12 @@ pub(crate) async fn send_input(
 }
 
 /// Stop an agent: interrupt the turn if we can, then kill the process.
-pub(crate) async fn kill(app: &AppHandle, home_key: &str, run: &Arc<AgentRun>, reason: Option<&str>) {
+pub(crate) async fn kill(
+    app: &AppHandle,
+    home_key: &str,
+    run: &Arc<AgentRun>,
+    reason: Option<&str>,
+) {
     let child = run.child.lock().ok().and_then(|child| child.clone());
     if let (Some(child), Some(thread_id), Some(turn_id)) = (
         child.as_ref(),

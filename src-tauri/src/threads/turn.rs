@@ -203,7 +203,9 @@ async fn start_claude_thread(
     if let Some(workspace) = &workspace {
         storage::assign_thread_workspace(&ctx.database(), &id, &workspace.workspace_id).await?;
     }
-    Ok(Json(serde_json::json!({"id": id, "cwd": cwd, "harness": "claude"})))
+    Ok(Json(
+        serde_json::json!({"id": id, "cwd": cwd, "harness": "claude"}),
+    ))
 }
 
 /// Run a turn on a Claude thread. The process is resumed from disk when the
@@ -221,12 +223,24 @@ async fn start_claude_turn(
         .is_empty();
     let resolved = options
         .as_ref()
-        .map(|options| (options.resolved_model.clone(), options.resolved_effort.clone()))
+        .map(|options| {
+            (
+                options.resolved_model.clone(),
+                options.resolved_effort.clone(),
+            )
+        })
         .unwrap_or_default();
     let parts: Vec<serde_json::Value> = input.into_iter().map(|item| item.0).collect();
     let turn_id = ctx
         .claude
-        .start_turn(app, thread_id, &thread.cwd, resume, &parts, options.as_ref())
+        .start_turn(
+            app,
+            thread_id,
+            &thread.cwd,
+            resume,
+            &parts,
+            options.as_ref(),
+        )
         .await?;
     let (model, effort) = &resolved;
     storage::record_turn_settings(
@@ -237,8 +251,11 @@ async fn start_claude_turn(
         effort.as_deref(),
     )
     .await?;
-    storage::touch_harness_thread(&ctx.database(), thread_id, crate::util::time::unix_secs()).await?;
-    Ok(Json(serde_json::json!({"id": turn_id, "status": "inProgress"})))
+    storage::touch_harness_thread(&ctx.database(), thread_id, crate::util::time::unix_secs())
+        .await?;
+    Ok(Json(
+        serde_json::json!({"id": turn_id, "status": "inProgress"}),
+    ))
 }
 
 #[tauri::command]
@@ -333,7 +350,10 @@ pub(crate) async fn interrupt_turn(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
-    if storage::thread_harness(&ctx.database(), &thread_id).await?.is_some() {
+    if storage::thread_harness(&ctx.database(), &thread_id)
+        .await?
+        .is_some()
+    {
         return ctx.claude.interrupt(&thread_id).await;
     }
     let mut turn_id = turn_id;

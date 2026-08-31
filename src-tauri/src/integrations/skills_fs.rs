@@ -166,7 +166,10 @@ mod tests {
         let text = read_skill(file.display().to_string()).unwrap();
         assert!(text.starts_with("---\nname: demo\ndescription: Does demo things\n---"));
         // Reading the directory works too.
-        assert_eq!(read_skill(file.parent().unwrap().display().to_string()).unwrap(), text);
+        assert_eq!(
+            read_skill(file.parent().unwrap().display().to_string()).unwrap(),
+            text
+        );
         assert!(create_skill_on_disk(home.path(), "demo", "again", None).is_err());
         delete_skill_on_disk(home.path(), &file.display().to_string()).unwrap();
         assert!(!file.exists());

@@ -220,7 +220,11 @@ async fn wait(ctx: &HomeContext, arguments: &Value) -> Result<Value, String> {
     Ok(tools::render_result(payload, true))
 }
 
-async fn send_input(app: &AppHandle, ctx: &HomeContext, arguments: &Value) -> Result<Value, String> {
+async fn send_input(
+    app: &AppHandle,
+    ctx: &HomeContext,
+    arguments: &Value,
+) -> Result<Value, String> {
     let id = str_at(arguments, "agentId").ok_or("`agentId` is required.")?;
     let text = str_at(arguments, "text")
         .unwrap_or_default()

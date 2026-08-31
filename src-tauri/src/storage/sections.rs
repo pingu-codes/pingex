@@ -130,11 +130,15 @@ mod tests {
                 color: None,
             },
         ];
-        replace_thread_sections(&database, &sections, true).await.unwrap();
+        replace_thread_sections(&database, &sections, true)
+            .await
+            .unwrap();
         assert_eq!(read_thread_sections(&database).await.unwrap(), sections);
         assert!(thread_sections_supported(&database).await.unwrap());
 
-        replace_thread_sections(&database, &[], false).await.unwrap();
+        replace_thread_sections(&database, &[], false)
+            .await
+            .unwrap();
         assert!(read_thread_sections(&database).await.unwrap().is_empty());
         assert!(!thread_sections_supported(&database).await.unwrap());
     }

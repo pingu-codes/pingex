@@ -12,10 +12,11 @@ use std::path::{Path, PathBuf};
 
 /// Install locations checked after PATH, because a Finder launch usually has
 /// none of them. Home-relative entries start with `~/`.
-const FALLBACK_DIRS: [&str; 7] = [
+const FALLBACK_DIRS: [&str; 8] = [
     "/opt/homebrew/bin",
     "/usr/local/bin",
     "/usr/bin",
+    "~/.claude/local",
     "~/.local/bin",
     "~/.bun/bin",
     "~/.cargo/bin",
@@ -193,10 +194,10 @@ mod tests {
         // of it so the search order is asserted, not the host's environment.
         let dirs = search_dirs(Some("/usr/bin"));
         assert!(dirs.contains(&PathBuf::from("/opt/homebrew/bin")));
-        assert_eq!(
-            dirs.iter().filter(|dir| dir.ends_with("bin")).count(),
-            dirs.len()
-        );
+        // The one non-`bin` entry is Claude Code's own install location.
+        assert!(dirs
+            .iter()
+            .all(|dir| dir.ends_with("bin") || dir.ends_with(".claude/local")));
         // PATH entries come first and are not duplicated by the fallbacks.
         assert_eq!(dirs.first(), Some(&PathBuf::from("/usr/bin")));
         assert_eq!(

@@ -92,7 +92,10 @@ pub(crate) async fn create_thread_section(
         return Err("A section needs a name".into());
     }
     ctx.session
-        .send(&app, requests::thread_section_create(name, color.as_deref()))
+        .send(
+            &app,
+            requests::thread_section_create(name, color.as_deref()),
+        )
         .await?;
     resync(&app, &ctx).await
 }
@@ -180,7 +183,8 @@ mod tests {
         assert_eq!(coloured.color.as_deref(), Some("#ef4444"));
         assert_eq!(coloured.icon, None);
 
-        let plain = section_from(&json!({"id": "s2", "name": "Later", "appearance": null})).unwrap();
+        let plain =
+            section_from(&json!({"id": "s2", "name": "Later", "appearance": null})).unwrap();
         assert_eq!(plain.color, None);
         assert!(section_from(&json!({"name": "no id"})).is_none());
     }

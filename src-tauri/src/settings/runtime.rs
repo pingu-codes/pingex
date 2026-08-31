@@ -21,6 +21,8 @@ pub(crate) struct RuntimeSettings {
     codex_binary: String,
     override_codex_home: Option<String>,
     override_codex_binary: Option<String>,
+    override_claude_binary: Option<String>,
+    override_claude_config_dir: Option<String>,
     settings_path: String,
     restart_required: bool,
 }
@@ -74,6 +76,8 @@ pub(crate) fn runtime_settings(
         codex_binary: runtime.codex_binary.display().to_string(),
         override_codex_home: overrides.codex_home.clone(),
         override_codex_binary: overrides.codex_binary.clone(),
+        override_claude_binary: overrides.claude_binary.clone(),
+        override_claude_config_dir: overrides.claude_config_dir.clone(),
         settings_path: prefs::settings_path().display().to_string(),
         restart_required,
     }

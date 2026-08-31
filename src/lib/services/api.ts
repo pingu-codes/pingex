@@ -338,6 +338,7 @@ export interface ClaudeStatus {
   path: string | null;
   version: string | null;
   configDir: string;
+  loggedIn: boolean | null;
   protocolFloor: string;
   message: string | null;
 }
@@ -350,6 +351,7 @@ export async function readClaudeStatus(): Promise<ClaudeStatus> {
       path: "/usr/local/bin/claude",
       version: "2.1.251",
       configDir: "~/.claude",
+      loggedIn: true,
       protocolFloor: "1.0.59",
       message: null,
     };
@@ -969,14 +971,18 @@ export async function readCodexServerInfo(): Promise<CodexServerInfo> {
 export async function updateRuntimeSettings(
   codexHome: string | null,
   codexBinary: string | null,
+  claudeBinary: string | null = null,
+  claudeConfigDir: string | null = null,
 ): Promise<RuntimeSettings> {
   if (!isTauri()) {
     previewRuntimeSettings.overrideCodexHome = codexHome;
     previewRuntimeSettings.overrideCodexBinary = codexBinary;
+    previewRuntimeSettings.overrideClaudeBinary = claudeBinary;
+    previewRuntimeSettings.overrideClaudeConfigDir = claudeConfigDir;
     previewRuntimeSettings.restartRequired = Boolean(codexHome || codexBinary);
     return { ...previewRuntimeSettings };
   }
-  return commands.updateRuntimeSettings(codexHome, codexBinary);
+  return commands.updateRuntimeSettings(codexHome, codexBinary, claudeBinary, claudeConfigDir);
 }
 
 export async function readLaunchState(): Promise<LaunchState> {

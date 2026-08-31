@@ -1,5 +1,5 @@
 <script lang="ts">
-import { ChevronRight, Pause, Play, Target, X } from "@lucide/svelte";
+import { ChevronRight, Pause, Pencil, Play, Target, X } from "@lucide/svelte";
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
 import { onDestroy, tick, untrack } from "svelte";
 import { nameNewThread } from "$lib/app/appData.svelte";
@@ -47,6 +47,7 @@ import { planText } from "$lib/thread/planText";
 import QuestionCard from "$lib/thread/QuestionCard.svelte";
 import QueuedMessageRow from "$lib/thread/QueuedMessageRow.svelte";
 import ReasoningBlock from "$lib/thread/ReasoningBlock.svelte";
+import ReplaceGoalDialog from "$lib/thread/ReplaceGoalDialog.svelte";
 import RewindThreadDialog from "$lib/thread/RewindThreadDialog.svelte";
 import { isNearBottom, recallScroll, rememberScroll } from "$lib/thread/scrollPositions";
 import { attachSession, draftSession, openSession, releaseSession } from "$lib/thread/sessions.svelte";
@@ -749,11 +750,11 @@ async function goalCommand(argument: string, typed = "") {
     try {
       if (argument) {
         await clearThreadGoal(current);
-        session.goal = null;
+        session.setGoal(null);
         session.notice = "Goal cleared.";
       } else {
         const held = await getThreadGoal(current);
-        session.goal = held;
+        session.setGoal(held);
         session.notice = held
           ? `Goal (${held.status}): ${held.objective}`
           : "No goal is set — /goal <objective> sets one.";
@@ -768,11 +769,24 @@ async function goalCommand(argument: string, typed = "") {
     failCommand("goal", typed, "/goal can't start a thread while Codex is working.");
     return;
   }
+  if (!fresh) {
+    // The thread may already be working towards something — never overwrite
+    // it silently. (This also covers the goal-started draft, which still
+    // looks like a draft because adopting the thread does not remount.)
+    const existing = session.goal ?? (await getThreadGoal(current).catch(() => null));
+    if (existing && existing.objective !== objective) {
+      const ok = await openDialog(ReplaceGoalDialog, { current: existing.objective, next: objective });
+      if (!ok) {
+        if (typed) composer?.restoreText(typed);
+        return;
+      }
+    }
+  }
   if (fresh) session.starting = true;
   try {
     const id = await ensureLiveThread();
     const set = await setThreadGoal(id, objective);
-    session.goal = set;
+    session.setGoal(set);
     session.notice = `Goal set: ${set.objective}`;
     // A goal-only thread has no turn to name it from, so the objective titles
     // it: shown at once, then refined by the namer.
@@ -792,7 +806,7 @@ async function toggleGoal() {
   if (!goal || !liveThreadId) return;
   const status = goal.status === "active" ? "paused" : "active";
   try {
-    session.goal = { ...goal, ...(await setThreadGoalStatus(liveThreadId, status)), objective: goal.objective };
+    session.setGoal({ ...goal, ...(await setThreadGoalStatus(liveThreadId, status)), objective: goal.objective });
   } catch (cause) {
     toastError(cause instanceof Error ? cause.message : String(cause));
   }
@@ -802,7 +816,7 @@ async function clearGoal() {
   if (!liveThreadId) return;
   try {
     await clearThreadGoal(liveThreadId);
-    session.goal = null;
+    session.setGoal(null);
   } catch (cause) {
     toastError(cause instanceof Error ? cause.message : String(cause));
   }
@@ -816,6 +830,40 @@ const GOAL_STATUS_LABEL: Record<string, string> = {
   budgetLimited: "budget exhausted",
   complete: "complete",
 };
+
+/** Badge preset for each goal status, so the banner shows state at a glance. */
+const GOAL_STATUS_PRESET: Record<string, string> = {
+  active: "preset-filled-primary-500",
+  paused: "preset-tonal-surface",
+  blocked: "preset-tonal-error",
+  usageLimited: "preset-tonal-warning",
+  budgetLimited: "preset-tonal-error",
+  complete: "preset-tonal-success",
+};
+
+/** Inline goal-objective editing in the banner. */
+let editingGoal = $state(false);
+let goalDraft = $state("");
+
+function startGoalEdit() {
+  if (!goal) return;
+  goalDraft = goal.objective;
+  editingGoal = true;
+}
+
+async function saveGoalEdit() {
+  const next = goalDraft.trim();
+  if (!liveThreadId || !next || next === goal?.objective) {
+    editingGoal = false;
+    return;
+  }
+  try {
+    session.setGoal(await setThreadGoal(liveThreadId, next));
+    editingGoal = false;
+  } catch (cause) {
+    toastError(cause instanceof Error ? cause.message : String(cause));
+  }
+}
 
 /** The markdown a transcript item contributes to `/copy` and `/export`. */
 function itemMarkdown(item: ThreadItem): string {
@@ -1074,8 +1122,31 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
         title={goal.tokenBudget ? `${goal.tokensUsed.toLocaleString()} of ${goal.tokenBudget.toLocaleString()} tokens used` : undefined}
       >
         <Target size={12} class="shrink-0 {goal.status === 'active' ? 'text-primary-500' : 'text-surface-500'}" />
-        <span class="shrink-0 font-medium text-surface-500">Goal · {GOAL_STATUS_LABEL[goal.status] ?? goal.status}</span>
-        <span class="min-w-0 flex-1 truncate" title={goal.objective}>{goal.objective}</span>
+        <span class="shrink-0 font-medium text-surface-500">Goal</span>
+        <span
+          class="badge shrink-0 px-1.5 py-0 text-[10px] {GOAL_STATUS_PRESET[goal.status] ?? 'preset-tonal-surface'}"
+          data-testid="goal-status"
+        >
+          {GOAL_STATUS_LABEL[goal.status] ?? goal.status}
+        </span>
+        {#if editingGoal}
+          <!-- svelte-ignore a11y_autofocus -->
+          <input
+            class="input h-6 min-w-0 flex-1 px-2 text-xs"
+            bind:value={goalDraft}
+            aria-label="Goal objective"
+            autofocus
+            onkeydown={(event) => {
+              if (event.key === "Enter") void saveGoalEdit();
+              if (event.key === "Escape") editingGoal = false;
+            }}
+          />
+        {:else}
+          <span class="min-w-0 flex-1 truncate" title={goal.objective}>{goal.objective}</span>
+          <TooltipButton label="Edit goal" onclick={startGoalEdit} aria-label="Edit goal" class="shrink-0 opacity-60 hover:opacity-100">
+            <Pencil size={12} />
+          </TooltipButton>
+        {/if}
         {#if goal.status !== "complete"}
           <TooltipButton
             label={goal.status === "active" ? "Pause goal" : "Resume goal"}

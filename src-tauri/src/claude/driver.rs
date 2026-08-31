@@ -287,11 +287,24 @@ pub(crate) struct ClaudeRuntime {
 }
 
 impl ClaudeRuntime {
-    pub(crate) fn from_env() -> Self {
+    /// Resolve where `claude` lives and which config directory it should use.
+    /// Environment wins over the saved settings override, which wins over the
+    /// bare-`claude` / `~/.claude` defaults — the same precedence as the
+    /// Codex runtime. The saved override is what makes a GUI launch (which
+    /// inherits no shell exports) reach the same login as the terminal.
+    pub(crate) fn resolve(overrides: &crate::settings::prefs::RuntimeOverrides) -> Self {
         let binary = std::env::var_os("PINGEX_CLAUDE_CLI_PATH")
             .map(PathBuf::from)
+            .or_else(|| overrides.claude_binary.as_deref().map(PathBuf::from))
             .unwrap_or_else(|| PathBuf::from("claude"));
-        let config_dir = std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from);
+        let config_dir = std::env::var_os("CLAUDE_CONFIG_DIR")
+            .map(PathBuf::from)
+            .or_else(|| {
+                overrides
+                    .claude_config_dir
+                    .as_deref()
+                    .map(|dir| crate::codex::binary::expand_tilde(dir))
+            });
         Self { binary, config_dir }
     }
 
@@ -307,7 +320,7 @@ impl ClaudeRuntime {
 
 pub(crate) struct ClaudeDriver {
     home_key: String,
-    runtime: ClaudeRuntime,
+    runtime: Mutex<ClaudeRuntime>,
     wire: Arc<WireLog>,
     processes: Mutex<HashMap<String, Arc<ThreadProcess>>>,
     pending: PendingMap,
@@ -323,6 +336,9 @@ pub(crate) struct ClaudeStatus {
     pub path: Option<String>,
     pub version: Option<String>,
     pub config_dir: String,
+    /// Whether the CLI is logged in under `config_dir`. `None` when the
+    /// probe could not tell (no binary, or no way to check).
+    pub logged_in: Option<bool>,
     /// The oldest CLI the driver can drive.
     pub protocol_floor: String,
     pub message: Option<String>,
@@ -336,10 +352,12 @@ pub(crate) fn status(runtime: &ClaudeRuntime) -> ClaudeStatus {
             path: None,
             version: None,
             config_dir,
+            logged_in: None,
             protocol_floor: PROTOCOL_FLOOR.into(),
             message: Some(crate::codex::binary::missing_message(&runtime.binary)),
         };
     };
+    let logged_in = logged_in(&path, &runtime.config_dir());
     let version = std::process::Command::new(&path)
         .arg("--version")
         .output()
@@ -353,6 +371,7 @@ pub(crate) fn status(runtime: &ClaudeRuntime) -> ClaudeStatus {
     ClaudeStatus {
         available: !below_floor,
         path: Some(path.display().to_string()),
+        logged_in,
         message: below_floor.then(|| {
             format!(
                 "Claude Code {} is older than {PROTOCOL_FLOOR}, the first version with the stdio permission prompt.",
@@ -363,6 +382,30 @@ pub(crate) fn status(runtime: &ClaudeRuntime) -> ClaudeStatus {
         config_dir,
         protocol_floor: PROTOCOL_FLOOR.into(),
     }
+}
+
+/// Whether the CLI at `path` is logged in when run against `config_dir`.
+/// Tries `claude auth status` (newer CLIs); falls back to whether the
+/// directory holds credentials at all. `None` means "could not tell" — on
+/// macOS the OAuth token may live only in the Keychain.
+fn logged_in(path: &std::path::Path, config_dir: &std::path::Path) -> Option<bool> {
+    let output = std::process::Command::new(path)
+        .args(["auth", "status"])
+        .env("CLAUDE_CONFIG_DIR", config_dir)
+        .env_remove("ANTHROPIC_API_KEY")
+        .env_remove("ANTHROPIC_AUTH_TOKEN")
+        .output()
+        .ok()?;
+    // `claude auth status` prints JSON with a `loggedIn` field and exits 0
+    // whether or not a login exists, so only the field is trustworthy.
+    if let Ok(status) = serde_json::from_slice::<Value>(&output.stdout) {
+        if let Some(logged_in) = status.get("loggedIn").and_then(Value::as_bool) {
+            return Some(logged_in);
+        }
+    }
+    // An old CLI without the subcommand: fall back to the credentials file,
+    // which only proves a login when it exists (macOS may use the Keychain).
+    config_dir.join(".credentials.json").is_file().then_some(true)
 }
 
 fn version_below(version: &str, floor: &str) -> bool {
@@ -407,7 +450,7 @@ impl ClaudeDriver {
     pub(crate) fn new(home_key: String, runtime: ClaudeRuntime, wire: Arc<WireLog>) -> Self {
         Self {
             home_key,
-            runtime,
+            runtime: Mutex::new(runtime),
             wire,
             processes: Mutex::new(HashMap::new()),
             pending: Arc::new(Mutex::new(HashMap::new())),
@@ -415,8 +458,22 @@ impl ClaudeDriver {
         }
     }
 
-    pub(crate) fn runtime(&self) -> &ClaudeRuntime {
-        &self.runtime
+    pub(crate) fn runtime(&self) -> ClaudeRuntime {
+        self.runtime
+            .lock()
+            .map(|runtime| runtime.clone())
+            .unwrap_or_else(|_| ClaudeRuntime {
+                binary: PathBuf::from("claude"),
+                config_dir: None,
+            })
+    }
+
+    /// Point the driver at a different binary/config dir. Running processes
+    /// keep what they were spawned with; the next spawn uses this.
+    pub(crate) fn set_runtime(&self, runtime: ClaudeRuntime) {
+        if let Ok(mut slot) = self.runtime.lock() {
+            *slot = runtime;
+        }
     }
 
     /// Whether a request id belongs to one of this driver's prompts.
@@ -451,11 +508,11 @@ impl ClaudeDriver {
             .unwrap_or_default()
     }
 
-    fn resolve_binary(&self) -> Result<PathBuf, String> {
-        crate::codex::binary::resolve(&self.runtime.binary).ok_or_else(|| {
+    fn resolve_binary(&self, runtime: &ClaudeRuntime) -> Result<PathBuf, String> {
+        crate::codex::binary::resolve(&runtime.binary).ok_or_else(|| {
             format!(
                 "{} Claude Code is needed for Claude threads.",
-                crate::codex::binary::missing_message(&self.runtime.binary)
+                crate::codex::binary::missing_message(&runtime.binary)
             )
         })
     }
@@ -468,28 +525,25 @@ impl ClaudeDriver {
         resume: bool,
         settings: &Settings,
     ) -> Result<Arc<ThreadProcess>, String> {
-        let program = self.resolve_binary()?;
-        let mut args: Vec<String> = if resume {
-            vec!["--resume".into(), thread_id.into()]
-        } else {
-            vec!["--session-id".into(), thread_id.into()]
-        };
-        if let Some(model) = &settings.model {
-            args.extend(["--model".into(), model.clone()]);
-        }
-        if let Some(effort) = &settings.effort {
-            args.extend(["--effort".into(), effort.clone()]);
-        }
-        args.extend(["--permission-mode".into(), settings.mode.clone()]);
-        if settings.mode == "bypassPermissions" {
-            args.push("--allow-dangerously-skip-permissions".into());
-        }
+        let runtime = self.runtime();
+        let program = self.resolve_binary(&runtime)?;
+        let config_dir = runtime.config_dir();
+        let args = turn_args(
+            settings.model.as_deref(),
+            settings.effort.as_deref(),
+            &settings.mode,
+            resume,
+            thread_id,
+        );
         let sink = Arc::new(ThreadSink {
             thread_id: thread_id.to_string(),
             home_key: self.home_key.clone(),
             app: app.clone(),
             seq: AtomicU64::new(0),
-            translator: Mutex::new(Translator::new(cwd.to_string())),
+            translator: Mutex::new(Translator::new(
+                cwd.to_string(),
+                config_dir.display().to_string(),
+            )),
             projector: Mutex::new(Projector::default()),
             journal: TurnJournal::new(app.clone(), self.home_key.clone()),
             pending: self.pending.clone(),
@@ -498,7 +552,7 @@ impl ClaudeDriver {
         let child = child::spawn(
             &program,
             std::path::Path::new(cwd),
-            self.runtime.config_dir.as_deref(),
+            &config_dir,
             &args,
             app.clone(),
             self.wire.clone(),
@@ -701,6 +755,34 @@ impl ClaudeDriver {
             process.child.kill();
         }
     }
+}
+
+/// The per-session arguments `spawn` appends after [`child::BASE_ARGS`]:
+/// session identity, model/effort, and the permission mode. Public so the
+/// live e2e suite replays exactly what the app sends.
+pub fn turn_args(
+    model: Option<&str>,
+    effort: Option<&str>,
+    mode: &str,
+    resume: bool,
+    thread_id: &str,
+) -> Vec<String> {
+    let mut args: Vec<String> = if resume {
+        vec!["--resume".into(), thread_id.into()]
+    } else {
+        vec!["--session-id".into(), thread_id.into()]
+    };
+    if let Some(model) = model {
+        args.extend(["--model".into(), model.into()]);
+    }
+    if let Some(effort) = effort {
+        args.extend(["--effort".into(), effort.into()]);
+    }
+    args.extend(["--permission-mode".into(), mode.into()]);
+    if mode == "bypassPermissions" {
+        args.push("--allow-dangerously-skip-permissions".into());
+    }
+    args
 }
 
 /// A local image as a base64 content block, when it can be read.

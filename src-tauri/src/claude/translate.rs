@@ -38,14 +38,17 @@ pub(crate) struct Translator {
     /// `assistant` frame is not rendered a second time.
     streamed: HashSet<String>,
     current_message: Option<String>,
+    /// The `CLAUDE_CONFIG_DIR` the process runs under, for login errors.
+    config_dir: String,
     /// Tool calls announced and not yet resolved: name and input by id.
     open_tools: HashMap<String, (String, Value)>,
 }
 
 impl Translator {
-    pub(crate) fn new(cwd: String) -> Self {
+    pub(crate) fn new(cwd: String, config_dir: String) -> Self {
         Self {
             cwd,
+            config_dir,
             ..Default::default()
         }
     }
@@ -70,6 +73,19 @@ impl Translator {
 
     fn system(&mut self, frame: &Value) -> Vec<HarnessEvent> {
         match str_at(frame, "subtype") {
+            // The CLI credential in use. An environment key would bill (and
+            // authenticate) differently than the login, so it is worth a
+            // visible warning; the spawn strips the usual variables, but a
+            // helper or settings file can still inject one.
+            Some("init") => match str_at(frame, "apiKeySource") {
+                Some(source @ ("ANTHROPIC_API_KEY" | "apiKeyHelper")) => {
+                    vec![HarnessEvent::Notice {
+                        level: "warning".into(),
+                        text: format!("Claude is authenticating with {source}, not your login"),
+                    }]
+                }
+                _ => Vec::new(),
+            },
             Some("compact_boundary") => vec![HarnessEvent::Compaction {
                 item_id: format!("compact-{}", str_at(frame, "uuid").unwrap_or("boundary")),
                 trigger: frame
@@ -416,14 +432,27 @@ impl Translator {
                     .iter()
                     .filter_map(Value::as_str)
                     .collect();
-                Some(if errors.is_empty() {
+                let text = if errors.is_empty() {
                     str_at(frame, "result")
                         .filter(|text| !text.is_empty())
                         .unwrap_or("Claude reported an error")
                         .to_string()
                 } else {
                     errors.join("; ")
-                })
+                };
+                let lower = text.to_lowercase();
+                Some(
+                    if lower.contains("/login") || lower.contains("not logged in") {
+                        format!(
+                            "{text}\nClaude has no login under {}. Point the app at your \
+                             logged-in Claude config directory in Settings, or run \
+                             `claude /login` with CLAUDE_CONFIG_DIR set to it.",
+                            self.config_dir
+                        )
+                    } else {
+                        text
+                    },
+                )
             }
             _ => None,
         };
@@ -474,7 +503,7 @@ mod tests {
     use serde_json::json;
 
     fn run(frames: Vec<Value>) -> Vec<HarnessEvent> {
-        let mut translator = Translator::new("/repo".into());
+        let mut translator = Translator::new("/repo".into(), "/cfg".into());
         translator.turn_id = Some("turn-1".into());
         frames
             .iter()
@@ -549,6 +578,40 @@ mod tests {
     }
 
     #[test]
+    fn an_env_api_key_in_init_raises_a_warning() {
+        let events = run(vec![json!({
+            "type":"system","subtype":"init","session_id":"s","model":"claude-haiku-4-5",
+            "apiKeySource":"ANTHROPIC_API_KEY"
+        })]);
+        let [HarnessEvent::Notice { level, text }] = &events[..] else {
+            panic!("expected one notice: {events:?}")
+        };
+        assert_eq!(level, "warning");
+        assert!(text.contains("ANTHROPIC_API_KEY"), "{text}");
+        // A normal login is silent.
+        assert!(run(vec![json!({
+            "type":"system","subtype":"init","apiKeySource":"none"
+        })])
+        .is_empty());
+    }
+
+    #[test]
+    fn a_login_error_names_the_config_dir() {
+        let events = run(vec![json!({
+            "type":"result","subtype":"error_during_execution","is_error":true,
+            "result":"Not logged in - please run /login"
+        })]);
+        let HarnessEvent::TurnEnded {
+            error: Some(error), ..
+        } = &events[0]
+        else {
+            panic!("expected an error end: {events:?}")
+        };
+        assert!(error.contains("/cfg"), "{error}");
+        assert!(error.contains("Settings"), "{error}");
+    }
+
+    #[test]
     fn an_aborted_result_cancels_open_calls() {
         let events = run(vec![
             json!({"type":"assistant","message":{"id":"m","content":[{"type":"tool_use","id":"t","name":"Bash","input":{"command":"sleep 100"}}]}}),
@@ -578,7 +641,7 @@ mod fixtures {
     use super::*;
 
     fn events_for(wire: &str) -> Vec<HarnessEvent> {
-        let mut translator = Translator::new("/tmp/pingex-fixture".into());
+        let mut translator = Translator::new("/tmp/pingex-fixture".into(), "/cfg".into());
         translator.turn_id = Some("turn-1".into());
         wire.lines()
             .filter(|line| !line.trim().is_empty())

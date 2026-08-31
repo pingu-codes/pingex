@@ -235,7 +235,7 @@ export const commands = {
 	 */
 	quickOpenFullThread: (threadId: string) => __TAURI_INVOKE<null>("quick_open_full_thread", { threadId }),
 	readRuntimeSettings: () => __TAURI_INVOKE<RuntimeSettings>("read_runtime_settings"),
-	updateRuntimeSettings: (codexHome: string | null, codexBinary: string | null) => __TAURI_INVOKE<RuntimeSettings>("update_runtime_settings", { codexHome, codexBinary }),
+	updateRuntimeSettings: (codexHome: string | null, codexBinary: string | null, claudeBinary: string | null, claudeConfigDir: string | null) => __TAURI_INVOKE<RuntimeSettings>("update_runtime_settings", { codexHome, codexBinary, claudeBinary, claudeConfigDir }),
 	/**
 	 *  What this window boots against. A window is "explicit" once it is bound to
 	 *  a home — the first window inherits the launch binding, later windows are
@@ -585,6 +585,11 @@ export type ClaudeStatus = {
 	path: string | null,
 	version: string | null,
 	configDir: string,
+	/**
+	 *  Whether the CLI is logged in under `config_dir`. `None` when the
+	 *  probe could not tell (no binary, or no way to check).
+	 */
+	loggedIn: boolean | null,
 	/**  The oldest CLI the driver can drive. */
 	protocolFloor: string,
 	message: string | null,
@@ -1274,6 +1279,8 @@ export type RuntimeSettings = {
 	codexBinary: string,
 	overrideCodexHome: string | null,
 	overrideCodexBinary: string | null,
+	overrideClaudeBinary: string | null,
+	overrideClaudeConfigDir: string | null,
 	settingsPath: string,
 	restartRequired: boolean,
 };

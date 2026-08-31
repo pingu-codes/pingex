@@ -5,8 +5,8 @@
 use serde_json::{json, Value};
 use tauri::{AppHandle, State};
 
-use crate::util::json::Json;
 use crate::util::json::str_at;
+use crate::util::json::Json;
 use crate::AppState;
 
 #[tauri::command]
@@ -56,5 +56,6 @@ pub(crate) async fn remote_pairing_status(
             "remoteControl/pairing/status",
             json!({"pairingCode": pairing_code}),
         )
-        .await.map(Json)
+        .await
+        .map(Json)
 }

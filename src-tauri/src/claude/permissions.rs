@@ -197,7 +197,7 @@ pub(crate) fn user_input_result(input: &Value, tool_use_id: &str, answers: &Valu
 }
 
 /// The `PermissionResult` for a chosen option.
-pub(crate) fn permission_result(option_id: &str, can_use_tool: &Value) -> Value {
+pub fn permission_result(option_id: &str, can_use_tool: &Value) -> Value {
     let tool_use_id = str_at(can_use_tool, "tool_use_id").unwrap_or("");
     let input = can_use_tool.get("input").cloned().unwrap_or(Value::Null);
     let deny = |message: &str, classification: &str| {

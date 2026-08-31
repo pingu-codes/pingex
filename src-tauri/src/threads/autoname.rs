@@ -78,7 +78,10 @@ pub(crate) async fn auto_name_thread(
 
     // The namer runs on Codex; a thread on another harness keeps the title
     // its opening message gave it.
-    if storage::thread_harness(&ctx.database(), &thread_id).await?.is_some() {
+    if storage::thread_harness(&ctx.database(), &thread_id)
+        .await?
+        .is_some()
+    {
         return Ok(None);
     }
     let Some(seed) = resolve_seed(seed, &thread_id, &app, &ctx).await else {
@@ -192,21 +195,13 @@ async fn run_naming_turn(
 }
 
 /// Poll the naming thread until its reply appears or the deadline passes.
-async fn await_reply(
-    namer_id: &str,
-    app: &AppHandle,
-    ctx: &crate::HomeContext,
-) -> Option<String> {
+async fn await_reply(namer_id: &str, app: &AppHandle, ctx: &crate::HomeContext) -> Option<String> {
     let deadline = tokio::time::Instant::now() + NAME_TIMEOUT;
     while tokio::time::Instant::now() < deadline {
         tokio::time::sleep(POLL_INTERVAL).await;
         // A transient failure (e.g. the rollout file not yet flushed) just
         // costs a poll tick; the deadline bounds how long errors can persist.
-        let Ok(response) = ctx
-            .session
-            .send(app, requests::thread_read(namer_id))
-            .await
-        else {
+        let Ok(response) = ctx.session.send(app, requests::thread_read(namer_id)).await else {
             continue;
         };
         if let Some(text) = response.get("thread").and_then(reply_text) {
@@ -263,8 +258,7 @@ async fn apply_title(
     app: &AppHandle,
     ctx: &crate::HomeContext,
 ) -> Result<(), String> {
-    ctx
-        .session
+    ctx.session
         .request(
             app,
             "thread/name/set",

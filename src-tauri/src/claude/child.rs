@@ -34,6 +34,20 @@ pub(crate) trait FrameSink: Send + Sync {
 
 const STDERR_TAIL_LINES: usize = 40;
 
+/// The arguments every Claude process gets before the per-session ones.
+/// Public so the live e2e suite spawns exactly what the app spawns.
+pub const BASE_ARGS: [&str; 9] = [
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--include-partial-messages",
+    "--permission-prompt-tool",
+    "stdio",
+];
+
 pub(crate) struct ClaudeChild {
     stdin: Mutex<ChildStdin>,
     child: Mutex<Child>,
@@ -207,13 +221,15 @@ fn reader_loop(
 }
 
 /// Spawn `claude -p` in `cwd` with the given extra arguments (session flags,
-/// model, permission mode). `config_dir` is passed through as
-/// `CLAUDE_CONFIG_DIR` so the CLI writes its session where the driver will
-/// later look for it.
+/// model, permission mode). `config_dir` is always set as
+/// `CLAUDE_CONFIG_DIR` so the CLI reads its login and writes its session
+/// where the driver expects, regardless of what a GUI launch inherited.
+/// Inherited API-key variables are stripped so the login in `config_dir` is
+/// what authenticates, not a stray key in the app's environment.
 pub(crate) fn spawn(
     program: &Path,
     cwd: &Path,
-    config_dir: Option<&Path>,
+    config_dir: &Path,
     args: &[String],
     app: AppHandle,
     wire: Arc<WireLog>,
@@ -221,26 +237,16 @@ pub(crate) fn spawn(
 ) -> Result<Arc<ClaudeChild>, String> {
     let mut command = Command::new(program);
     command
-        .args([
-            "-p",
-            "--input-format",
-            "stream-json",
-            "--output-format",
-            "stream-json",
-            "--verbose",
-            "--include-partial-messages",
-            "--permission-prompt-tool",
-            "stdio",
-        ])
+        .args(BASE_ARGS)
         .args(args)
         .current_dir(cwd)
         .env("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
+        .env("CLAUDE_CONFIG_DIR", config_dir)
+        .env_remove("ANTHROPIC_API_KEY")
+        .env_remove("ANTHROPIC_AUTH_TOKEN")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if let Some(dir) = config_dir {
-        command.env("CLAUDE_CONFIG_DIR", dir);
-    }
     let mut process = command
         .spawn()
         .map_err(|error| format!("Could not start {}: {error}", program.display()))?;

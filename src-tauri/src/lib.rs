@@ -30,12 +30,12 @@ use tauri::Manager;
 mod agents;
 mod claude;
 mod codex;
-mod harness;
 mod composer;
 mod connections;
 mod files;
 mod git;
 mod handoff;
+mod harness;
 mod integrations;
 mod os;
 mod projects;
@@ -55,6 +55,9 @@ use codex::CodexSession;
 pub mod e2e {
     pub use crate::agents::supervisor::{collect_model_ids, sandbox_tag, AGENT_PREAMBLE};
     pub use crate::agents::tools::{specs as agent_tool_specs, DELEGATION_POLICY};
+    pub use crate::claude::child::BASE_ARGS as CLAUDE_BASE_ARGS;
+    pub use crate::claude::driver::turn_args as claude_turn_args;
+    pub use crate::claude::permissions::permission_result as claude_permission_result;
     pub use crate::codex::binary::{missing_message, resolve as resolve_codex_binary};
     pub use crate::codex::compat::{method_unsupported, Feature};
     pub use crate::codex::requests;
@@ -118,7 +121,9 @@ impl HomeContext {
         let session = CodexSession::new(runtime.clone(), home_key.clone());
         let claude = claude::ClaudeDriver::new(
             home_key.clone(),
-            claude::driver::ClaudeRuntime::from_env(),
+            claude::driver::ClaudeRuntime::resolve(&settings::prefs::read_overrides(
+                &settings::prefs::settings_path(),
+            )),
             session.wire().clone(),
         );
         Arc::new(Self {
@@ -369,177 +374,177 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         // unified mode cannot express `skip_serializing_if`, so we do not use it.
         .disable_serde_phases()
         .commands(tauri_specta::collect_commands![
-        // Projects and the bootstrap payload
-        projects::commands::bootstrap,
-        projects::commands::add_project,
-        projects::commands::rename_project,
-        projects::commands::remove_project,
-        projects::commands::set_project_pinned,
-        projects::commands::set_project_archived,
-        projects::commands::set_project_expanded,
-        projects::commands::create_sidebar_folder,
-        projects::commands::rename_sidebar_folder,
-        projects::commands::delete_sidebar_folder,
-        projects::commands::set_sidebar_folder_expanded,
-        projects::commands::place_sidebar_item,
-        projects::commands::set_thread_pinned,
-        projects::commands::read_account_rate_limits,
-        projects::commands::read_thread_usage,
-        // Workspaces
-        workspaces::commands::create_workspace,
-        workspaces::commands::update_workspace,
-        workspaces::commands::move_thread_to_workspace,
-        // Threads: reading, turns, lifecycle, subagents, search
-        threads::read::read_thread,
-        threads::turn::start_thread,
-        threads::turn::start_turn,
-        threads::turn::interrupt_turn,
-        threads::turn::update_turn_settings,
-        threads::turn::respond_approval,
-        threads::turn::respond_user_input,
-        threads::turn::respond_server_request,
-        threads::turn::record_user_input_request,
-        threads::turn::threads_with_unanswered_questions,
-        threads::turn::threads_with_active_turns,
-        threads::lifecycle::rename_thread,
-        threads::autoname::auto_name_thread,
-        threads::lifecycle::invalidate_thread_cache,
-        threads::lifecycle::compact_thread,
-        threads::lifecycle::start_review,
-        threads::lifecycle::archive_thread,
-        threads::lifecycle::unarchive_thread,
-        threads::lifecycle::delete_thread,
-        threads::lifecycle::list_archived_threads,
-        threads::lifecycle::list_models,
-        threads::lifecycle::list_harness_models,
-        threads::lifecycle::read_claude_status,
-        threads::lifecycle::fork_thread,
-        threads::lifecycle::rollback_thread,
-        threads::lifecycle::revert_thread,
-        threads::queue::queue_add,
-        threads::queue::queue_list,
-        threads::queue::queue_update,
-        threads::queue::queue_delete,
-        threads::queue::queue_reorder,
-        threads::queue::queue_start,
-        // Thread sections (Codex ≥0.149)
-        threads::sections::create_thread_section,
-        threads::sections::update_thread_section,
-        threads::sections::delete_thread_section,
-        threads::sections::move_thread_to_section,
-        threads::lifecycle::thread_goal_set,
-        threads::lifecycle::thread_goal_get,
-        threads::lifecycle::thread_goal_clear,
-        threads::subagents::list_subagents,
-        threads::subagents::update_subagent_policy,
-        threads::side_questions::add_side_question,
-        threads::side_questions::remove_side_question,
-        threads::search::search_threads,
-        threads::search::list_threads_page,
-        // Files and mentions
-        files::search_project_files,
-        files::list_project_files,
-        // Composer: drafts, attachments, quick chat
-        composer::drafts::save_draft,
-        composer::drafts::load_draft,
-        composer::drafts::delete_draft,
-        composer::attachments::stage_attachment,
-        composer::attachments::stage_clipboard_image,
-        composer::attachments::remove_staged,
-        composer::quick::get_quick_shortcut,
-        composer::quick::set_quick_shortcut,
-        composer::quick::quick_open_full_thread,
-        // Settings, runtime identity, and the launch picker
-        settings::commands::read_runtime_settings,
-        settings::commands::update_runtime_settings,
-        settings::commands::read_launch_state,
-        settings::commands::read_codex_server_info,
-        settings::commands::check_codex_binary,
-        settings::commands::set_codex_binary,
-        settings::commands::select_codex_home,
-        settings::commands::open_home_window,
-        settings::commands::remove_recent_home,
-        settings::commands::read_home_overview,
-        settings::commands::read_config_settings,
-        settings::commands::write_config_setting,
-        settings::commands::read_agent_settings,
-        settings::commands::write_agent_settings,
-        // App-owned subagents
-        agents::commands::list_agent_runs,
-        agents::commands::kill_agent_run,
-        agents::commands::open_agent_thread,
-        // Codex app-server pairing
-        codex::pairing::remote_pairing_start,
-        codex::pairing::remote_pairing_status,
-        // Message log (Advanced settings)
-        codex::wire::set_wire_logging,
-        codex::wire::read_wire_log,
-        codex::wire::clear_wire_log,
-        // Git
-        git::commands::git_repo_info,
-        git::commands::git_status,
-        git::commands::git_worktrees,
-        git::commands::git_recent_commits,
-        git::commands::git_branches,
-        git::commands::git_worktree_add,
-        git::commands::git_worktree_remove,
-        git::commands::git_worktree_prune,
-        git::commands::git_worktree_lock,
-        git::commands::git_worktree_unlock,
-        git::commands::git_changes_summary,
-        git::commands::git_file_diff,
-        git::commands::git_worktree_handoff_preflight,
-        git::commands::git_worktree_handoff,
-        // Handoff to a terminal or another Codex home
-        handoff::commands::handoff_command,
-        handoff::commands::handoff_thread_link,
-        handoff::commands::handoff_copy,
-        handoff::commands::handoff_launch_terminal,
-        // Pull request review
-        review::commands::review_provider_status,
-        review::commands::review_list_prs,
-        review::commands::review_pr_detail,
-        review::commands::review_check_fresh,
-        review::commands::review_local_diff,
-        review::commands::review_submit,
-        review::commands::review_reply,
-        review::commands::review_resolve_thread,
-        review::commands::review_save_draft,
-        review::commands::review_load_draft,
-        review::commands::review_delete_draft,
-        // Project sources and workspace search
-        sources::save_project_instructions,
-        sources::list_project_sources,
-        sources::add_project_source,
-        sources::remove_project_source,
-        sources::reindex_source,
-        sources::search_workspace,
-        // Paired devices
-        connections::commands::list_connections,
-        connections::commands::refresh_connections,
-        connections::commands::rename_connection,
-        connections::commands::disconnect_connection,
-        connections::commands::revoke_connection,
-        // MCP servers and skills
-        integrations::commands::list_integrations,
-        integrations::commands::save_mcp_server,
-        integrations::commands::remove_mcp_server,
-        integrations::commands::set_mcp_enabled,
-        // Live state only Codex can answer for: startup status, tool
-        // schemas, and OAuth.
-        integrations::app_server::list_mcp_server_status,
-        integrations::app_server::mcp_oauth_login,
-        integrations::app_server::reload_mcp_servers,
-        integrations::app_server::list_skills_for,
-        integrations::app_server::set_skill_enabled,
-        // Skill files on disk: read, scaffold, delete (user scope only).
-        integrations::skills_fs::read_skill,
-        integrations::skills_fs::create_skill,
-        integrations::skills_fs::delete_skill,
-        // Desktop integration
-        os::reveal_in_finder,
-        os::open_external_url,
-        os::open_in_zed,
+            // Projects and the bootstrap payload
+            projects::commands::bootstrap,
+            projects::commands::add_project,
+            projects::commands::rename_project,
+            projects::commands::remove_project,
+            projects::commands::set_project_pinned,
+            projects::commands::set_project_archived,
+            projects::commands::set_project_expanded,
+            projects::commands::create_sidebar_folder,
+            projects::commands::rename_sidebar_folder,
+            projects::commands::delete_sidebar_folder,
+            projects::commands::set_sidebar_folder_expanded,
+            projects::commands::place_sidebar_item,
+            projects::commands::set_thread_pinned,
+            projects::commands::read_account_rate_limits,
+            projects::commands::read_thread_usage,
+            // Workspaces
+            workspaces::commands::create_workspace,
+            workspaces::commands::update_workspace,
+            workspaces::commands::move_thread_to_workspace,
+            // Threads: reading, turns, lifecycle, subagents, search
+            threads::read::read_thread,
+            threads::turn::start_thread,
+            threads::turn::start_turn,
+            threads::turn::interrupt_turn,
+            threads::turn::update_turn_settings,
+            threads::turn::respond_approval,
+            threads::turn::respond_user_input,
+            threads::turn::respond_server_request,
+            threads::turn::record_user_input_request,
+            threads::turn::threads_with_unanswered_questions,
+            threads::turn::threads_with_active_turns,
+            threads::lifecycle::rename_thread,
+            threads::autoname::auto_name_thread,
+            threads::lifecycle::invalidate_thread_cache,
+            threads::lifecycle::compact_thread,
+            threads::lifecycle::start_review,
+            threads::lifecycle::archive_thread,
+            threads::lifecycle::unarchive_thread,
+            threads::lifecycle::delete_thread,
+            threads::lifecycle::list_archived_threads,
+            threads::lifecycle::list_models,
+            threads::lifecycle::list_harness_models,
+            threads::lifecycle::read_claude_status,
+            threads::lifecycle::fork_thread,
+            threads::lifecycle::rollback_thread,
+            threads::lifecycle::revert_thread,
+            threads::queue::queue_add,
+            threads::queue::queue_list,
+            threads::queue::queue_update,
+            threads::queue::queue_delete,
+            threads::queue::queue_reorder,
+            threads::queue::queue_start,
+            // Thread sections (Codex ≥0.149)
+            threads::sections::create_thread_section,
+            threads::sections::update_thread_section,
+            threads::sections::delete_thread_section,
+            threads::sections::move_thread_to_section,
+            threads::lifecycle::thread_goal_set,
+            threads::lifecycle::thread_goal_get,
+            threads::lifecycle::thread_goal_clear,
+            threads::subagents::list_subagents,
+            threads::subagents::update_subagent_policy,
+            threads::side_questions::add_side_question,
+            threads::side_questions::remove_side_question,
+            threads::search::search_threads,
+            threads::search::list_threads_page,
+            // Files and mentions
+            files::search_project_files,
+            files::list_project_files,
+            // Composer: drafts, attachments, quick chat
+            composer::drafts::save_draft,
+            composer::drafts::load_draft,
+            composer::drafts::delete_draft,
+            composer::attachments::stage_attachment,
+            composer::attachments::stage_clipboard_image,
+            composer::attachments::remove_staged,
+            composer::quick::get_quick_shortcut,
+            composer::quick::set_quick_shortcut,
+            composer::quick::quick_open_full_thread,
+            // Settings, runtime identity, and the launch picker
+            settings::commands::read_runtime_settings,
+            settings::commands::update_runtime_settings,
+            settings::commands::read_launch_state,
+            settings::commands::read_codex_server_info,
+            settings::commands::check_codex_binary,
+            settings::commands::set_codex_binary,
+            settings::commands::select_codex_home,
+            settings::commands::open_home_window,
+            settings::commands::remove_recent_home,
+            settings::commands::read_home_overview,
+            settings::commands::read_config_settings,
+            settings::commands::write_config_setting,
+            settings::commands::read_agent_settings,
+            settings::commands::write_agent_settings,
+            // App-owned subagents
+            agents::commands::list_agent_runs,
+            agents::commands::kill_agent_run,
+            agents::commands::open_agent_thread,
+            // Codex app-server pairing
+            codex::pairing::remote_pairing_start,
+            codex::pairing::remote_pairing_status,
+            // Message log (Advanced settings)
+            codex::wire::set_wire_logging,
+            codex::wire::read_wire_log,
+            codex::wire::clear_wire_log,
+            // Git
+            git::commands::git_repo_info,
+            git::commands::git_status,
+            git::commands::git_worktrees,
+            git::commands::git_recent_commits,
+            git::commands::git_branches,
+            git::commands::git_worktree_add,
+            git::commands::git_worktree_remove,
+            git::commands::git_worktree_prune,
+            git::commands::git_worktree_lock,
+            git::commands::git_worktree_unlock,
+            git::commands::git_changes_summary,
+            git::commands::git_file_diff,
+            git::commands::git_worktree_handoff_preflight,
+            git::commands::git_worktree_handoff,
+            // Handoff to a terminal or another Codex home
+            handoff::commands::handoff_command,
+            handoff::commands::handoff_thread_link,
+            handoff::commands::handoff_copy,
+            handoff::commands::handoff_launch_terminal,
+            // Pull request review
+            review::commands::review_provider_status,
+            review::commands::review_list_prs,
+            review::commands::review_pr_detail,
+            review::commands::review_check_fresh,
+            review::commands::review_local_diff,
+            review::commands::review_submit,
+            review::commands::review_reply,
+            review::commands::review_resolve_thread,
+            review::commands::review_save_draft,
+            review::commands::review_load_draft,
+            review::commands::review_delete_draft,
+            // Project sources and workspace search
+            sources::save_project_instructions,
+            sources::list_project_sources,
+            sources::add_project_source,
+            sources::remove_project_source,
+            sources::reindex_source,
+            sources::search_workspace,
+            // Paired devices
+            connections::commands::list_connections,
+            connections::commands::refresh_connections,
+            connections::commands::rename_connection,
+            connections::commands::disconnect_connection,
+            connections::commands::revoke_connection,
+            // MCP servers and skills
+            integrations::commands::list_integrations,
+            integrations::commands::save_mcp_server,
+            integrations::commands::remove_mcp_server,
+            integrations::commands::set_mcp_enabled,
+            // Live state only Codex can answer for: startup status, tool
+            // schemas, and OAuth.
+            integrations::app_server::list_mcp_server_status,
+            integrations::app_server::mcp_oauth_login,
+            integrations::app_server::reload_mcp_servers,
+            integrations::app_server::list_skills_for,
+            integrations::app_server::set_skill_enabled,
+            // Skill files on disk: read, scaffold, delete (user scope only).
+            integrations::skills_fs::read_skill,
+            integrations::skills_fs::create_skill,
+            integrations::skills_fs::delete_skill,
+            // Desktop integration
+            os::reveal_in_finder,
+            os::open_external_url,
+            os::open_in_zed,
         ])
         // Everything the backend pushes at the webview; see `codex::events`.
         .events(tauri_specta::collect_events![
@@ -749,4 +754,3 @@ mod tests {
         assert!(state.context_for_home(&second.home_key).is_some());
     }
 }
-

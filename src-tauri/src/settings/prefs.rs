@@ -24,6 +24,11 @@ pub(crate) const DEFAULT_QUICK_SHORTCUT: &str = "CmdOrCtrl+Shift+Space";
 pub(crate) struct RuntimeOverrides {
     pub(crate) codex_home: Option<String>,
     pub(crate) codex_binary: Option<String>,
+    /// Path to the `claude` binary. `None` means "resolve bare `claude`".
+    pub(crate) claude_binary: Option<String>,
+    /// Claude Code config directory (`CLAUDE_CONFIG_DIR`). `None` means the
+    /// CLI's own default, `~/.claude`.
+    pub(crate) claude_config_dir: Option<String>,
     pub(crate) recent_homes: Vec<RecentHome>,
     /// Accelerator string (Tauri syntax) for the quick-chat global shortcut.
     /// `None` means "use the documented default".
@@ -229,6 +234,8 @@ mod tests {
         let overrides = RuntimeOverrides {
             codex_home: Some("/tmp/codex-home".into()),
             codex_binary: None,
+            claude_binary: Some("/bin/claude".into()),
+            claude_config_dir: Some("/tmp/claude-config".into()),
             recent_homes: vec![RecentHome {
                 path: "/tmp/codex-home".into(),
                 last_used: 42,

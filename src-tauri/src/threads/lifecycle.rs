@@ -8,12 +8,12 @@
 use serde_json::{json, Value};
 use tauri::{AppHandle, State};
 
-use crate::util::json::Json;
 use crate::codex::compat::{method_unsupported, Feature};
 use crate::codex::requests;
 use crate::projects::{bootstrap_cached, bootstrap_inner, thread_search_row, BootstrapData};
 use crate::storage;
 use crate::util::json::arr_or_empty;
+use crate::util::json::Json;
 use crate::AppState;
 
 /// How many archived threads the archive view loads at once.
@@ -30,7 +30,10 @@ pub(crate) async fn rename_thread(
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
     let name = name.trim();
-    if storage::thread_harness(&ctx.database(), &thread_id).await?.is_some() {
+    if storage::thread_harness(&ctx.database(), &thread_id)
+        .await?
+        .is_some()
+    {
         storage::rename_harness_thread(&ctx.database(), &thread_id, name).await?;
         ctx.claude.rename(&thread_id, name).await;
     } else {
@@ -64,8 +67,7 @@ pub(crate) async fn compact_thread(
     let ctx = state.ctx(&window);
     ctx.session.ensure_resumed(&app, &thread_id).await?;
     storage::invalidate_thread_detail(&ctx.database(), &thread_id).await?;
-    ctx
-        .session
+    ctx.session
         .send(&app, requests::thread_compact(&thread_id))
         .await?;
     Ok(())
@@ -149,7 +151,10 @@ pub(crate) async fn thread_goal_get(
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
-    if storage::thread_harness(&ctx.database(), &thread_id).await?.is_some() {
+    if storage::thread_harness(&ctx.database(), &thread_id)
+        .await?
+        .is_some()
+    {
         return Ok(Json(Value::Null));
     }
     ctx.session.ensure_resumed(&app, &thread_id).await?;
@@ -173,8 +178,7 @@ pub(crate) async fn thread_goal_clear(
     let ctx = state.ctx(&window);
     ctx.session.ensure_resumed(&app, &thread_id).await?;
     let request = requests::thread_goal_clear(&thread_id);
-    ctx
-        .session
+    ctx.session
         .request(&app, request.method, request.params)
         .await?;
     Ok(())
@@ -212,7 +216,10 @@ pub(crate) async fn archive_thread(
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
-    if storage::thread_harness(&ctx.database(), &thread_id).await?.is_some() {
+    if storage::thread_harness(&ctx.database(), &thread_id)
+        .await?
+        .is_some()
+    {
         ctx.claude.close_thread(&thread_id);
         storage::set_harness_thread_archived(&ctx.database(), &thread_id, true).await?;
     } else {
@@ -236,8 +243,7 @@ pub(crate) async fn unarchive_thread(
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
-    ctx
-        .session
+    ctx.session
         .send(&app, requests::thread_unarchive(&thread_id))
         .await?;
     storage::set_thread_search_archived(&ctx.database(), &thread_id, false).await?;
@@ -255,7 +261,10 @@ pub(crate) async fn delete_thread(
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
-    if storage::thread_harness(&ctx.database(), &thread_id).await?.is_some() {
+    if storage::thread_harness(&ctx.database(), &thread_id)
+        .await?
+        .is_some()
+    {
         ctx.claude.close_thread(&thread_id);
         storage::delete_harness_thread(&ctx.database(), &thread_id).await?;
     } else {
@@ -312,10 +321,10 @@ pub(crate) async fn list_models(
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
-    ctx
-        .session
+    ctx.session
         .send(&app, requests::model_list(100, true))
-        .await.map(Json)
+        .await
+        .map(Json)
 }
 
 /// Drop the last `num_turns` turns from a thread, in place. Unlike forking,
@@ -349,10 +358,12 @@ pub(crate) async fn read_claude_status(
     state: State<'_, AppState>,
 ) -> Result<crate::claude::driver::ClaudeStatus, String> {
     let ctx = state.ctx(&window);
-    let runtime = ctx.claude.runtime().clone();
-    Ok(tauri::async_runtime::spawn_blocking(move || crate::claude::driver::status(&runtime))
-        .await
-        .map_err(|error| error.to_string())?)
+    let runtime = ctx.claude.runtime();
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || crate::claude::driver::status(&runtime))
+            .await
+            .map_err(|error| error.to_string())?,
+    )
 }
 
 #[tauri::command]
@@ -420,7 +431,9 @@ pub(crate) async fn revert_thread(
             }
             Err(error) => match method_unsupported(&error, Feature::REVERT.method_prefix) {
                 Some(reason) => {
-                    ctx.session.mark_unsupported(&app, Feature::REVERT, &reason).await?;
+                    ctx.session
+                        .mark_unsupported(&app, Feature::REVERT, &reason)
+                        .await?;
                     return Err(Feature::REVERT.error(&reason));
                 }
                 None => return Err(error),
