@@ -40,6 +40,17 @@ export function isAtBottom(el: HTMLElement, slop = 2): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight <= slop;
 }
 
+/**
+ * How many viewport heights above the bottom counts as "far". The jump pill
+ * only earns its overlay once the latest content is well out of reach; a
+ * viewport-relative measure keeps that meaning across window sizes.
+ */
+export const FAR_FROM_BOTTOM_VIEWPORTS = 1.5;
+
+export function isFarFromBottom(el: HTMLElement): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight > el.clientHeight * FAR_FROM_BOTTOM_VIEWPORTS;
+}
+
 export function rememberScroll(threadId: string, el: HTMLElement): void {
   positions[threadId] = { top: el.scrollTop, atBottom: isNearBottom(el) };
 }

@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { isAtBottom, nextFollowing, recallScroll, rememberScroll, resetScrollPositions } from "./scrollPositions";
+import {
+  isAtBottom,
+  isFarFromBottom,
+  nextFollowing,
+  recallScroll,
+  rememberScroll,
+  resetScrollPositions,
+} from "./scrollPositions";
 
 function scroller(scrollTop: number, scrollHeight = 2000, clientHeight = 500): HTMLElement {
   return { scrollTop, scrollHeight, clientHeight } as HTMLElement;
@@ -44,6 +51,23 @@ describe("scrollPositions", () => {
     it("is false beyond the slop, even inside the near-bottom band", () => {
       expect(isAtBottom(scroller(1497))).toBe(false);
       expect(isAtBottom(scroller(1400))).toBe(false);
+    });
+  });
+
+  describe("isFarFromBottom", () => {
+    // clientHeight 500 → far means more than 750px above the bottom (1500).
+    it("is false at and near the bottom", () => {
+      expect(isFarFromBottom(scroller(1500))).toBe(false);
+      expect(isFarFromBottom(scroller(1400))).toBe(false);
+    });
+
+    it("is false exactly at the threshold", () => {
+      expect(isFarFromBottom(scroller(750))).toBe(false);
+    });
+
+    it("is true beyond the threshold", () => {
+      expect(isFarFromBottom(scroller(749))).toBe(true);
+      expect(isFarFromBottom(scroller(0))).toBe(true);
     });
   });
 

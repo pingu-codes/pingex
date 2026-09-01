@@ -51,7 +51,7 @@ import QueuedMessageRow from "$lib/thread/QueuedMessageRow.svelte";
 import ReasoningBlock from "$lib/thread/ReasoningBlock.svelte";
 import ReplaceGoalDialog from "$lib/thread/ReplaceGoalDialog.svelte";
 import RewindThreadDialog from "$lib/thread/RewindThreadDialog.svelte";
-import { isAtBottom, nextFollowing, recallScroll, rememberScroll } from "$lib/thread/scrollPositions";
+import { isAtBottom, isFarFromBottom, nextFollowing, recallScroll, rememberScroll } from "$lib/thread/scrollPositions";
 import { attachSession, draftSession, openSession, releaseSession } from "$lib/thread/sessions.svelte";
 import TurnPlanCard from "$lib/thread/TurnPlanCard.svelte";
 import type { ThreadSession } from "$lib/thread/threadSession.svelte";
@@ -190,6 +190,14 @@ let lastScrollTop = 0;
 /** Measured: the scroller is pinned to the very bottom. Gates the jump pill so
  *  a wheel-up that cannot move anything (rubber-band at the end) never shows it. */
 let atBottom = $state(true);
+/** Measured: the latest content is well out of view (see `isFarFromBottom`). */
+let farFromBottom = $state(false);
+/** The user scrolled towards the bottom within the last `RECENT_DOWN_SCROLL_MS`.
+ *  Read as intent to return to the latest content; scrolling up (reading back
+ *  through history) clears it at once so the pill never covers what is being read. */
+let recentDownScroll = $state(false);
+const RECENT_DOWN_SCROLL_MS = 2000;
+let recentDownScrollTimer: ReturnType<typeof setTimeout> | null = null;
 let panelView = $state<PanelView | null>(null);
 let composer = $state<{
   implementPlan: () => void;
@@ -296,7 +304,7 @@ function maybeScroll(force = false) {
   if (force) following = true;
   if (!following) {
     // Streamed content grows scrollHeight without a scroll event.
-    atBottom = isAtBottom(element);
+    measureBottom(element);
     return;
   }
   requestAnimationFrame(() => scrollProgrammatically(element, element.scrollHeight));
@@ -312,6 +320,32 @@ function scrollProgrammatically(element: HTMLElement, top: number) {
   if (element.scrollTop === before) programmaticScroll = false;
 }
 
+function measureBottom(element: HTMLElement) {
+  atBottom = isAtBottom(element);
+  farFromBottom = isFarFromBottom(element);
+}
+
+function noteScrollDirection(element: HTMLElement) {
+  if (element.scrollTop > lastScrollTop) {
+    recentDownScroll = true;
+    if (recentDownScrollTimer) clearTimeout(recentDownScrollTimer);
+    recentDownScrollTimer = setTimeout(() => {
+      recentDownScroll = false;
+      recentDownScrollTimer = null;
+    }, RECENT_DOWN_SCROLL_MS);
+  } else if (element.scrollTop < lastScrollTop) {
+    clearRecentDownScroll();
+  }
+}
+
+function clearRecentDownScroll() {
+  recentDownScroll = false;
+  if (recentDownScrollTimer) clearTimeout(recentDownScrollTimer);
+  recentDownScrollTimer = null;
+}
+
+onDestroy(clearRecentDownScroll);
+
 function onScroll() {
   const element = scroller;
   if (!element) return;
@@ -319,9 +353,10 @@ function onScroll() {
     programmaticScroll = false;
   } else {
     following = nextFollowing(following, lastScrollTop, element);
+    noteScrollDirection(element);
   }
   lastScrollTop = element.scrollTop;
-  atBottom = isAtBottom(element);
+  measureBottom(element);
   if (liveThreadId) rememberScroll(liveThreadId, element);
 }
 
@@ -346,7 +381,8 @@ $effect(() => {
       following = saved.atBottom;
       scrollProgrammatically(element, saved.atBottom ? element.scrollHeight : saved.top);
       lastScrollTop = element.scrollTop;
-      atBottom = isAtBottom(element);
+      measureBottom(element);
+      clearRecentDownScroll();
     });
   });
 });
@@ -1159,7 +1195,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
         {/if}
       </div>
     </div>
-    {#if !following && !atBottom && !loading && thread}
+    {#if !following && !atBottom && farFromBottom && recentDownScroll && !loading && thread}
       <button
         type="button"
         class="btn btn-sm preset-filled absolute bottom-3 left-1/2 -translate-x-1/2 gap-1 rounded-full shadow-lg"
