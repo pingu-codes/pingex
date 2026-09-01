@@ -28,6 +28,7 @@
     "npm:playwright@*": "1.61.1",
     "npm:playwright@1.61.1": "1.61.1",
     "npm:svelte-check@4.7.3": "4.7.3_svelte@5.56.7_typescript@6.0.3",
+    "npm:svelte-check@latest": "4.7.3_svelte@5.56.7_typescript@6.0.3",
     "npm:svelte@5.56.7": "5.56.7",
     "npm:tailwindcss@4.3.3": "4.3.3",
     "npm:typescript@6.0.3": "6.0.3",

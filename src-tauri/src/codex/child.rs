@@ -282,6 +282,18 @@ fn reader_loop(
     sink.on_closed();
 }
 
+/// How the app invokes Codex. `turn/settings/update` (`Feature::TURN_SETTINGS`)
+/// is behind the disabled-by-default `step_model_switching` feature from
+/// 0.151 on; the `-c` override enables it for this process only and never
+/// touches the user's `config.toml`. Older Codex ignores an unknown feature
+/// key. The live suite spawns with the same argv.
+pub const APP_SERVER_ARGS: [&str; 4] = [
+    "app-server",
+    "--stdio",
+    "-c",
+    "features.step_model_switching=true",
+];
+
 /// Start a `codex app-server` child, complete the `initialize` handshake, and
 /// return it ready for use. `client_name` identifies us in the server's logs;
 /// subagents use a distinct one so their traffic is separable.
@@ -294,7 +306,7 @@ pub(crate) async fn spawn_child(
     sink: Arc<dyn ChildSink>,
 ) -> Result<Arc<CodexChild>, String> {
     let mut process = Command::new(program)
-        .args(["app-server", "--stdio"])
+        .args(APP_SERVER_ARGS)
         .env("CODEX_HOME", codex_home)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

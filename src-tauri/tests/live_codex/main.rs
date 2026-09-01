@@ -583,7 +583,7 @@ fn subagent_thread_turn_and_follow_up_are_accepted() {
 
 // ── version-dependent APIs ────────────────────────────────────────────────
 //
-// The app supports the last stable (0.150.1), the current stable (0.151.0)
+// The app supports the last stable (0.151.0), the current stable (0.152.0)
 // and the unreleased mirror HEAD — see `docs/SUPPORTED_VERSIONS.md`. Each of
 // these tests takes the modern branch
 // where the API exists and, where it does not, checks that the refusal is
@@ -844,17 +844,17 @@ fn projects_import_assign_rename_delete() {
     ));
     assert_eq!(renamed["project"]["name"], "E2E renamed");
     server.call(requests::project_delete(&project_id));
-    // The sort keys are what the app always sends; releases ignore them so
-    // far, and only the unreleased mirror reports `Project.recencyAt`.
+    // The sort keys are what the app always sends; releases before 0.152
+    // ignore them and omit `Project.recencyAt`.
     let projects = server.call(requests::project_list(None, Some(("recencyAt", "desc"))));
-    if server.version().is_none() {
+    if server.at_least(0, 152) {
         assert!(
             projects["data"]
                 .as_array()
                 .expect("data")
                 .iter()
                 .all(|project| project.get("recencyAt").is_some()),
-            "unreleased Codex lists Project.recencyAt: {projects}"
+            "Codex ≥0.152 lists Project.recencyAt: {projects}"
         );
     }
     assert!(
@@ -951,15 +951,28 @@ fn thread_lifecycle_archive_unarchive_compact_rollback_delete() {
     ));
     assert_reply_contains(&outcome, "TWO", "second");
 
-    let rolled = server.call(requests::thread_rollback(&thread_id, 1));
-    let turns = rolled
+    // What `/undo` sends: revert, and rollback only where revert is refused
+    // as unsupported (0.152 refuses rollback on its default paginated
+    // history, so the two never both work on one thread).
+    match server.request(requests::thread_revert(&thread_id, &outcome.turn_id)) {
+        Ok(_) => {}
+        Err(error) if error.message.contains(requests::REVERT_NEEDS_PAGINATED) => {
+            server.call(requests::thread_rollback(&thread_id, 1));
+        }
+        Err(error) => match error.unsupported(Feature::REVERT) {
+            Some(reason) => {
+                server.expect_legacy(Feature::REVERT, &reason);
+                server.call(requests::thread_rollback(&thread_id, 1));
+            }
+            None => panic!("thread/revert rejected: {error}"),
+        },
+    }
+    let read = server.call(requests::thread_read(&thread_id));
+    let turns = read
         .pointer("/thread/turns")
         .and_then(Value::as_array)
         .map(Vec::len);
-    assert!(
-        matches!(turns, None | Some(1)),
-        "one turn left after rollback: {rolled}"
-    );
+    assert_eq!(turns, Some(1), "one turn left after undo: {read}");
 
     let from = server.cursor();
     server.call(requests::thread_compact(&thread_id));
@@ -1001,7 +1014,7 @@ fn thread_lifecycle_archive_unarchive_compact_rollback_delete() {
         .expect("thread/deleted notification");
 }
 
-/// `turn/settings/update` (unreleased): switch model or effort while a turn
+/// `turn/settings/update` (Codex ≥0.151): switch model or effort while a turn
 /// runs. On a release build the refusal must be one the app classifies so the
 /// composer falls back to "applies from the next turn".
 #[test]

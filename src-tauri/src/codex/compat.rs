@@ -115,6 +115,15 @@ pub fn method_unsupported(error: &str, method_prefix: &str) -> Option<String> {
             "Codex did not grant the experimental API {method_prefix} needs"
         ));
     }
+    // `turn/settings/update` sits behind the `step_model_switching` feature
+    // flag (0.151+). The app enables it on the command line
+    // (`child::APP_SERVER_ARGS`); a Codex that still refuses has no way to
+    // serve the API, so it counts as unsupported rather than a failed call.
+    if method_prefix == "turn/settings/update"
+        && message.contains("require the step_model_switching feature")
+    {
+        return Some("this Codex has the step_model_switching feature off".to_string());
+    }
     None
 }
 
@@ -153,6 +162,27 @@ mod tests {
             super::Feature::TURN_SETTINGS.method_prefix
         )
         .is_some());
+    }
+
+    #[test]
+    fn classifies_a_turn_settings_feature_flag_that_is_off() {
+        assert!(method_unsupported(
+            &failure(
+                -32600,
+                "turn settings updates require the step_model_switching feature"
+            ),
+            "turn/settings/update"
+        )
+        .is_some());
+        // Only that method: the same wording elsewhere is an ordinary failure.
+        assert!(method_unsupported(
+            &failure(
+                -32600,
+                "turn settings updates require the step_model_switching feature"
+            ),
+            "thread/revert"
+        )
+        .is_none());
     }
 
     #[test]

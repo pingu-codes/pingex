@@ -20,9 +20,11 @@ import {
   gitRepoInfo,
   gitWorktreeAdd,
   interruptTurn,
+  isRevertUnsupported,
   killAgentRun,
   openInZed,
   revealInFinder,
+  revertThread,
   reviewLocalDiff,
   rollbackThread,
   setThreadBranchEditTurn,
@@ -993,16 +995,32 @@ async function exportConversation() {
  * `/undo` — rewind the last N turns in place, keeping the thread id, so the
  * conversation rewinds rather than branching. Mirrors the edit-a-past-message
  * path above, minus the resend.
+ *
+ * `thread/revert` is the current API; Codex 0.152 refuses the deprecated
+ * `thread/rollback` on the (now default) paginated history mode, while older
+ * releases lack revert or refuse it on legacy history — so rollback is only
+ * the fallback the backend classifies as "revert unsupported".
  */
 async function undoTurns(turns: number) {
   if (!liveThreadId || activeTurn || starting || !thread) return;
   const threadIdAtUndo = liveThreadId;
   const dropped = Math.min(turns, thread.turns.length);
   if (dropped === 0) return;
+  const kept = thread.turns.slice(0, thread.turns.length - dropped);
+  const firstDropped = thread.turns[kept.length];
   session.streamError = null;
   session.starting = true;
   try {
-    await rollbackThread(threadIdAtUndo, dropped);
+    try {
+      await revertThread(
+        threadIdAtUndo,
+        firstDropped.id,
+        kept.map((turn) => turn.id),
+      );
+    } catch (cause) {
+      if (!isRevertUnsupported(cause)) throw cause;
+      await rollbackThread(threadIdAtUndo, dropped);
+    }
     if (!thread || liveThreadId !== threadIdAtUndo) return;
     thread.turns = thread.turns.slice(0, thread.turns.length - dropped);
   } catch (cause) {

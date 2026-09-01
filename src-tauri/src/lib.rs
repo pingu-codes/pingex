@@ -59,6 +59,7 @@ pub mod e2e {
     pub use crate::claude::driver::turn_args as claude_turn_args;
     pub use crate::claude::permissions::permission_result as claude_permission_result;
     pub use crate::codex::binary::{missing_message, resolve as resolve_codex_binary};
+    pub use crate::codex::child::APP_SERVER_ARGS as CODEX_APP_SERVER_ARGS;
     pub use crate::codex::compat::{method_unsupported, Feature};
     pub use crate::codex::requests;
     pub use crate::integrations::app_server::parse_skills;

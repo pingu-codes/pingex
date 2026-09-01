@@ -5,9 +5,9 @@ tiers of the Codex CLI at any time:
 
 | Tier | What it is | Version | Tag / ref | Commit | Date |
 |---|---|---|---|---|---|
-| **Unstable** | Upstream `main`, as mirrored in `../codex-mirror` | `0.0.0` (source builds report the workspace version) | `main` | `6478a751fde8884b2fdc76486fe23175a8e795d4` | 2026-08-29 |
-| **Stable** | The latest tagged release | `0.151.0` | `rust-v0.151.0` | `78c290807ce710180111df227df3b7a4fe845452` | 2026-08-29 |
-| **Last stable** | The release before it | `0.150.1` | `rust-v0.150.1` | `90854393966b21e9ebfd21b122334eb09a20c93d` | 2026-08-26 |
+| **Unstable** | Upstream `main`, as mirrored in `../codex-mirror` | `0.0.0` (source builds report the workspace version) | `main` | `3a04482645b695085f4daf7c6310ab8592653fea` | 2026-09-01 |
+| **Stable** | The latest tagged release | `0.152.0` | `rust-v0.152.0` | `316795b3cf2a45e90d121d9f46499d4658b2645c` | 2026-08-31 |
+| **Last stable** | The release before it | `0.151.0` | `rust-v0.151.0` | `78c290807ce710180111df227df3b7a4fe845452` | 2026-08-29 |
 
 Older releases are not tested. They mostly keep working because nothing in
 the app branches on the version (see below), but a release older than *last
@@ -47,27 +47,32 @@ version. `deno task versions:check` does not cover Claude yet.
 
 Gated APIs (one row per `Feature`):
 
-| Feature | API | Last stable 0.150.1 | Stable 0.151.0 | Unstable |
+| Feature | API | Last stable 0.151.0 | Stable 0.152.0 | Unstable |
 |---|---|---|---|---|
 | `REVERT` | `thread/revert` | ✓ | ✓ | ✓ |
 | `QUEUE` | `thread/queue/*` (needs the experimental capability and a queue database) | ✓ | ✓ | ✓ |
 | `PROJECTS` | `project/*` | ✓ | ✓ | ✓ |
 | `SECTIONS` | `threadSection/*` | ✓ | ✓ | ✓ |
-| `TURN_SETTINGS` | `turn/settings/update` — change model/effort mid-turn | – | ✓ | ✓ |
+| `TURN_SETTINGS` | `turn/settings/update` — change model/effort mid-turn; needs the `step_model_switching` feature, which the app turns on with `-c` at spawn (`child::APP_SERVER_ARGS`) | ✓ | ✓ | ✓ |
 
 Payload additions the app reads when present (no gating needed — the field is
-simply absent on older tiers; 0.149.1, now unsupported, had neither of the
-first two):
+simply absent on older tiers):
 
-| Field / notification | Where it shows | 0.150.1 | 0.151.0 | Unstable | Live-tested |
+| Field / notification | Where it shows | 0.151.0 | 0.152.0 | Unstable | Live-tested |
 |---|---|---|---|---|---|
 | `item/commandExecution/requestApproval.kind` (`command` \| `writeStdin`) | approval card title | ✓ | ✓ | ✓ | `command` only |
 | `McpServerStatus.runtimeStatus` | Integrations row | ✓ | ✓ | ✓ | ✓ |
-| `TurnError.misalignment` (explanation + suggested steer) | failed-turn card | – | ✓ | ✓ | unit only |
-| `Project.recencyAt` + `project/list` sort | sidebar order of never-dragged projects | – | – | ✓ | HEAD only |
-| `modelProvider/authRecovery{Started,Completed}` | header pill | – | – | ✓ | unit only |
-| `functionCallOutput` item | transcript work item | – | ✓ | ✓ | unit only |
+| `TurnError.misalignment` (explanation + suggested steer) | failed-turn card | ✓ | ✓ | ✓ | unit only |
+| `Project.recencyAt` + `project/list` sort | sidebar order of never-dragged projects | – | ✓ | ✓ | ✓ |
+| `modelProvider/authRecovery{Started,Completed}` | header pill | – | ✓ | ✓ | unit only |
+| `functionCallOutput` item | transcript work item | ✓ | ✓ | ✓ | unit only |
 | `thread/{archived,unarchived,deleted,closed}`, `thread/goal/cleared`, `skills/changed`, `account/updated` | sidebar / thread view refresh | ✓ | ✓ | ✓ | ✓ |
+
+Behaviour changes the app had to follow:
+
+| Change | Since | What the app does |
+|---|---|---|
+| New threads default to paginated history, and `thread/rollback` refuses paginated threads | 0.152.0 | `/undo` sends `thread/revert` first and falls back to `thread/rollback` only on a classified "revert unsupported" refusal (`ThreadView.undoTurns`) |
 
 Deliberately not adopted yet (tracked on the roadmap): paginated history
 (`thread/turns/list`, `thread/items/list`, `thread/timeline/list` — upstream

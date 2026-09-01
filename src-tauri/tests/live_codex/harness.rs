@@ -240,7 +240,8 @@ impl Server {
                  goals = true\n\
                  \n\
                  [mcp_servers.{MCP_SERVER}]\n\
-                 command = \"{}\"\n",
+                 command = \"{}\"\n\
+                 default_tools_approval_mode = \"approve\"\n",
                 mcp_echo_binary().display()
             ),
         )
@@ -636,7 +637,7 @@ impl Server {
 fn start_session(codex_home: &Path, cwd: &Path) -> Result<(Arc<Inner>, String), String> {
     // Same invocation as `crate::codex::child::spawn_child`.
     let mut process = Command::new(codex_binary())
-        .args(["app-server", "--stdio"])
+        .args(pingex_app_lib::e2e::CODEX_APP_SERVER_ARGS)
         .env("CODEX_HOME", codex_home)
         .current_dir(cwd)
         .stdin(Stdio::piped())
