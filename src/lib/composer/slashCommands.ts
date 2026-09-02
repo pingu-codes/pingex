@@ -50,7 +50,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { id: "undo", description: "Rewind the last turn", scope: "thread", argument: "turns to drop" },
   {
     id: "goal",
-    description: "Set or view the goal for a long-running task",
+    description: "Toggle goal mode, or set, view or clear the goal for a long-running task",
     scope: "thread",
     argument: "objective, or clear",
   },

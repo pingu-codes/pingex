@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type AttachmentPart,
+  buildGoalObjective,
   buildTurnInput,
   formatSize,
   hasSendableContent,
@@ -117,5 +118,29 @@ describe("formatSize", () => {
     expect(formatSize(512)).toBe("512 B");
     expect(formatSize(2048)).toBe("2 KB");
     expect(formatSize(3_500_000)).toBe("3.3 MB");
+  });
+});
+
+describe("buildGoalObjective", () => {
+  it("flattens chips into text: mentions as links, skills as name plus path, images dropped", () => {
+    expect(
+      buildGoalObjective(
+        [
+          { type: "text", text: "  Use " },
+          { type: "skill", name: "deploy", path: "/proj/.codex/skills/deploy/SKILL.md", label: "deploy" },
+          { type: "text", text: "on" },
+          { type: "mention", name: "app.ts", path: "/proj/src/app.ts" },
+          readyAttachment(),
+          { type: "text", text: "\nuntil green  " },
+        ],
+        "/proj",
+      ),
+    ).toBe("Use $deploy (skill: .codex/skills/deploy/SKILL.md) on [app.ts](src/app.ts)\nuntil green");
+  });
+
+  it("references non-image files by path", () => {
+    expect(buildGoalObjective([readyAttachment({ kind: "file", filename: "notes.md", path: "/tmp/notes.md" })])).toBe(
+      "[Attached file: notes.md — /tmp/notes.md]",
+    );
   });
 });

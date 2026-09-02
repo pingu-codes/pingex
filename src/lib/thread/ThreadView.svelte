@@ -207,6 +207,7 @@ let composer = $state<{
   appSubagentsChoice: () => boolean | null;
   harnessChoice: () => "codex" | "claude" | null;
   openReviewPicker: () => void;
+  startGoalEdit: (objective: string) => void;
   restoreText: (text: string) => void;
   turnOptions: () => TurnOptions | undefined;
   isEmpty: () => boolean;
@@ -842,22 +843,31 @@ async function goalCommand(argument: string, typed = "") {
     }
     return;
   }
+  const ok = await setGoal(objective);
+  if (!ok && typed) composer?.restoreText(typed);
+}
+
+/**
+ * Set `objective` as the thread's goal — from `/goal`, the composer's goal
+ * mode, or the banner's edit. Resolves false when nothing was set: the user
+ * declined to replace the current goal, or Codex refused. `edit` is the
+ * banner's own edit of the visible goal, which needs no replace confirmation.
+ */
+async function setGoal(objective: string, edit = false): Promise<boolean> {
+  const current = liveThreadId;
   const fresh = !current;
   if (fresh && (activeTurn || starting)) {
-    failCommand("goal", typed, "/goal can't start a thread while Codex is working.");
-    return;
+    session.streamError = "A goal can't start a thread while Codex is working.";
+    return false;
   }
-  if (!fresh) {
+  if (!fresh && !edit) {
     // The thread may already be working towards something — never overwrite
     // it silently. (This also covers the goal-started draft, which still
     // looks like a draft because adopting the thread does not remount.)
     const existing = session.goal ?? (await getThreadGoal(current).catch(() => null));
     if (existing && existing.objective !== objective) {
       const ok = await openDialog(ReplaceGoalDialog, { current: existing.objective, next: objective });
-      if (!ok) {
-        if (typed) composer?.restoreText(typed);
-        return;
-      }
+      if (!ok) return false;
     }
   }
   if (fresh) session.starting = true;
@@ -872,8 +882,10 @@ async function goalCommand(argument: string, typed = "") {
       nameNewThread(id, messageTitle([{ type: "text", text: objective }]));
       requestAutoName(id, "seed", objective);
     }
+    return true;
   } catch (cause) {
-    failCommand("goal", typed, cause instanceof Error ? cause.message : String(cause));
+    session.streamError = cause instanceof Error ? cause.message : String(cause);
+    return false;
   } finally {
     if (fresh) session.starting = false;
   }
@@ -919,28 +931,9 @@ const GOAL_STATUS_PRESET: Record<string, string> = {
   complete: "preset-tonal-success",
 };
 
-/** Inline goal-objective editing in the banner. */
-let editingGoal = $state(false);
-let goalDraft = $state("");
-
+/** The banner's Edit: the objective moves into the composer, whose send confirms it. */
 function startGoalEdit() {
-  if (!goal) return;
-  goalDraft = goal.objective;
-  editingGoal = true;
-}
-
-async function saveGoalEdit() {
-  const next = goalDraft.trim();
-  if (!liveThreadId || !next || next === goal?.objective) {
-    editingGoal = false;
-    return;
-  }
-  try {
-    session.setGoal(await setThreadGoal(liveThreadId, next));
-    editingGoal = false;
-  } catch (cause) {
-    toastError(cause instanceof Error ? cause.message : String(cause));
-  }
+  if (goal) composer?.startGoalEdit(goal.objective);
 }
 
 /** The markdown a transcript item contributes to `/copy` and `/export`. */
@@ -1246,24 +1239,10 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
         >
           {GOAL_STATUS_LABEL[goal.status] ?? goal.status}
         </span>
-        {#if editingGoal}
-          <!-- svelte-ignore a11y_autofocus -->
-          <input
-            class="input h-6 min-w-0 flex-1 px-2 text-xs"
-            bind:value={goalDraft}
-            aria-label="Goal objective"
-            autofocus
-            onkeydown={(event) => {
-              if (event.key === "Enter") void saveGoalEdit();
-              if (event.key === "Escape") editingGoal = false;
-            }}
-          />
-        {:else}
-          <span class="min-w-0 flex-1 truncate" title={goal.objective}>{goal.objective}</span>
-          <TooltipButton label="Edit goal" onclick={startGoalEdit} aria-label="Edit goal" class="shrink-0 opacity-60 hover:opacity-100">
-            <Pencil size={12} />
-          </TooltipButton>
-        {/if}
+        <span class="min-w-0 flex-1 truncate" title={goal.objective}>{goal.objective}</span>
+        <TooltipButton label="Edit goal" onclick={startGoalEdit} aria-label="Edit goal" class="shrink-0 opacity-60 hover:opacity-100">
+          <Pencil size={12} />
+        </TooltipButton>
         {#if goal.status !== "complete"}
           <TooltipButton
             label={goal.status === "active" ? "Pause goal" : "Resume goal"}
@@ -1363,6 +1342,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
     onSend={send}
     onInterrupt={interrupt}
     onCommand={runCommand}
+    onGoal={setGoal}
     onReview={(target) => void review(target)}
     onImplementFresh={liveThreadId ? startPlanThread : undefined}
     {contextStats}

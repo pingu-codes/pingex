@@ -1336,11 +1336,11 @@ describe("ThreadView /goal", () => {
     expect(mocks.requestAutoName).toHaveBeenCalledWith("thread-2", "seed", "ship the auth refactor");
   });
 
-  it("answers a bare /goal on a draft without creating a thread", async () => {
+  it("turns a bare /goal into goal mode without creating a thread", async () => {
     const user = userEvent.setup();
     await user.type(renderDraft(), "/goal{Enter}");
 
-    expect(await screen.findByText("No goal is set — /goal <objective> sets one.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Toggle goal mode" })).toHaveAttribute("aria-pressed", "true");
     expect(mocks.startThread).not.toHaveBeenCalled();
     expect(mocks.getThreadGoal).not.toHaveBeenCalled();
   });
@@ -1435,7 +1435,7 @@ describe("ThreadView /goal", () => {
     await waitFor(() => expect(screen.queryByTestId("goal-banner")).not.toBeInTheDocument());
   });
 
-  it("edits the objective inline from the banner", async () => {
+  it("edits the objective in the composer from the banner, confirming without a replace dialog", async () => {
     const user = userEvent.setup();
     mocks.getThreadGoal.mockResolvedValue({
       threadId: "thread-1",
@@ -1445,21 +1445,27 @@ describe("ThreadView /goal", () => {
       tokensUsed: 0,
       timeUsedSeconds: 0,
     });
-    render(ThreadView, { threadId: "thread-1", cwd: "/projects/example", projectPath: "/projects/example" });
+    await renderTurn(completedTurn());
     await screen.findByTestId("goal-banner");
 
     await user.click(screen.getByRole("button", { name: "Edit goal" }));
-    const input = screen.getByRole("textbox", { name: "Goal objective" });
-    await user.clear(input);
-    await user.type(input, "ship the release{Enter}");
+    const composer = screen.getByRole("textbox", { name: composerLabel });
+    await waitFor(() => expect(composer).toHaveTextContent("keep the build green"));
+    expect(screen.getByTestId("goal-edit-bar")).toBeInTheDocument();
+    await user.click(composer);
+    await user.keyboard(", ship the release{Enter}");
 
-    await waitFor(() => expect(mocks.setThreadGoal).toHaveBeenCalledWith("thread-1", "ship the release"));
+    await waitFor(() =>
+      expect(mocks.setThreadGoal).toHaveBeenCalledWith("thread-1", "keep the build green, ship the release"),
+    );
     await waitFor(() => expect(screen.getByTestId("goal-banner")).toHaveTextContent("ship the release"));
+    await waitFor(() => expect(screen.queryByTestId("goal-edit-bar")).toBeNull());
+    expect(composer).toBeEmptyDOMElement();
     // No dialog for an explicit edit of the visible goal.
     expect(mocks.openDialog).not.toHaveBeenCalled();
   });
 
-  it("abandons an inline edit on Escape", async () => {
+  it("abandons a goal edit with Cancel, giving the draft back", async () => {
     const user = userEvent.setup();
     mocks.getThreadGoal.mockResolvedValue({
       threadId: "thread-1",
@@ -1469,14 +1475,31 @@ describe("ThreadView /goal", () => {
       tokensUsed: 0,
       timeUsedSeconds: 0,
     });
-    render(ThreadView, { threadId: "thread-1", cwd: "/projects/example", projectPath: "/projects/example" });
+    await renderTurn(completedTurn());
     await screen.findByTestId("goal-banner");
+    const composer = screen.getByRole("textbox", { name: composerLabel });
+    await user.type(composer, "half a thought");
 
     await user.click(screen.getByRole("button", { name: "Edit goal" }));
-    await user.type(screen.getByRole("textbox", { name: "Goal objective" }), " but faster{Escape}");
+    await waitFor(() => expect(composer).toHaveTextContent("keep the build green"));
+    await user.click(screen.getByRole("button", { name: "Cancel goal edit" }));
 
     expect(mocks.setThreadGoal).not.toHaveBeenCalled();
     expect(screen.getByTestId("goal-banner")).toHaveTextContent("keep the build green");
+    expect(composer).toHaveTextContent("half a thought");
+  });
+
+  it("sets a goal from the composer's goal mode on a draft, showing the banner at once", async () => {
+    const user = userEvent.setup();
+    const composer = renderDraft();
+
+    await user.click(screen.getByRole("button", { name: "Toggle goal mode" }));
+    await user.type(composer, "keep the build green{Enter}");
+
+    await waitFor(() => expect(mocks.setThreadGoal).toHaveBeenCalledWith("thread-2", "keep the build green"));
+    await waitFor(() => expect(screen.getByTestId("goal-banner")).toHaveTextContent("keep the build green"));
+    expect(mocks.startTurn).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Toggle goal mode" })).toHaveAttribute("aria-pressed", "false");
   });
 
   it("shows each status as its own pill", async () => {

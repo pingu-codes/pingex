@@ -1,5 +1,5 @@
 <script lang="ts">
-import { ArrowUp, Map as MapIcon, Paperclip, Square } from "@lucide/svelte";
+import { ArrowUp, Map as MapIcon, Paperclip, Square, Target } from "@lucide/svelte";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
@@ -9,6 +9,7 @@ import TooltipButton from "$lib/components/TooltipButton.svelte";
 import ContextMeter from "$lib/composer/ContextMeter.svelte";
 import {
   type AttachmentPart,
+  buildGoalObjective,
   buildTurnInput,
   type ComposerPart,
   type DetectedQueries,
@@ -79,6 +80,7 @@ let {
   onSend,
   onInterrupt,
   onCommand,
+  onGoal,
   onReview,
   onImplementFresh,
   onSubagentPolicyChange,
@@ -111,6 +113,10 @@ let {
    *  is the line as submitted, so a handler that fails can put it back via
    *  `restoreText` rather than leaving the user with an empty composer. */
   onCommand?: (command: SlashCommandId, argument?: string, typed?: string) => void;
+  /** Goal mode's send: set `objective` as the thread's goal. Resolves false
+   *  when it did not happen (declined or failed) so the composer can give the
+   *  text back. Absent = no goal support, and no Goal toggle. */
+  onGoal?: (objective: string, edit: boolean) => Promise<boolean>;
   /** A review target chosen in the picker `openReviewPicker()` opened. */
   onReview?: (target: ReviewTarget) => void;
   /** Run the plan in a fresh thread instead of this one; absent = no such option. */
@@ -540,6 +546,46 @@ function togglePlanMode() {
   persist();
 }
 
+// Goal mode: the next send sets the thread's goal from the editor instead of
+// starting a turn, then the mode switches itself off. It is not a preference —
+// it never outlives one send — so it is not persisted with the others.
+let goalMode = $state(false);
+// The banner's Edit put the current objective in the editor; whatever the user
+// had typed before is parked in `stashedParts` until the edit ends either way.
+let goalEditing = $state(false);
+let stashedParts: ComposerPart[] | null = null;
+const goalAvailable = $derived(Boolean(onGoal) && harness === "codex");
+
+function toggleGoalMode() {
+  if (goalEditing) {
+    cancelGoalEdit();
+    return;
+  }
+  goalMode = !goalMode;
+}
+
+/** Bring an existing goal into the composer for editing; the send confirms it. */
+export function startGoalEdit(objective: string) {
+  if (!goalEditing) stashedParts = richEditor.parts.map((part) => ({ ...part }));
+  richEditor.setText(objective);
+  goalMode = true;
+  goalEditing = true;
+  editor?.focus();
+}
+
+function endGoalEdit() {
+  goalMode = false;
+  goalEditing = false;
+  richEditor.setParts(stashedParts ?? EMPTY_PARTS());
+  stashedParts = null;
+}
+
+export function cancelGoalEdit() {
+  if (!goalEditing) return;
+  endGoalEdit();
+  editor?.focus();
+}
+
 // The plan the user already acted on ("Keep planning" or "Implement the
 // plan"), so the action bar only reappears when a newer plan arrives.
 let dismissedPlan = $state<string | null>(null);
@@ -639,6 +685,8 @@ function runCommand(command: SlashCommand, argument = "") {
   richEditor.closeQueries();
   if (command.id === "plan") {
     togglePlanMode();
+  } else if (command.id === "goal" && !argument && goalAvailable) {
+    toggleGoalMode();
   } else if (command.id === "model" || command.id === "permissions") {
     togglePopover(command.id);
   } else if (command.id === "init") {
@@ -852,12 +900,46 @@ function submit() {
   if (lastText) lastText.text = lastText.text.trimEnd();
   const trimmedParts = normaliseParts(sentParts);
   if (!hasSendableContent(trimmedParts) || disabled || hasQuestions || invalidReason) return;
+  if (goalMode && onGoal) {
+    void submitGoal(trimmedParts);
+    return;
+  }
   const sent = buildTurnInput(trimmedParts, cwd);
   richEditor.clear();
   sources.clear();
   closePickers();
   persistDraft(null);
   void dispatchSend(sent);
+}
+
+/**
+ * Goal mode's send: the editor becomes the objective and no turn starts. The
+ * editor clears optimistically and comes back — chips and all — if the goal
+ * was not set. An edit keeps the objective in place on failure so the user can
+ * retry or cancel, and restores the parked draft on success.
+ */
+async function submitGoal(parts: ComposerPart[]) {
+  if (!onGoal) return;
+  const objective = buildGoalObjective(parts, cwd);
+  const editing = goalEditing;
+  const snapshot = parts.map((part) => ({ ...part }));
+  if (!editing) {
+    richEditor.clear();
+    goalMode = false;
+  }
+  closePickers();
+  persistDraft(null);
+  const ok = await onGoal(objective, editing).catch(() => false);
+  if (editing) {
+    if (ok) endGoalEdit();
+    return;
+  }
+  if (ok) {
+    sources.clear();
+  } else {
+    goalMode = true;
+    richEditor.setParts(snapshot);
+  }
 }
 
 /** Send once a model can back the collaboration settings: the first send after
@@ -899,6 +981,10 @@ function onPaste(event: ClipboardEvent) {
     }
     // The mention/slash/skill pickers own Escape while open.
     if (pickerOpen) return;
+    if (goalEditing) {
+      cancelGoalEdit();
+      return;
+    }
     // While questions are up, Escape must not nuke the turn mid-answer; use Stop.
     if (busy && !hasQuestions) onInterrupt();
   }}
@@ -955,6 +1041,22 @@ function onPaste(event: ClipboardEvent) {
           class="shrink-0 rounded-full px-2.5 py-1 text-[11px] preset-filled-primary-500"
         >
           Implement the plan
+        </button>
+      </div>
+    {/if}
+    {#if goalEditing}
+      <div
+        class="mb-2 flex items-center gap-2 rounded-xl border border-surface-200-800 bg-surface-100-900 px-3 py-2"
+        data-testid="goal-edit-bar"
+      >
+        <Target size={12} class="shrink-0 text-primary-500" />
+        <span class="min-w-0 flex-1 truncate text-xs text-surface-500">Editing the goal — send to update it, or cancel.</span>
+        <button
+          onclick={cancelGoalEdit}
+          aria-label="Cancel goal edit"
+          class="shrink-0 rounded-full px-2.5 py-1 text-[11px] text-surface-600-400 transition hover:bg-surface-200-800 hover:text-surface-800-200"
+        >
+          Cancel
         </button>
       </div>
     {/if}
@@ -1059,7 +1161,7 @@ function onPaste(event: ClipboardEvent) {
         >
           <button
             onclick={submit}
-            aria-label={busy ? "Queue message" : "Send message"}
+            aria-label={goalEditing ? "Update goal" : goalMode ? "Set goal" : busy ? "Queue message" : "Send message"}
             disabled={disabled || !hasSendable || hasQuestions || Boolean(invalidReason)}
             class="grid size-7 place-items-center rounded-full preset-filled-primary-500 disabled:opacity-40"
           >
@@ -1088,6 +1190,18 @@ function onPaste(event: ClipboardEvent) {
           <MapIcon size={12} />
           Plan
         </TooltipButton>
+        {#if goalAvailable}
+          <TooltipButton
+            label={goalEditing ? "Cancel goal edit" : goalMode ? "Goal mode on — send sets the goal" : "Toggle goal mode"}
+            onclick={toggleGoalMode}
+            aria-label="Toggle goal mode"
+            aria-pressed={goalMode}
+            class="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] transition {goalMode ? 'preset-filled-primary-500' : 'text-surface-500 hover:bg-surface-200-800 hover:text-surface-800-200'}"
+          >
+            <Target size={12} />
+            Goal
+          </TooltipButton>
+        {/if}
         <ModelPopover
           open={popover === "model"}
           {models}

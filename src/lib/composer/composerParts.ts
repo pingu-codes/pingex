@@ -122,3 +122,33 @@ export function hasSendableContent(parts: ComposerPart[]): boolean {
       (part.type === "attachment" && part.state === "ready"),
   );
 }
+
+/**
+ * Flattens composer parts into a goal objective. A goal is a plain string on
+ * the Codex side, so chips have to become text: mentions as the same
+ * cwd-relative links a turn sends, skills as their name plus the skill file so
+ * the goal loop can open it, non-image files as a labelled path reference.
+ * Images have no textual form and are dropped.
+ */
+export function buildGoalObjective(parts: ComposerPart[], cwd = ""): string {
+  let objective = "";
+  // Chips sit flush against their neighbours in the editor (picking one eats
+  // the trigger and its space), so the flattened form separates them itself.
+  const chip = (text: string) => {
+    if (objective && !/\s$/.test(objective)) objective += " ";
+    objective += text;
+  };
+  for (const part of parts) {
+    if (part.type === "text") {
+      if (objective && !/\s$/.test(objective) && part.text && !/^\s/.test(part.text)) objective += " ";
+      objective += part.text;
+    } else if (part.type === "mention") {
+      chip(`[${part.name}](${relativeMentionPath(part.path, cwd)})`);
+    } else if (part.type === "skill") {
+      chip(`$${part.name} (skill: ${relativeMentionPath(part.path, cwd)})`);
+    } else if (part.type === "attachment" && part.state === "ready" && part.kind === "file") {
+      objective += `\n[Attached file: ${part.filename} — ${part.path}]\n`;
+    }
+  }
+  return objective.trim();
+}

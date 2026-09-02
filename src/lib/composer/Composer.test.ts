@@ -39,6 +39,8 @@ function setup({
   subagentModelPolicy?: SubagentPolicy | null;
   subagentReasoningEffortPolicy?: SubagentPolicy | null;
   onImplementFresh?: ((input: unknown, options?: unknown) => void) | undefined;
+  onGoal?: ((objective: string, edit: boolean) => Promise<boolean>) | undefined;
+  threadHarness?: "codex" | "claude" | null;
   /** Stored prefs to render with; `null` leaves the store empty. */
   prefs?: Partial<ComposerPrefs> | null;
 } = {}) {
@@ -50,21 +52,25 @@ function setup({
   const onCommand = vi.fn();
   const onSubagentPolicyChange = vi.fn();
   const onImplementFresh = "onImplementFresh" in props ? props.onImplementFresh : vi.fn();
-  const { rerender } = render(Composer, {
+  const onGoal = "onGoal" in props ? props.onGoal : vi.fn().mockResolvedValue(true);
+  const { rerender, component } = render(Composer, {
     ...props,
     onSend,
     onInterrupt,
     onCommand,
     onSubagentPolicyChange,
     onImplementFresh,
+    onGoal,
   });
   return {
     rerender,
+    component,
     onSend,
     onInterrupt,
     onCommand,
     onSubagentPolicyChange,
     onImplementFresh,
+    onGoal,
     textarea: screen.getByRole("textbox", {
       name: "Message Codex… (@ to attach files, / for commands)",
     }) as HTMLDivElement,
@@ -790,5 +796,105 @@ describe("Composer", () => {
       expect(store().threads["thread-a"].planMode).toBe(true);
       expect(planButton()).toHaveAttribute("aria-pressed", "true");
     });
+  });
+});
+
+describe("goal mode", () => {
+  const toggle = () => screen.getByRole("button", { name: "Toggle goal mode" });
+
+  it("sets the goal from the whole line, chips flattened, without starting a turn", async () => {
+    const user = userEvent.setup();
+    const { onSend, onGoal, textarea } = setup({ cwd: "/proj" });
+
+    await user.click(toggle());
+    expect(toggle()).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Set goal" })).toBeInTheDocument();
+
+    await user.type(textarea, "keep @util");
+    await user.click(await screen.findByRole("option", { name: /utils\.ts/ }));
+    await user.type(textarea, " green with $wran");
+    await user.click(await screen.findByRole("option", { name: /wrangler/ }));
+    await user.keyboard("{Enter}");
+
+    expect(onSend).not.toHaveBeenCalled();
+    expect(onGoal).toHaveBeenCalledWith(
+      "keep [utils.ts](src/lib/utils.ts) green with $wrangler (skill: /skills/wrangler/SKILL.md)",
+      false,
+    );
+    expect(textarea).toBeEmptyDOMElement();
+    await waitFor(() => expect(toggle()).toHaveAttribute("aria-pressed", "false"));
+  });
+
+  it("gives the line back and stays in goal mode when the goal was not set", async () => {
+    const user = userEvent.setup();
+    const onGoal = vi.fn().mockResolvedValue(false);
+    const { onSend, textarea } = setup({ cwd: "/proj", onGoal });
+
+    await user.click(toggle());
+    await user.type(textarea, "ship @util");
+    await user.click(await screen.findByRole("option", { name: /utils\.ts/ }));
+    await user.keyboard("{Enter}");
+
+    expect(onSend).not.toHaveBeenCalled();
+    await waitFor(() => expect(textarea).toHaveTextContent("ship"));
+    expect(textarea.querySelector("[data-mention-path]")).not.toBeNull();
+    expect(toggle()).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("toggles with a bare /goal, while /goal <objective> and /goal clear still run as commands", async () => {
+    const user = userEvent.setup();
+    const { onCommand, textarea } = setup();
+
+    await user.type(textarea, "/goal{Enter}");
+    expect(toggle()).toHaveAttribute("aria-pressed", "true");
+    expect(onCommand).not.toHaveBeenCalled();
+
+    await user.type(textarea, "/goal clear{Enter}");
+    expect(onCommand).toHaveBeenCalledWith("goal", "clear", "/goal clear");
+    await user.type(textarea, "/goal ship it{Enter}");
+    expect(onCommand).toHaveBeenCalledWith("goal", "ship it", "/goal ship it");
+  });
+
+  it("is absent on a Claude thread and without a goal handler", () => {
+    setup({ threadHarness: "claude", threadId: "t1" });
+    expect(screen.queryByRole("button", { name: "Toggle goal mode" })).toBeNull();
+  });
+
+  it("edits an existing goal in the composer, parking the draft until confirm or cancel", async () => {
+    const user = userEvent.setup();
+    const { onGoal, textarea, component } = setup({ cwd: "/proj" });
+
+    await user.type(textarea, "half a thought");
+    component.startGoalEdit("keep the build green");
+    await waitFor(() => expect(textarea).toHaveTextContent("keep the build green"));
+    expect(screen.getByTestId("goal-edit-bar")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Update goal" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Cancel goal edit" }));
+    expect(screen.queryByTestId("goal-edit-bar")).toBeNull();
+    expect(textarea).toHaveTextContent("half a thought");
+    expect(toggle()).toHaveAttribute("aria-pressed", "false");
+    expect(onGoal).not.toHaveBeenCalled();
+
+    component.startGoalEdit("keep the build green");
+    await waitFor(() => expect(textarea).toHaveTextContent("keep the build green"));
+    await user.click(textarea);
+    await user.keyboard(" and fast{Enter}");
+    expect(onGoal).toHaveBeenCalledWith("keep the build green and fast", true);
+    await waitFor(() => expect(screen.queryByTestId("goal-edit-bar")).toBeNull());
+    expect(textarea).toHaveTextContent("half a thought");
+  });
+
+  it("abandons a goal edit on Escape", async () => {
+    const user = userEvent.setup();
+    const { onGoal, textarea, component } = setup();
+
+    component.startGoalEdit("keep the build green");
+    await waitFor(() => expect(textarea).toHaveTextContent("keep the build green"));
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByTestId("goal-edit-bar")).toBeNull();
+    expect(textarea).toBeEmptyDOMElement();
+    expect(onGoal).not.toHaveBeenCalled();
   });
 });

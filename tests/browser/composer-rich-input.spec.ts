@@ -459,3 +459,23 @@ test("plan mode is restored after a reload", async ({ page }) => {
 
   await expect(page.getByRole("button", { name: "Toggle plan mode" })).toHaveAttribute("aria-pressed", "true");
 });
+
+test("goal mode toggles on the composer and turns itself off after a send", async ({ page }) => {
+  const composer = await newComposer(page);
+  // A send needs a model and permission preset picked; the preview seeds neither.
+  await page.getByRole("button", { name: "Select model and effort" }).click();
+  await page.getByRole("dialog", { name: "Model options" }).getByRole("button").first().click();
+  await page.getByRole("button", { name: "Set permissions level" }).click();
+  await page.getByRole("dialog", { name: "Permission options" }).getByRole("button", { name: /^Auto/ }).click();
+  const goalMode = page.getByRole("button", { name: "Toggle goal mode" });
+  await goalMode.click();
+  await expect(goalMode).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Set goal" })).toBeVisible();
+
+  await composer.pressSequentially("keep the build green");
+  await composer.press("Enter");
+
+  await expect(page.getByTestId("goal-banner")).toContainText("keep the build green");
+  await expect(goalMode).toHaveAttribute("aria-pressed", "false");
+  await expect(composer).toHaveText("");
+});
