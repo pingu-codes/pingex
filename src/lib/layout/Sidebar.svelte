@@ -139,7 +139,12 @@ const visibleProjects = $derived(projects.filter((project) => !project.archived)
 // fold behind the same button; favorited and selected threads always stay in
 // view.
 const THREAD_LIMIT = 15;
-let showAllThreads = $state<Record<string, boolean>>({});
+/** "Show more" reveals this many folded threads per click; Cmd/Ctrl-click reveals all. */
+const REVEAL_STEP = 10;
+/** Folded threads revealed past the head, per project path. */
+let revealed = $state<Record<string, number>>({});
+/** True while Cmd/Ctrl is held, so "Show more" can advertise the reveal-all count. */
+let modifierHeld = $state(false);
 
 function splitThreads(project: Project): { head: ThreadSummary[]; hidden: number } {
   const keep = (thread: ThreadSummary) =>
@@ -157,7 +162,22 @@ function splitThreads(project: Project): { head: ThreadSummary[]; hidden: number
 }
 
 function visibleThreads(project: Project) {
-  return showAllThreads[project.path] ? project.threads : splitThreads(project).head;
+  const { head } = splitThreads(project);
+  const extra = revealed[project.path] ?? 0;
+  if (extra <= 0) return head;
+  const shown = new Set(head.map((thread) => thread.id));
+  for (const thread of project.threads) {
+    if (shown.size >= head.length + extra) break;
+    shown.add(thread.id);
+  }
+  // Draw in project order so folder placements and "hide below" stay stable.
+  return project.threads.filter((thread) => shown.has(thread.id));
+}
+
+function revealMore(project: Project, all: boolean) {
+  const { hidden } = splitThreads(project);
+  const current = revealed[project.path] ?? 0;
+  revealed[project.path] = all ? hidden : Math.min(hidden, current + REVEAL_STEP);
 }
 
 /** The visible threads split by section: each section that has a thread in
@@ -280,7 +300,12 @@ function openSearch() {
   searching = true;
 }
 
+function trackModifier(event: KeyboardEvent) {
+  modifierHeld = event.metaKey || event.ctrlKey;
+}
+
 function onWindowKeydown(event: KeyboardEvent) {
+  trackModifier(event);
   // Cmd/Ctrl+Shift+F opens sidebar search (Shift avoids clashing with the
   // in-thread find shortcut).
   if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "f") {
@@ -366,7 +391,7 @@ const threadTarget = (project: Project, thread: ThreadSummary): MenuTarget => ({
 const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section", section });
 </script>
 
-<svelte:window onkeydown={onWindowKeydown} />
+<svelte:window onkeydown={onWindowKeydown} onkeyup={trackModifier} onblur={() => (modifierHeld = false)} />
 
 {#snippet threadRow(project: Project, thread: ThreadSummary)}
   <div
@@ -575,17 +600,26 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
         <p class="px-2 py-2 text-xs text-surface-500">No Codex threads yet</p>
       {:else}
         {@const hidden = splitThreads(project).hidden}
+        {@const shownExtra = Math.min(hidden, revealed[project.path] ?? 0)}
+        {@const remaining = hidden - shownExtra}
         {@render threadNodes(project, projectTree(project))}
-        {#if hidden > 0 || showAllThreads[project.path]}
+        {#if remaining > 0}
           <button
             type="button"
-            onclick={() => (showAllThreads[project.path] = !showAllThreads[project.path])}
+            onclick={(event) => revealMore(project, event.metaKey || event.ctrlKey)}
             class="mt-0.5 flex w-full items-center gap-1 rounded-md px-2 py-1 text-left text-[11px] font-medium text-primary-500 hover:preset-tonal"
           >
-            <ChevronDown class="transition {showAllThreads[project.path] ? '' : '-rotate-90'}" size={12} />
-            {showAllThreads[project.path]
-              ? "Show less"
-              : `Show ${hidden} more`}
+            <ChevronDown class="-rotate-90 transition" size={12} />
+            Show {modifierHeld ? remaining : Math.min(REVEAL_STEP, remaining)} more
+          </button>
+        {:else if shownExtra > 0}
+          <button
+            type="button"
+            onclick={() => (revealed[project.path] = 0)}
+            class="mt-0.5 flex w-full items-center gap-1 rounded-md px-2 py-1 text-left text-[11px] font-medium text-primary-500 hover:preset-tonal"
+          >
+            <ChevronDown class="transition" size={12} />
+            Show less
           </button>
         {/if}
       {/if}

@@ -389,6 +389,38 @@ describe("Sidebar", () => {
     expect(screen.queryByText("Thread 16")).not.toBeInTheDocument();
   });
 
+  it("reveals ten folded threads per click and folds back with Show less", async () => {
+    const user = userEvent.setup();
+    setup(projectWithThreads(30));
+
+    await user.click(screen.getByRole("button", { name: "Show 10 more" }));
+    expect(screen.getByText("Thread 25")).toBeInTheDocument();
+    expect(screen.queryByText("Thread 26")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Show 5 more" }));
+    expect(screen.getByText("Thread 30")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Show less" }));
+    expect(screen.queryByText("Thread 16")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show 10 more" })).toBeInTheDocument();
+  });
+
+  it("advertises and reveals every folded thread while Cmd or Ctrl is held", async () => {
+    const user = userEvent.setup();
+    setup(projectWithThreads(30));
+
+    await user.keyboard("{Control>}");
+    expect(screen.getByRole("button", { name: "Show 15 more" })).toBeInTheDocument();
+    await user.keyboard("{/Control}");
+    expect(screen.getByRole("button", { name: "Show 10 more" })).toBeInTheDocument();
+
+    await user.keyboard("{Meta>}");
+    await user.click(screen.getByRole("button", { name: "Show 15 more" }));
+    await user.keyboard("{/Meta}");
+    expect(screen.getByText("Thread 30")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show less" })).toBeInTheDocument();
+  });
+
   it("does not truncate projects at or under the limit", () => {
     setup(projectWithThreads(15));
 
