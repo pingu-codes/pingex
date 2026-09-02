@@ -112,8 +112,13 @@ pub(crate) async fn bootstrap_inner(
             project_id: None,
             section_id: None,
             subagent_count: 0,
+            hidden: false,
             harness: Some(thread.harness),
         });
+    }
+    let hidden_threads: HashSet<&str> = store.hidden_threads.iter().map(String::as_str).collect();
+    for thread in &mut all_threads {
+        thread.hidden = hidden_threads.contains(thread.id.as_str());
     }
     all_threads.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     let stored_summaries: Vec<_> = all_threads.iter().map(StoredThreadSummary::from).collect();
@@ -177,12 +182,14 @@ pub(crate) async fn bootstrap_inner(
 pub(crate) async fn bootstrap_cached(ctx: &HomeContext) -> Result<BootstrapData, String> {
     let store = storage::read_store(&ctx.database()).await?;
     let pinned_threads: HashSet<String> = store.pinned_threads.iter().cloned().collect();
+    let hidden_threads: HashSet<String> = store.hidden_threads.iter().cloned().collect();
     let all_threads = storage::read_thread_summaries(&ctx.database())
         .await?
         .into_iter()
         .map(|stored| {
             let mut summary = ThreadSummary::from(stored);
             summary.pinned = pinned_threads.contains(&summary.id);
+            summary.hidden = hidden_threads.contains(&summary.id);
             summary
         })
         .collect();
@@ -577,6 +584,7 @@ mod tests {
             project_id: None,
             section_id: None,
             subagent_count: 0,
+            hidden: false,
             harness: None,
         }
     }
@@ -645,6 +653,7 @@ mod tests {
                     },
                 ],
                 pinned_threads: Vec::new(),
+                hidden_threads: Vec::new(),
             },
             vec![
                 thread("ordinary-thread", &source_path, 1),
@@ -730,6 +739,7 @@ mod tests {
                     archived: false,
                 }],
                 pinned_threads: Vec::new(),
+                hidden_threads: Vec::new(),
             },
             vec![
                 thread("main-thread", &project_path, 2),
@@ -806,6 +816,7 @@ mod tests {
                     archived: false,
                 }],
                 pinned_threads: Vec::new(),
+                hidden_threads: Vec::new(),
             },
             vec![
                 thread("own-thread", &project_path, 3),
@@ -875,6 +886,7 @@ mod tests {
                 },
             ],
             pinned_threads: Vec::new(),
+            hidden_threads: Vec::new(),
         };
         // Started in `api`, but Codex says it belongs to `web` (moved after a
         // checkout was reorganised); one assignment points at a project that
@@ -952,6 +964,7 @@ mod tests {
                     archived: false,
                 }],
                 pinned_threads: Vec::new(),
+                hidden_threads: Vec::new(),
             },
             vec![
                 thread("main-thread", &project_path, 3),

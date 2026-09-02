@@ -2,17 +2,23 @@
 import {
   Archive,
   ArrowDown,
+  ArrowDownToLine,
   ArrowUp,
   Bookmark,
+  Eye,
+  EyeOff,
   FolderOpen,
   FolderPlus,
   GitBranch,
   GitFork,
   Layers3,
+  ListRestart,
   Pencil,
   Pin,
   PinOff,
   Settings2,
+  Star,
+  StarOff,
   Trash2,
   X,
 } from "@lucide/svelte";
@@ -33,6 +39,8 @@ let {
 
 const menuIsPinned = (target: MenuTarget) =>
   target.kind === "project" ? target.project.pinned : target.kind === "thread" ? target.thread.pinned : false;
+const hiddenCount = (target: MenuTarget) =>
+  target.kind === "project" ? target.project.threads.filter((thread) => thread.hidden).length : 0;
 </script>
 
 <svelte:window onkeydown={(event) => event.key === "Escape" && onClose()} />
@@ -117,7 +125,15 @@ const menuIsPinned = (target: MenuTarget) =>
       onclick={() => onAct("togglePin")}
       class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
     >
-      {#if menuIsPinned(menu.target)}
+      {#if menu.target.kind === "thread"}
+        {#if menuIsPinned(menu.target)}
+          <StarOff size={13} class="text-surface-500" />
+          Unfavorite thread
+        {:else}
+          <Star size={13} class="text-surface-500" />
+          Favorite thread
+        {/if}
+      {:else if menuIsPinned(menu.target)}
         <PinOff size={13} class="text-surface-500" />
         Unpin {menu.target.kind}
       {:else}
@@ -125,6 +141,32 @@ const menuIsPinned = (target: MenuTarget) =>
         Pin {menu.target.kind}
       {/if}
     </button>
+  {/if}
+  {#if menu.target.kind === "thread"}
+    <button
+      role="menuitem"
+      onclick={() => onAct("toggleHidden")}
+      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+    >
+      {#if menu.target.thread.hidden}
+        <Eye size={13} class="text-surface-500" />
+        Unhide thread
+      {:else}
+        <EyeOff size={13} class="text-surface-500" />
+        Hide thread
+      {/if}
+    </button>
+    {#if !menu.target.thread.hidden}
+      <button
+        role="menuitem"
+        onclick={() => onAct("hideBelow")}
+        class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+        title="Hide every thread listed after this one"
+      >
+        <ArrowDownToLine size={13} class="text-surface-500" />
+        Hide threads below
+      </button>
+    {/if}
   {/if}
   {#if menu.target.kind === "project"}
     <button
@@ -144,6 +186,25 @@ const menuIsPinned = (target: MenuTarget) =>
       {menu.target.project.kind === "multiProject" ? "Workspace details" : "Project details"}
     </button>
     {#if menu.target.project.kind !== "multiProject"}
+    <button
+      role="menuitem"
+      onclick={() => onAct("resetOrder")}
+      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+      title="Forget drag ordering: favorites first, then most recent"
+    >
+      <ListRestart size={13} class="text-surface-500" />
+      Reset thread order
+    </button>
+    {#if hiddenCount(menu.target) > 0}
+      <button
+        role="menuitem"
+        onclick={() => onAct("unhideAll")}
+        class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+      >
+        <Eye size={13} class="text-surface-500" />
+        Unhide {hiddenCount(menu.target)} thread{hiddenCount(menu.target) === 1 ? "" : "s"}
+      </button>
+    {/if}
     <button
       role="menuitem"
       onclick={() => onAct("toggleArchive")}

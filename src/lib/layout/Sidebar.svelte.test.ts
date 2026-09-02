@@ -1,8 +1,7 @@
-import { render, screen } from "@testing-library/svelte";
+import { render, screen, waitFor } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Sidebar from "$lib/layout/Sidebar.svelte";
-import { resetTouched, touchThread } from "$lib/layout/sessionFocus.svelte";
 import { sidebarPrefs } from "$lib/layout/sidebarPrefs.svelte";
 import { setProjectExpanded } from "$lib/services/api";
 import { activeTurns, approvals, unansweredQuestions, userInputRequests } from "$lib/services/codexEvents.svelte";
@@ -39,6 +38,7 @@ function project(pinned = false, threadPinned = false): Project {
         projectId: null,
         sectionId: null,
         subagentCount: 0,
+        hidden: false,
       },
     ],
   };
@@ -69,8 +69,10 @@ function setup(
   const onMenuAction = vi.fn();
   const onSelectArchived = vi.fn();
   const onNewThread = vi.fn();
+  // The app hands the sidebar `$state` data, so expansion writes are reactive.
+  const projects = $state([source]);
   const result = render(Sidebar, {
-    projects: [source],
+    projects,
     account: null,
     selectedThread,
     loading: false,
@@ -84,7 +86,7 @@ function setup(
     onUnarchived: vi.fn(),
     ...sectionProps,
   });
-  return { ...result, onSelectThread, onMenuAction, onSelectArchived, onNewThread, source };
+  return { ...result, onSelectThread, onMenuAction, onSelectArchived, onNewThread, source: projects[0] };
 }
 
 const SECTIONS: ThreadSection[] = [
@@ -265,14 +267,16 @@ describe("Sidebar", () => {
       kind: "thread",
       project: source,
       thread: source.threads[0],
+      order: expect.any(Array),
     });
 
     await user.click(screen.getByRole("button", { name: "Thread menu" }));
-    await user.click(screen.getByRole("menuitem", { name: "Pin thread" }));
+    await user.click(screen.getByRole("menuitem", { name: "Favorite thread" }));
     expect(onMenuAction).toHaveBeenLastCalledWith("togglePin", {
       kind: "thread",
       project: source,
       thread: source.threads[0],
+      order: expect.any(Array),
     });
   });
 
@@ -281,7 +285,7 @@ describe("Sidebar", () => {
     setup(project(true, true));
 
     await user.click(screen.getByRole("button", { name: "Thread menu" }));
-    expect(screen.getByRole("menuitem", { name: "Unpin thread" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Unfavorite thread" })).toBeVisible();
   });
 
   it("routes remove and reorder actions for projects", async () => {
@@ -335,6 +339,7 @@ describe("Sidebar", () => {
       kind: "thread",
       project: workspace,
       thread: workspace.threads[0],
+      order: expect.any(Array),
     });
   });
 
@@ -357,6 +362,7 @@ describe("Sidebar", () => {
       kind: "thread",
       project: source,
       thread: source.threads[0],
+      order: expect.any(Array),
     });
   });
 
@@ -437,93 +443,117 @@ describe("Sidebar", () => {
     });
   });
 
-  describe("session focus", () => {
-    beforeEach(() => {
-      resetTouched();
-      sidebarPrefs.setSessionFocus(true);
-    });
-    afterEach(() => sidebarPrefs.setSessionFocus(false));
+  describe("hidden threads", () => {
+    function projectWithHidden(): Project {
+      const source = projectWithThreads(3);
+      source.threads[1].hidden = true;
+      return source;
+    }
 
-    it("lists only touched threads and folds the rest behind Show more", async () => {
+    it("folds hidden threads behind Show more and dims them once shown", async () => {
       const user = userEvent.setup();
-      touchThread("thread-2");
-      setup(projectWithThreads(3));
-
-      expect(screen.getByText("Thread 2")).toBeInTheDocument();
-      expect(screen.queryByText("Thread 1")).not.toBeInTheDocument();
-      expect(screen.getByText("Threads you've touched since launch · 1")).toBeInTheDocument();
-
-      await user.click(screen.getByRole("button", { name: "Show 2 more" }));
+      setup(projectWithHidden());
+      expect(screen.queryByText("Thread 2")).not.toBeInTheDocument();
       expect(screen.getByText("Thread 1")).toBeInTheDocument();
-      expect(screen.getByText("Thread 3")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Show 1 more" }));
+      const row = screen.getByText("Thread 2").closest("[data-sidebar-row]");
+      expect(row).toHaveClass("opacity-50");
+      expect(screen.getByTitle("Hidden")).toBeInTheDocument();
     });
 
-    it("keeps the selected thread visible even when untouched", () => {
-      setup(projectWithThreads(2), [], "thread-2");
+    it("keeps a hidden thread visible while it is selected", () => {
+      setup(projectWithHidden(), [], "thread-2");
       expect(screen.getByText("Thread 2")).toBeInTheDocument();
-      expect(screen.queryByText("Thread 1")).not.toBeInTheDocument();
     });
 
-    it("floats projects with touched threads above the rest", () => {
-      const idle = projectWithThreads(1);
-      const busy = { ...projectWithThreads(2), name: "busy", path: "/projects/busy" };
-      busy.threads = busy.threads.map((thread) => ({ ...thread, id: `busy-${thread.id}`, cwd: busy.path }));
-      touchThread("busy-thread-2");
+    it("offers Unhide for a hidden thread and Hide below for a visible one", async () => {
+      const user = userEvent.setup();
+      const { onMenuAction } = setup(projectWithHidden());
+      await user.click(screen.getByRole("button", { name: "Show 1 more" }));
+
+      await user.pointer({ keys: "[MouseRight]", target: screen.getByText("Thread 2") });
+      expect(screen.getByRole("menuitem", { name: "Unhide thread" })).toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: "Hide threads below" })).not.toBeInTheDocument();
+      await user.keyboard("{Escape}");
+
+      await user.pointer({ keys: "[MouseRight]", target: screen.getByText("Thread 1") });
+      await user.click(screen.getByRole("menuitem", { name: "Hide threads below" }));
+      expect(onMenuAction).toHaveBeenCalledWith(
+        "hideBelow",
+        expect.objectContaining({
+          kind: "thread",
+          thread: expect.objectContaining({ id: "thread-1" }),
+          order: ["thread-1", "thread-2", "thread-3"],
+        }),
+      );
+    });
+
+    it("orders the thread ids the way folders draw them", async () => {
+      const user = userEvent.setup();
+      const source = projectWithThreads(3);
+      const { onMenuAction } = setup(source, [], null, {
+        sidebarLayout: {
+          folders: [{ id: "work", scope: source.path, parentId: null, name: "Work", expanded: true, ordinal: 0 }],
+          placements: [{ itemKey: "thread-3", scope: source.path, parentId: "work", ordinal: 0 }],
+        },
+      });
+      await user.pointer({ keys: "[MouseRight]", target: screen.getByText("Thread 1") });
+      await user.click(screen.getByRole("menuitem", { name: "Hide threads below" }));
+      expect(onMenuAction).toHaveBeenCalledWith(
+        "hideBelow",
+        expect.objectContaining({ order: ["thread-3", "thread-1", "thread-2"] }),
+      );
+    });
+
+    it("lets the project menu unhide everything and reset the order", async () => {
+      const user = userEvent.setup();
+      const { onMenuAction } = setup(projectWithHidden());
+      await user.pointer({ keys: "[MouseRight]", target: screen.getByText("codex-custom") });
+      await user.click(screen.getByRole("menuitem", { name: "Unhide 1 thread" }));
+      expect(onMenuAction).toHaveBeenCalledWith("unhideAll", expect.objectContaining({ kind: "project" }));
+
+      await user.pointer({ keys: "[MouseRight]", target: screen.getByText("codex-custom") });
+      await user.click(screen.getByRole("menuitem", { name: "Reset thread order" }));
+      expect(onMenuAction).toHaveBeenCalledWith("resetOrder", expect.objectContaining({ kind: "project" }));
+    });
+  });
+
+  describe("favorites", () => {
+    it("labels the pin action as Favorite for threads", async () => {
+      const user = userEvent.setup();
+      const { onMenuAction } = setup(project(false, true));
+      await user.pointer({ keys: "[MouseRight]", target: screen.getByText("First thread") });
+      await user.click(screen.getByRole("menuitem", { name: "Unfavorite thread" }));
+      expect(onMenuAction).toHaveBeenCalledWith("togglePin", expect.objectContaining({ kind: "thread" }));
+    });
+  });
+
+  describe("session focus button", () => {
+    it("fires onSessionFocus from the header", async () => {
+      const user = userEvent.setup();
+      const onSessionFocus = vi.fn();
       render(Sidebar, {
-        projects: [idle, busy],
+        projects: [projectWithThreads(2)],
         account: null,
         selectedThread: null,
         loading: false,
-        sideQuestions: [],
         onAddProject: vi.fn(),
         onSelectThread: vi.fn(),
         onNewThread: vi.fn(),
         onOpenSettings: vi.fn(),
         onMenuAction: vi.fn(),
-        onSelectArchived: vi.fn(),
-        onUnarchived: vi.fn(),
+        onSessionFocus,
       });
-
-      const rows = [...document.querySelectorAll<HTMLElement>("[data-sidebar-row]")].map(
-        (row) => row.dataset.sidebarRow,
-      );
-      expect(rows).toEqual([`item:${busy.path}`, "item:busy-thread-2", `item:${idle.path}`]);
-      // Both projects fold their untouched threads: busy hides 1 of 2, idle hides its only one.
-      expect(screen.getAllByRole("button", { name: "Show 1 more" })).toHaveLength(2);
+      await user.click(screen.getByTestId("session-focus"));
+      expect(onSessionFocus).toHaveBeenCalledOnce();
     });
 
-    it("hides folders that hold no touched threads but keeps ones that do", () => {
-      const source = projectWithThreads(3);
-      touchThread("thread-3");
-      setup(source, [], null, {
-        sidebarLayout: {
-          folders: [
-            { id: "quiet", scope: source.path, parentId: null, name: "Quiet", expanded: true, ordinal: 0 },
-            { id: "live", scope: source.path, parentId: null, name: "Live", expanded: true, ordinal: 1 },
-          ],
-          placements: [
-            { itemKey: "thread-1", scope: source.path, parentId: "quiet", ordinal: 0 },
-            { itemKey: "thread-3", scope: source.path, parentId: "live", ordinal: 0 },
-          ],
-        },
-      });
-
-      expect(screen.queryByText("Quiet")).not.toBeInTheDocument();
-      expect(screen.getByText("Live").parentElement?.textContent).toContain("1");
-      expect(screen.getByText("Thread 3")).toBeInTheDocument();
-    });
-
-    it("toggles the preference from the header button", async () => {
-      const user = userEvent.setup();
-      setup(projectWithThreads(2));
-      const toggle = screen.getByTestId("session-focus-toggle");
-      expect(toggle).toHaveAttribute("aria-pressed", "true");
-      expect(screen.queryByText("Thread 1")).not.toBeInTheDocument();
-
-      await user.click(toggle);
-      expect(sidebarPrefs.sessionFocus).toBe(false);
-      expect(screen.getByText("Thread 1")).toBeInTheDocument();
-      expect(screen.queryByText(/^Threads you've touched since launch/)).not.toBeInTheDocument();
+    it("collapses a project when the data's expanded flag flips", async () => {
+      const { source } = setup(projectWithThreads(1));
+      expect(screen.getByText("Thread 1")).toBeVisible();
+      source.expanded = false;
+      await waitFor(() => expect(screen.getByText("Thread 1")).not.toBeVisible());
     });
   });
 

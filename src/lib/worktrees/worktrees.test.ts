@@ -104,6 +104,7 @@ describe("worktree helpers", () => {
             projectId: null,
             sectionId: null,
             subagentCount: 0,
+            hidden: false,
           },
           {
             id: "2",
@@ -118,6 +119,7 @@ describe("worktree helpers", () => {
             projectId: null,
             sectionId: null,
             subagentCount: 0,
+            hidden: false,
           },
           {
             id: "3",
@@ -132,6 +134,7 @@ describe("worktree helpers", () => {
             projectId: null,
             sectionId: null,
             subagentCount: 0,
+            hidden: false,
           },
         ],
       },

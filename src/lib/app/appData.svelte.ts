@@ -119,6 +119,7 @@ export function trackNewThread(id: string, cwd: string): void {
     projectId: null,
     sectionId: null,
     subagentCount: 0,
+    hidden: false,
   };
   optimisticThreads.set(id, summary);
   if (appData.data) insertOptimisticThread(appData.data, summary);
@@ -158,6 +159,7 @@ export function trackSubagent(agent: SubagentDetail): void {
     projectId: null,
     sectionId: null,
     subagentCount: 0,
+    hidden: false,
     parentThreadId: agent.parentThreadId,
     agentNickname: agent.agentNickname,
     agentRole: agent.agentRole,

@@ -78,6 +78,10 @@ pub(crate) async fn list_threads_page(
             .iter()
             .filter_map(|thread| thread_summary_from(thread, &pinned))
             .filter(|summary| !hidden.contains(&summary.id))
+            .map(|mut summary| {
+                summary.hidden = store.hidden_threads.contains(&summary.id);
+                summary
+            })
             .collect(),
         next_cursor: str_at(&response, "nextCursor").map(str::to_string),
     })

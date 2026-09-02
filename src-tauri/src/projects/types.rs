@@ -31,6 +31,8 @@ pub(crate) struct ThreadSummary {
     /// The thread section it sits in (Codex ≥0.149). See `threads::sections`.
     pub(crate) section_id: Option<String>,
     pub(crate) subagent_count: usize,
+    /// Folded out of the sidebar by the user; still listed so it can be unhidden.
+    pub(crate) hidden: bool,
     /// Which harness runs the thread; `None` means Codex.
     #[specta(optional)]
     pub(crate) harness: Option<String>,

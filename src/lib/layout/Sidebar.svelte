@@ -3,12 +3,14 @@ import {
   Bot,
   ChevronDown,
   Ellipsis,
+  EyeOff,
   Folder,
   FolderGit2,
   FolderOpen,
   FolderPlus,
   GitBranch,
   Layers3,
+  ListRestart,
   MessageCircleQuestion,
   Pin,
   Plus,
@@ -26,7 +28,6 @@ import ArchivedThreadsSection from "$lib/layout/ArchivedThreadsSection.svelte";
 import { activeConnectionCount, hasActiveConnection } from "$lib/layout/connectionState";
 import SidebarContextMenu from "$lib/layout/SidebarContextMenu.svelte";
 import SidebarSearch from "$lib/layout/SidebarSearch.svelte";
-import { isTouched } from "$lib/layout/sessionFocus.svelte";
 import { type DragHooks, dnd, draggable, rowId, rowRef } from "$lib/layout/sidebarDnd.svelte";
 import { isStale, sidebarPrefs } from "$lib/layout/sidebarPrefs.svelte";
 import {
@@ -34,9 +35,7 @@ import {
   type DropTarget,
   emptyLayout,
   flattenItems,
-  hoistActive,
   isNoopDrop,
-  pruneEmptyFolders,
   ROOT_SCOPE,
   resolveDrop,
   siblingsAfterDrop,
@@ -92,6 +91,8 @@ let {
   onNewFolder,
   onMoveItem,
   onOpenSearchResult,
+  onSessionFocus,
+  onResetOrder,
 }: {
   projects: Project[];
   account: Account | null;
@@ -124,30 +125,27 @@ let {
     parentId: string | null,
     siblings: SidebarItemRef[],
   ) => void | Promise<void>;
+  /** The focus button: hide untouched threads and collapse what is left empty. */
+  onSessionFocus?: () => void;
+  /** Forget drag ordering in `scope` (`ROOT_SCOPE` for projects). */
+  onResetOrder?: (scope: string) => void;
 } = $props();
 
 const visibleProjects = $derived(projects.filter((project) => !project.archived));
 
-// "Session focus": only threads started or opened since launch are listed;
-// every other thread folds behind the same "Show more" button, and projects
-// holding a touched thread float above the rest.
-const focus = $derived(sidebarPrefs.sessionFocus);
-const projectIsActive = (project: Project) => project.threads.some((thread) => isTouched(thread.id));
-const touchedCount = $derived(
-  visibleProjects.reduce((n, project) => n + project.threads.filter((thread) => isTouched(thread.id)).length, 0),
-);
-
 // One busy project shouldn't push every other project off-screen, so expanded
-// projects show a head slice until the user asks for the rest. With the
-// "hide old threads" preference on, day-old threads fold behind the same
-// button; pinned and selected threads always stay in view.
+// projects show a head slice until the user asks for the rest. Threads the
+// user hid and, with the "hide old threads" preference on, day-old threads
+// fold behind the same button; favorited and selected threads always stay in
+// view.
 const THREAD_LIMIT = 15;
 let showAllThreads = $state<Record<string, boolean>>({});
 
 function splitThreads(project: Project): { head: ThreadSummary[]; hidden: number } {
   const keep = (thread: ThreadSummary) =>
     thread.id === selectedThread ||
-    (focus ? isTouched(thread.id) : thread.pinned || !(sidebarPrefs.hideOldThreads && isStale(thread.updatedAt)));
+    thread.pinned ||
+    (!thread.hidden && !(sidebarPrefs.hideOldThreads && isStale(thread.updatedAt)));
   const head = project.threads.filter(keep).slice(0, THREAD_LIMIT);
   // Selection can come from outside the sidebar; keep it visible even when it
   // sorts past the cap.
@@ -185,14 +183,21 @@ const rootAdapter = {
 };
 const threadAdapter = { key: (thread: ThreadSummary) => thread.id, pinned: (thread: ThreadSummary) => thread.pinned };
 
-const rootTree = $derived.by(() => {
-  const tree = buildTree(sidebarLayout, ROOT_SCOPE, visibleProjects, rootAdapter);
-  return focus ? hoistActive(tree, projectIsActive) : tree;
-});
-const projectTree = (project: Project) => {
-  const tree = buildTree(sidebarLayout, project.path, visibleThreads(project), threadAdapter);
-  return focus && !showAllThreads[project.path] ? pruneEmptyFolders(tree) : tree;
-};
+const rootTree = $derived(buildTree(sidebarLayout, ROOT_SCOPE, visibleProjects, rootAdapter));
+const projectTree = (project: Project) =>
+  buildTree(sidebarLayout, project.path, visibleThreads(project), threadAdapter);
+
+/** Every thread of `project` in the order the sidebar draws them, "Show more"
+ *  or not: folders first-to-last, each run split by section like `threadList`. */
+function orderedThreadIds(project: Project): string[] {
+  const walk = (nodes: TreeNode<ThreadSummary>[]): string[] =>
+    threadRuns(nodes).flatMap((run) =>
+      run.kind === "folder"
+        ? walk(run.node.children)
+        : threadGroups(run.threads).flatMap((group) => group.threads.map((thread) => thread.id)),
+    );
+  return walk(buildTree(sidebarLayout, project.path, project.threads, threadAdapter));
+}
 
 function treeFor(scope: string): TreeNode<Project>[] | TreeNode<ThreadSummary>[] | null {
   if (scope === ROOT_SCOPE) return rootTree;
@@ -258,6 +263,7 @@ const folderRef = (folder: SidebarFolder): SidebarItemRef => ({ kind: "folder", 
 const dropClass = (ref: SidebarItemRef) => (dnd.over?.rowId === rowId(ref) ? `drop-${dnd.over.zone}` : "");
 
 function persistFolderExpansion(folder: SidebarFolder, expanded: boolean) {
+  folder.expanded = expanded;
   void setSidebarFolderExpanded(folder.id, expanded).catch((cause) => {
     toastError(`Could not save folder expansion: ${cause instanceof Error ? cause.message : String(cause)}`);
   });
@@ -305,7 +311,8 @@ let menu = $state<{ x: number; y: number; target: MenuTarget } | null>(null);
 const MENU_WIDTH = 190;
 
 function openMenuAt(x: number, y: number, target: MenuTarget) {
-  const height = target.kind === "section" ? 80 : target.kind === "folder" ? 110 : 290;
+  const height =
+    target.kind === "section" ? 80 : target.kind === "folder" ? 110 : target.kind === "project" ? 330 : 380;
   menu = {
     x: Math.min(x, window.innerWidth - MENU_WIDTH - 8),
     y: Math.min(y, window.innerHeight - height - 8),
@@ -339,6 +346,7 @@ const onlineCount = $derived(activeConnectionCount(remoteConnections.list));
 const projectTarget = (project: Project): MenuTarget => ({ kind: "project", project });
 
 function persistProjectExpansion(project: Project, expanded: boolean) {
+  project.expanded = expanded;
   void setProjectExpanded(project.path, expanded).catch((cause) => {
     toastError(`Could not save project expansion: ${cause instanceof Error ? cause.message : String(cause)}`);
   });
@@ -353,6 +361,7 @@ const threadTarget = (project: Project, thread: ThreadSummary): MenuTarget => ({
   kind: "thread",
   project,
   thread,
+  order: orderedThreadIds(project),
 });
 const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section", section });
 </script>
@@ -361,7 +370,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
 
 {#snippet threadRow(project: Project, thread: ThreadSummary)}
   <div
-    class="group/thread relative rounded-md {dropClass({ kind: 'item', id: thread.id })}"
+    class="group/thread relative rounded-md {dropClass({ kind: 'item', id: thread.id })} {thread.hidden ? 'opacity-50' : ''}"
     role="presentation"
     oncontextmenu={(event) => onContextMenu(event, threadTarget(project, thread))}
     use:draggable={dragSource(project.path, { kind: "item", id: thread.id }, thread.title)}
@@ -382,6 +391,11 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
       {/if}
       {#if thread.pinned}
         <Star class="shrink-0 fill-warning-500 text-warning-500" size={11} />
+      {/if}
+      {#if thread.hidden}
+        <span class="grid shrink-0 place-items-center text-surface-500" title="Hidden">
+          <EyeOff size={11} />
+        </span>
       {/if}
       <span class="min-w-0 flex-1 truncate" title={thread.title}>{thread.title}</span>
       {#if thread.harness === "claude"}
@@ -484,7 +498,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
 {#snippet threadNodes(project: Project, nodes: TreeNode<ThreadSummary>[])}
   {#each threadRuns(nodes) as run, index (run.kind === "folder" ? rowId(folderRef(run.node.folder)) : `run-${index}`)}
     {#if run.kind === "folder"}
-      <Collapsible defaultOpen={run.node.folder.expanded} onOpenChange={({ open }) => persistFolderExpansion(run.node.folder, open)}>
+      <Collapsible open={run.node.folder.expanded} onOpenChange={({ open }) => persistFolderExpansion(run.node.folder, open)}>
         {@render folderHeader(run.node.folder, project, flattenItems(run.node.children).length)}
         <Collapsible.Content class="ml-[27px] border-l border-surface-200-800 pl-1.5">
           {#if run.node.children.length === 0}
@@ -501,9 +515,9 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
 {/snippet}
 
 {#snippet projectRow(project: Project)}
-  <Collapsible defaultOpen={project.expanded} onOpenChange={({ open }) => persistProjectExpansion(project, open)}>
+  <Collapsible open={project.expanded} onOpenChange={({ open }) => persistProjectExpansion(project, open)}>
     <div
-      class="group/project relative flex items-center rounded-md {dropClass({ kind: 'item', id: project.path })} {focus && !projectIsActive(project) ? 'opacity-60' : ''}"
+      class="group/project relative flex items-center rounded-md {dropClass({ kind: 'item', id: project.path })}"
       role="presentation"
       oncontextmenu={(event) => onContextMenu(event, projectTarget(project))}
       use:draggable={dragSource(ROOT_SCOPE, { kind: "item", id: project.path }, project.name)}
@@ -581,7 +595,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
 
 {#snippet rootNode(node: TreeNode<Project>)}
   {#if node.kind === "folder"}
-    <Collapsible defaultOpen={node.folder.expanded} onOpenChange={({ open }) => persistFolderExpansion(node.folder, open)}>
+    <Collapsible open={node.folder.expanded} onOpenChange={({ open }) => persistFolderExpansion(node.folder, open)}>
       {@render folderHeader(node.folder, null, flattenItems(node.children).length)}
       <Collapsible.Content class="ml-[27px] border-l border-surface-200-800 pl-1.5">
         {#if node.children.length === 0}
@@ -643,17 +657,25 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
     <div class="projects-heading mb-1 flex h-8 items-center justify-between px-2">
       <span class="text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Projects</span>
       <div class="flex items-center gap-0.5">
-        <TooltipButton
-          label={focus ? "Show all threads" : "Session focus: only threads you've touched since launch"}
-          onclick={() => sidebarPrefs.setSessionFocus(!focus)}
-          aria-pressed={focus}
-          data-testid="session-focus-toggle"
-          class="btn-icon btn-icon-sm transition focus:opacity-100 group-hover/projects:opacity-100 {focus
-            ? 'preset-tonal-primary text-primary-500'
-            : 'hover:preset-tonal text-surface-600-400 opacity-0'}"
-        >
-          <Zap size={15} />
-        </TooltipButton>
+        {#if onSessionFocus}
+          <TooltipButton
+            label="Focus: hide threads not opened this session or favorited"
+            onclick={onSessionFocus}
+            data-testid="session-focus"
+            class="btn-icon btn-icon-sm hover:preset-tonal text-surface-600-400 opacity-0 transition focus:opacity-100 group-hover/projects:opacity-100"
+          >
+            <Zap size={15} />
+          </TooltipButton>
+        {/if}
+        {#if onResetOrder}
+          <TooltipButton
+            label="Reset project order"
+            onclick={() => onResetOrder?.(ROOT_SCOPE)}
+            class="btn-icon btn-icon-sm hover:preset-tonal text-surface-600-400 opacity-0 transition focus:opacity-100 group-hover/projects:opacity-100"
+          >
+            <ListRestart size={15} />
+          </TooltipButton>
+        {/if}
         {#if onAddWorkspace}
           <TooltipButton
             label="Create multi-project workspace"
@@ -681,12 +703,6 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
         </TooltipButton>
       </div>
     </div>
-
-    {#if focus}
-      <p class="mb-1 px-2 text-[10px] text-surface-500">
-        Threads you've touched since launch · {touchedCount}
-      </p>
-    {/if}
 
     {#if loading}
       <div class="space-y-2 px-2 py-2" aria-label="Loading projects">

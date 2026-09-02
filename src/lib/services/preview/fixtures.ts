@@ -92,6 +92,7 @@ export const previewData: BootstrapData = {
           agentRole: null,
           projectId: null,
           subagentCount: 2,
+          hidden: false,
           sectionId: "section-focus",
         },
         {
@@ -107,6 +108,7 @@ export const previewData: BootstrapData = {
           projectId: null,
           sectionId: null,
           subagentCount: 0,
+          hidden: false,
         },
       ],
     },
@@ -133,6 +135,7 @@ export const previewData: BootstrapData = {
           agentRole: null,
           projectId: null,
           subagentCount: 0,
+          hidden: false,
           sectionId: "section-focus",
         },
         // Enough threads to push this project past the sidebar's per-project cap
@@ -150,6 +153,7 @@ export const previewData: BootstrapData = {
           projectId: null,
           sectionId: null,
           subagentCount: 0,
+          hidden: false,
         })),
       ],
     },
@@ -184,6 +188,7 @@ export const previewData: BootstrapData = {
       agentNickname: "Scout",
       agentRole: "researcher",
       subagentCount: 1,
+      hidden: false,
     },
     {
       id: "agent-2",
@@ -198,6 +203,7 @@ export const previewData: BootstrapData = {
       agentNickname: "Reviewer",
       agentRole: "reviewer",
       subagentCount: 0,
+      hidden: false,
     },
   ],
   sections: [
@@ -353,6 +359,7 @@ export const previewArchivedThreads: ThreadSummary[] = Array.from({ length: 14 }
   projectId: null,
   sectionId: null,
   subagentCount: 0,
+  hidden: false,
 }));
 
 // The search index mirrors active (from previewData) and archived threads.

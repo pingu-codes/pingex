@@ -85,6 +85,7 @@ describe("naming a freshly created thread", () => {
       projectId: null,
       sectionId: null,
       subagentCount: 0,
+      hidden: false,
     });
     applyData(caughtUp);
 

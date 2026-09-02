@@ -303,6 +303,31 @@ pub(crate) async fn place_sidebar_item(
     transaction.commit().await.map_err(db::db_error)
 }
 
+/// Forget the user's drag ordering within `scope`. Items at the scope root
+/// lose their placement entirely; items inside folders keep the folder but
+/// share one ordinal, so the natural (favourites, then recency) order wins
+/// again. Folders keep their own order.
+pub(crate) async fn reset_sidebar_order(database: &Database, scope: &str) -> Result<(), String> {
+    let connection = db::conn(database)?;
+    let transaction = connection
+        .unchecked_transaction()
+        .await
+        .map_err(db::db_error)?;
+    db::exec(
+        &transaction,
+        "DELETE FROM sidebar_placements WHERE scope = ? AND parent_id IS NULL",
+        params![scope.to_string()],
+    )
+    .await?;
+    db::exec(
+        &transaction,
+        "UPDATE sidebar_placements SET ordinal = 0 WHERE scope = ?",
+        params![scope.to_string()],
+    )
+    .await?;
+    transaction.commit().await.map_err(db::db_error)
+}
+
 /// Drop every folder and placement inside a project that was removed.
 pub(crate) async fn forget_sidebar_scope(database: &Database, scope: &str) -> Result<(), String> {
     let connection = db::conn(database)?;
@@ -423,6 +448,61 @@ mod tests {
         assert_eq!(layout.folders.len(), 1);
         assert_eq!(layout.folders[0].scope, "/live");
         assert!(layout.placements.is_empty());
+    }
+
+    #[tokio::test]
+    async fn resetting_order_drops_root_placements_and_flattens_folder_ordinals() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = open(directory.path()).await.unwrap();
+        let work = create_sidebar_folder(&database, "/p", None, "Work")
+            .await
+            .unwrap();
+        place_sidebar_item(
+            &database,
+            "/p",
+            &item("t1"),
+            None,
+            &[item("t1"), item("t2")],
+        )
+        .await
+        .unwrap();
+        place_sidebar_item(
+            &database,
+            "/p",
+            &item("t3"),
+            Some(&work),
+            &[item("t4"), item("t3")],
+        )
+        .await
+        .unwrap();
+        place_sidebar_item(&database, "/other", &item("o1"), None, &[item("o1")])
+            .await
+            .unwrap();
+        reset_sidebar_order(&database, "/p").await.unwrap();
+
+        let layout = read_sidebar_layout(&database).await.unwrap();
+        let mut placements: Vec<_> = layout
+            .placements
+            .iter()
+            .map(|p| {
+                (
+                    p.item_key.as_str(),
+                    p.scope.as_str(),
+                    p.parent_id.as_deref(),
+                    p.ordinal,
+                )
+            })
+            .collect();
+        placements.sort();
+        assert_eq!(
+            placements,
+            vec![
+                ("o1", "/other", None, 0),
+                ("t3", "/p", Some(work.as_str()), 0),
+                ("t4", "/p", Some(work.as_str()), 0),
+            ]
+        );
+        assert_eq!(layout.folders.len(), 1);
     }
 
     #[test]

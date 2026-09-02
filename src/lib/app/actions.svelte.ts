@@ -30,6 +30,7 @@ import DeleteThreadDialog from "$lib/layout/DeleteThreadDialog.svelte";
 import RenameDialog from "$lib/layout/RenameDialog.svelte";
 import SectionPickerDialog from "$lib/layout/SectionPickerDialog.svelte";
 import { touchThread } from "$lib/layout/sessionFocus.svelte";
+import { isEmptyPlan, sessionFocusPlan } from "$lib/layout/sessionFocusPlan";
 import {
   buildTree,
   childrenOf,
@@ -40,6 +41,7 @@ import {
   refOf,
 } from "$lib/layout/sidebarTree";
 import {
+  applySessionFocus,
   archiveThread,
   createSidebarFolder,
   createThreadSection,
@@ -57,11 +59,13 @@ import {
   renameProject,
   renameSidebarFolder,
   renameThread,
+  resetSidebarOrder,
   revealInFinder,
   saveDraft,
   setProjectArchived,
   setProjectPinned,
   setThreadPinned,
+  setThreadsHidden,
   updateThreadSection,
   updateWorkspace,
 } from "$lib/services/api";
@@ -116,7 +120,7 @@ export function slashCommand(command: SlashCommandId, threadId: string | null): 
   for (const project of projects()) {
     const thread = project.threads.find((candidate) => candidate.id === threadId);
     if (thread) {
-      menuAction(command, { kind: "thread", project, thread });
+      menuAction(command, { kind: "thread", project, thread, order: project.threads.map((t) => t.id) });
       return;
     }
   }
@@ -228,6 +232,26 @@ export async function moveSidebarItem(
   }
 }
 
+/** Forget the user's drag ordering in `scope` (`ROOT_SCOPE` for projects). */
+export async function resetOrder(scope: string): Promise<void> {
+  try {
+    applyData(await resetSidebarOrder(scope));
+  } catch (cause) {
+    fail(cause);
+  }
+}
+
+/** The session-focus button. */
+export async function focusSession(): Promise<void> {
+  const plan = sessionFocusPlan(projects(), appData.data?.sidebarLayout ?? emptyLayout(), view.threadId);
+  if (isEmptyPlan(plan)) return;
+  try {
+    applyData(await applySessionFocus(plan.hide, plan.collapseProjects, plan.collapseFolders));
+  } catch (cause) {
+    fail(cause);
+  }
+}
+
 /** "Move up/down" for a project: swap it with its neighbour among its
  *  siblings. Pinned projects always float above unpinned ones, so a swap
  *  across that boundary would be invisible and is skipped. */
@@ -304,6 +328,30 @@ export async function menuAction(action: MenuAction, target: MenuTarget): Promis
       if (target.kind !== "project") return;
       applyData(await removeProject(target.project.path));
       if (view.projectPath === target.project.path) goHome();
+      return;
+    }
+    if (action === "toggleHidden") {
+      if (target.kind === "thread") applyData(await setThreadsHidden([target.thread.id], !target.thread.hidden));
+      return;
+    }
+    if (action === "hideBelow") {
+      if (target.kind !== "thread") return;
+      const at = target.order.indexOf(target.thread.id);
+      const below = new Set(at < 0 ? [] : target.order.slice(at + 1));
+      const ids = target.project.threads
+        .filter((thread) => below.has(thread.id) && !thread.hidden && !thread.pinned)
+        .map((thread) => thread.id);
+      if (ids.length > 0) applyData(await setThreadsHidden(ids, true));
+      return;
+    }
+    if (action === "unhideAll") {
+      if (target.kind !== "project") return;
+      const ids = target.project.threads.filter((thread) => thread.hidden).map((thread) => thread.id);
+      if (ids.length > 0) applyData(await setThreadsHidden(ids, false));
+      return;
+    }
+    if (action === "resetOrder") {
+      if (target.kind === "project") await resetOrder(target.project.path);
       return;
     }
     if (action === "moveUp" || action === "moveDown") {

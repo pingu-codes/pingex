@@ -389,6 +389,9 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             projects::commands::set_sidebar_folder_expanded,
             projects::commands::place_sidebar_item,
             projects::commands::set_thread_pinned,
+            projects::commands::set_threads_hidden,
+            projects::commands::reset_sidebar_order,
+            projects::commands::apply_session_focus,
             projects::commands::read_account_rate_limits,
             projects::commands::read_thread_usage,
             // Workspaces

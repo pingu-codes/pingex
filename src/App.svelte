@@ -2,12 +2,14 @@
 import { ArrowLeft, RefreshCw, X } from "@lucide/svelte";
 import {
   askCodexReview,
+  focusSession,
   menuAction,
   moveSidebarItem,
   newFolder,
   openSubagent,
   openWorkspaceDialog,
   renameProjectAt,
+  resetOrder,
   slashCommand,
   threadCreated,
 } from "$lib/app/actions.svelte";
@@ -124,6 +126,8 @@ init();
     sidebarLayout={appData.data?.sidebarLayout}
     onNewFolder={() => newFolder("", null)}
     onMoveItem={moveSidebarItem}
+    onSessionFocus={focusSession}
+    onResetOrder={resetOrder}
     onSelectArchived={(archived) => openThreadInCwd(archived.id, archived.cwd)}
     onUnarchived={applyData}
     onOpenWorktrees={openWorktrees}

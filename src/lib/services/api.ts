@@ -1,5 +1,5 @@
 import { commands } from "$lib/bindings";
-import { deleteFromLayout, emptyLayout, nextOrdinal, placeInLayout } from "$lib/layout/sidebarTree";
+import { deleteFromLayout, emptyLayout, nextOrdinal, placeInLayout, resetLayoutOrder } from "$lib/layout/sidebarTree";
 import { previewStageBytes, previewStageFile, previewStageFromPath } from "$lib/services/preview/attachments";
 import {
   nextPreviewId,
@@ -246,6 +246,49 @@ export async function setThreadPinned(threadId: string, pinned: boolean): Promis
     return previewSort();
   }
   return commands.setThreadPinned(threadId, pinned);
+}
+
+/** Fold threads out of the sidebar ("Hide thread"), or bring them back. */
+export async function setThreadsHidden(threadIds: string[], hidden: boolean): Promise<BootstrapData> {
+  if (!isTauri()) {
+    for (const project of previewData.projects) {
+      for (const thread of project.threads) {
+        if (threadIds.includes(thread.id)) thread.hidden = hidden;
+      }
+    }
+    return previewSort();
+  }
+  return commands.setThreadsHidden(threadIds, hidden);
+}
+
+/** Forget the user's drag ordering in one sidebar scope. */
+export async function resetSidebarOrder(scope: string): Promise<BootstrapData> {
+  if (!isTauri()) {
+    previewData.sidebarLayout = resetLayoutOrder(previewData.sidebarLayout ?? emptyLayout(), scope);
+    return previewSort();
+  }
+  return commands.resetSidebarOrder(scope);
+}
+
+/** The session-focus button: hide and collapse in one round trip. */
+export async function applySessionFocus(
+  hide: string[],
+  collapseProjects: string[],
+  collapseFolders: string[],
+): Promise<BootstrapData> {
+  if (!isTauri()) {
+    for (const project of previewData.projects) {
+      if (collapseProjects.includes(project.path)) project.expanded = false;
+      for (const thread of project.threads) {
+        if (hide.includes(thread.id)) thread.hidden = true;
+      }
+    }
+    for (const folder of previewData.sidebarLayout?.folders ?? []) {
+      if (collapseFolders.includes(folder.id)) folder.expanded = false;
+    }
+    return previewSort();
+  }
+  return commands.applySessionFocus(hide, collapseProjects, collapseFolders);
 }
 
 export async function revealInFinder(path: string): Promise<void> {

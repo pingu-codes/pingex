@@ -321,6 +321,7 @@ mod tests {
         let store = Store {
             projects: vec![project("/repo"), project("/repo/packages/web")],
             pinned_threads: Vec::new(),
+            hidden_threads: Vec::new(),
         };
         let locals = local_projects(
             &store,
@@ -343,6 +344,7 @@ mod tests {
         let store = Store {
             projects: vec![project("/repo/api")],
             pinned_threads: Vec::new(),
+            hidden_threads: Vec::new(),
         };
         let workspace = StoredWorkspace {
             id: "ws".into(),

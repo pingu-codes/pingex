@@ -285,6 +285,70 @@ pub(crate) async fn set_thread_pinned(
     bootstrap_cached(&ctx).await
 }
 
+/// Fold `thread_ids` out of the sidebar, or bring them back.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn set_threads_hidden(
+    thread_ids: Vec<String>,
+    hidden: bool,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<BootstrapData, String> {
+    let ctx = state.ctx(&window);
+    let mut store = storage::read_store(&ctx.database()).await?;
+    set_hidden(&mut store, &thread_ids, hidden);
+    storage::write_store(&ctx.database(), &store).await?;
+    bootstrap_cached(&ctx).await
+}
+
+fn set_hidden(store: &mut Store, thread_ids: &[String], hidden: bool) {
+    store.hidden_threads.retain(|id| !thread_ids.contains(id));
+    if hidden {
+        store.hidden_threads.extend(thread_ids.iter().cloned());
+    }
+}
+
+/// Forget the user's drag ordering in one sidebar scope (`""` for projects,
+/// a project path for its threads).
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn reset_sidebar_order(
+    scope: String,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<BootstrapData, String> {
+    let ctx = state.ctx(&window);
+    storage::reset_sidebar_order(&ctx.database(), &scope).await?;
+    bootstrap_cached(&ctx).await
+}
+
+/// The "session focus" button: hide the threads the user has not touched
+/// this session and collapse whatever is left empty, in one round trip so
+/// the sidebar redraws once.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn apply_session_focus(
+    hide: Vec<String>,
+    collapse_projects: Vec<String>,
+    collapse_folders: Vec<String>,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<BootstrapData, String> {
+    let ctx = state.ctx(&window);
+    if !hide.is_empty() {
+        let mut store = storage::read_store(&ctx.database()).await?;
+        set_hidden(&mut store, &hide, true);
+        storage::write_store(&ctx.database(), &store).await?;
+    }
+    for path in &collapse_projects {
+        storage::set_project_expanded(&ctx.database(), path, false).await?;
+    }
+    for id in &collapse_folders {
+        storage::set_sidebar_folder_expanded(&ctx.database(), id, false).await?;
+    }
+    bootstrap_cached(&ctx).await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn remove_project(
@@ -316,6 +380,16 @@ pub(crate) async fn remove_project(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hiding_is_idempotent_and_unhiding_removes() {
+        let mut store = Store::default();
+        set_hidden(&mut store, &["a".into(), "b".into()], true);
+        set_hidden(&mut store, &["b".into(), "c".into()], true);
+        assert_eq!(store.hidden_threads, vec!["a", "b", "c"]);
+        set_hidden(&mut store, &["a".into(), "c".into()], false);
+        assert_eq!(store.hidden_threads, vec!["b"]);
+    }
 
     #[test]
     fn looking_up_a_project_inserts_it_once() {

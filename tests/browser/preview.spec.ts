@@ -115,9 +115,9 @@ test("renames, pins, archives, and deletes threads", async ({ page }) => {
   await expect(page.getByRole("button", { name: /Renamed preview thread/ })).toBeVisible();
 
   await threadMenu(page, "Renamed preview thread").click();
-  await page.getByRole("menuitem", { name: "Pin thread" }).click();
+  await page.getByRole("menuitem", { name: "Favorite thread" }).click();
   await threadMenu(page, "Renamed preview thread").click();
-  await expect(page.getByRole("menuitem", { name: "Unpin thread" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Unfavorite thread" })).toBeVisible();
   await page.keyboard.press("Escape");
 
   await threadMenu(page, "Renamed preview thread").click();

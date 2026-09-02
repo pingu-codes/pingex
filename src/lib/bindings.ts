@@ -28,6 +28,19 @@ export const commands = {
 	 */
 	placeSidebarItem: (scope: string, item: SiblingRef, parentId: string | null, siblings: SiblingRef[]) => __TAURI_INVOKE<BootstrapData>("place_sidebar_item", { scope, item, parentId, siblings }),
 	setThreadPinned: (threadId: string, pinned: boolean) => __TAURI_INVOKE<BootstrapData>("set_thread_pinned", { threadId, pinned }),
+	/**  Fold `thread_ids` out of the sidebar, or bring them back. */
+	setThreadsHidden: (threadIds: string[], hidden: boolean) => __TAURI_INVOKE<BootstrapData>("set_threads_hidden", { threadIds, hidden }),
+	/**
+	 *  Forget the user's drag ordering in one sidebar scope (`""` for projects,
+	 *  a project path for its threads).
+	 */
+	resetSidebarOrder: (scope: string) => __TAURI_INVOKE<BootstrapData>("reset_sidebar_order", { scope }),
+	/**
+	 *  The "session focus" button: hide the threads the user has not touched
+	 *  this session and collapse whatever is left empty, in one round trip so
+	 *  the sidebar redraws once.
+	 */
+	applySessionFocus: (hide: string[], collapseProjects: string[], collapseFolders: string[]) => __TAURI_INVOKE<BootstrapData>("apply_session_focus", { hide, collapseProjects, collapseFolders }),
 	/**
 	 *  Read the account's rolling rate-limit windows (5h / weekly). Codex also
 	 *  pushes `account/rateLimits/updated` during turns; this is the cold-start
@@ -1599,6 +1612,8 @@ export type ThreadSummary = {
 	/**  The thread section it sits in (Codex ≥0.149). See `threads::sections`. */
 	sectionId: string | null,
 	subagentCount: number,
+	/**  Folded out of the sidebar by the user; still listed so it can be unhidden. */
+	hidden: boolean,
 	/**  Which harness runs the thread; `None` means Codex. */
 	harness?: string | null,
 };

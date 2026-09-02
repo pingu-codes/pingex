@@ -24,6 +24,9 @@ pub(crate) struct StoredProject {
 pub(crate) struct Store {
     pub(crate) projects: Vec<StoredProject>,
     pub(crate) pinned_threads: Vec<String>,
+    /// Threads the user folded out of the sidebar ("Hide thread"). Unrelated
+    /// to `read_hidden_thread_ids`, which covers app-owned threads.
+    pub(crate) hidden_threads: Vec<String>,
 }
 
 pub(crate) async fn read_store(database: &Database) -> Result<Store, String> {
@@ -49,9 +52,17 @@ pub(crate) async fn read_store(database: &Database) -> Result<Store, String> {
         |row| db::text(row, 0),
     )
     .await?;
+    let hidden_threads = db::rows(
+        &connection,
+        "SELECT thread_id FROM hidden_threads ORDER BY rowid",
+        (),
+        |row| db::text(row, 0),
+    )
+    .await?;
     Ok(Store {
         projects,
         pinned_threads,
+        hidden_threads,
     })
 }
 
@@ -63,6 +74,7 @@ pub(crate) async fn write_store(database: &Database, store: &Store) -> Result<()
         .map_err(db::db_error)?;
     db::exec(&transaction, "DELETE FROM projects", ()).await?;
     db::exec(&transaction, "DELETE FROM pinned_threads", ()).await?;
+    db::exec(&transaction, "DELETE FROM hidden_threads", ()).await?;
     for project in &store.projects {
         db::exec(
             &transaction,
@@ -80,6 +92,14 @@ pub(crate) async fn write_store(database: &Database, store: &Store) -> Result<()
         db::exec(
             &transaction,
             "INSERT INTO pinned_threads(thread_id) VALUES (?)",
+            (thread_id.clone(),),
+        )
+        .await?;
+    }
+    for thread_id in &store.hidden_threads {
+        db::exec(
+            &transaction,
+            "INSERT INTO hidden_threads(thread_id) VALUES (?)",
             (thread_id.clone(),),
         )
         .await?;
@@ -148,6 +168,7 @@ mod tests {
                 archived: true,
             }],
             pinned_threads: vec!["thread-1".into()],
+            hidden_threads: vec!["thread-2".into()],
         };
         write_store(&database, &store).await.unwrap();
         assert_eq!(read_store(&database).await.unwrap(), store);

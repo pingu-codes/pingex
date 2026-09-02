@@ -75,8 +75,8 @@ pub(crate) use server_projects::{
 };
 pub(crate) use sidebar_layout::{
     create_sidebar_folder, delete_sidebar_folder, forget_sidebar_scope, is_folder_or_descendant,
-    place_sidebar_item, read_sidebar_layout, rename_sidebar_folder, set_sidebar_folder_expanded,
-    SiblingRef, SidebarLayout,
+    place_sidebar_item, read_sidebar_layout, rename_sidebar_folder, reset_sidebar_order,
+    set_sidebar_folder_expanded, SiblingRef, SidebarLayout,
 };
 pub(crate) use sources::{
     delete_project_source, insert_project_source, read_all_project_instructions,

@@ -101,7 +101,14 @@ export type SidebarItemRef = SiblingRef;
 
 export type MenuTarget =
   | { kind: "project"; project: Project }
-  | { kind: "thread"; project: Project; thread: ThreadSummary }
+  | {
+      kind: "thread";
+      project: Project;
+      thread: ThreadSummary;
+      /** Every thread id of the project in the order the sidebar draws them,
+       *  including ones folded behind "Show more"; "Hide threads below" cuts here. */
+      order: string[];
+    }
   | { kind: "section"; section: ThreadSection }
   | { kind: "folder"; folder: SidebarFolder; project: Project | null };
 
@@ -109,6 +116,10 @@ export type MenuAction =
   | "reveal"
   | "rename"
   | "togglePin"
+  | "toggleHidden"
+  | "hideBelow"
+  | "unhideAll"
+  | "resetOrder"
   | "toggleArchive"
   | "archive"
   | "delete"

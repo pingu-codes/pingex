@@ -84,32 +84,6 @@ export function buildTree<T>(
   return roots;
 }
 
-/** Folders whose subtree holds no items are dropped (recursively). Used by
- *  the session-focus view, where a folder of untouched threads is just noise. */
-export function pruneEmptyFolders<T>(nodes: TreeNode<T>[]): TreeNode<T>[] {
-  const out: TreeNode<T>[] = [];
-  for (const node of nodes) {
-    if (node.kind === "item") out.push(node);
-    else {
-      const children = pruneEmptyFolders(node.children);
-      if (children.length > 0) out.push({ ...node, children });
-    }
-  }
-  return out;
-}
-
-/** Stable partition at every level: nodes whose subtree contains an active
- *  item first, the rest after, each half keeping its existing order — so
- *  pinned/dragged ordering still holds within the two groups. */
-export function hoistActive<T>(nodes: TreeNode<T>[], isActive: (item: T) => boolean): TreeNode<T>[] {
-  const hasActive = (node: TreeNode<T>): boolean =>
-    node.kind === "item" ? isActive(node.item) : node.children.some(hasActive);
-  const lifted = nodes.map((node) =>
-    node.kind === "folder" ? { ...node, children: hoistActive(node.children, isActive) } : node,
-  );
-  return [...lifted.filter(hasActive), ...lifted.filter((node) => !hasActive(node))];
-}
-
 export const refOf = <T>(node: TreeNode<T>): SidebarItemRef => ({ kind: node.kind, id: node.id });
 export const sameRef = (a: SidebarItemRef, b: SidebarItemRef) => a.kind === b.kind && a.id === b.id;
 
@@ -276,6 +250,17 @@ export function deleteFromLayout(layout: SidebarLayout, folderId: string): Sideb
   return {
     folders: layout.folders.filter((folder) => folder.id !== folderId).map(lift),
     placements: layout.placements.map(lift),
+  };
+}
+
+/** Mirror of the backend's `reset_sidebar_order`: root-level placements go,
+ *  placements inside folders keep the folder but share ordinal 0. */
+export function resetLayoutOrder(layout: SidebarLayout, scope: string): SidebarLayout {
+  return {
+    folders: layout.folders,
+    placements: layout.placements
+      .filter((placement) => !(placement.scope === scope && placement.parentId === null))
+      .map((placement) => (placement.scope === scope ? { ...placement, ordinal: 0 } : placement)),
   };
 }
 

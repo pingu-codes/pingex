@@ -88,3 +88,34 @@ test("reordering root projects via drag still works", async ({ page }) => {
   const order = await page.locator("[data-sidebar-row^='item:']").allTextContents();
   expect(order.join(" ")).toContain("arctic-explorer");
 });
+
+test("hiding threads below folds them behind Show more until unhidden", async ({ page }) => {
+  const first = page.locator('[data-sidebar-row="item:1"]');
+  const second = page.locator('[data-sidebar-row="item:2"]');
+  await expect(first).toBeVisible();
+  await expect(second).toBeVisible();
+
+  await first.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Hide threads below" }).click();
+  await expect(second).toBeHidden();
+  await expect(first).toBeVisible();
+
+  await page.getByRole("button", { name: "Show 1 more" }).click();
+  await expect(second).toBeVisible();
+  await second.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Unhide thread" }).click();
+  // Nothing left to fold in this project (arctic-explorer keeps its own button).
+  await expect(page.getByRole("button", { name: "Show 1 more" })).toBeHidden();
+  await expect(second).toBeVisible();
+});
+
+test("reset project order undoes a drag", async ({ page, browserName }) => {
+  const rows = () => page.locator("[data-sidebar-row^='item:/']");
+  const before = await rows().allTextContents();
+  await dragRow(page, projectRow(page, PROJECT_PATH), projectRow(page, OTHER_PROJECT_PATH));
+  // Pointer-event drags don't land in WebKit (see the reorder test above).
+  if (browserName !== "webkit") expect(await rows().allTextContents()).not.toEqual(before);
+
+  await page.getByRole("button", { name: "Reset project order" }).click();
+  await expect.poll(() => rows().allTextContents()).toEqual(before);
+});

@@ -199,8 +199,10 @@ pub(crate) async fn invalidate_thread_cache(
 /// which differ only in what they do to the search index.
 async fn remove_thread_locally(ctx: &crate::HomeContext, thread_id: &str) -> Result<(), String> {
     let mut store = storage::read_store(&ctx.database()).await?;
-    if store.pinned_threads.iter().any(|id| id == thread_id) {
+    let listed = |ids: &[String]| ids.iter().any(|id| id == thread_id);
+    if listed(&store.pinned_threads) || listed(&store.hidden_threads) {
         store.pinned_threads.retain(|id| id != thread_id);
+        store.hidden_threads.retain(|id| id != thread_id);
         storage::write_store(&ctx.database(), &store).await?;
     }
     storage::delete_thread_summary(&ctx.database(), thread_id).await?;

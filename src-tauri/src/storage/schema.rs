@@ -32,6 +32,9 @@ const DDL: &str = "CREATE TABLE IF NOT EXISTS metadata (
  CREATE TABLE IF NOT EXISTS pinned_threads (
      thread_id TEXT PRIMARY KEY
  );
+ CREATE TABLE IF NOT EXISTS hidden_threads (
+     thread_id TEXT PRIMARY KEY
+ );
  CREATE TABLE IF NOT EXISTS thread_summaries (
      thread_id TEXT PRIMARY KEY,
      cwd TEXT NOT NULL,
@@ -342,6 +345,7 @@ fn parse_legacy_store(text: &str) -> Result<Store, JsonError> {
             })
             .collect(),
         pinned_threads: Vec::new(),
+        hidden_threads: Vec::new(),
     })
 }
 
