@@ -151,8 +151,8 @@ init();
   ></div>
   </div>
 
-  <section class="relative min-w-0 flex-1">
-    <header class="flex h-14 items-center justify-between border-b border-surface-200-800 px-5 select-none" data-tauri-drag-region use:dragRegion>
+  <section class="relative flex min-w-0 flex-1 flex-col">
+    <header class="flex h-14 shrink-0 items-center justify-between border-b border-surface-200-800 px-5 select-none" data-tauri-drag-region use:dragRegion>
       <div class="flex min-w-0 items-center gap-2">
         {#if thread?.parentThreadId}
           <TooltipButton label="Back to parent thread" onclick={openParentThread} aria-label="Back to parent thread" class="btn-icon btn-icon-sm shrink-0 hover:preset-tonal text-surface-500">
@@ -202,13 +202,13 @@ init();
     {/if}
 
     {#if review}
-      <div class="h-[calc(100%-3.5rem)]">
+      <div class="min-h-0 flex-1">
         {#key review.path}
           <ReviewView repoDir={review.path} repoName={review.name} onBack={goHome} onAskCodex={askCodexReview} />
         {/key}
       </div>
     {:else if worktrees}
-      <div class="h-[calc(100%-3.5rem)]">
+      <div class="min-h-0 flex-1">
         {#key worktrees.path}
           <Worktrees
             repoDir={worktrees.path}
@@ -225,7 +225,7 @@ init();
         {/key}
       </div>
     {:else if (view.threadId || view.draftCwd) && !appData.error}
-      <div class="h-[calc(100%-3.5rem)]">
+      <div class="min-h-0 flex-1">
         {#key view.epoch}
           <ThreadView
             threadId={view.threadId}
@@ -246,20 +246,20 @@ init();
         {/key}
       </div>
     {:else if detail && !appData.error}
-      <div class="h-[calc(100%-3.5rem)]">
+      <div class="min-h-0 flex-1">
         {#key detail.path}
           <ProjectDetail project={detail} onOpenThread={openThreadById} onNewThread={newThread} onManageWorkspace={openWorkspaceDialog} />
         {/key}
       </div>
     {:else if appData.error}
-      <div class="grid h-[calc(100%-3.5rem)] place-items-center p-8">
+      <div class="grid min-h-0 flex-1 place-items-center p-8">
         <div class="card preset-tonal-error max-w-md p-4 text-sm">
           <div class="font-semibold">Could not connect to Codex</div>
           <p class="mt-1 text-xs leading-5">{appData.error}</p>
         </div>
       </div>
     {:else}
-      <div class="h-[calc(100%-3.5rem)]">
+      <div class="min-h-0 flex-1">
         <HomePage
           projects={projects()}
           codexHome={codexHome()}

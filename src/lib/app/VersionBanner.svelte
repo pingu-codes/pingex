@@ -9,7 +9,7 @@ const banner = $derived(codexVersion.banner);
 {#if banner && !banner.dismissed}
   <div
     role="status"
-    class="flex items-center gap-2 border-b border-surface-200-800 px-4 py-1.5 text-xs {banner.tier === 'older' ? 'preset-tonal-warning' : 'preset-tonal'}"
+    class="flex shrink-0 items-center gap-2 border-b border-surface-200-800 px-4 py-1.5 text-xs {banner.tier === 'older' ? 'preset-tonal-warning' : 'preset-tonal'}"
   >
     <span class="min-w-0 flex-1 truncate" title={bannerText(banner)}>{bannerText(banner)}</span>
     <a class="shrink-0 underline opacity-80 hover:opacity-100" href="https://github.com/pingu-codes/pingex/blob/main/docs/SUPPORTED_VERSIONS.md" target="_blank" rel="noreferrer">Supported versions</a>
