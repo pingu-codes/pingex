@@ -214,6 +214,25 @@ export const previewData: BootstrapData = {
   sidebarLayout: { folders: [], placements: [] },
 };
 
+export function previewAddWorktreeProject(path: string): BootstrapData {
+  if (!previewData.projects.some((project) => project.path === path)) {
+    const name = path.replace(/\/+$/, "").split("/").pop() ?? path;
+    previewData.projects.push({
+      name: `${name}-permanent-worktree`,
+      path,
+      kind: "worktree",
+      workspaceId: null,
+      archived: false,
+      pinned: false,
+      expanded: true,
+      instructions: "",
+      sources: [],
+      threads: [],
+    });
+  }
+  return previewData;
+}
+
 export function previewSort(): BootstrapData {
   previewData.projects.sort((a, b) => Number(b.pinned) - Number(a.pinned));
   for (const project of previewData.projects) {

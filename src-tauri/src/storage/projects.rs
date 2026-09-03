@@ -17,6 +17,10 @@ pub(crate) struct StoredProject {
     pub(crate) pinned: bool,
     #[serde(default)]
     pub(crate) archived: bool,
+    /// A linked worktree the user adopted from outside the Codex home. Ones
+    /// under `<codex_home>/worktrees` are classified by path instead.
+    #[serde(default)]
+    pub(crate) worktree: bool,
 }
 
 #[derive(Default, Debug, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
@@ -33,7 +37,7 @@ pub(crate) async fn read_store(database: &Database) -> Result<Store, String> {
     let connection = db::conn(database)?;
     let projects = db::rows(
         &connection,
-        "SELECT path, name, pinned, archived FROM projects ORDER BY pinned DESC, rowid",
+        "SELECT path, name, pinned, archived, worktree FROM projects ORDER BY pinned DESC, rowid",
         (),
         |row| {
             Ok(StoredProject {
@@ -41,6 +45,7 @@ pub(crate) async fn read_store(database: &Database) -> Result<Store, String> {
                 name: db::opt_text(row, 1)?,
                 pinned: db::flag(row, 2)?,
                 archived: db::flag(row, 3)?,
+                worktree: db::flag(row, 4)?,
             })
         },
     )
@@ -78,12 +83,13 @@ pub(crate) async fn write_store(database: &Database, store: &Store) -> Result<()
     for project in &store.projects {
         db::exec(
             &transaction,
-            "INSERT INTO projects(path, name, pinned, archived) VALUES (?, ?, ?, ?)",
+            "INSERT INTO projects(path, name, pinned, archived, worktree) VALUES (?, ?, ?, ?, ?)",
             params![
                 project.path.clone(),
                 project.name.clone(),
                 i64::from(project.pinned),
-                i64::from(project.archived)
+                i64::from(project.archived),
+                i64::from(project.worktree)
             ],
         )
         .await?;
@@ -166,6 +172,7 @@ mod tests {
                 name: Some("Project".into()),
                 pinned: true,
                 archived: true,
+                worktree: true,
             }],
             pinned_threads: vec!["thread-1".into()],
             hidden_threads: vec!["thread-2".into()],
@@ -176,6 +183,42 @@ mod tests {
         // Writing replaces wholesale rather than accumulating.
         write_store(&database, &Store::default()).await.unwrap();
         assert_eq!(read_store(&database).await.unwrap(), Store::default());
+    }
+
+    /// A database from before the `worktree` column reads its projects as
+    /// plain folders once opened.
+    #[tokio::test]
+    async fn older_databases_gain_the_worktree_column() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = crate::storage::database_path(directory.path());
+        let old = turso::Builder::new_local(path.to_str().unwrap())
+            .build()
+            .await
+            .unwrap();
+        let connection = db::conn(&old).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE projects (path TEXT PRIMARY KEY, name TEXT, \
+                 pinned INTEGER NOT NULL DEFAULT 0, archived INTEGER NOT NULL DEFAULT 0); \
+                 INSERT INTO projects(path, name, pinned, archived) VALUES ('/tmp/old', NULL, 0, 0);",
+            )
+            .await
+            .unwrap();
+        drop(connection);
+        drop(old);
+
+        let database = open(directory.path()).await.unwrap();
+        let store = read_store(&database).await.unwrap();
+        assert_eq!(
+            store.projects,
+            vec![StoredProject {
+                path: "/tmp/old".into(),
+                name: None,
+                pinned: false,
+                archived: false,
+                worktree: false,
+            }]
+        );
     }
 
     #[tokio::test]

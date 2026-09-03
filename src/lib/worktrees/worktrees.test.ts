@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Project, WorktreeEntry } from "$lib/types";
 import {
+  adoptableWorktrees,
   aheadBehindLabel,
   folderName,
   isDirty,
@@ -152,5 +153,18 @@ describe("worktree helpers", () => {
     expect(cards[0].branchLabel).toBe("main");
     expect(cards[0].aheadBehind).toBe("↑3");
     expect(cards[1].branchLabel).toBe("detached @ abcdef1");
+  });
+
+  it("offers only linked, present, permanent worktrees not yet in the sidebar", () => {
+    const listed = { path: "/repo/listed/" } as Project;
+    const entries = [
+      entry({ path: "/repo", isMain: true }),
+      entry({ path: "/repo/gone", missingDir: true }),
+      entry({ path: "/repo/stale", prunable: true }),
+      entry({ path: "/home/.codex/worktrees-tmp/repo/tmp" }),
+      entry({ path: "/repo/listed" }),
+      entry({ path: "/repo/feature" }),
+    ];
+    expect(adoptableWorktrees(entries, [listed]).map((e) => e.path)).toEqual(["/repo/feature"]);
   });
 });

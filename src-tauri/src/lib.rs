@@ -378,6 +378,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             // Projects and the bootstrap payload
             projects::commands::bootstrap,
             projects::commands::add_project,
+            projects::commands::add_worktree_project,
             projects::commands::rename_project,
             projects::commands::remove_project,
             projects::commands::set_project_pinned,

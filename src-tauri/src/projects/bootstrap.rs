@@ -384,6 +384,7 @@ fn build_bootstrap(
                     name: None,
                     pinned: false,
                     archived: false,
+                    worktree: false,
                 });
             }
         }
@@ -396,6 +397,7 @@ fn build_bootstrap(
                 name: None,
                 pinned: false,
                 archived: false,
+                worktree: false,
             });
         }
     }
@@ -408,6 +410,7 @@ fn build_bootstrap(
                 name: None,
                 pinned: false,
                 archived: false,
+                worktree: false,
             });
         }
     }
@@ -431,7 +434,7 @@ fn build_bootstrap(
 
     let mut projects = Vec::new();
     for entry in entries {
-        let worktree = is_worktree_path(runtime, &entry.path);
+        let worktree = entry.worktree || is_worktree_path(runtime, &entry.path);
         // A worktree that has been deleted on disk is simply gone; a plain
         // folder is kept so the user can still remove it from the sidebar.
         if worktree && !Path::new(&entry.path).is_dir() {
@@ -644,12 +647,14 @@ mod tests {
                         name: Some("API".into()),
                         pinned: false,
                         archived: false,
+                        worktree: false,
                     },
                     StoredProject {
                         path: isolated_path.clone(),
                         name: Some("Managed worktree".into()),
                         pinned: false,
                         archived: false,
+                        worktree: false,
                     },
                 ],
                 pinned_threads: Vec::new(),
@@ -737,6 +742,7 @@ mod tests {
                     name: Some("Proj".into()),
                     pinned: false,
                     archived: false,
+                    worktree: false,
                 }],
                 pinned_threads: Vec::new(),
                 hidden_threads: Vec::new(),
@@ -814,6 +820,7 @@ mod tests {
                     name: Some("Proj".into()),
                     pinned: false,
                     archived: false,
+                    worktree: false,
                 }],
                 pinned_threads: Vec::new(),
                 hidden_threads: Vec::new(),
@@ -862,6 +869,97 @@ mod tests {
     }
 
     #[test]
+    fn an_adopted_worktree_outside_the_codex_home_is_a_worktree_until_deleted() {
+        let directory = tempfile::tempdir().unwrap();
+        let home = directory.path().join("codex-home");
+        let repo = directory.path().join("repo");
+        let adopted = directory.path().join("elsewhere/repo-feature");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::create_dir_all(&adopted).unwrap();
+        let store = || Store {
+            projects: vec![
+                StoredProject {
+                    path: repo.display().to_string(),
+                    name: None,
+                    pinned: false,
+                    archived: false,
+                    worktree: false,
+                },
+                StoredProject {
+                    path: adopted.display().to_string(),
+                    name: None,
+                    pinned: false,
+                    archived: false,
+                    worktree: true,
+                },
+            ],
+            pinned_threads: Vec::new(),
+            hidden_threads: Vec::new(),
+        };
+        let extras = || BootstrapExtras {
+            instructions: HashMap::new(),
+            sources_by_project: HashMap::new(),
+            project_expansion: HashMap::new(),
+            workspaces: Vec::new(),
+            workspace_members: Vec::new(),
+            workspace_threads: HashMap::new(),
+            agent_children: Vec::new(),
+            temp_worktree_parents: Vec::new(),
+            server_projects: HashMap::new(),
+            sections: Vec::new(),
+            project_recency: HashMap::new(),
+            sections_supported: false,
+            sidebar_layout: Default::default(),
+        };
+        let runtime = RuntimeConfig {
+            codex_home: home,
+            codex_binary: PathBuf::from("codex"),
+        };
+
+        let data = build_bootstrap(
+            &runtime,
+            store(),
+            Vec::new(),
+            None,
+            Vec::new(),
+            Vec::new(),
+            extras(),
+        )
+        .unwrap();
+        let kinds: Vec<_> = data
+            .projects
+            .iter()
+            .map(|project| (project.name.as_str(), project.kind.as_str()))
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                ("repo", "folder"),
+                ("repo-feature-permanent-worktree", "worktree")
+            ]
+        );
+
+        // Once removed on disk the worktree is gone; the repository stays.
+        std::fs::remove_dir_all(&adopted).unwrap();
+        let data = build_bootstrap(
+            &runtime,
+            store(),
+            Vec::new(),
+            None,
+            Vec::new(),
+            Vec::new(),
+            extras(),
+        )
+        .unwrap();
+        let names: Vec<_> = data
+            .projects
+            .iter()
+            .map(|project| project.name.as_str())
+            .collect();
+        assert_eq!(names, ["repo"]);
+    }
+
+    #[test]
     fn a_codex_project_assignment_outranks_the_thread_cwd() {
         let directory = tempfile::tempdir().unwrap();
         let api = directory.path().join("api");
@@ -877,12 +975,14 @@ mod tests {
                     name: Some("API".into()),
                     pinned: false,
                     archived: false,
+                    worktree: false,
                 },
                 StoredProject {
                     path: web_path.clone(),
                     name: Some("Web".into()),
                     pinned: false,
                     archived: false,
+                    worktree: false,
                 },
             ],
             pinned_threads: Vec::new(),
@@ -962,6 +1062,7 @@ mod tests {
                     name: Some("Proj".into()),
                     pinned: false,
                     archived: false,
+                    worktree: false,
                 }],
                 pinned_threads: Vec::new(),
                 hidden_threads: Vec::new(),

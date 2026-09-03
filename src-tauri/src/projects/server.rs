@@ -313,6 +313,7 @@ mod tests {
             name: None,
             pinned: false,
             archived: false,
+            worktree: false,
         }
     }
 

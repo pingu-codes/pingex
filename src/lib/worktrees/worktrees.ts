@@ -99,6 +99,22 @@ export function threadCountForPath(projects: Project[], path: string): number {
   return count;
 }
 
+/**
+ * Linked worktrees that could be adopted as sidebar projects: not the main
+ * tree, still on disk, not temporary scaffolding, and not listed already.
+ */
+export function adoptableWorktrees(entries: WorktreeEntry[], projects: Project[]): WorktreeEntry[] {
+  const listed = new Set(projects.map((project) => project.path.replace(/\/+$/, "")));
+  return entries.filter(
+    (entry) =>
+      !entry.isMain &&
+      !entry.missingDir &&
+      !entry.prunable &&
+      !isTempWorktreePath(entry.path) &&
+      !listed.has(entry.path.replace(/\/+$/, "")),
+  );
+}
+
 /** Map backend worktree entries to render-ready card models. Pure and tested. */
 export function worktreeCards(entries: WorktreeEntry[], projects: Project[]): WorktreeCard[] {
   return entries.map((entry) => ({

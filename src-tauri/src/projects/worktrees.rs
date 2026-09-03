@@ -3,7 +3,8 @@
 //! Codex creates worktrees under `<codex_home>/worktrees/<hash>/<name>` (kept)
 //! and `<codex_home>/worktrees-tmp/<hash>/<name>` (discardable). Both appear in
 //! the sidebar as projects in their own right, alongside the repository they
-//! were cut from.
+//! were cut from. A linked worktree living anywhere else can be adopted by the
+//! user; it is then flagged in the store rather than recognised by its path.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -76,7 +77,8 @@ fn canonicalize_lenient(path: &Path) -> PathBuf {
 /// A project is a Codex-managed permanent worktree only when its *canonical*
 /// path lives under `<codex_home>/worktrees/`. Identity is the canonical path,
 /// not the display name — an arbitrary linked worktree elsewhere is a plain
-/// folder, never labelled Codex-managed by path resemblance alone.
+/// folder unless the user adopted it (`StoredProject::worktree`), never
+/// labelled Codex-managed by path resemblance alone.
 pub(crate) fn is_worktree_path(runtime: &RuntimeConfig, path: &str) -> bool {
     path_under(runtime.codex_home.join("worktrees"), path)
 }
@@ -116,6 +118,39 @@ pub fn worktree_parent_project(worktree: &str) -> Option<String> {
         return None;
     }
     Some(main.to_string())
+}
+
+/// The main working tree of a *linked* worktree at `path`, for adopting it as
+/// a sidebar project. Refuses folders that are not a repository and the main
+/// working tree itself, since neither is a worktree to adopt.
+pub(crate) fn linked_worktree_parent(path: &Path) -> Result<String, String> {
+    let output = crate::git::run_git(
+        path,
+        &[
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-dir",
+            "--git-common-dir",
+        ],
+        crate::git::run::READ_TIMEOUT,
+    )?;
+    if !output.ok {
+        return Err(format!("{} is not a Git repository", path.display()));
+    }
+    let mut lines = output.stdout.lines().map(str::trim);
+    let git_dir = lines.next().unwrap_or("");
+    let common_dir = lines.next().unwrap_or("");
+    if git_dir.is_empty() || common_dir.is_empty() {
+        return Err(format!("{} is not a Git repository", path.display()));
+    }
+    if git_dir == common_dir {
+        return Err(format!(
+            "{} is the main working tree, not a linked worktree",
+            path.display()
+        ));
+    }
+    worktree_parent_project(&path.display().to_string())
+        .ok_or_else(|| "Could not find the repository this worktree belongs to".to_string())
 }
 
 #[cfg(test)]
@@ -193,5 +228,59 @@ mod tests {
             codex_binary: PathBuf::from("codex"),
         })
         .is_empty());
+    }
+
+    fn git(dir: &Path, args: &[&str]) -> bool {
+        Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_AUTHOR_NAME", "Test")
+            .env("GIT_AUTHOR_EMAIL", "test@example.com")
+            .env("GIT_COMMITTER_NAME", "Test")
+            .env("GIT_COMMITTER_EMAIL", "test@example.com")
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
+
+    #[test]
+    fn only_a_linked_worktree_can_be_adopted() {
+        let directory = tempfile::tempdir().unwrap();
+        let repo = directory.path().join("repo");
+        fs::create_dir_all(&repo).unwrap();
+        assert!(git(&repo, &["init", "-q", "-b", "main"]));
+        fs::write(repo.join("file.txt"), "hello").unwrap();
+        assert!(git(&repo, &["add", "."]));
+        assert!(git(&repo, &["commit", "-q", "-m", "init"]));
+        let linked = directory.path().join("repo-feature");
+        assert!(git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "feature",
+                linked.to_str().unwrap()
+            ]
+        ));
+        let plain = directory.path().join("plain");
+        fs::create_dir_all(&plain).unwrap();
+
+        let parent = linked_worktree_parent(&linked).unwrap();
+        assert_eq!(
+            fs::canonicalize(&parent).unwrap(),
+            fs::canonicalize(&repo).unwrap()
+        );
+        let main_error = linked_worktree_parent(&repo).unwrap_err();
+        assert!(main_error.contains("main working tree"), "{main_error}");
+        let plain_error = linked_worktree_parent(&plain).unwrap_err();
+        assert!(
+            plain_error.contains("not a Git repository"),
+            "{plain_error}"
+        );
     }
 }

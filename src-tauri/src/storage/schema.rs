@@ -23,7 +23,8 @@ const DDL: &str = "CREATE TABLE IF NOT EXISTS metadata (
      path TEXT PRIMARY KEY,
      name TEXT,
      pinned INTEGER NOT NULL DEFAULT 0,
-     archived INTEGER NOT NULL DEFAULT 0
+     archived INTEGER NOT NULL DEFAULT 0,
+     worktree INTEGER NOT NULL DEFAULT 0
  );
  CREATE TABLE IF NOT EXISTS project_expansion (
      project_path TEXT PRIMARY KEY,
@@ -248,7 +249,7 @@ const DDL: &str = "CREATE TABLE IF NOT EXISTS metadata (
 /// Columns added after their table shipped. Re-running these on an up-to-date
 /// database fails harmlessly ("duplicate column"), which is the only expected
 /// error, so the result is ignored.
-const ADDED_COLUMNS: [&str; 11] = [
+const ADDED_COLUMNS: [&str; 12] = [
     "ALTER TABLE thread_summaries ADD COLUMN harness TEXT",
     "ALTER TABLE projects ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE thread_summaries ADD COLUMN project_id TEXT",
@@ -260,6 +261,7 @@ const ADDED_COLUMNS: [&str; 11] = [
     "ALTER TABLE thread_items ADD COLUMN after_item_id TEXT",
     "ALTER TABLE server_projects ADD COLUMN recency_at INTEGER",
     "ALTER TABLE side_questions ADD COLUMN inherited_turns INTEGER",
+    "ALTER TABLE projects ADD COLUMN worktree INTEGER NOT NULL DEFAULT 0",
 ];
 
 pub(super) async fn initialize(database: &Database, codex_home: &Path) -> Result<(), String> {
@@ -342,6 +344,7 @@ fn parse_legacy_store(text: &str) -> Result<Store, JsonError> {
                 name: None,
                 pinned: false,
                 archived: false,
+                worktree: false,
             })
             .collect(),
         pinned_threads: Vec::new(),

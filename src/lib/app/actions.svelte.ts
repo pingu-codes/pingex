@@ -41,6 +41,7 @@ import {
   refOf,
 } from "$lib/layout/sidebarTree";
 import {
+  addWorktreeProject,
   applySessionFocus,
   archiveThread,
   createSidebarFolder,
@@ -80,6 +81,7 @@ import type {
 } from "$lib/types";
 import CreateWorkspaceDialog from "$lib/workspaces/CreateWorkspaceDialog.svelte";
 import MoveToWorkspaceDialog from "$lib/workspaces/MoveToWorkspaceDialog.svelte";
+import AddWorktreeDialog from "$lib/worktrees/AddWorktreeDialog.svelte";
 import CreateWorktreeDialog from "$lib/worktrees/CreateWorktreeDialog.svelte";
 
 /** A draft thread has become a real one: keep it on screen and let the
@@ -279,6 +281,18 @@ async function nudgeProject(project: Project, direction: -1 | 1) {
   await moveSidebarItem(ROOT_SCOPE, ref, parent, siblings);
 }
 
+/** Adopt an existing linked worktree of `project`'s repository. */
+async function addWorktreeFor(project: Project): Promise<void> {
+  const repoDir = (await gitRepoInfo(project.path).catch(() => null))?.root ?? project.path;
+  openDialog(AddWorktreeDialog, {
+    repoDir,
+    projects: projects(),
+    submit: async (path: string) => {
+      applyData(await addWorktreeProject(path));
+    },
+  });
+}
+
 /** Create a permanent worktree for the repository containing `dir`. */
 async function createWorktreeFor(dir: string): Promise<void> {
   const repoDir = (await gitRepoInfo(dir).catch(() => null))?.root ?? dir;
@@ -363,6 +377,10 @@ export async function menuAction(action: MenuAction, target: MenuTarget): Promis
       const forked = await forkThread(target.thread.id);
       setView({ projectPath: target.project.path, threadId: forked.id });
       quietRefresh();
+      return;
+    }
+    if (action === "addWorktree") {
+      if (target.kind === "project") await addWorktreeFor(target.project);
       return;
     }
     if (action === "createWorktree") {

@@ -9,6 +9,12 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 export const commands = {
 	bootstrap: () => __TAURI_INVOKE<BootstrapData>("bootstrap"),
 	addProject: (path: string) => __TAURI_INVOKE<BootstrapData>("add_project", { path }),
+	/**
+	 *  Adopt an existing linked worktree, wherever it lives, as a worktree
+	 *  project. Its repository is listed too, as discovery does for Codex-managed
+	 *  worktrees, so the two always appear together.
+	 */
+	addWorktreeProject: (path: string) => __TAURI_INVOKE<BootstrapData>("add_worktree_project", { path }),
 	renameProject: (path: string, name: string) => __TAURI_INVOKE<BootstrapData>("rename_project", { path, name }),
 	removeProject: (path: string) => __TAURI_INVOKE<BootstrapData>("remove_project", { path }),
 	setProjectPinned: (path: string, pinned: boolean) => __TAURI_INVOKE<BootstrapData>("set_project_pinned", { path, pinned }),

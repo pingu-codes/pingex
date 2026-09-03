@@ -4,6 +4,7 @@ import { previewStageBytes, previewStageFile, previewStageFromPath } from "$lib/
 import {
   nextPreviewId,
   previewAddSource,
+  previewAddWorktreeProject,
   previewAgentRuns,
   previewAgentSettings,
   previewArchived,
@@ -115,6 +116,12 @@ export async function bootstrap(): Promise<BootstrapData> {
 
 export async function saveProject(path: string): Promise<BootstrapData> {
   return commands.addProject(path);
+}
+
+/** Adopt an existing linked worktree as a worktree project. */
+export async function addWorktreeProject(path: string): Promise<BootstrapData> {
+  if (!isTauri()) return previewAddWorktreeProject(path);
+  return commands.addWorktreeProject(path);
 }
 
 /** Create a durable virtual project whose members are real directories or

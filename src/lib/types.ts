@@ -114,6 +114,7 @@ export type MenuTarget =
 
 export type MenuAction =
   | "reveal"
+  | "addWorktree"
   | "rename"
   | "togglePin"
   | "toggleHidden"

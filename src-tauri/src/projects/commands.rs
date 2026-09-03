@@ -10,6 +10,7 @@ use tauri::{AppHandle, State};
 
 use super::bootstrap::{bootstrap_cached, bootstrap_inner};
 use super::types::BootstrapData;
+use super::worktrees::{is_temp_worktree_path, linked_worktree_parent};
 use crate::storage::{self, SiblingRef, Store, StoredProject};
 use crate::util::json::Json;
 use crate::AppState;
@@ -28,6 +29,7 @@ fn stored_project_mut<'a>(store: &'a mut Store, path: &str) -> &'a mut StoredPro
         name: None,
         pinned: false,
         archived: false,
+        worktree: false,
     });
     store
         .projects
@@ -94,6 +96,39 @@ pub(crate) async fn add_project(
     }
     let mut store = storage::read_store(&ctx.database()).await?;
     stored_project_mut(&mut store, &canonical.display().to_string());
+    storage::write_store(&ctx.database(), &store).await?;
+    bootstrap_cached(&ctx).await
+}
+
+/// Adopt an existing linked worktree, wherever it lives, as a worktree
+/// project. Its repository is listed too, as discovery does for Codex-managed
+/// worktrees, so the two always appear together.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn add_worktree_project(
+    path: String,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<BootstrapData, String> {
+    let ctx = state.ctx(&window);
+    let canonical =
+        fs::canonicalize(&path).map_err(|error| format!("Could not open {path}: {error}"))?;
+    if !canonical.is_dir() {
+        return Err(format!("{} is not a folder", canonical.display()));
+    }
+    let canonical_text = canonical.display().to_string();
+    if is_temp_worktree_path(&ctx.runtime(), &canonical_text) {
+        return Err("Temporary worktrees belong to their repository and cannot be added".into());
+    }
+    let parent = tauri::async_runtime::spawn_blocking(move || linked_worktree_parent(&canonical))
+        .await
+        .map_err(|error| format!("Could not inspect the worktree: {error}"))??;
+    let mut store = storage::read_store(&ctx.database()).await?;
+    stored_project_mut(&mut store, &parent);
+    let entry = stored_project_mut(&mut store, &canonical_text);
+    entry.worktree = true;
+    // Adding a worktree that was hidden earlier brings it back.
+    entry.archived = false;
     storage::write_store(&ctx.database(), &store).await?;
     bootstrap_cached(&ctx).await
 }
