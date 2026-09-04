@@ -5,9 +5,9 @@ tiers of the Codex CLI at any time:
 
 | Tier | What it is | Version | Tag / ref | Commit | Date |
 |---|---|---|---|---|---|
-| **Unstable** | Upstream `main`, as mirrored in `../codex-mirror` | `0.0.0` (source builds report the workspace version) | `main` | `3a04482645b695085f4daf7c6310ab8592653fea` | 2026-09-01 |
-| **Stable** | The latest tagged release | `0.152.0` | `rust-v0.152.0` | `316795b3cf2a45e90d121d9f46499d4658b2645c` | 2026-08-31 |
-| **Last stable** | The release before it | `0.151.0` | `rust-v0.151.0` | `78c290807ce710180111df227df3b7a4fe845452` | 2026-08-29 |
+| **Unstable** | Upstream `main`, as mirrored in `../codex-mirror` | `0.0.0` (source builds report the workspace version) | `main` | `b3f5e45cc1de8bcb09d320f3211378db285aa201` | 2026-09-04 |
+| **Stable** | The latest tagged release | `0.153.2` | `rust-v0.153.2` | `657a993cbee87acf52d14b758ce49dbd46d1b8eb` | 2026-09-03 |
+| **Last stable** | The release before it | `0.152.1` | `rust-v0.152.1` | `5adb68a49933ae446bf11935662c83dba55a0804` | 2026-09-01 |
 
 Older releases are not tested. They mostly keep working because nothing in
 the app branches on the version (see below), but a release older than *last
@@ -47,7 +47,7 @@ version. `deno task versions:check` does not cover Claude yet.
 
 Gated APIs (one row per `Feature`):
 
-| Feature | API | Last stable 0.151.0 | Stable 0.152.0 | Unstable |
+| Feature | API | Last stable 0.152.1 | Stable 0.153.2 | Unstable |
 |---|---|---|---|---|
 | `REVERT` | `thread/revert` | ✓ | ✓ | ✓ |
 | `QUEUE` | `thread/queue/*` (needs the experimental capability and a queue database) | ✓ | ✓ | ✓ |
@@ -58,13 +58,13 @@ Gated APIs (one row per `Feature`):
 Payload additions the app reads when present (no gating needed — the field is
 simply absent on older tiers):
 
-| Field / notification | Where it shows | 0.151.0 | 0.152.0 | Unstable | Live-tested |
+| Field / notification | Where it shows | 0.152.1 | 0.153.2 | Unstable | Live-tested |
 |---|---|---|---|---|---|
 | `item/commandExecution/requestApproval.kind` (`command` \| `writeStdin`) | approval card title | ✓ | ✓ | ✓ | `command` only |
 | `McpServerStatus.runtimeStatus` | Integrations row | ✓ | ✓ | ✓ | ✓ |
 | `TurnError.misalignment` (explanation + suggested steer) | failed-turn card | ✓ | ✓ | ✓ | unit only |
-| `Project.recencyAt` + `project/list` sort | sidebar order of never-dragged projects | – | ✓ | ✓ | ✓ |
-| `modelProvider/authRecovery{Started,Completed}` | header pill | – | ✓ | ✓ | unit only |
+| `Project.recencyAt` + `project/list` sort | sidebar order of never-dragged projects | ✓ | ✓ | ✓ | ✓ |
+| `modelProvider/authRecovery{Started,Completed}` | header pill | ✓ | ✓ | ✓ | unit only |
 | `functionCallOutput` item | transcript work item | ✓ | ✓ | ✓ | unit only |
 | `thread/{archived,unarchived,deleted,closed}`, `thread/goal/cleared`, `skills/changed`, `account/updated` | sidebar / thread view refresh | ✓ | ✓ | ✓ | ✓ |
 
@@ -80,6 +80,18 @@ deprecates full hydration on resume/fork in their favour), `turn/steer`,
 `thread/search`, `experimentalFeature/list`, `permissionProfile/list`, the MCP
 event stream, realtime/voice, plugins/marketplace, `fs/*`, process/terminal,
 login/Bedrock flows, environments and the Windows sandbox, raw response events.
+
+Protocol added since 0.152 that the app does not read yet:
+
+- 0.153.x: `Thread.model` / `Thread.reasoningEffort` (the app still derives
+  the thread's model from turn history, `ThreadView.lastTurnModel`),
+  `agentMessage.questions` (structured async user-input questions),
+  `turn/settings/update.approvalsReviewer`, `plugin/reconcile`, per-account
+  app link approvals (`AppConfig.links`).
+- Unstable only: `Thread.originator`, `Thread.environments`,
+  `McpServerStatus.toolsError`, `thread/list.originators` (hosted backends
+  only), `ResponseUsageMetadata.metadata`. Detached review delivery is
+  deprecated there; the app never sends `delivery`.
 
 ## Bumping a tier
 
