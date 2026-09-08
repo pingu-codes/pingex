@@ -1,4 +1,5 @@
 <script lang="ts">
+import { positionComposerPopover } from "$lib/composer/positionComposerPopover";
 import { Bot, ChevronDown } from "@lucide/svelte";
 import { policyAllows, policyIsEmpty } from "$lib/composer/composerPrefs.svelte";
 import type { Model, SubagentPolicy } from "$lib/types";
@@ -70,6 +71,7 @@ const noEfforts = $derived(policyIsEmpty(effortPolicy, efforts));
     <div
       class="card absolute bottom-8 left-0 z-50 w-[300px] select-none border border-surface-200-800 bg-surface-50-950 p-2 shadow-xl"
       onclick={(event) => event.stopPropagation()}
+      use:positionComposerPopover
       role="dialog"
       aria-label="Subagent options"
     >

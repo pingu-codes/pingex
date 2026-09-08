@@ -1,4 +1,5 @@
 <script lang="ts">
+import { positionComposerPopover } from "$lib/composer/positionComposerPopover";
 import { Check, ChevronDown, Cpu } from "@lucide/svelte";
 import type { Model, ReasoningEffortOption } from "$lib/types";
 
@@ -45,7 +46,7 @@ function retirementLabel(model: Model): string | null {
       {modelId === null ? 'text-error-500' : 'text-surface-500 hover:text-surface-800-200'}"
   >
     <Cpu size={12} />
-    {label}
+    <span class="min-w-0 truncate" title={label}>{label}</span>
     <ChevronDown size={11} />
   </button>
   {#if open}
@@ -53,6 +54,7 @@ function retirementLabel(model: Model): string | null {
     <div
       class="card absolute bottom-8 left-0 z-50 w-[290px] select-none border border-surface-200-800 bg-surface-50-950 p-2 shadow-xl"
       onclick={(event) => event.stopPropagation()}
+      use:positionComposerPopover
       role="dialog"
       aria-label="Model options"
     >

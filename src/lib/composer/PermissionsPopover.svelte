@@ -1,4 +1,5 @@
 <script lang="ts">
+import { positionComposerPopover } from "$lib/composer/positionComposerPopover";
 import { Check, ChevronDown, Shield } from "@lucide/svelte";
 import { type HarnessChoice, permissionPresetsFor } from "$lib/composer/composerPrefs.svelte";
 
@@ -39,6 +40,7 @@ const selectedLabel = $derived(presets.find((preset) => preset.id === selectedId
     <div
       class="card absolute bottom-8 left-0 z-50 w-[270px] select-none border border-surface-200-800 bg-surface-50-950 p-2 shadow-xl"
       onclick={(event) => event.stopPropagation()}
+      use:positionComposerPopover
       role="dialog"
       aria-label="Permission options"
     >

@@ -7,6 +7,7 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { onDestroy, onMount, untrack } from "svelte";
 import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
+import AdaptiveToolbar from "$lib/composer/AdaptiveToolbar.svelte";
 import ContextMeter from "$lib/composer/ContextMeter.svelte";
 import {
   type AttachmentPart,
@@ -1003,7 +1004,7 @@ function onPaste(event: ClipboardEvent) {
 <svelte:window
   onclick={() => (popover = null)}
   onkeydown={(event) => {
-    if (event.key !== "Escape") return;
+    if (event.key !== "Escape" || event.defaultPrevented) return;
     // The Settings overlay owns Escape while open (it closes the panel); an
     // Escape there must not reach through and interrupt the running turn.
     if (settingsNav.open) return;
@@ -1202,7 +1203,7 @@ function onPaste(event: ClipboardEvent) {
         </TooltipAnchor>
       </div>
 
-      <div class="mt-1.5 flex items-center gap-1.5">
+      {#snippet attachment()}
         <TooltipButton
           label="Attach files"
           onclick={pickFiles}
@@ -1212,6 +1213,8 @@ function onPaste(event: ClipboardEvent) {
         >
           <Paperclip size={14} />
         </TooltipButton>
+      {/snippet}
+      {#snippet plan()}
         <TooltipButton
           label={prefs.planMode ? "Plan mode on" : "Toggle plan mode"}
           onclick={togglePlanMode}
@@ -1222,6 +1225,8 @@ function onPaste(event: ClipboardEvent) {
           <MapIcon size={12} />
           Plan
         </TooltipButton>
+      {/snippet}
+      {#snippet goal()}
         {#if goalAvailable}
           <TooltipButton
             label={goalEditing ? "Cancel goal edit" : goalMode ? "Goal mode on — send sets the goal" : "Toggle goal mode"}
@@ -1234,6 +1239,8 @@ function onPaste(event: ClipboardEvent) {
             Goal
           </TooltipButton>
         {/if}
+      {/snippet}
+      {#snippet model()}
         <ModelPopover
           open={popover === "model"}
           {models}
@@ -1246,6 +1253,8 @@ function onPaste(event: ClipboardEvent) {
           onChooseModel={chooseModel}
           onChooseEffort={chooseEffort}
         />
+      {/snippet}
+      {#snippet fast()}
         {#if supportsSpeed}
           <TooltipButton
             label={!fastSpeedTier && selectedFast !== true ? "Fast mode is unavailable for this model" : speedPending ? "The selected speed applies to the next turn until the running turn confirms it" : "Toggle fast mode for this thread"}
@@ -1259,6 +1268,8 @@ function onPaste(event: ClipboardEvent) {
             {#if speedPending}<span>· Next {selectedFast ? "on" : "off"}</span>{/if}
           </TooltipButton>
         {/if}
+      {/snippet}
+      {#snippet subagents()}
         <SubagentPolicyPopover
           open={popover === "subagents"}
           {models}
@@ -1273,6 +1284,8 @@ function onPaste(event: ClipboardEvent) {
           onToggleEffort={toggleSubagentEffort}
           onSetAppSubagents={setAppSubagents}
         />
+      {/snippet}
+      {#snippet permissions()}
         <PermissionsPopover
           open={popover === "permissions"}
           selectedId={prefs.permissionPreset}
@@ -1280,20 +1293,35 @@ function onPaste(event: ClipboardEvent) {
           harness={harness}
           onChoose={choosePermission}
         />
-        <div class="ml-auto flex items-center gap-1.5">
+      {/snippet}
+      {#snippet home()}
           {#if !threadId}
             <HarnessMenu {harness} onChoose={chooseHarness} />
           {:else if threadHomeLabel(threadId)}
             <span class="max-w-56 truncate text-[10px] text-surface-500" title={threadHomeLabel(threadId)}>{threadHomeLabel(threadId)}</span>
           {/if}
+      {/snippet}
+      {#snippet context()}
           <ContextMeter
             stats={contextStats}
             {compacting}
             busy={busy || disabled}
             onCompact={onCommand ? () => onCommand("compact") : undefined}
           />
-        </div>
-      </div>
+      {/snippet}
+      <AdaptiveToolbar
+        {attachment} {model} {context}
+        activeItem={popover}
+        onLayoutChange={() => (popover = null)}
+        items={[
+          { id: "plan", priority: 5, placement: "beforeModel", content: plan },
+          ...(goalAvailable ? [{ id: "goal", priority: 4, placement: "beforeModel" as const, content: goal }] : []),
+          ...(supportsSpeed ? [{ id: "fast", priority: 3, content: fast }] : []),
+          { id: "subagents", priority: 1, content: subagents },
+          { id: "permissions", priority: 2, content: permissions },
+          ...(!threadId || threadHomeLabel(threadId) ? [{ id: "home", priority: 0, placement: "end" as const, content: home }] : []),
+        ]}
+      />
     </div>
   </div>
 </div>

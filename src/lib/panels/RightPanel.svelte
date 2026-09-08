@@ -104,7 +104,7 @@ function openProjectFile(relativePath: string) {
 
 <aside
   class="relative flex h-full shrink-0 flex-col border-l border-surface-200-800 bg-surface-100-900"
-  style="width: {panelWidth}px"
+  style="width: {panelWidth}px; max-width: max(0px, calc(100% - 280px))"
   aria-label="Thread side panel"
 >
   <div
