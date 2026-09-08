@@ -1,5 +1,5 @@
 import { NATIVE_HOST, sameHost } from "$lib/app/host";
-import { commands } from "$lib/bindings";
+import { addProfileProject, commands } from "$lib/services/homeRouting";
 import { deleteFromLayout, emptyLayout, nextOrdinal, placeInLayout, resetLayoutOrder } from "$lib/layout/sidebarTree";
 import { previewStageBytes, previewStageFile, previewStageFromPath } from "$lib/services/preview/attachments";
 import {
@@ -116,8 +116,8 @@ export async function bootstrap(): Promise<BootstrapData> {
   return commands.bootstrap();
 }
 
-export async function saveProject(path: string): Promise<BootstrapData> {
-  return commands.addProject(path);
+export async function saveProject(path: string, host: Host | null = null): Promise<BootstrapData> {
+  return addProfileProject(path, host);
 }
 
 /** Adopt an existing linked worktree as a worktree project. */

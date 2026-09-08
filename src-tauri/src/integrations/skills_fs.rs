@@ -118,7 +118,7 @@ pub(crate) fn read_skill_at(path: &str) -> Result<String, String> {
 #[specta::specta]
 pub(crate) fn read_skill(
     path: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     let host = state.ctx(&window).host();
@@ -133,7 +133,7 @@ pub(crate) async fn create_skill(
     body: Option<String>,
     cwds: Option<Vec<String>>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
     let ctx = state.ctx(&window);
@@ -148,7 +148,7 @@ pub(crate) async fn delete_skill(
     path: String,
     cwds: Option<Vec<String>>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
     let ctx = state.ctx(&window);

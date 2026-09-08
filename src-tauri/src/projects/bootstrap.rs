@@ -58,6 +58,9 @@ pub(crate) async fn bootstrap_inner(
     app: &AppHandle,
     ctx: &HomeContext,
 ) -> Result<BootstrapData, String> {
+    if ctx.harness_kind == Some(crate::harness::HarnessKind::Claude) {
+        return bootstrap_cached(ctx).await;
+    }
     let store = storage::read_store(&ctx.database()).await?;
     let account_value = ctx
         .session
@@ -183,7 +186,7 @@ pub(crate) async fn bootstrap_cached(ctx: &HomeContext) -> Result<BootstrapData,
     let store = storage::read_store(&ctx.database()).await?;
     let pinned_threads: HashSet<String> = store.pinned_threads.iter().cloned().collect();
     let hidden_threads: HashSet<String> = store.hidden_threads.iter().cloned().collect();
-    let all_threads = storage::read_thread_summaries(&ctx.database())
+    let mut all_threads: Vec<ThreadSummary> = storage::read_thread_summaries(&ctx.database())
         .await?
         .into_iter()
         .map(|stored| {
@@ -193,6 +196,25 @@ pub(crate) async fn bootstrap_cached(ctx: &HomeContext) -> Result<BootstrapData,
             summary
         })
         .collect();
+    for thread in storage::read_harness_threads(&ctx.database(), false).await? {
+        all_threads.retain(|summary| summary.id != thread.thread_id);
+        all_threads.push(ThreadSummary {
+            pinned: pinned_threads.contains(&thread.thread_id),
+            hidden: hidden_threads.contains(&thread.thread_id),
+            id: thread.thread_id,
+            cwd: thread.cwd,
+            title: thread.title,
+            updated_at: thread.updated_at,
+            status: "idle".into(),
+            parent_thread_id: None,
+            agent_nickname: None,
+            agent_role: None,
+            project_id: None,
+            section_id: None,
+            subagent_count: 0,
+            harness: Some(thread.harness),
+        });
+    }
     let account = storage::read_account_cache(&ctx.database())
         .await?
         .map(|json| serde_json::from_str(&json))

@@ -348,7 +348,7 @@ fn staging_local(ctx: &crate::HomeContext) -> PathBuf {
 #[specta::specta]
 pub(crate) fn stage_attachment(
     source_path: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Attachment, String> {
     let ctx = state.ctx(&window);
@@ -361,7 +361,7 @@ pub(crate) fn stage_clipboard_image(
     filename: Option<String>,
     mime: Option<String>,
     bytes: Vec<u8>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Attachment, String> {
     let ctx = state.ctx(&window);
@@ -381,7 +381,7 @@ pub(crate) fn stage_clipboard_image(
 #[specta::specta]
 pub(crate) fn remove_staged(
     id: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);

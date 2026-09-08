@@ -1,4 +1,5 @@
 <script lang="ts">
+import { threadHomeLabel } from "$lib/services/homeRouting";
 import { ArrowUp, Map as MapIcon, Paperclip, Square, Target } from "@lucide/svelte";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -1238,6 +1239,8 @@ function onPaste(event: ClipboardEvent) {
         <div class="ml-auto flex items-center gap-1.5">
           {#if !threadId}
             <HarnessMenu {harness} onChoose={chooseHarness} />
+          {:else if threadHomeLabel(threadId)}
+            <span class="max-w-56 truncate text-[10px] text-surface-500" title={threadHomeLabel(threadId)}>{threadHomeLabel(threadId)}</span>
           {/if}
           <ContextMeter
             stats={contextStats}

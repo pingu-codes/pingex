@@ -58,7 +58,7 @@ pub(crate) async fn review_local_diff(
     repo_dir: String,
     base: String,
     head: Option<String>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, crate::AppState>,
 ) -> Result<Vec<PrFile>, String> {
     let host = state.ctx(&window).host();
@@ -119,7 +119,7 @@ pub(crate) async fn review_save_draft(
     pr_number: i64,
     head_sha: String,
     payload: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
@@ -140,7 +140,7 @@ pub(crate) async fn review_load_draft(
     provider: String,
     repo: String,
     pr_number: i64,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Option<ReviewDraft>, String> {
     let ctx = state.ctx(&window);
@@ -153,7 +153,7 @@ pub(crate) async fn review_delete_draft(
     provider: String,
     repo: String,
     pr_number: i64,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);

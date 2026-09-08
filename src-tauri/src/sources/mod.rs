@@ -145,7 +145,7 @@ fn spawn_index(
 pub(crate) async fn save_project_instructions(
     project_path: String,
     instructions: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
@@ -156,7 +156,7 @@ pub(crate) async fn save_project_instructions(
 #[specta::specta]
 pub(crate) async fn list_project_sources(
     project_path: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<StoredProjectSource>, String> {
     let ctx = state.ctx(&window);
@@ -170,7 +170,7 @@ pub(crate) async fn add_project_source(
     source_path: String,
     kind: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<StoredProjectSource>, String> {
     let ctx = state.ctx(&window);
@@ -226,7 +226,7 @@ pub(crate) async fn add_project_source(
 pub(crate) async fn remove_project_source(
     id: String,
     project_path: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<StoredProjectSource>, String> {
     let ctx = state.ctx(&window);
@@ -240,7 +240,7 @@ pub(crate) async fn remove_project_source(
 pub(crate) async fn reindex_source(
     id: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
@@ -260,7 +260,7 @@ pub(crate) async fn search_workspace(
     query: String,
     cursor: Option<String>,
     generation: Option<u64>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<WorkspaceResults, String> {
     let ctx = state.ctx(&window);

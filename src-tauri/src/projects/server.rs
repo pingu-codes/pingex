@@ -264,6 +264,9 @@ pub(crate) async fn assign_thread_to_workspace(
 
 /// Keep the server project's name in step with a sidebar rename.
 pub(crate) async fn rename(app: &AppHandle, ctx: &HomeContext, key: &str, name: &str) {
+    if ctx.harness_kind == Some(crate::harness::HarnessKind::Claude) {
+        return;
+    }
     let Ok(Some(project_id)) = project_id_for(ctx, key).await else {
         return;
     };
@@ -278,6 +281,9 @@ pub(crate) async fn rename(app: &AppHandle, ctx: &HomeContext, key: &str, name: 
 
 /// Drop the server project mirrored from `key` along with the mapping.
 pub(crate) async fn delete(app: &AppHandle, ctx: &HomeContext, key: &str) -> Result<(), String> {
+    if ctx.harness_kind == Some(crate::harness::HarnessKind::Claude) {
+        return Ok(());
+    }
     if let Some(project_id) = project_id_for(ctx, key).await? {
         if let Err(error) = ctx
             .session

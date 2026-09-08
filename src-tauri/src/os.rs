@@ -50,7 +50,7 @@ fn reveal_command(target: &Path, os: &str) -> Command {
 #[specta::specta]
 pub(crate) fn reveal_in_finder(
     path: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let target = state.ctx(&window).host().to_local(&path);
@@ -110,7 +110,7 @@ pub(crate) fn open_external_url(url: String) -> Result<(), String> {
 #[specta::specta]
 pub(crate) fn open_in_zed(
     path: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let target: PathBuf = state.ctx(&window).host().to_local(&path);

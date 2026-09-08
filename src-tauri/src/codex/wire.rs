@@ -161,7 +161,7 @@ impl WireLog {
 #[specta::specta]
 pub(crate) fn set_wire_logging(
     enabled: bool,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) {
     state.ctx(&window).session.wire().set_enabled(enabled);
@@ -171,7 +171,7 @@ pub(crate) fn set_wire_logging(
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn read_wire_log(
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Vec<WireMessage> {
     state.ctx(&window).session.wire().entries()

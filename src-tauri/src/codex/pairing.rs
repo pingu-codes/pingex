@@ -13,7 +13,7 @@ use crate::AppState;
 #[specta::specta]
 pub(crate) async fn remote_pairing_start(
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
@@ -46,7 +46,7 @@ pub(crate) async fn remote_pairing_start(
 pub(crate) async fn remote_pairing_status(
     pairing_code: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);

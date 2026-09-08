@@ -134,8 +134,20 @@ impl Host {
                 }
                 command
             }
-            Host::Wsl { .. } => {
-                let argv = self.argv(program, args, cwd, env, unset);
+            Host::Wsl { distro } => {
+                // Keep the PATH that resolved this executable. npm-installed
+                // CLIs need the version manager's Node as well as the CLI path.
+                let path = binary_paths()
+                    .lock()
+                    .ok()
+                    .and_then(|cache| cache.get(&(distro.clone(), program.to_string())).cloned());
+                let mut environment = env.to_vec();
+                if !env.iter().any(|(key, _)| *key == "PATH") && !unset.contains(&"PATH") {
+                    if let Some(path) = path.as_deref() {
+                        environment.push(("PATH", path));
+                    }
+                }
+                let argv = self.argv(program, args, cwd, &environment, unset);
                 let mut command = Command::new(&argv[0]);
                 command.args(&argv[1..]);
                 command
@@ -323,13 +335,17 @@ impl Host {
                 {
                     return Some(hit);
                 }
-                let script = wsl_resolve_script(configured);
+                let lookup = wsl_resolve_script(configured);
+                let script = format!("p=$({lookup}) || exit 1; printf '%s\\n%s' \"$p\" \"$PATH\"");
                 // A login `sh` sees `.profile`; version managers (fnm, nvm)
                 // usually export their PATH from `.bashrc`, which only an
                 // interactive bash reads, so that is the second attempt.
-                let found = self
+                let (found, path) = self
                     .shell_lookup("sh", &["-lc", &script])
                     .or_else(|| self.shell_lookup("bash", &["-lic", &script]))?;
+                if let Ok(mut cache) = binary_paths().lock() {
+                    cache.insert((distro.clone(), found.clone()), path);
+                }
                 if let Ok(mut cache) = binary_cache().lock() {
                     cache.insert(key, found.clone());
                 }
@@ -340,19 +356,24 @@ impl Host {
 
     /// Run a shell inside the distribution, with a timeout, and return the
     /// absolute path it printed, if any.
-    fn shell_lookup(&self, shell: &str, args: &[&str]) -> Option<String> {
+    fn shell_lookup(&self, shell: &str, args: &[&str]) -> Option<(String, String)> {
         let output = run(Run::on(self, shell, "/", args, WSL_LOOKUP_TIMEOUT)).ok()?;
         if !output.ok {
             return None;
         }
-        let path = output.stdout.trim().to_string();
-        path.starts_with('/').then_some(path)
+        let (binary, path) = output.stdout.trim().split_once('\n')?;
+        binary
+            .starts_with('/')
+            .then(|| (binary.to_string(), path.to_string()))
     }
 
     /// Forget every remembered WSL binary location, e.g. after the user edits
     /// a binary path in Settings.
     pub fn clear_binary_cache() {
         if let Ok(mut cache) = binary_cache().lock() {
+            cache.clear();
+        }
+        if let Ok(mut cache) = binary_paths().lock() {
             cache.clear();
         }
     }
@@ -425,6 +446,11 @@ pub fn orphan_pids(ps_output: &str) -> Vec<String> {
 }
 
 fn binary_cache() -> &'static Mutex<HashMap<(String, String), String>> {
+    static CACHE: OnceLock<Mutex<HashMap<(String, String), String>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn binary_paths() -> &'static Mutex<HashMap<(String, String), String>> {
     static CACHE: OnceLock<Mutex<HashMap<(String, String), String>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
@@ -516,6 +542,31 @@ fn normalise_posix(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolved_paths_are_scoped_to_the_distribution_and_respect_overrides() {
+        let host = Host::wsl("test-path-owner");
+        binary_paths().lock().unwrap().insert(
+            ("test-path-owner".into(), "/fnm/bin/codex".into()),
+            "/fnm/bin:/usr/bin".into(),
+        );
+        let command = host.command("/fnm/bin/codex", &[], None, &[], &[]);
+        assert!(command
+            .get_args()
+            .any(|arg| arg == "PATH=/fnm/bin:/usr/bin"));
+        let other = Host::wsl("test-path-other").command("/fnm/bin/codex", &[], None, &[], &[]);
+        assert!(!other
+            .get_args()
+            .any(|arg| arg.to_string_lossy().starts_with("PATH=")));
+        let explicit = host.command("/fnm/bin/codex", &[], None, &[("PATH", "/explicit")], &[]);
+        assert_eq!(
+            explicit
+                .get_args()
+                .filter(|arg| arg.to_string_lossy().starts_with("PATH="))
+                .collect::<Vec<_>>(),
+            vec![std::ffi::OsStr::new("PATH=/explicit")]
+        );
+    }
 
     #[test]
     fn native_argv_is_the_program_and_its_arguments() {

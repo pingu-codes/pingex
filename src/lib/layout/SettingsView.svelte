@@ -20,6 +20,7 @@ import TooltipButton from "$lib/components/TooltipButton.svelte";
 import IntegrationsSection from "$lib/integrations/IntegrationsSection.svelte";
 import { appearance, FONT_SIZE_MAX, FONT_SIZE_MIN } from "$lib/layout/appearancePrefs.svelte";
 import Connections from "$lib/layout/Connections.svelte";
+import ProfileHomes from "$lib/layout/ProfileHomes.svelte";
 import { messageLog } from "$lib/layout/messageLogPrefs.svelte";
 import { filterSections, SETTINGS_SECTIONS } from "$lib/layout/settingsSections";
 import { sidebarPrefs } from "$lib/layout/sidebarPrefs.svelte";
@@ -357,6 +358,7 @@ async function reveal(path: string | null | undefined) {
                 </div>
               </div>
             {/if}
+            <ProfileHomes />
             <form onsubmit={saveGeneral} class="mt-4 space-y-4 text-sm">
               <div>
                 <div class="flex items-center gap-2">

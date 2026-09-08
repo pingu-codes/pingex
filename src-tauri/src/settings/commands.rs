@@ -20,7 +20,7 @@ use crate::AppState;
 /// A home the user picked, settled onto a host. A dialog pick arrives as a
 /// local path (`\\wsl.localhost\Ubuntu\home\u\.codex` on Windows), which
 /// names its distribution; a typed path with no host is native.
-fn settle_home(path: &str, host: Option<Host>) -> Result<(Host, String), String> {
+pub(crate) fn settle_home(path: &str, host: Option<Host>) -> Result<(Host, String), String> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return Err("Choose a Codex home folder".to_string());
@@ -61,7 +61,7 @@ fn require_codex_on(host: &Host, binary: &str) -> Result<(), String> {
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn read_runtime_settings(
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> RuntimeSettings {
     let overrides = prefs::read_overrides(&prefs::settings_path());
@@ -74,7 +74,7 @@ pub(crate) fn read_runtime_settings(
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn read_launch_state(
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> LaunchState {
     let bound = state.window_bound(window.label());
@@ -89,7 +89,7 @@ pub(crate) fn read_launch_state(
 #[specta::specta]
 pub(crate) async fn read_codex_server_info(
     app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     state.ctx(&window).session.server_info(&app).await.map(Json)
@@ -104,13 +104,18 @@ pub(crate) async fn read_codex_server_info(
 pub(crate) async fn select_codex_home(
     path: String,
     host: Option<Host>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<LaunchState, String> {
     let (host, home) = settle_home(&path, host)?;
     // Selecting a home creates it on disk, so refuse before creating anything
     // we could never boot: without a working CLI the app-server spawn fails.
-    let configured = state.ctx(&window).runtime().codex_binary_str();
+    let current = state.ctx(&window).runtime();
+    let configured = if current.host == host {
+        current.codex_binary_str()
+    } else {
+        "codex".into()
+    };
     require_codex_on(&host, &configured)?;
     // Opening the context also creates the home directory if it is new.
     let context = state.ensure_context(host.clone(), home.clone()).await?;
@@ -145,7 +150,12 @@ pub(crate) async fn open_home_window(
         .filter(|path| !path.is_empty())
     {
         let (host, home) = settle_home(path, host)?;
-        let configured = state.default_context().runtime().codex_binary_str();
+        let current = state.default_context().runtime();
+        let configured = if current.host == host {
+            current.codex_binary_str()
+        } else {
+            "codex".into()
+        };
         require_codex_on(&host, &configured)?;
         let context = state.ensure_context(host.clone(), home.clone()).await?;
         // Bind before the window loads, so its `read_launch_state` boots
@@ -180,7 +190,7 @@ pub(crate) async fn open_home_window(
 pub(crate) fn remove_recent_home(
     path: String,
     host: Option<Host>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<LaunchState, String> {
     prefs::forget_recent_home(&prefs::settings_path(), &path, &host.unwrap_or_default())?;
@@ -199,7 +209,7 @@ pub(crate) fn remove_recent_home(
 #[specta::specta]
 pub(crate) async fn read_home_overview(
     app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<overview::HomeOverview, String> {
     let ctx = state.ctx(&window);
@@ -221,7 +231,7 @@ pub(crate) async fn read_home_overview(
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn read_config_settings(
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Vec<codex_config::ConfigSetting> {
     codex_config::read_config_settings(&state.ctx(&window).runtime().local_home())
@@ -236,7 +246,7 @@ pub(crate) fn write_config_setting(
     key: String,
     value: Option<String>,
     unset: Option<bool>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<codex_config::ConfigSetting>, String> {
     codex_config::write_config_setting(
@@ -257,7 +267,7 @@ pub(crate) fn update_runtime_settings(
     claude_config_dir: Option<String>,
     codex_host: Option<Host>,
     claude_host: Option<Host>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<RuntimeSettings, String> {
     // A host that was edited may have a different binary behind the same
@@ -289,12 +299,10 @@ pub(crate) fn update_runtime_settings(
     overrides.claude_config_dir = normalize_override(claude_config_dir);
     overrides.claude_host = claude_host;
     prefs::write_overrides(&prefs::settings_path(), &overrides)?;
-    // Claude has no long-lived server: the next spawn on any home picks the
-    // new runtime up; processes already running keep what they had.
+    // Update this Profile's legacy default. Registered Homes and processes
+    // already running retain their runtime.
     let claude_runtime = crate::claude::driver::ClaudeRuntime::resolve(&overrides);
-    for context in state.all_contexts() {
-        context.claude.set_runtime(claude_runtime.clone());
-    }
+    state.ctx(&window).claude.set_runtime(claude_runtime);
     Ok(runtime_settings(&state.ctx(&window).runtime(), &overrides))
 }
 
@@ -356,7 +364,7 @@ pub(crate) fn write_agent_settings(
 pub(crate) fn check_codex_binary(
     path: Option<String>,
     host: Option<Host>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> binary::BinaryStatus {
     let runtime = state.ctx(&window).runtime();
@@ -380,7 +388,7 @@ pub(crate) fn list_wsl_distros() -> Vec<String> {
 #[specta::specta]
 pub(crate) async fn set_codex_binary(
     path: Option<String>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<LaunchState, String> {
     Host::clear_binary_cache();
@@ -388,19 +396,14 @@ pub(crate) async fn set_codex_binary(
     let candidate = override_binary
         .clone()
         .unwrap_or_else(|| "codex".to_string());
-    // The CLI is global: it must resolve on every host with an open home.
-    for host in state.all_hosts() {
-        require_codex_on(&host, &candidate)?;
-    }
+    let context = state.ctx(&window);
+    require_codex_on(&context.host(), &candidate)?;
     let mut overrides = prefs::read_overrides(&prefs::settings_path());
     overrides.codex_binary = override_binary;
     prefs::write_overrides(&prefs::settings_path(), &overrides)?;
 
-    // The CLI is global: every open home starts using it on its next spawn.
-    for context in state.all_contexts() {
-        context.set_binary(PathBuf::from(&candidate));
-        context.session.reset().await;
-    }
+    context.set_binary(PathBuf::from(&candidate));
+    context.session.reset().await;
     Ok(launch_state(
         &state.ctx(&window),
         state.window_bound(window.label()),

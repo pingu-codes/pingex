@@ -41,10 +41,12 @@ pub(crate) fn run_gh(
     args: &[&str],
     timeout: Duration,
 ) -> Result<CommandOutput, String> {
+    let (host, dir) = crate::util::host::Host::from_local(&dir.to_string_lossy());
+    let binary = host.resolve_binary("gh").unwrap_or_else(|| "gh".into());
     process::run(Run {
-        host: &crate::util::host::Host::Native,
-        program: "gh",
-        dir: &dir.to_string_lossy(),
+        host: &host,
+        program: &binary,
+        dir: &dir,
         args,
         env: &NON_INTERACTIVE,
         stdin: None,
@@ -60,10 +62,12 @@ pub(crate) fn run_gh_with_input(
     endpoint: &str,
     body: &str,
 ) -> Result<CommandOutput, String> {
+    let (host, dir) = crate::util::host::Host::from_local(&dir.to_string_lossy());
+    let binary = host.resolve_binary("gh").unwrap_or_else(|| "gh".into());
     process::run(Run {
-        host: &crate::util::host::Host::Native,
-        program: "gh",
-        dir: &dir.to_string_lossy(),
+        host: &host,
+        program: &binary,
+        dir: &dir,
         args: &["api", "--method", "POST", endpoint, "--input", "-"],
         env: &NON_INTERACTIVE,
         stdin: Some(body),

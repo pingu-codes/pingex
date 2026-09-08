@@ -1,5 +1,12 @@
 import "@testing-library/jest-dom/vitest";
 
+// jsdom has no layout engine; real browsers provide this scrolling method.
+Object.defineProperty(Element.prototype, "scrollIntoView", {
+  configurable: true,
+  writable: true,
+  value: () => {},
+});
+
 // Deno exposes a process-backed localStorage whose SQLite database may be
 // read-only in parallel Vitest workers. Tests need the browser semantics, so
 // use a per-worker in-memory implementation instead.

@@ -14,22 +14,19 @@ _Avoid_: backend, provider, agent (the thing inside the harness), engine
 
 **Home**:
 One harness's config directory: `CODEX_HOME` for Codex, `CLAUDE_CONFIG_DIR`
-or `~/.claude` for Claude Code. A Profile knows several Homes.
+or `~/.claude` for Claude Code, on one Host. A conversation keeps its Home;
+changing the default affects new conversations.
 _Avoid_: account, workspace (already the multi-project hub), config dir (fine in code, not in prose)
 
 **Profile**:
-One Pingex database plus the Homes it knows. What a window binds to. Lives at
-`~/Library/Application Support/pingex/profiles/<name>/pingex.db`.
+The projects, Homes and sidebar organization a Pingex window shares. A Profile
+can contain Windows and WSL projects together while keeping separate accounts.
 _Avoid_: home (a Profile contains Homes), instance, session
 
 **Host**:
-Where a Home's harness and repositories live and where its processes run:
-`native` (the machine Pingex runs on) or `wsl(<distro>)` (a WSL distribution
-reached through `wsl.exe`). A property of a Home and of the Claude runtime,
-never a global toggle; Homes on different Hosts run side by side. A *host
-path* is a path as the Host sees it (`/home/u/repo`); a *local path* is what
-`std::fs` on the app's own OS can open (`\\wsl.localhost\Ubuntu\home\u\repo`).
-Only `Host::to_local` converts between them.
+Where a project's files and harness processes run, either this computer or
+one WSL distribution. Each project has a fixed Host, and every member of a
+multi-project workspace must share that Host.
 _Avoid_: machine, remote, target, platform (the OS Pingex is built for), environment
 
 **Driver**:

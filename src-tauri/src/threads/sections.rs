@@ -83,7 +83,7 @@ pub(crate) async fn create_thread_section(
     name: String,
     color: Option<String>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
@@ -107,7 +107,7 @@ pub(crate) async fn update_thread_section(
     name: String,
     color: Option<String>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
@@ -131,7 +131,7 @@ pub(crate) async fn update_thread_section(
 pub(crate) async fn delete_thread_section(
     section_id: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
@@ -155,7 +155,7 @@ pub(crate) async fn move_thread_to_section(
     thread_id: String,
     section_id: Option<String>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);

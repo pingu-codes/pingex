@@ -7,59 +7,68 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
-	bootstrap: () => __TAURI_INVOKE<BootstrapData>("bootstrap"),
-	addProject: (path: string) => __TAURI_INVOKE<BootstrapData>("add_project", { path }),
+	bootstrapProfile: (refresh: boolean) => __TAURI_INVOKE<ProfileBootstrap>("bootstrap_profile", { refresh }),
+	addProfileProject: (path: string, host: { kind: "native" } | { kind: "wsl"; distro: string } | null) => __TAURI_INVOKE<ProfileBootstrap>("add_profile_project", { path, host }),
+	registerProfileHome: (harness: HarnessKind, host: Host, configDir: string, binary: string, label: string) => __TAURI_INVOKE<ProfileHome>("register_profile_home", { harness, host, configDir, binary, label }),
+	setProfileDefaultHome: (id: string) => __TAURI_INVOKE<null>("set_profile_default_home", { id }),
+	/**
+	 *  A workspace's directories belong to its Host. Another harness on that
+	 *  Host uses the same hub and worktrees, with its own conversation records.
+	 */
+	prepareProfileWorkspace: (sourceHomeKey: string, workspaceId: string, targetHomeKey: string) => __TAURI_INVOKE<null>("prepare_profile_workspace", { sourceHomeKey, workspaceId, targetHomeKey }),
+	bootstrap: (window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("bootstrap", { window }),
+	addProject: (path: string, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("add_project", { path, window }),
 	/**
 	 *  Adopt an existing linked worktree, wherever it lives, as a worktree
 	 *  project. Its repository is listed too, as discovery does for Codex-managed
 	 *  worktrees, so the two always appear together.
 	 */
-	addWorktreeProject: (path: string) => __TAURI_INVOKE<BootstrapData>("add_worktree_project", { path }),
-	renameProject: (path: string, name: string) => __TAURI_INVOKE<BootstrapData>("rename_project", { path, name }),
-	removeProject: (path: string) => __TAURI_INVOKE<BootstrapData>("remove_project", { path }),
-	setProjectPinned: (path: string, pinned: boolean) => __TAURI_INVOKE<BootstrapData>("set_project_pinned", { path, pinned }),
-	setProjectArchived: (path: string, archived: boolean) => __TAURI_INVOKE<BootstrapData>("set_project_archived", { path, archived }),
+	addWorktreeProject: (path: string, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("add_worktree_project", { path, window }),
+	renameProject: (path: string, name: string, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("rename_project", { path, name, window }),
+	removeProject: (path: string, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("remove_project", { path, window }),
+	setProjectPinned: (path: string, pinned: boolean, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("set_project_pinned", { path, pinned, window }),
+	setProjectArchived: (path: string, archived: boolean, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("set_project_archived", { path, archived, window }),
 	/**  Persist a sidebar-only preference without rebuilding the project tree. */
-	setProjectExpanded: (path: string, expanded: boolean) => __TAURI_INVOKE<null>("set_project_expanded", { path, expanded }),
-	createSidebarFolder: (scope: string, parentId: string | null, name: string) => __TAURI_INVOKE<BootstrapData>("create_sidebar_folder", { scope, parentId, name }),
-	renameSidebarFolder: (id: string, name: string) => __TAURI_INVOKE<BootstrapData>("rename_sidebar_folder", { id, name }),
+	setProjectExpanded: (path: string, expanded: boolean, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("set_project_expanded", { path, expanded, window }),
+	createSidebarFolder: (scope: string, parentId: string | null, name: string, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("create_sidebar_folder", { scope, parentId, name, window }),
+	renameSidebarFolder: (id: string, name: string, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("rename_sidebar_folder", { id, name, window }),
 	/**  Remove a folder; its contents move up to the folder's parent. */
-	deleteSidebarFolder: (id: string) => __TAURI_INVOKE<BootstrapData>("delete_sidebar_folder", { id }),
+	deleteSidebarFolder: (id: string, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("delete_sidebar_folder", { id, window }),
 	/**  Persist a sidebar-only preference without rebuilding the project tree. */
-	setSidebarFolderExpanded: (id: string, expanded: boolean) => __TAURI_INVOKE<null>("set_sidebar_folder_expanded", { id, expanded }),
+	setSidebarFolderExpanded: (id: string, expanded: boolean, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("set_sidebar_folder_expanded", { id, expanded, window }),
 	/**
 	 *  The one drag-and-drop primitive: put `item` under `parent_id` and record
 	 *  `siblings` as the full order of that parent's children. The frontend owns
 	 *  the tree, so it sends the resulting order rather than an index.
 	 */
-	placeSidebarItem: (scope: string, item: SiblingRef, parentId: string | null, siblings: SiblingRef[]) => __TAURI_INVOKE<BootstrapData>("place_sidebar_item", { scope, item, parentId, siblings }),
-	setThreadPinned: (threadId: string, pinned: boolean) => __TAURI_INVOKE<BootstrapData>("set_thread_pinned", { threadId, pinned }),
+	placeSidebarItem: (scope: string, item: SiblingRef, parentId: string | null, siblings: SiblingRef[], window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("place_sidebar_item", { scope, item, parentId, siblings, window }),
+	setThreadPinned: (threadId: string, pinned: boolean, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("set_thread_pinned", { threadId, pinned, window }),
 	/**  Fold `thread_ids` out of the sidebar, or bring them back. */
-	setThreadsHidden: (threadIds: string[], hidden: boolean) => __TAURI_INVOKE<BootstrapData>("set_threads_hidden", { threadIds, hidden }),
+	setThreadsHidden: (threadIds: string[], hidden: boolean, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("set_threads_hidden", { threadIds, hidden, window }),
 	/**
 	 *  Forget the user's drag ordering in one sidebar scope (`""` for projects,
 	 *  a project path for its threads).
 	 */
-	resetSidebarOrder: (scope: string) => __TAURI_INVOKE<BootstrapData>("reset_sidebar_order", { scope }),
+	resetSidebarOrder: (scope: string, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("reset_sidebar_order", { scope, window }),
 	/**
 	 *  The "session focus" button: hide the threads the user has not touched
 	 *  this session and collapse whatever is left empty, in one round trip so
 	 *  the sidebar redraws once.
 	 */
-	applySessionFocus: (hide: string[], collapseProjects: string[], collapseFolders: string[]) => __TAURI_INVOKE<BootstrapData>("apply_session_focus", { hide, collapseProjects, collapseFolders }),
+	applySessionFocus: (hide: string[], collapseProjects: string[], collapseFolders: string[], window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("apply_session_focus", { hide, collapseProjects, collapseFolders, window }),
 	/**
 	 *  Read the account's rolling rate-limit windows (5h / weekly). Codex also
 	 *  pushes `account/rateLimits/updated` during turns; this is the cold-start
 	 *  read so the usage meter is populated before the first turn.
 	 */
-	readAccountRateLimits: () => __TAURI_INVOKE<unknown>("read_account_rate_limits"),
+	readAccountRateLimits: (window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("read_account_rate_limits", { window }),
 	/**  Per-thread usage estimate: `account/usage/read` scoped by `threadId`. */
-	readThreadUsage: (threadId: string) => __TAURI_INVOKE<unknown>("read_thread_usage", { threadId }),
-	createWorkspace: (input: CreateWorkspaceInput) => __TAURI_INVOKE<BootstrapData>("create_workspace", { input }),
-	updateWorkspace: (input: UpdateWorkspaceInput) => __TAURI_INVOKE<BootstrapData>("update_workspace", { input }),
-	moveThreadToWorkspace: (threadId: string, workspaceId: string) => __TAURI_INVOKE<BootstrapData>("move_thread_to_workspace", { threadId, workspaceId }),
-	readThread: (threadId: string) => __TAURI_INVOKE<unknown>("read_thread", { threadId }),
-	startThread: (cwd: string | null, workspaceId: string | null, appSubagents: boolean | null, harness: string | null) => __TAURI_INVOKE<unknown>("start_thread", { cwd, workspaceId, appSubagents, harness }),
+	readThreadUsage: (threadId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("read_thread_usage", { threadId, window }),
+	createWorkspace: (input: CreateWorkspaceInput, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("create_workspace", { input, window }),
+	updateWorkspace: (input: UpdateWorkspaceInput, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("update_workspace", { input, window }),
+	moveThreadToWorkspace: (threadId: string, workspaceId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("move_thread_to_workspace", { threadId, workspaceId, window }),
+	readThread: (threadId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("read_thread", { threadId, window }),
+	startThread: (cwd: string | null, workspaceId: string | null, appSubagents: boolean | null, harness: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("start_thread", { cwd, workspaceId, appSubagents, harness, window }),
 	startTurn: (threadId: string, input: unknown[], options: {
 	model?: string | null,
 	effort?: string | null,
@@ -75,8 +84,8 @@ export const commands = {
 	 */
 	resolvedModel?: string | null,
 	resolvedEffort?: string | null,
-} | null) => __TAURI_INVOKE<unknown>("start_turn", { threadId, input, options }),
-	interruptTurn: (threadId: string, turnId: string) => __TAURI_INVOKE<null>("interrupt_turn", { threadId, turnId }),
+} | null, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("start_turn", { threadId, input, options, window }),
+	interruptTurn: (threadId: string, turnId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("interrupt_turn", { threadId, turnId, window }),
 	/**
 	 *  Change the model and/or reasoning effort of the turn that is running right
 	 *  now (`turn/settings/update`, Codex ≥0.151). Returns the server's
@@ -84,26 +93,26 @@ export const commands = {
 	 *  API, an error prefixed by `Feature::TURN_SETTINGS.error_prefix` so the
 	 *  frontend can fall back to "applies from the next turn".
 	 */
-	updateTurnSettings: (threadId: string, turnId: string, model: string | null, effort: string | null) => __TAURI_INVOKE<unknown>("update_turn_settings", { threadId, turnId, model, effort }),
-	respondApproval: (requestId: number, decision: string) => __TAURI_INVOKE<null>("respond_approval", { requestId, decision }),
+	updateTurnSettings: (threadId: string, turnId: string, model: string | null, effort: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("update_turn_settings", { threadId, turnId, model, effort, window }),
+	respondApproval: (requestId: number, decision: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("respond_approval", { requestId, decision, window }),
 	/**
 	 *  `request_id` is `None` when answering a question whose request died with an
 	 *  earlier session: there is nothing left to respond to, so the answer is only
 	 *  persisted (the caller sends it on as a fresh turn).
 	 */
-	respondUserInput: (requestId: number | null, answers: unknown, threadId: string | null, turnId: string | null, itemId: string | null, item: unknown | null) => __TAURI_INVOKE<null>("respond_user_input", { requestId, answers, threadId, turnId, itemId, item }),
+	respondUserInput: (requestId: number | null, answers: unknown, threadId: string | null, turnId: string | null, itemId: string | null, item: unknown | null, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("respond_user_input", { requestId, answers, threadId, turnId, itemId, item, window }),
 	/**
 	 *  Answer a server request whose response is not a bare `{decision}` — a
 	 *  permission grant, an MCP elicitation. The frontend builds the whole result
 	 *  object because each of these has its own shape, and Codex keeps adding more.
 	 */
-	respondServerRequest: (requestId: number, result: unknown) => __TAURI_INVOKE<null>("respond_server_request", { requestId, result }),
+	respondServerRequest: (requestId: number, result: unknown, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("respond_server_request", { requestId, result, window }),
 	/**
 	 *  Record a question the moment Codex asks it, so it is still readable if the
 	 *  app-server (and with it the request) dies before the user answers.
 	 */
-	recordUserInputRequest: (threadId: string, turnId: string, itemId: string, item: unknown, afterItemId: string | null) => __TAURI_INVOKE<null>("record_user_input_request", { threadId, turnId, itemId, item, afterItemId }),
-	threadsWithUnansweredQuestions: () => __TAURI_INVOKE<string[]>("threads_with_unanswered_questions"),
+	recordUserInputRequest: (threadId: string, turnId: string, itemId: string, item: unknown, afterItemId: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("record_user_input_request", { threadId, turnId, itemId, item, afterItemId, window }),
+	threadsWithUnansweredQuestions: (window: HomeRoute | null = null) => __TAURI_INVOKE<string[]>("threads_with_unanswered_questions", { window }),
 	/**
 	 *  Threads with a turn currently running on this home's Codex child.
 	 * 
@@ -113,8 +122,8 @@ export const commands = {
 	 *  to `interrupted`. The child and its journal outlive the webview, so this
 	 *  hands the set back to reseed it.
 	 */
-	threadsWithActiveTurns: () => __TAURI_INVOKE<string[]>("threads_with_active_turns"),
-	renameThread: (threadId: string, name: string) => __TAURI_INVOKE<BootstrapData>("rename_thread", { threadId, name }),
+	threadsWithActiveTurns: (window: HomeRoute | null = null) => __TAURI_INVOKE<string[]>("threads_with_active_turns", { window }),
+	renameThread: (threadId: string, name: string, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("rename_thread", { threadId, name, window }),
 	/**
 	 *  Generate and apply a title for `thread_id`.
 	 * 
@@ -123,7 +132,7 @@ export const commands = {
 	 *  Returns the refreshed sidebar data when a title was applied, `None` when
 	 *  naming was skipped or did not work out.
 	 */
-	autoNameThread: (threadId: string, seed: string | null) => __TAURI_INVOKE<{
+	autoNameThread: (threadId: string, seed: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<{
 	codexHome: string,
 	codexBinary: string,
 	projects: Project[],
@@ -144,14 +153,14 @@ export const commands = {
 	 *  its tree from these plus the flat project/thread lists.
 	 */
 	sidebarLayout: SidebarLayout,
-} | null>("auto_name_thread", { threadId, seed }),
-	invalidateThreadCache: (threadId: string) => __TAURI_INVOKE<null>("invalidate_thread_cache", { threadId }),
+} | null>("auto_name_thread", { threadId, seed, window }),
+	invalidateThreadCache: (threadId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("invalidate_thread_cache", { threadId, window }),
 	/**
 	 *  Ask Codex to summarise the thread so far and drop the raw history from the
 	 *  model's context. Compaction runs as a turn, so the result streams back as
 	 *  ordinary thread events; only the cached projection needs clearing here.
 	 */
-	compactThread: (threadId: string) => __TAURI_INVOKE<null>("compact_thread", { threadId }),
+	compactThread: (threadId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("compact_thread", { threadId, window }),
 	/**
 	 *  Start a review turn in this thread (`/review`).
 	 * 
@@ -166,12 +175,12 @@ export const commands = {
 	 *  `turn/started`, so this is the only place the app learns the turn's id, and
 	 *  Stop needs it to name the turn it is interrupting.
 	 */
-	startReview: (threadId: string, target: unknown | null) => __TAURI_INVOKE<unknown>("start_review", { threadId, target }),
-	archiveThread: (threadId: string) => __TAURI_INVOKE<BootstrapData>("archive_thread", { threadId }),
-	unarchiveThread: (threadId: string) => __TAURI_INVOKE<BootstrapData>("unarchive_thread", { threadId }),
-	deleteThread: (threadId: string) => __TAURI_INVOKE<BootstrapData>("delete_thread", { threadId }),
-	listArchivedThreads: () => __TAURI_INVOKE<unknown>("list_archived_threads"),
-	listModels: () => __TAURI_INVOKE<unknown>("list_models"),
+	startReview: (threadId: string, target: unknown | null, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("start_review", { threadId, target, window }),
+	archiveThread: (threadId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("archive_thread", { threadId, window }),
+	unarchiveThread: (threadId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("unarchive_thread", { threadId, window }),
+	deleteThread: (threadId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("delete_thread", { threadId, window }),
+	listArchivedThreads: (window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("list_archived_threads", { window }),
+	listModels: (window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("list_models", { window }),
 	/**
 	 *  Drop the last `num_turns` turns from a thread, in place. Unlike forking,
 	 *  this keeps the thread id — which is what editing a past message wants: the
@@ -179,60 +188,60 @@ export const commands = {
 	 *  The models a harness offers the composer. Codex answers `model/list`;
 	 *  Claude has a fixed alias list.
 	 */
-	listHarnessModels: (harness: string) => __TAURI_INVOKE<unknown>("list_harness_models", { harness }),
+	listHarnessModels: (harness: string, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("list_harness_models", { harness, window }),
 	/**  Whether a usable `claude` binary is installed for this home. */
-	readClaudeStatus: () => __TAURI_INVOKE<ClaudeStatus>("read_claude_status"),
-	forkThread: (threadId: string, beforeTurnId: string | null, lastTurnId: string | null, cwd: string | null) => __TAURI_INVOKE<unknown>("fork_thread", { threadId, beforeTurnId, lastTurnId, cwd }),
-	rollbackThread: (threadId: string, numTurns: number) => __TAURI_INVOKE<unknown>("rollback_thread", { threadId, numTurns }),
+	readClaudeStatus: (window: HomeRoute | null = null) => __TAURI_INVOKE<ClaudeStatus>("read_claude_status", { window }),
+	forkThread: (threadId: string, beforeTurnId: string | null, lastTurnId: string | null, cwd: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("fork_thread", { threadId, beforeTurnId, lastTurnId, cwd, window }),
+	rollbackThread: (threadId: string, numTurns: number, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("rollback_thread", { threadId, numTurns, window }),
 	/**
 	 *  Replace the thread's durable history with the prefix before `before_turn_id`
 	 *  (`thread/revert`, the successor to the deprecated `thread/rollback`).
 	 *  The response carries no turns, so the caller supplies `kept_turn_ids` for
 	 *  the same journal pruning `rollback_thread` derives from its response.
 	 */
-	revertThread: (threadId: string, beforeTurnId: string, keptTurnIds: string[]) => __TAURI_INVOKE<unknown>("revert_thread", { threadId, beforeTurnId, keptTurnIds }),
-	queueAdd: (threadId: string, input: unknown, clientUserMessageId: string) => __TAURI_INVOKE<unknown>("queue_add", { threadId, input, clientUserMessageId }),
-	queueList: (threadId: string, cursor: string | null) => __TAURI_INVOKE<unknown>("queue_list", { threadId, cursor }),
-	queueUpdate: (threadId: string, queuedSubmissionId: string, input: unknown) => __TAURI_INVOKE<unknown>("queue_update", { threadId, queuedSubmissionId, input }),
-	queueDelete: (threadId: string, queuedSubmissionId: string) => __TAURI_INVOKE<unknown>("queue_delete", { threadId, queuedSubmissionId }),
-	queueReorder: (threadId: string, queuedSubmissionIds: string[]) => __TAURI_INVOKE<unknown>("queue_reorder", { threadId, queuedSubmissionIds }),
-	queueStart: (threadId: string, queuedSubmissionId: string | null) => __TAURI_INVOKE<unknown>("queue_start", { threadId, queuedSubmissionId }),
-	createThreadSection: (name: string, color: string | null) => __TAURI_INVOKE<BootstrapData>("create_thread_section", { name, color }),
-	updateThreadSection: (sectionId: string, name: string, color: string | null) => __TAURI_INVOKE<BootstrapData>("update_thread_section", { sectionId, name, color }),
+	revertThread: (threadId: string, beforeTurnId: string, keptTurnIds: string[], window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("revert_thread", { threadId, beforeTurnId, keptTurnIds, window }),
+	queueAdd: (threadId: string, input: unknown, clientUserMessageId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("queue_add", { threadId, input, clientUserMessageId, window }),
+	queueList: (threadId: string, cursor: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("queue_list", { threadId, cursor, window }),
+	queueUpdate: (threadId: string, queuedSubmissionId: string, input: unknown, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("queue_update", { threadId, queuedSubmissionId, input, window }),
+	queueDelete: (threadId: string, queuedSubmissionId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("queue_delete", { threadId, queuedSubmissionId, window }),
+	queueReorder: (threadId: string, queuedSubmissionIds: string[], window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("queue_reorder", { threadId, queuedSubmissionIds, window }),
+	queueStart: (threadId: string, queuedSubmissionId: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("queue_start", { threadId, queuedSubmissionId, window }),
+	createThreadSection: (name: string, color: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("create_thread_section", { name, color, window }),
+	updateThreadSection: (sectionId: string, name: string, color: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("update_thread_section", { sectionId, name, color, window }),
 	/**
 	 *  Delete a section. Its threads stay where they are, just unsectioned —
 	 *  the server handles that; the cached summaries are cleared to match.
 	 */
-	deleteThreadSection: (sectionId: string) => __TAURI_INVOKE<BootstrapData>("delete_thread_section", { sectionId }),
+	deleteThreadSection: (sectionId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("delete_thread_section", { sectionId, window }),
 	/**  Move a thread into `section_id`, or out of its section when `None`. */
-	moveThreadToSection: (threadId: string, sectionId: string | null) => __TAURI_INVOKE<BootstrapData>("move_thread_to_section", { threadId, sectionId }),
+	moveThreadToSection: (threadId: string, sectionId: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("move_thread_to_section", { threadId, sectionId, window }),
 	/**
 	 *  Set or update the goal for a long-running task (`/goal <objective>`).
 	 *  Only the fields given change; the app-server keeps the rest of the goal.
 	 */
-	threadGoalSet: (threadId: string, objective: string | null, status: string | null) => __TAURI_INVOKE<unknown>("thread_goal_set", { threadId, objective, status }),
+	threadGoalSet: (threadId: string, objective: string | null, status: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("thread_goal_set", { threadId, objective, status, window }),
 	/**  Read the thread's goal, if one is set (`/goal` with no argument). */
-	threadGoalGet: (threadId: string) => __TAURI_INVOKE<unknown>("thread_goal_get", { threadId }),
+	threadGoalGet: (threadId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("thread_goal_get", { threadId, window }),
 	/**  Drop the thread's goal (`/goal clear`). */
-	threadGoalClear: (threadId: string) => __TAURI_INVOKE<null>("thread_goal_clear", { threadId }),
-	listSubagents: (threadId: string) => __TAURI_INVOKE<SubagentDetail[]>("list_subagents", { threadId }),
-	updateSubagentPolicy: (threadId: string, modelPolicy: unknown, reasoningEffortPolicy: unknown) => __TAURI_INVOKE<null>("update_subagent_policy", { threadId, modelPolicy, reasoningEffortPolicy }),
-	addSideQuestion: (parentThreadId: string, sideThreadId: string, title: string, inheritedTurns: number | null) => __TAURI_INVOKE<BootstrapData>("add_side_question", { parentThreadId, sideThreadId, title, inheritedTurns }),
+	threadGoalClear: (threadId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("thread_goal_clear", { threadId, window }),
+	listSubagents: (threadId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<SubagentDetail[]>("list_subagents", { threadId, window }),
+	updateSubagentPolicy: (threadId: string, modelPolicy: unknown, reasoningEffortPolicy: unknown, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("update_subagent_policy", { threadId, modelPolicy, reasoningEffortPolicy, window }),
+	addSideQuestion: (parentThreadId: string, sideThreadId: string, title: string, inheritedTurns: number | null, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("add_side_question", { parentThreadId, sideThreadId, title, inheritedTurns, window }),
 	/**
 	 *  Record a fork as a version of the message whose turn it replaced. Editing
 	 *  an edit adds to the original message's group rather than nesting.
 	 */
-	addThreadBranch: (parentThreadId: string, threadId: string, replacedTurnId: string, inheritedTurns: number) => __TAURI_INVOKE<BootstrapData>("add_thread_branch", { parentThreadId, threadId, replacedTurnId, inheritedTurns }),
+	addThreadBranch: (parentThreadId: string, threadId: string, replacedTurnId: string, inheritedTurns: number, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("add_thread_branch", { parentThreadId, threadId, replacedTurnId, inheritedTurns, window }),
 	/**
 	 *  Remember which turn in a branch is the edited message, once Codex has
 	 *  assigned it an id.
 	 */
-	setThreadBranchEditTurn: (threadId: string, editTurnId: string) => __TAURI_INVOKE<null>("set_thread_branch_edit_turn", { threadId, editTurnId }),
+	setThreadBranchEditTurn: (threadId: string, editTurnId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("set_thread_branch_edit_turn", { threadId, editTurnId, window }),
 	/**
 	 *  Stop tracking a thread as a side question. The thread itself survives and
 	 *  reappears as an ordinary thread in its project.
 	 */
-	removeSideQuestion: (sideThreadId: string) => __TAURI_INVOKE<BootstrapData>("remove_side_question", { sideThreadId }),
+	removeSideQuestion: (sideThreadId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("remove_side_question", { sideThreadId, window }),
 	/**
 	 *  Search the local index. Queries are cheap LIKE scans, so no true
 	 *  cancellation is needed: the `generation` value is echoed back and the
@@ -242,22 +251,22 @@ export const commands = {
 	searchThreads: (query: string, cursor: string | null, filter: {
 	archived?: boolean,
 	projectPath?: string | null,
-} | null, generation: number) => __TAURI_INVOKE<ThreadSearchPage>("search_threads", { query, cursor, filter, generation }),
+} | null, generation: number, window: HomeRoute | null = null) => __TAURI_INVOKE<ThreadSearchPage>("search_threads", { query, cursor, filter, generation, window }),
 	/**
 	 *  Page through the app-server's thread listing, forwarding its opaque cursor.
 	 *  Used for the archived section's `Load more` so large homes stay responsive
 	 *  instead of loading a fixed cap up front. Every page also refreshes the local
 	 *  search index for the threads it touches.
 	 */
-	listThreadsPage: (cursor: string | null, pageSize: number | null, archived: boolean | null, projectPath: string | null) => __TAURI_INVOKE<ThreadsPage>("list_threads_page", { cursor, pageSize, archived, projectPath }),
-	searchProjectFiles: (root: string, query: string, limit: number | null) => __TAURI_INVOKE<FileHit[]>("search_project_files", { root, query, limit }),
-	listProjectFiles: (root: string) => __TAURI_INVOKE<string[]>("list_project_files", { root }),
-	saveDraft: (project: string, content: string) => __TAURI_INVOKE<null>("save_draft", { project, content }),
-	loadDraft: (project: string) => __TAURI_INVOKE<string | null>("load_draft", { project }),
-	deleteDraft: (project: string) => __TAURI_INVOKE<null>("delete_draft", { project }),
-	stageAttachment: (sourcePath: string) => __TAURI_INVOKE<Attachment>("stage_attachment", { sourcePath }),
-	stageClipboardImage: (filename: string | null, mime: string | null, bytes: number[]) => __TAURI_INVOKE<Attachment>("stage_clipboard_image", { filename, mime, bytes }),
-	removeStaged: (id: string) => __TAURI_INVOKE<null>("remove_staged", { id }),
+	listThreadsPage: (cursor: string | null, pageSize: number | null, archived: boolean | null, projectPath: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<ThreadsPage>("list_threads_page", { cursor, pageSize, archived, projectPath, window }),
+	searchProjectFiles: (root: string, query: string, limit: number | null, window: HomeRoute | null = null) => __TAURI_INVOKE<FileHit[]>("search_project_files", { root, query, limit, window }),
+	listProjectFiles: (root: string, window: HomeRoute | null = null) => __TAURI_INVOKE<string[]>("list_project_files", { root, window }),
+	saveDraft: (project: string, content: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("save_draft", { project, content, window }),
+	loadDraft: (project: string, window: HomeRoute | null = null) => __TAURI_INVOKE<string | null>("load_draft", { project, window }),
+	deleteDraft: (project: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("delete_draft", { project, window }),
+	stageAttachment: (sourcePath: string, window: HomeRoute | null = null) => __TAURI_INVOKE<Attachment>("stage_attachment", { sourcePath, window }),
+	stageClipboardImage: (filename: string | null, mime: string | null, bytes: number[], window: HomeRoute | null = null) => __TAURI_INVOKE<Attachment>("stage_clipboard_image", { filename, mime, bytes, window }),
+	removeStaged: (id: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("remove_staged", { id, window }),
 	getQuickShortcut: () => __TAURI_INVOKE<string>("get_quick_shortcut"),
 	setQuickShortcut: (accelerator: string) => __TAURI_INVOKE<string>("set_quick_shortcut", { accelerator }),
 	/**
@@ -265,26 +274,26 @@ export const commands = {
 	 *  the quick chat's home (the default context) and emit a navigation event.
 	 */
 	quickOpenFullThread: (threadId: string) => __TAURI_INVOKE<null>("quick_open_full_thread", { threadId }),
-	readRuntimeSettings: () => __TAURI_INVOKE<RuntimeSettings>("read_runtime_settings"),
-	updateRuntimeSettings: (codexHome: string | null, codexBinary: string | null, claudeBinary: string | null, claudeConfigDir: string | null, codexHost: { kind: "native" } | { kind: "wsl"; distro: string } | null, claudeHost: { kind: "native" } | { kind: "wsl"; distro: string } | null) => __TAURI_INVOKE<RuntimeSettings>("update_runtime_settings", { codexHome, codexBinary, claudeBinary, claudeConfigDir, codexHost, claudeHost }),
+	readRuntimeSettings: (window: HomeRoute | null = null) => __TAURI_INVOKE<RuntimeSettings>("read_runtime_settings", { window }),
+	updateRuntimeSettings: (codexHome: string | null, codexBinary: string | null, claudeBinary: string | null, claudeConfigDir: string | null, codexHost: { kind: "native" } | { kind: "wsl"; distro: string } | null, claudeHost: { kind: "native" } | { kind: "wsl"; distro: string } | null, window: HomeRoute | null = null) => __TAURI_INVOKE<RuntimeSettings>("update_runtime_settings", { codexHome, codexBinary, claudeBinary, claudeConfigDir, codexHost, claudeHost, window }),
 	/**
 	 *  What this window boots against. A window is "explicit" once it is bound to
 	 *  a home — the first window inherits the launch binding, later windows are
 	 *  bound by `open_home_window` or pick a home themselves.
 	 */
-	readLaunchState: () => __TAURI_INVOKE<LaunchState>("read_launch_state"),
+	readLaunchState: (window: HomeRoute | null = null) => __TAURI_INVOKE<LaunchState>("read_launch_state", { window }),
 	/**
 	 *  What the running app-server said about itself at `initialize`: the CLI's
 	 *  `userAgent` (which embeds its version) and platform. Spawns the child if it
 	 *  is not running yet. Shown in Settings so a version mismatch is visible
 	 *  without a terminal; nothing in the app branches on it.
 	 */
-	readCodexServerInfo: () => __TAURI_INVOKE<unknown>("read_codex_server_info"),
+	readCodexServerInfo: (window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("read_codex_server_info", { window }),
 	/**
 	 *  Probe a candidate Codex CLI without saving it, so the picker and the
 	 *  settings form can show "found at …" as the user types.
 	 */
-	checkCodexBinary: (path: string | null, host: { kind: "native" } | { kind: "wsl"; distro: string } | null) => __TAURI_INVOKE<BinaryStatus>("check_codex_binary", { path, host }),
+	checkCodexBinary: (path: string | null, host: { kind: "native" } | { kind: "wsl"; distro: string } | null, window: HomeRoute | null = null) => __TAURI_INVOKE<BinaryStatus>("check_codex_binary", { path, host, window }),
 	/**
 	 *  The WSL distributions installed on this machine, for the host pickers.
 	 *  Empty off Windows.
@@ -296,14 +305,14 @@ export const commands = {
 	 *  app-server is dropped so the next request respawns with the new binary.
 	 *  `path` of `None` clears the override back to bare `codex`.
 	 */
-	setCodexBinary: (path: string | null) => __TAURI_INVOKE<LaunchState>("set_codex_binary", { path }),
+	setCodexBinary: (path: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<LaunchState>("set_codex_binary", { path, window }),
 	/**
 	 *  Bind *this window* to a Codex home. Safe pre-boot (nothing has spawned
 	 *  yet) and also handles a live switch: the window is re-pointed at the
 	 *  (reused or freshly opened) context for the new home, and the old context is
 	 *  shut down only when no other window still uses it.
 	 */
-	selectCodexHome: (path: string, host: { kind: "native" } | { kind: "wsl"; distro: string } | null) => __TAURI_INVOKE<LaunchState>("select_codex_home", { path, host }),
+	selectCodexHome: (path: string, host: { kind: "native" } | { kind: "wsl"; distro: string } | null, window: HomeRoute | null = null) => __TAURI_INVOKE<LaunchState>("select_codex_home", { path, host, window }),
 	/**
 	 *  Open a new app window, optionally bound to a home straight away. With no
 	 *  `path` the window shows the launch picker and binds itself on pick.
@@ -313,7 +322,7 @@ export const commands = {
 	 *  Forget a home from the recents list shown by the launch picker. Does not
 	 *  touch the folder on disk.
 	 */
-	removeRecentHome: (path: string, host: { kind: "native" } | { kind: "wsl"; distro: string } | null) => __TAURI_INVOKE<LaunchState>("remove_recent_home", { path, host }),
+	removeRecentHome: (path: string, host: { kind: "native" } | { kind: "wsl"; distro: string } | null, window: HomeRoute | null = null) => __TAURI_INVOKE<LaunchState>("remove_recent_home", { path, host, window }),
 	/**
 	 *  Read-only overview of the active home's defaults (model, MCP servers,
 	 *  skills) for the homepage dashboard.
@@ -321,18 +330,18 @@ export const commands = {
 	 *  Skills come from Codex rather than the filesystem so this agrees with the
 	 *  Integrations tab; if Codex is unreachable the list is simply empty.
 	 */
-	readHomeOverview: () => __TAURI_INVOKE<HomeOverview>("read_home_overview"),
+	readHomeOverview: (window: HomeRoute | null = null) => __TAURI_INVOKE<HomeOverview>("read_home_overview", { window }),
 	/**
 	 *  Read the whitelisted `config.toml` settings for the active home, with their
 	 *  source (default vs config) and restart semantics.
 	 */
-	readConfigSettings: () => __TAURI_INVOKE<ConfigSetting[]>("read_config_settings"),
+	readConfigSettings: (window: HomeRoute | null = null) => __TAURI_INVOKE<ConfigSetting[]>("read_config_settings", { window }),
 	/**
 	 *  Set or unset a single whitelisted `config.toml` key, preserving the rest of
 	 *  the file. Passing `unset: true` removes the key so Codex inherits its
 	 *  default; otherwise `value` is written. Returns the refreshed settings list.
 	 */
-	writeConfigSetting: (key: string, value: string | null, unset: boolean | null) => __TAURI_INVOKE<ConfigSetting[]>("write_config_setting", { key, value, unset }),
+	writeConfigSetting: (key: string, value: string | null, unset: boolean | null, window: HomeRoute | null = null) => __TAURI_INVOKE<ConfigSetting[]>("write_config_setting", { key, value, unset, window }),
 	readAgentSettings: () => __TAURI_INVOKE<AgentSettingsPayload>("read_agent_settings"),
 	writeAgentSettings: (settings: AgentSettingsPayload) => __TAURI_INVOKE<AgentSettingsPayload>("write_agent_settings", { settings }),
 	/**
@@ -342,119 +351,119 @@ export const commands = {
 	 *  previous app launches are included; live state arrives separately on
 	 *  `codex:agentRun`.
 	 */
-	listAgentRuns: (threadId: string) => __TAURI_INVOKE<AgentRunRow[]>("list_agent_runs", { threadId }),
+	listAgentRuns: (threadId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<AgentRunRow[]>("list_agent_runs", { threadId, window }),
 	/**  Stop a running agent from the GUI. */
-	killAgentRun: (runId: string) => __TAURI_INVOKE<null>("kill_agent_run", { runId }),
+	killAgentRun: (runId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("kill_agent_run", { runId, window }),
 	/**  The thread id to open when the user clicks into an agent. */
-	openAgentThread: (runId: string) => __TAURI_INVOKE<string | null>("open_agent_thread", { runId }),
-	remotePairingStart: () => __TAURI_INVOKE<unknown>("remote_pairing_start"),
-	remotePairingStatus: (pairingCode: string) => __TAURI_INVOKE<unknown>("remote_pairing_status", { pairingCode }),
+	openAgentThread: (runId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<string | null>("open_agent_thread", { runId, window }),
+	remotePairingStart: (window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("remote_pairing_start", { window }),
+	remotePairingStatus: (pairingCode: string, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("remote_pairing_status", { pairingCode, window }),
 	/**  Start or stop recording. Stopping clears whatever was captured. */
-	setWireLogging: (enabled: boolean) => __TAURI_INVOKE<void>("set_wire_logging", { enabled }),
+	setWireLogging: (enabled: boolean, window: HomeRoute | null = null) => __TAURI_INVOKE<void>("set_wire_logging", { enabled, window }),
 	/**  The buffered messages, oldest first. Empty while logging is off. */
-	readWireLog: () => __TAURI_INVOKE<WireMessage[]>("read_wire_log"),
+	readWireLog: (window: HomeRoute | null = null) => __TAURI_INVOKE<WireMessage[]>("read_wire_log", { window }),
 	clearWireLog: () => __TAURI_INVOKE<void>("clear_wire_log"),
-	gitRepoInfo: (dir: string) => __TAURI_INVOKE<GitRepoInfo>("git_repo_info", { dir }),
-	gitStatus: (dir: string) => __TAURI_INVOKE<GitStatus>("git_status", { dir }),
-	gitWorktrees: (repoDir: string) => __TAURI_INVOKE<WorktreeEntry[]>("git_worktrees", { repoDir }),
-	gitRecentCommits: (dir: string, limit: number | null) => __TAURI_INVOKE<CommitInfo[]>("git_recent_commits", { dir, limit }),
-	gitBranches: (dir: string, limit: number | null) => __TAURI_INVOKE<BranchRef[]>("git_branches", { dir, limit }),
-	gitWorktreeAdd: (repoDir: string, request: WorktreeAddRequest) => __TAURI_INVOKE<null>("git_worktree_add", { repoDir, request }),
-	gitWorktreeRemove: (repoDir: string, path: string, force: boolean) => __TAURI_INVOKE<null>("git_worktree_remove", { repoDir, path, force }),
-	gitWorktreePrune: (repoDir: string) => __TAURI_INVOKE<null>("git_worktree_prune", { repoDir }),
-	gitWorktreeLock: (repoDir: string, path: string, reason: string | null) => __TAURI_INVOKE<null>("git_worktree_lock", { repoDir, path, reason }),
-	gitWorktreeUnlock: (repoDir: string, path: string) => __TAURI_INVOKE<null>("git_worktree_unlock", { repoDir, path }),
-	gitChangesSummary: (dir: string) => __TAURI_INVOKE<ChangesSummary>("git_changes_summary", { dir }),
-	gitFileDiff: (dir: string, base: string, path: string, untracked: boolean, maxBytes: number | null) => __TAURI_INVOKE<FileDiff>("git_file_diff", { dir, base, path, untracked, maxBytes }),
-	gitWorktreeHandoffPreflight: (worktreePath: string, targetDir: string) => __TAURI_INVOKE<HandoffPreflight>("git_worktree_handoff_preflight", { worktreePath, targetDir }),
+	gitRepoInfo: (dir: string, window: HomeRoute | null = null) => __TAURI_INVOKE<GitRepoInfo>("git_repo_info", { dir, window }),
+	gitStatus: (dir: string, window: HomeRoute | null = null) => __TAURI_INVOKE<GitStatus>("git_status", { dir, window }),
+	gitWorktrees: (repoDir: string, window: HomeRoute | null = null) => __TAURI_INVOKE<WorktreeEntry[]>("git_worktrees", { repoDir, window }),
+	gitRecentCommits: (dir: string, limit: number | null, window: HomeRoute | null = null) => __TAURI_INVOKE<CommitInfo[]>("git_recent_commits", { dir, limit, window }),
+	gitBranches: (dir: string, limit: number | null, window: HomeRoute | null = null) => __TAURI_INVOKE<BranchRef[]>("git_branches", { dir, limit, window }),
+	gitWorktreeAdd: (repoDir: string, request: WorktreeAddRequest, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("git_worktree_add", { repoDir, request, window }),
+	gitWorktreeRemove: (repoDir: string, path: string, force: boolean, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("git_worktree_remove", { repoDir, path, force, window }),
+	gitWorktreePrune: (repoDir: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("git_worktree_prune", { repoDir, window }),
+	gitWorktreeLock: (repoDir: string, path: string, reason: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("git_worktree_lock", { repoDir, path, reason, window }),
+	gitWorktreeUnlock: (repoDir: string, path: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("git_worktree_unlock", { repoDir, path, window }),
+	gitChangesSummary: (dir: string, window: HomeRoute | null = null) => __TAURI_INVOKE<ChangesSummary>("git_changes_summary", { dir, window }),
+	gitFileDiff: (dir: string, base: string, path: string, untracked: boolean, maxBytes: number | null, window: HomeRoute | null = null) => __TAURI_INVOKE<FileDiff>("git_file_diff", { dir, base, path, untracked, maxBytes, window }),
+	gitWorktreeHandoffPreflight: (worktreePath: string, targetDir: string, window: HomeRoute | null = null) => __TAURI_INVOKE<HandoffPreflight>("git_worktree_handoff_preflight", { worktreePath, targetDir, window }),
 	/**
 	 *  Check the temporary worktree's branch out in `target_dir` and remove the
 	 *  worktree, so the thread can continue in the local checkout.
 	 */
-	gitWorktreeHandoff: (worktreePath: string, targetDir: string, commitUncommitted: boolean, branchName: string | null) => __TAURI_INVOKE<string>("git_worktree_handoff", { worktreePath, targetDir, commitUncommitted, branchName }),
+	gitWorktreeHandoff: (worktreePath: string, targetDir: string, commitUncommitted: boolean, branchName: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<string>("git_worktree_handoff", { worktreePath, targetDir, commitUncommitted, branchName, window }),
 	/**  Build the reproducible `codex resume` command for the running home. */
-	handoffCommand: (threadId: string, cwd: string) => __TAURI_INVOKE<string>("handoff_command", { threadId, cwd }),
+	handoffCommand: (threadId: string, cwd: string, window: HomeRoute | null = null) => __TAURI_INVOKE<string>("handoff_command", { threadId, cwd, window }),
 	/**  Build the shareable `codex://` link for the running home. */
-	handoffThreadLink: (threadId: string, cwd: string, label: string | null) => __TAURI_INVOKE<string>("handoff_thread_link", { threadId, cwd, label }),
+	handoffThreadLink: (threadId: string, cwd: string, label: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<string>("handoff_thread_link", { threadId, cwd, label, window }),
 	/**  Copy text to the system clipboard. */
 	handoffCopy: (text: string) => __TAURI_INVOKE<null>("handoff_copy", { text }),
 	/**  Open a terminal and run the handoff command. */
-	handoffLaunchTerminal: (command: string) => __TAURI_INVOKE<null>("handoff_launch_terminal", { command }),
+	handoffLaunchTerminal: (command: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("handoff_launch_terminal", { command, window }),
 	reviewProviderStatus: (repoDir: string) => __TAURI_INVOKE<ProviderStatus>("review_provider_status", { repoDir }),
 	reviewListPrs: (repoDir: string) => __TAURI_INVOKE<PrSummary[]>("review_list_prs", { repoDir }),
 	reviewPrDetail: (repoDir: string, number: number) => __TAURI_INVOKE<PrDetail>("review_pr_detail", { repoDir, number }),
 	reviewCheckFresh: (repoDir: string, number: number, knownHead: string, knownUpdatedAt: string) => __TAURI_INVOKE<PrFreshness>("review_check_fresh", { repoDir, number, knownHead, knownUpdatedAt }),
-	reviewLocalDiff: (repoDir: string, base: string, head: string | null) => __TAURI_INVOKE<PrFile[]>("review_local_diff", { repoDir, base, head }),
+	reviewLocalDiff: (repoDir: string, base: string, head: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<PrFile[]>("review_local_diff", { repoDir, base, head, window }),
 	reviewSubmit: (repoDir: string, number: number, event: string, body: string, comments: PendingComment[]) => __TAURI_INVOKE<null>("review_submit", { repoDir, number, event, body, comments }),
 	reviewReply: (repoDir: string, number: number, commentId: number, body: string) => __TAURI_INVOKE<null>("review_reply", { repoDir, number, commentId, body }),
 	reviewResolveThread: (repoDir: string, threadId: string) => __TAURI_INVOKE<null>("review_resolve_thread", { repoDir, threadId }),
-	reviewSaveDraft: (provider: string, repo: string, prNumber: number, headSha: string, payload: string) => __TAURI_INVOKE<null>("review_save_draft", { provider, repo, prNumber, headSha, payload }),
-	reviewLoadDraft: (provider: string, repo: string, prNumber: number) => __TAURI_INVOKE<{
+	reviewSaveDraft: (provider: string, repo: string, prNumber: number, headSha: string, payload: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("review_save_draft", { provider, repo, prNumber, headSha, payload, window }),
+	reviewLoadDraft: (provider: string, repo: string, prNumber: number, window: HomeRoute | null = null) => __TAURI_INVOKE<{
 	headSha: string,
 	/**  Opaque JSON owned by the frontend (pending comments, chosen event). */
 	payload: string,
 	updatedAt: number,
-} | null>("review_load_draft", { provider, repo, prNumber }),
-	reviewDeleteDraft: (provider: string, repo: string, prNumber: number) => __TAURI_INVOKE<null>("review_delete_draft", { provider, repo, prNumber }),
-	saveProjectInstructions: (projectPath: string, instructions: string) => __TAURI_INVOKE<null>("save_project_instructions", { projectPath, instructions }),
-	listProjectSources: (projectPath: string) => __TAURI_INVOKE<StoredProjectSource[]>("list_project_sources", { projectPath }),
-	addProjectSource: (projectPath: string, sourcePath: string, kind: string) => __TAURI_INVOKE<StoredProjectSource[]>("add_project_source", { projectPath, sourcePath, kind }),
-	removeProjectSource: (id: string, projectPath: string) => __TAURI_INVOKE<StoredProjectSource[]>("remove_project_source", { id, projectPath }),
-	reindexSource: (id: string) => __TAURI_INVOKE<null>("reindex_source", { id }),
-	searchWorkspace: (projectPath: string, query: string, cursor: string | null, generation: number | null) => __TAURI_INVOKE<WorkspaceResults>("search_workspace", { projectPath, query, cursor, generation }),
-	listConnections: () => __TAURI_INVOKE<Connection[]>("list_connections"),
+} | null>("review_load_draft", { provider, repo, prNumber, window }),
+	reviewDeleteDraft: (provider: string, repo: string, prNumber: number, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("review_delete_draft", { provider, repo, prNumber, window }),
+	saveProjectInstructions: (projectPath: string, instructions: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("save_project_instructions", { projectPath, instructions, window }),
+	listProjectSources: (projectPath: string, window: HomeRoute | null = null) => __TAURI_INVOKE<StoredProjectSource[]>("list_project_sources", { projectPath, window }),
+	addProjectSource: (projectPath: string, sourcePath: string, kind: string, window: HomeRoute | null = null) => __TAURI_INVOKE<StoredProjectSource[]>("add_project_source", { projectPath, sourcePath, kind, window }),
+	removeProjectSource: (id: string, projectPath: string, window: HomeRoute | null = null) => __TAURI_INVOKE<StoredProjectSource[]>("remove_project_source", { id, projectPath, window }),
+	reindexSource: (id: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("reindex_source", { id, window }),
+	searchWorkspace: (projectPath: string, query: string, cursor: string | null, generation: number | null, window: HomeRoute | null = null) => __TAURI_INVOKE<WorkspaceResults>("search_workspace", { projectPath, query, cursor, generation, window }),
+	listConnections: (window: HomeRoute | null = null) => __TAURI_INVOKE<Connection[]>("list_connections", { window }),
 	/**
 	 *  Re-poll the relay for fresh health. Identical to `list_connections` today;
 	 *  kept as a distinct command so the UI's "refresh" affordance reads clearly.
 	 */
-	refreshConnections: () => __TAURI_INVOKE<Connection[]>("refresh_connections"),
-	renameConnection: (clientId: string, name: string) => __TAURI_INVOKE<null>("rename_connection", { clientId, name }),
+	refreshConnections: (window: HomeRoute | null = null) => __TAURI_INVOKE<Connection[]>("refresh_connections", { window }),
+	renameConnection: (clientId: string, name: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("rename_connection", { clientId, name, window }),
 	/**
 	 *  Safe action: forget the local record. The credential is untouched, so an
 	 *  active device reappears on the next refresh with its default name.
 	 */
-	disconnectConnection: (clientId: string) => __TAURI_INVOKE<null>("disconnect_connection", { clientId }),
+	disconnectConnection: (clientId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("disconnect_connection", { clientId, window }),
 	/**
 	 *  Destructive action: revoke the credential through the relay (idempotent —
 	 *  a missing/already-revoked client is treated as success) and drop the local
 	 *  record.
 	 */
-	revokeConnection: (clientId: string) => __TAURI_INVOKE<null>("revoke_connection", { clientId }),
-	listIntegrations: (cwds: string[] | null) => __TAURI_INVOKE<IntegrationsList>("list_integrations", { cwds }),
+	revokeConnection: (clientId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("revoke_connection", { clientId, window }),
+	listIntegrations: (cwds: string[] | null, window: HomeRoute | null = null) => __TAURI_INVOKE<IntegrationsList>("list_integrations", { cwds, window }),
 	/**  Add a new MCP server, or save edits to an existing one. */
-	saveMcpServer: (server: McpServerInput) => __TAURI_INVOKE<IntegrationsList>("save_mcp_server", { server }),
-	removeMcpServer: (name: string) => __TAURI_INVOKE<IntegrationsList>("remove_mcp_server", { name }),
-	setMcpEnabled: (name: string, enabled: boolean) => __TAURI_INVOKE<IntegrationsList>("set_mcp_enabled", { name, enabled }),
-	listMcpServerStatus: () => __TAURI_INVOKE<unknown>("list_mcp_server_status"),
+	saveMcpServer: (server: McpServerInput, window: HomeRoute | null = null) => __TAURI_INVOKE<IntegrationsList>("save_mcp_server", { server, window }),
+	removeMcpServer: (name: string, window: HomeRoute | null = null) => __TAURI_INVOKE<IntegrationsList>("remove_mcp_server", { name, window }),
+	setMcpEnabled: (name: string, enabled: boolean, window: HomeRoute | null = null) => __TAURI_INVOKE<IntegrationsList>("set_mcp_enabled", { name, enabled, window }),
+	listMcpServerStatus: (window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("list_mcp_server_status", { window }),
 	/**
 	 *  Start an OAuth login for one server. Resolves as soon as Codex has the flow
 	 *  under way — completion arrives later as an `mcpServer/oauthLogin/completed`
 	 *  notification, which the frontend listens for.
 	 */
-	mcpOauthLogin: (name: string) => __TAURI_INVOKE<unknown>("mcp_oauth_login", { name }),
+	mcpOauthLogin: (name: string, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("mcp_oauth_login", { name, window }),
 	/**
 	 *  Make a running Codex pick up `config.toml` edits. Also called after every
 	 *  mutation in `commands.rs`; without it the session keeps serving the servers
 	 *  it started with until the app restarts.
 	 */
-	reloadMcpServers: () => __TAURI_INVOKE<unknown>("reload_mcp_servers"),
-	listSkillsFor: (cwds: string[]) => __TAURI_INVOKE<unknown>("list_skills_for", { cwds }),
+	reloadMcpServers: (window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("reload_mcp_servers", { window }),
+	listSkillsFor: (cwds: string[], window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("list_skills_for", { cwds, window }),
 	/**
 	 *  Enable or disable a skill by name. `skills/config/write` requires exactly
 	 *  one of `name` or `path`; we always key by name.
 	 */
-	setSkillEnabled: (name: string, enabled: boolean) => __TAURI_INVOKE<unknown>("set_skill_enabled", { name, enabled }),
-	readSkill: (path: string) => __TAURI_INVOKE<string>("read_skill", { path }),
-	createSkill: (name: string, description: string, body: string | null, cwds: string[] | null) => __TAURI_INVOKE<IntegrationsList>("create_skill", { name, description, body, cwds }),
-	deleteSkill: (path: string, cwds: string[] | null) => __TAURI_INVOKE<IntegrationsList>("delete_skill", { path, cwds }),
+	setSkillEnabled: (name: string, enabled: boolean, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("set_skill_enabled", { name, enabled, window }),
+	readSkill: (path: string, window: HomeRoute | null = null) => __TAURI_INVOKE<string>("read_skill", { path, window }),
+	createSkill: (name: string, description: string, body: string | null, cwds: string[] | null, window: HomeRoute | null = null) => __TAURI_INVOKE<IntegrationsList>("create_skill", { name, description, body, cwds, window }),
+	deleteSkill: (path: string, cwds: string[] | null, window: HomeRoute | null = null) => __TAURI_INVOKE<IntegrationsList>("delete_skill", { path, cwds, window }),
 	/**
 	 *  Show a path in the file manager. `path` is a host path of this window's
 	 *  home; a WSL path opens through the `\\wsl.localhost` share.
 	 */
-	revealInFinder: (path: string) => __TAURI_INVOKE<null>("reveal_in_finder", { path }),
+	revealInFinder: (path: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("reveal_in_finder", { path, window }),
 	/**  Open a URL in the user's default browser (not inside the app webview). */
 	openExternalUrl: (url: string) => __TAURI_INVOKE<null>("open_external_url", { url }),
-	openInZed: (path: string) => __TAURI_INVOKE<null>("open_in_zed", { path }),
+	openInZed: (path: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("open_in_zed", { path, window }),
 };
 
 /** Events */
@@ -954,6 +963,17 @@ export type HomeOverview = {
 	skills: SkillInfo[],
 };
 
+export type HomeRoute = {
+	homeKey: string,
+};
+
+export type HomeSnapshot = {
+	home: ProfileHome,
+	homeKey: string,
+	data: BootstrapData,
+	error: string | null,
+};
+
 export type HookCompletedParams = {
 	threadId?: string | null,
 	turnId?: string | null,
@@ -1225,6 +1245,21 @@ export type PrSummary = {
 	url: string,
 };
 
+export type ProfileBootstrap = {
+	profileKey: string,
+	homes: HomeSnapshot[],
+};
+
+export type ProfileHome = {
+	id: string,
+	harness: HarnessKind,
+	host: Host,
+	configDir: string,
+	binary: string,
+	label: string,
+	isDefault: boolean,
+};
+
 /**
  *  One row in the sidebar: a real folder, a Codex-managed worktree, or a
  *  workspace hub standing in for several repositories.
@@ -1400,7 +1435,7 @@ export type SideQuestion = {
 	 *  question was asked. The panel hides them; `None` on rows recorded
 	 *  before this was tracked, which then show the whole fork.
 	 */
-	inheritedTurns: number | null,
+	inheritedTurns?: number | null,
 };
 
 export type SidebarLayout = {
@@ -1845,3 +1880,6 @@ function makeEvent<T>(name: string, serialize?: (payload: T) => unknown, deseria
     return Object.assign(fn, base);
 }
 
+
+/** Command argument names for explicit Home routing. */
+export const commandArguments = {"addProfileProject":["path","host"],"addProject":["path","window"],"addProjectSource":["projectPath","sourcePath","kind","window"],"addSideQuestion":["parentThreadId","sideThreadId","title","inheritedTurns","window"],"addThreadBranch":["parentThreadId","threadId","replacedTurnId","inheritedTurns","window"],"addWorktreeProject":["path","window"],"applySessionFocus":["hide","collapseProjects","collapseFolders","window"],"archiveThread":["threadId","window"],"autoNameThread":["threadId","seed","window"],"bootstrap":["window"],"bootstrapProfile":["refresh"],"checkCodexBinary":["path","host","window"],"clearWireLog":[],"compactThread":["threadId","window"],"createSidebarFolder":["scope","parentId","name","window"],"createSkill":["name","description","body","cwds","window"],"createThreadSection":["name","color","window"],"createWorkspace":["input","window"],"deleteDraft":["project","window"],"deleteSidebarFolder":["id","window"],"deleteSkill":["path","cwds","window"],"deleteThread":["threadId","window"],"deleteThreadSection":["sectionId","window"],"disconnectConnection":["clientId","window"],"forkThread":["threadId","beforeTurnId","lastTurnId","cwd","window"],"getQuickShortcut":[],"gitBranches":["dir","limit","window"],"gitChangesSummary":["dir","window"],"gitFileDiff":["dir","base","path","untracked","maxBytes","window"],"gitRecentCommits":["dir","limit","window"],"gitRepoInfo":["dir","window"],"gitStatus":["dir","window"],"gitWorktreeAdd":["repoDir","request","window"],"gitWorktreeHandoff":["worktreePath","targetDir","commitUncommitted","branchName","window"],"gitWorktreeHandoffPreflight":["worktreePath","targetDir","window"],"gitWorktreeLock":["repoDir","path","reason","window"],"gitWorktreePrune":["repoDir","window"],"gitWorktreeRemove":["repoDir","path","force","window"],"gitWorktreeUnlock":["repoDir","path","window"],"gitWorktrees":["repoDir","window"],"handoffCommand":["threadId","cwd","window"],"handoffCopy":["text"],"handoffLaunchTerminal":["command","window"],"handoffThreadLink":["threadId","cwd","label","window"],"interruptTurn":["threadId","turnId","window"],"invalidateThreadCache":["threadId","window"],"killAgentRun":["runId","window"],"listAgentRuns":["threadId","window"],"listArchivedThreads":["window"],"listConnections":["window"],"listHarnessModels":["harness","window"],"listIntegrations":["cwds","window"],"listMcpServerStatus":["window"],"listModels":["window"],"listProjectFiles":["root","window"],"listProjectSources":["projectPath","window"],"listSkillsFor":["cwds","window"],"listSubagents":["threadId","window"],"listThreadsPage":["cursor","pageSize","archived","projectPath","window"],"listWslDistros":[],"loadDraft":["project","window"],"mcpOauthLogin":["name","window"],"moveThreadToSection":["threadId","sectionId","window"],"moveThreadToWorkspace":["threadId","workspaceId","window"],"openAgentThread":["runId","window"],"openExternalUrl":["url"],"openHomeWindow":["path","host"],"openInZed":["path","window"],"placeSidebarItem":["scope","item","parentId","siblings","window"],"prepareProfileWorkspace":["sourceHomeKey","workspaceId","targetHomeKey"],"queueAdd":["threadId","input","clientUserMessageId","window"],"queueDelete":["threadId","queuedSubmissionId","window"],"queueList":["threadId","cursor","window"],"queueReorder":["threadId","queuedSubmissionIds","window"],"queueStart":["threadId","queuedSubmissionId","window"],"queueUpdate":["threadId","queuedSubmissionId","input","window"],"quickOpenFullThread":["threadId"],"readAccountRateLimits":["window"],"readAgentSettings":[],"readClaudeStatus":["window"],"readCodexServerInfo":["window"],"readConfigSettings":["window"],"readHomeOverview":["window"],"readLaunchState":["window"],"readRuntimeSettings":["window"],"readSkill":["path","window"],"readThread":["threadId","window"],"readThreadUsage":["threadId","window"],"readWireLog":["window"],"recordUserInputRequest":["threadId","turnId","itemId","item","afterItemId","window"],"refreshConnections":["window"],"registerProfileHome":["harness","host","configDir","binary","label"],"reindexSource":["id","window"],"reloadMcpServers":["window"],"remotePairingStart":["window"],"remotePairingStatus":["pairingCode","window"],"removeMcpServer":["name","window"],"removeProject":["path","window"],"removeProjectSource":["id","projectPath","window"],"removeRecentHome":["path","host","window"],"removeSideQuestion":["sideThreadId","window"],"removeStaged":["id","window"],"renameConnection":["clientId","name","window"],"renameProject":["path","name","window"],"renameSidebarFolder":["id","name","window"],"renameThread":["threadId","name","window"],"resetSidebarOrder":["scope","window"],"respondApproval":["requestId","decision","window"],"respondServerRequest":["requestId","result","window"],"respondUserInput":["requestId","answers","threadId","turnId","itemId","item","window"],"revealInFinder":["path","window"],"revertThread":["threadId","beforeTurnId","keptTurnIds","window"],"reviewCheckFresh":["repoDir","number","knownHead","knownUpdatedAt"],"reviewDeleteDraft":["provider","repo","prNumber","window"],"reviewListPrs":["repoDir"],"reviewLoadDraft":["provider","repo","prNumber","window"],"reviewLocalDiff":["repoDir","base","head","window"],"reviewPrDetail":["repoDir","number"],"reviewProviderStatus":["repoDir"],"reviewReply":["repoDir","number","commentId","body"],"reviewResolveThread":["repoDir","threadId"],"reviewSaveDraft":["provider","repo","prNumber","headSha","payload","window"],"reviewSubmit":["repoDir","number","event","body","comments"],"revokeConnection":["clientId","window"],"rollbackThread":["threadId","numTurns","window"],"saveDraft":["project","content","window"],"saveMcpServer":["server","window"],"saveProjectInstructions":["projectPath","instructions","window"],"searchProjectFiles":["root","query","limit","window"],"searchThreads":["query","cursor","filter","generation","window"],"searchWorkspace":["projectPath","query","cursor","generation","window"],"selectCodexHome":["path","host","window"],"setCodexBinary":["path","window"],"setMcpEnabled":["name","enabled","window"],"setProfileDefaultHome":["id"],"setProjectArchived":["path","archived","window"],"setProjectExpanded":["path","expanded","window"],"setProjectPinned":["path","pinned","window"],"setQuickShortcut":["accelerator"],"setSidebarFolderExpanded":["id","expanded","window"],"setSkillEnabled":["name","enabled","window"],"setThreadBranchEditTurn":["threadId","editTurnId","window"],"setThreadPinned":["threadId","pinned","window"],"setThreadsHidden":["threadIds","hidden","window"],"setWireLogging":["enabled","window"],"stageAttachment":["sourcePath","window"],"stageClipboardImage":["filename","mime","bytes","window"],"startReview":["threadId","target","window"],"startThread":["cwd","workspaceId","appSubagents","harness","window"],"startTurn":["threadId","input","options","window"],"threadGoalClear":["threadId","window"],"threadGoalGet":["threadId","window"],"threadGoalSet":["threadId","objective","status","window"],"threadsWithActiveTurns":["window"],"threadsWithUnansweredQuestions":["window"],"unarchiveThread":["threadId","window"],"updateRuntimeSettings":["codexHome","codexBinary","claudeBinary","claudeConfigDir","codexHost","claudeHost","window"],"updateSubagentPolicy":["threadId","modelPolicy","reasoningEffortPolicy","window"],"updateThreadSection":["sectionId","name","color","window"],"updateTurnSettings":["threadId","turnId","model","effort","window"],"updateWorkspace":["input","window"],"writeAgentSettings":["settings"],"writeConfigSetting":["key","value","unset","window"]} as const;

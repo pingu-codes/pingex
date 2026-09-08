@@ -54,6 +54,10 @@ fn validate_members(
     let mut aliases = HashSet::new();
     let mut paths = Vec::new();
     for input in inputs {
+        let (picked_host, _) = Host::from_local(&input.source_path);
+        if picked_host.is_wsl() && picked_host != *host {
+            return Err("A workspace can only contain projects on the same Host".into());
+        }
         let alias = clean_alias(&input.alias)?;
         if !aliases.insert(alias) {
             return Err("Workspace member aliases must be unique".into());
@@ -86,7 +90,7 @@ fn roll_back(host: &Host, created: &[(String, String, String)]) {
 #[specta::specta]
 pub(crate) async fn create_workspace(
     input: CreateWorkspaceInput,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
@@ -159,7 +163,7 @@ pub(crate) async fn create_workspace(
 #[specta::specta]
 pub(crate) async fn update_workspace(
     input: UpdateWorkspaceInput,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
@@ -269,7 +273,7 @@ pub(crate) async fn move_thread_to_workspace(
     thread_id: String,
     workspace_id: String,
     app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);

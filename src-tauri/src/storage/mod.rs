@@ -19,8 +19,11 @@ mod agent_runs;
 mod branches;
 mod harness;
 mod items;
+mod profile_import;
+pub(crate) mod profiles;
 mod project_expansion;
 mod projects;
+pub(crate) use profile_import::{open_profile_root, open_profile_root_at, profile_root_path_in};
 mod questions;
 mod review;
 mod schema;
@@ -158,6 +161,22 @@ pub async fn open_on(host: &Host, codex_home: &str) -> Result<Database, String> 
         .await
         .map_err(|error| format!("Could not open Pingex database: {error}"))?;
     schema::initialize(&database, codex_home).await?;
+    Ok(database)
+}
+
+/// App-owned storage for an additional Home. Opening the cache does not need
+/// a running distribution or a writable harness configuration directory.
+pub(crate) async fn open_profile_cache(path: &Path) -> Result<Database, String> {
+    let parent = path
+        .parent()
+        .ok_or("Profile cache has no parent directory")?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("Could not create Profile directory: {error}"))?;
+    let database = Builder::new_local(path.to_str().ok_or("Invalid Profile cache path")?)
+        .build()
+        .await
+        .map_err(db::db_error)?;
+    schema::initialize(&database, parent).await?;
     Ok(database)
 }
 

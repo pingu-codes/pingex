@@ -4,7 +4,8 @@
  * subagents visible until a bootstrap refresh catches up with them.
  */
 
-import { open } from "@tauri-apps/plugin-dialog";
+import { openDialog } from "$lib/app/dialogs.svelte";
+import AddProjectDialog from "$lib/layout/AddProjectDialog.svelte";
 import { checkCodexVersion } from "$lib/app/codexVersion.svelte";
 import {
   bootstrap,
@@ -14,7 +15,7 @@ import {
   threadsWithUnansweredQuestions,
 } from "$lib/services/api";
 import { seedActiveTurns, setUnansweredQuestions } from "$lib/services/codexEvents.svelte";
-import type { BootstrapData, Project, SubagentDetail, ThreadSummary } from "$lib/types";
+import type { BootstrapData, Host, Project, SubagentDetail, ThreadSummary } from "$lib/types";
 
 export const appData = $state<{
   data: BootstrapData | null;
@@ -204,14 +205,7 @@ export async function quietRefresh(): Promise<void> {
 
 export async function addProject(): Promise<void> {
   if (!isTauri()) return;
-  const path = await open({ directory: true, multiple: false, title: "Add project folder" });
-  if (!path) return;
-  appData.loading = true;
-  try {
-    applyData(await saveProject(path));
-  } catch (cause) {
-    fail(cause);
-  } finally {
-    appData.loading = false;
-  }
+  await openDialog<true, { submit: (path: string, host: Host | null) => Promise<void> }>(AddProjectDialog, {
+    submit: async (path, host) => { applyData(await saveProject(path, host)); },
+  });
 }

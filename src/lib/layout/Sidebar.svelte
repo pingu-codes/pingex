@@ -1,4 +1,5 @@
 <script lang="ts">
+import { projectHostLabel } from "$lib/services/homeRouting";
 import {
   Bot,
   ChevronDown,
@@ -566,6 +567,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
           class="min-w-0 flex-1 truncate"
           onmouseenter={() => ensureGitStatus(project.path)}
         >{project.name}</TooltipAnchor>
+        <span class="shrink-0 text-[10px] text-surface-500">{projectHostLabel(project.path)}</span>
         {#if project.pinned}
           <Pin class="shrink-0 text-surface-500" size={11} />
         {/if}

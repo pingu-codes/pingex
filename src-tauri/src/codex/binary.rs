@@ -288,6 +288,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn falls_back_to_common_install_dirs_when_path_is_bare() {
         // The fallback list is what makes a Finder launch work; keep PATH out
         // of it so the search order is asserted, not the host's environment.

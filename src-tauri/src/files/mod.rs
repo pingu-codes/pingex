@@ -18,7 +18,7 @@ pub(crate) async fn search_project_files(
     root: String,
     query: String,
     limit: Option<usize>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<fuzzy::FileHit>, String> {
     let ctx = state.ctx(&window);
@@ -64,7 +64,7 @@ pub(crate) async fn search_project_files(
 #[specta::specta]
 pub(crate) async fn list_project_files(
     root: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
     let ctx = state.ctx(&window);

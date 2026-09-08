@@ -12,7 +12,7 @@ use crate::AppState;
 pub(crate) fn handoff_command(
     thread_id: String,
     cwd: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> String {
     let ctx = state.ctx(&window);
@@ -33,7 +33,7 @@ pub(crate) fn handoff_thread_link(
     thread_id: String,
     cwd: String,
     label: Option<String>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> String {
     let ctx = state.ctx(&window);
@@ -59,7 +59,7 @@ pub(crate) fn handoff_copy(text: String) -> Result<(), String> {
 #[specta::specta]
 pub(crate) fn handoff_launch_terminal(
     command: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     launch_terminal(&state.ctx(&window).host(), &command)

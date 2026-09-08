@@ -7,6 +7,7 @@ import { projectForCwd, projects, quietRefresh } from "$lib/app/appData.svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
 import { switchToHome } from "$lib/app/launch.svelte";
 import { newThreadInDir, setView, view } from "$lib/app/navigation.svelte";
+import { identity, localProjectPath, profileHomes, scopedId } from "$lib/services/homeRouting";
 import HandoffOpenDialog from "$lib/thread/HandoffOpenDialog.svelte";
 import type { HandoffOpen } from "$lib/types";
 
@@ -38,6 +39,21 @@ function openHandoffThread(threadId: string, path: string | null) {
 
 /** Act on a same-home handoff: open the thread or a new draft in the cwd. */
 function navigateHandoff(open: HandoffOpen) {
+  const homes = profileHomes();
+  const owner = homes.find(
+    (home) =>
+      home.home.harness === "codex" &&
+      (open.requestedHome
+        ? home.home.configDir === open.requestedHome &&
+          JSON.stringify(home.home.host) === JSON.stringify(open.requestedHost ?? { kind: "native" })
+        : !home.homeKey.startsWith("profile:")),
+  );
+  if (owner)
+    open = {
+      ...open,
+      path: open.path ? localProjectPath(owner.home.host, open.path) : null,
+      threadId: open.threadId && !identity(open.threadId) ? scopedId(owner.homeKey, open.threadId) : open.threadId,
+    };
   handoff.error = null;
   if (open.kind === "new") {
     handoff.expectedCwd = null;
@@ -49,7 +65,13 @@ function navigateHandoff(open: HandoffOpen) {
 
 /** Entry point for the `handoff://open` event from a received `codex://` link. */
 export async function applyHandoff(open: HandoffOpen): Promise<void> {
-  if (open.homeMatches) {
+  const known = profileHomes().some(
+    (home) =>
+      home.home.harness === "codex" &&
+      home.home.configDir === open.requestedHome &&
+      JSON.stringify(home.home.host) === JSON.stringify(open.requestedHost ?? { kind: "native" }),
+  );
+  if (open.homeMatches || known) {
     navigateHandoff(open);
     return;
   }
@@ -59,7 +81,7 @@ export async function applyHandoff(open: HandoffOpen): Promise<void> {
     handoff: open,
     submit: async (requested: HandoffOpen) => {
       if (!requested.requestedHome) return;
-      await switchToHome(requested.requestedHome);
+      await switchToHome(requested.requestedHome, requested.requestedHost ?? null);
     },
   });
   if (switched) navigateHandoff({ ...open, homeMatches: true });

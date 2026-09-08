@@ -52,7 +52,7 @@ pub(super) async fn build_list_with(
 pub(crate) async fn list_integrations(
     cwds: Option<Vec<String>>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
     let ctx = state.ctx(&window);
@@ -94,7 +94,7 @@ pub(crate) struct McpServerInput {
 pub(crate) async fn save_mcp_server(
     server: McpServerInput,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
     let ctx = state.ctx(&window);
@@ -154,7 +154,7 @@ pub(crate) async fn save_mcp_server(
 pub(crate) async fn remove_mcp_server(
     name: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
     let ctx = state.ctx(&window);
@@ -172,7 +172,7 @@ pub(crate) async fn set_mcp_enabled(
     name: String,
     enabled: bool,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
     let ctx = state.ctx(&window);

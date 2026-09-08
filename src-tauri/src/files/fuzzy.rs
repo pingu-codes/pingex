@@ -81,7 +81,7 @@ pub(crate) fn search_files(root: &Path, query: &str, limit: usize) -> Vec<FileHi
         let Ok(relative) = entry.path().strip_prefix(root) else {
             continue;
         };
-        let relative = relative.to_string_lossy().to_string();
+        let relative = crate::util::walk::relative_path(relative);
         let Some(match_score) = score(query, &relative) else {
             continue;
         };
@@ -115,7 +115,7 @@ pub(crate) fn list_files(root: &Path) -> Vec<String> {
         let Ok(relative) = entry.path().strip_prefix(root) else {
             continue;
         };
-        paths.push(relative.to_string_lossy().to_string());
+        paths.push(crate::util::walk::relative_path(relative));
     }
     paths.sort();
     paths

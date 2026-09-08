@@ -28,7 +28,7 @@ use crate::AppState;
 #[specta::specta]
 pub(crate) async fn git_repo_info(
     dir: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<GitRepoInfo, String> {
     let host = state.ctx(&window).host();
@@ -41,7 +41,7 @@ pub(crate) async fn git_repo_info(
 #[specta::specta]
 pub(crate) async fn git_status(
     dir: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<GitStatus, String> {
     let host = state.ctx(&window).host();
@@ -54,7 +54,7 @@ pub(crate) async fn git_status(
 #[specta::specta]
 pub(crate) async fn git_worktrees(
     repo_dir: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<WorktreeEntry>, String> {
     let ctx = state.ctx(&window);
@@ -71,7 +71,7 @@ pub(crate) async fn git_worktrees(
 pub(crate) async fn git_recent_commits(
     dir: String,
     limit: Option<usize>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<CommitInfo>, String> {
     let limit = limit.unwrap_or(20);
@@ -86,7 +86,7 @@ pub(crate) async fn git_recent_commits(
 pub(crate) async fn git_branches(
     dir: String,
     limit: Option<usize>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<BranchRef>, String> {
     let limit = limit.unwrap_or(200);
@@ -101,7 +101,7 @@ pub(crate) async fn git_branches(
 pub(crate) async fn git_worktree_add(
     repo_dir: String,
     request: WorktreeAddRequest,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
@@ -172,7 +172,7 @@ pub(crate) async fn git_worktree_remove(
     repo_dir: String,
     path: String,
     force: bool,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let host = state.ctx(&window).host();
@@ -209,7 +209,7 @@ pub(crate) async fn git_worktree_remove(
 #[specta::specta]
 pub(crate) async fn git_worktree_prune(
     repo_dir: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let host = state.ctx(&window).host();
@@ -235,7 +235,7 @@ pub(crate) async fn git_worktree_lock(
     repo_dir: String,
     path: String,
     reason: Option<String>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let host = state.ctx(&window).host();
@@ -267,7 +267,7 @@ pub(crate) async fn git_worktree_lock(
 pub(crate) async fn git_worktree_unlock(
     repo_dir: String,
     path: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let host = state.ctx(&window).host();
@@ -291,7 +291,7 @@ pub(crate) async fn git_worktree_unlock(
 #[specta::specta]
 pub(crate) async fn git_changes_summary(
     dir: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<ChangesSummary, String> {
     let ctx = state.ctx(&window);
@@ -311,7 +311,7 @@ pub(crate) async fn git_file_diff(
     path: String,
     untracked: bool,
     max_bytes: Option<usize>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<FileDiff, String> {
     let host = state.ctx(&window).host();
@@ -334,7 +334,7 @@ pub(crate) async fn git_file_diff(
 pub(crate) async fn git_worktree_handoff_preflight(
     worktree_path: String,
     target_dir: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<HandoffPreflight, String> {
     let ctx = state.ctx(&window);
@@ -360,7 +360,7 @@ pub(crate) async fn git_worktree_handoff(
     target_dir: String,
     commit_uncommitted: bool,
     branch_name: Option<String>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     let ctx = state.ctx(&window);

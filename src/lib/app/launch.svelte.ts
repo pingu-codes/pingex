@@ -5,6 +5,7 @@
  */
 
 import { open } from "@tauri-apps/plugin-dialog";
+import { belongsToProfile } from "$lib/services/homeRouting";
 import { appData, refresh } from "$lib/app/appData.svelte";
 import { checkCodexVersion } from "$lib/app/codexVersion.svelte";
 import { closeAllDialogs } from "$lib/app/dialogs.svelte";
@@ -54,6 +55,7 @@ export function homeKey(): string | null {
 /** True when an event tagged `codexHome` belongs to this window's home. */
 export function eventMatchesHome(tag: unknown): boolean {
   if (typeof tag !== "string" || !tag) return true;
+  if (belongsToProfile(tag)) return true;
   const key = homeKey();
   return key === null || tag === key;
 }

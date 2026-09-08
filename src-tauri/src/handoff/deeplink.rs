@@ -50,6 +50,7 @@ pub(crate) struct HandoffOpen {
     pub(crate) path: Option<String>,
     /// The resolved (tilde-expanded) requested home, if the link carried one.
     pub(crate) requested_home: Option<String>,
+    pub(crate) requested_host: Option<Host>,
     pub(crate) label: Option<String>,
     /// The requested home equals the running home (or the link carried none).
     pub(crate) home_matches: bool,
@@ -64,6 +65,7 @@ fn resolve_open(link: &DeepLink, running_key: &str) -> HandoffOpen {
         DeepLinkKind::Thread(id) => ("thread".to_string(), Some(id.clone())),
         DeepLinkKind::New => ("new".to_string(), None),
     };
+    let requested_host = requested_home(link).map(|(host, _)| host);
     let (requested_home, home_matches, home_exists) = match requested_home(link) {
         Some((host, path)) => {
             let matches = home_key_for(&host, &path) == running_key;
@@ -78,6 +80,7 @@ fn resolve_open(link: &DeepLink, running_key: &str) -> HandoffOpen {
         thread_id,
         path: link.path.clone(),
         requested_home,
+        requested_host,
         label: link.label.clone(),
         home_matches,
         home_exists,

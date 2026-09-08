@@ -1,4 +1,5 @@
 import type { CodexEvent } from "$lib/services/codexEvents.svelte";
+import { threadBelongsToHome } from "$lib/services/homeRouting";
 import { reviewTransition, threadIdOf, turnEnd } from "$lib/services/turnLifecycle";
 
 /**
@@ -92,6 +93,7 @@ export function applyProcessEvent(event: CodexEvent): void {
   if (event.method === "disconnected") {
     // Nothing can report these commands finishing any more.
     for (const process of processes.list) {
+      if (event.homeKey && !threadBelongsToHome(process.threadId, event.homeKey)) continue;
       if (process.status === "running") finish(process, "interrupted");
     }
     syncTicker();

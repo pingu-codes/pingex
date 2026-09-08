@@ -15,7 +15,7 @@ use crate::AppState;
 #[specta::specta]
 pub(crate) async fn list_agent_runs(
     thread_id: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<AgentRunRow>, String> {
     storage::read_agent_runs(&state.ctx(&window).database(), &thread_id).await
@@ -27,7 +27,7 @@ pub(crate) async fn list_agent_runs(
 pub(crate) async fn kill_agent_run(
     run_id: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
@@ -46,7 +46,7 @@ pub(crate) async fn kill_agent_run(
 #[specta::specta]
 pub(crate) async fn open_agent_thread(
     run_id: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Option<String>, String> {
     Ok(

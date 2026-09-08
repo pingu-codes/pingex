@@ -41,7 +41,7 @@ pub(crate) async fn list_threads_page(
     archived: Option<bool>,
     project_path: Option<String>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<ThreadsPage, String> {
     let ctx = state.ctx(&window);
@@ -141,7 +141,7 @@ pub(crate) async fn search_threads(
     cursor: Option<String>,
     filter: Option<SearchFilter>,
     generation: u64,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<ThreadSearchPage, String> {
     let ctx = state.ctx(&window);
@@ -154,6 +154,39 @@ pub(crate) async fn search_threads(
         .project_path
         .as_deref()
         .filter(|value| !value.is_empty());
+    if ctx.harness_kind == Some(crate::harness::HarnessKind::Claude) {
+        let query = query.trim().to_lowercase();
+        let matches: Vec<_> = storage::read_harness_threads(&ctx.database(), filter.archived)
+            .await?
+            .into_iter()
+            .filter(|thread| project_path.is_none_or(|path| path == thread.cwd))
+            .filter(|thread| {
+                thread.title.to_lowercase().contains(&query)
+                    || thread.cwd.to_lowercase().contains(&query)
+            })
+            .collect();
+        let total = matches.len() as i64;
+        let items: Vec<_> = matches
+            .into_iter()
+            .skip(offset.max(0) as usize)
+            .take(SEARCH_PAGE as usize)
+            .map(|thread| ThreadSearchItem {
+                id: thread.thread_id,
+                title: thread.title,
+                preview: String::new(),
+                cwd: thread.cwd,
+                updated_at: thread.updated_at,
+                archived: thread.archived,
+            })
+            .collect();
+        let next = offset + items.len() as i64;
+        return Ok(ThreadSearchPage {
+            items,
+            total,
+            next_cursor: (next < total).then(|| next.to_string()),
+            generation,
+        });
+    }
     let (rows, total) = storage::search_thread_index(
         &ctx.database(),
         &query,
