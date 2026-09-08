@@ -523,7 +523,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
 {#snippet threadNodes(project: Project, nodes: TreeNode<ThreadSummary>[])}
   {#each threadRuns(nodes) as run, index (run.kind === "folder" ? rowId(folderRef(run.node.folder)) : `run-${index}`)}
     {#if run.kind === "folder"}
-      <Collapsible open={run.node.folder.expanded} onOpenChange={({ open }) => persistFolderExpansion(run.node.folder, open)}>
+      <Collapsible class="min-w-0 items-stretch" open={run.node.folder.expanded} onOpenChange={({ open }) => persistFolderExpansion(run.node.folder, open)}>
         {@render folderHeader(run.node.folder, project, flattenItems(run.node.children).length)}
         <Collapsible.Content class="ml-[27px] border-l border-surface-200-800 pl-1.5">
           {#if run.node.children.length === 0}
@@ -540,7 +540,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
 {/snippet}
 
 {#snippet projectRow(project: Project)}
-  <Collapsible open={project.expanded} onOpenChange={({ open }) => persistProjectExpansion(project, open)}>
+  <Collapsible class="min-w-0 items-stretch" open={project.expanded} onOpenChange={({ open }) => persistProjectExpansion(project, open)}>
     <div
       class="group/project relative flex items-center rounded-md {dropClass({ kind: 'item', id: project.path })}"
       role="presentation"
@@ -629,7 +629,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
 
 {#snippet rootNode(node: TreeNode<Project>)}
   {#if node.kind === "folder"}
-    <Collapsible open={node.folder.expanded} onOpenChange={({ open }) => persistFolderExpansion(node.folder, open)}>
+    <Collapsible class="min-w-0 items-stretch" open={node.folder.expanded} onOpenChange={({ open }) => persistFolderExpansion(node.folder, open)}>
       {@render folderHeader(node.folder, null, flattenItems(node.children).length)}
       <Collapsible.Content class="ml-[27px] border-l border-surface-200-800 pl-1.5">
         {#if node.children.length === 0}

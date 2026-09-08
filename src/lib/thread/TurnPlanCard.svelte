@@ -13,7 +13,7 @@ const current = $derived(
 );
 </script>
 
-<Collapsible>
+<Collapsible class="min-w-0 items-stretch">
   <div class="overflow-hidden rounded-xl border border-surface-200-800 bg-surface-100-900">
     <Collapsible.Trigger class="group flex w-full items-center gap-2.5 px-3 py-2 text-left">
       <ListTodo size={13} class="shrink-0 text-surface-500" />

@@ -49,6 +49,78 @@ const OTHER_PROJECT_PATH = "/Users/ciaran/Projects/arctic-explorer";
 
 test.beforeEach(async ({ page }) => loadPreview(page));
 
+test("sidebar rows stretch consistently and contain long names", async ({ page }) => {
+  const first = projectRow(page, PROJECT_PATH);
+  const second = projectRow(page, OTHER_PROJECT_PATH);
+  await createFolder(page, "Work");
+
+  async function expectAligned() {
+    const boxes = await Promise.all([first, second, folderHeader(page, "Work")].map((row) => row.boundingBox()));
+    expect(boxes.every(Boolean)).toBe(true);
+    for (const box of boxes.slice(1)) {
+      expect(Math.abs(box!.x - boxes[0]!.x)).toBeLessThanOrEqual(1);
+      expect(Math.abs(box!.width - boxes[0]!.width)).toBeLessThanOrEqual(1);
+    }
+  }
+  await expectAligned();
+
+  await first.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Rename project", exact: true }).click();
+  await page.getByPlaceholder("Project name").fill("codex-custom-permanent-worktree-with-a-very-long-name");
+  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await expect(first).toContainText("codex-custom-permanent-worktree-with-a-very-long-name");
+  await expectAligned();
+
+  // Check actual bounds, including children: clipping overflow would hide the
+  // symptom without fixing the layout.
+  async function expectContained() {
+    const overflow = await page.locator("aside").first().evaluate((sidebar) => {
+      const bounds = sidebar.getBoundingClientRect();
+      return Array.from(sidebar.querySelectorAll('[data-sidebar-row], [data-part="trigger"], button[title$="open git"]'))
+        .filter((element) => element.getClientRects().length > 0)
+        .filter((element) => {
+          const rect = element.getBoundingClientRect();
+          return rect.left < bounds.left - 1 || rect.right > bounds.right + 1;
+        })
+        .map((element) => element.textContent);
+    });
+    expect(overflow).toEqual([]);
+  }
+  await expectContained();
+  await first.hover();
+  await expectContained();
+  const trigger = first.locator('[data-scope="collapsible"][data-part="trigger"]');
+  await trigger.click();
+  await expectAligned();
+  await trigger.click();
+  await expectAligned();
+
+  await folderHeader(page, "Work").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "New subfolder", exact: true }).click();
+  await page.getByPlaceholder("Folder name").fill("Nested");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  const outer = await folderHeader(page, "Work").boundingBox();
+  const inner = await folderHeader(page, "Nested").boundingBox();
+  expect(inner!.x).toBeGreaterThan(outer!.x);
+  expect(Math.abs(inner!.x + inner!.width - outer!.x - outer!.width)).toBeLessThanOrEqual(1);
+  await expectContained();
+
+  await first.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "New thread folder", exact: true }).click();
+  await page.getByPlaceholder("Folder name").fill("Thread notes");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  const threadFolder = await folderHeader(page, "Thread notes").boundingBox();
+  expect(Math.abs(threadFolder!.x - inner!.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(threadFolder!.width - inner!.width)).toBeLessThanOrEqual(1);
+  await expectContained();
+
+  // Also exercise the minimum size in WebKit, whose configured project uses
+  // the desktop viewport.
+  await page.setViewportSize({ width: 820, height: 560 });
+  await expectAligned();
+  await expectContained();
+});
+
 test("dragging a project into a folder nests it immediately", async ({ page }) => {
   await createFolder(page, "Work");
   await expect(folderHeader(page, "Work")).toBeVisible();

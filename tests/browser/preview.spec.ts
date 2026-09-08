@@ -21,6 +21,43 @@ function threadMenu(page: Page, title: string): Locator {
 
 test.beforeEach(async ({ page }) => loadPreview(page));
 
+test("thread disclosures align and contain long commands and output", async ({ page }) => {
+  await selectPreviewThread(page);
+  const worked = page.getByRole("button", { name: "Worked for 24s", exact: true });
+  const root = worked.locator("..");
+  const workedBox = (await worked.boundingBox())!;
+  const rootBox = (await root.boundingBox())!;
+  expect(Math.abs(workedBox.x - rootBox.x)).toBeLessThanOrEqual(1);
+  await worked.click();
+
+  const command = root.locator("button").filter({ hasText: 'rg -n "export function"' });
+  // Stress the real rendered command card with long text without executing it.
+  await command.locator("code").evaluate((code) => { code.textContent += " very-long-command-argument".repeat(80); });
+  async function expectContained() {
+    const overflow = await root.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return Array.from(element.querySelectorAll("button, pre"))
+        .filter((child) => child.getClientRects().length > 0)
+        .filter((child) => {
+          const rect = child.getBoundingClientRect();
+          return rect.left < bounds.left - 1 || rect.right > bounds.right + 1;
+        }).map((child) => child.tagName);
+    });
+    expect(overflow).toEqual([]);
+  }
+  await expectContained();
+  await command.click();
+  const output = command.locator("..").locator("pre");
+  await expect(output).toBeVisible();
+  await output.evaluate((pre) => { pre.textContent = "long-output".repeat(200); });
+  await expectContained();
+  expect(await output.evaluate((pre) => pre.scrollWidth > pre.clientWidth)).toBe(true);
+  await page.setViewportSize({ width: 820, height: 560 });
+  await expectContained();
+  await command.click();
+  await expect(output).toBeHidden();
+});
+
 test("explores completed reasoning, command output, attachments, and diffs", async ({ page }) => {
   await selectPreviewThread(page);
   await expect(page.getByAltText("Attachment")).toBeVisible();

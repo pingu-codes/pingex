@@ -1141,7 +1141,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
                 {/each}
               {:else}
                 <div>
-                  <Collapsible>
+                  <Collapsible class="min-w-0 items-stretch">
                     <Collapsible.Trigger class="group flex items-center gap-1 text-sm text-surface-500 hover:text-surface-700-300">
                       <span>{segment === firstWork && turn.status !== "inProgress" ? workedLabel(turn) : "Worked"}</span>
                       <ChevronRight size={14} class="transition group-data-[state=open]:rotate-90" />

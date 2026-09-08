@@ -355,7 +355,7 @@ const commandStatusClass = (item: ThreadItem) =>
   {#if rawReasoning(item)}
     <!-- The unsummarised version, only when Codex sent one. Collapsed: it is
          several times longer than the summary above and repeats it. -->
-    <Collapsible>
+    <Collapsible class="min-w-0 items-stretch">
       <Collapsible.Trigger class="group mt-1 flex items-center gap-1.5 text-[10px] text-surface-500 hover:text-surface-700-300">
         <ChevronDown size={11} class="transition group-data-[state=open]:rotate-180" />
         Show full reasoning
@@ -368,7 +368,7 @@ const commandStatusClass = (item: ThreadItem) =>
     </Collapsible>
   {/if}
 {:else if item.type === "commandExecution"}
-  <Collapsible>
+  <Collapsible class="min-w-0 items-stretch">
     <div class="overflow-hidden rounded-xl border border-surface-200-800 bg-surface-100-900">
       <Collapsible.Trigger class="group flex w-full items-center gap-2.5 px-3 py-2 text-left">
         <span class="size-1.5 shrink-0 rounded-full {commandStatusClass(item)}"></span>
@@ -408,7 +408,7 @@ const commandStatusClass = (item: ThreadItem) =>
     </div>
   {/if}
 {:else if item.type === "collabAgentToolCall"}
-  <Collapsible>
+  <Collapsible class="min-w-0 items-stretch">
     <Collapsible.Trigger class="group flex w-full items-center gap-2 text-left text-xs text-surface-500 hover:text-surface-700-300">
       <Bot size={12} class="shrink-0" />
       <span class="shrink-0">{collabHeader(item)}</span>
@@ -543,7 +543,7 @@ const commandStatusClass = (item: ThreadItem) =>
   <!-- Text one of the user's hooks pushed into the conversation. Codex reads it
        as if it came from the user, so it is shown rather than hidden — collapsed,
        because a hook can inject a lot of it. -->
-  <Collapsible>
+  <Collapsible class="min-w-0 items-stretch">
     <Collapsible.Trigger class="group flex w-full items-center gap-2 text-left text-xs text-surface-500 hover:text-surface-700-300">
       <Webhook size={12} class="shrink-0" />
       <span class="shrink-0">Hook added context</span>
@@ -557,7 +557,7 @@ const commandStatusClass = (item: ThreadItem) =>
 {:else if item.type === "functionCallOutput"}
   <!-- The raw result of a tool the model called (Codex ≥0.151). Text output
        is shown behind an expander; image parts are just counted. -->
-  <Collapsible>
+  <Collapsible class="min-w-0 items-stretch">
     <Collapsible.Trigger class="group flex w-full items-center gap-2 text-left text-xs text-surface-500 hover:text-surface-700-300">
       <Wrench size={12} class="shrink-0" />
       <span class="shrink-0 font-mono">{item.namespace ? `${item.namespace}/` : ""}{item.name ?? "tool"} output</span>
@@ -569,7 +569,7 @@ const commandStatusClass = (item: ThreadItem) =>
   </Collapsible>
 {:else if item.type === "mcpToolCall" || item.type === "dynamicToolCall" || item.type === "webSearch"}
   {#if item.query}
-    <Collapsible>
+    <Collapsible class="min-w-0 items-stretch">
       <Collapsible.Trigger class="group flex w-full items-center gap-2 text-left text-xs text-surface-500 hover:text-surface-700-300">
         <Wrench size={12} class="shrink-0" />
         <span class="shrink-0 font-mono">{item.server ? `${item.server}/` : ""}{item.tool ?? item.type}</span>

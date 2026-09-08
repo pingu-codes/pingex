@@ -22,7 +22,7 @@ let userOpen = $state<boolean | null>(null);
 const open = $derived(userOpen ?? (!autoCollapse && !oversized));
 </script>
 
-<Collapsible {open} onOpenChange={(details) => (userOpen = details.open)}>
+<Collapsible class="min-w-0 items-stretch" {open} onOpenChange={(details) => (userOpen = details.open)}>
   <div class="overflow-hidden rounded-xl border border-surface-200-800 bg-surface-100-900">
     <Collapsible.Trigger class="group flex w-full items-center gap-2.5 px-3 py-2 text-left">
       <FileDiff size={13} class="shrink-0 text-surface-500" />
