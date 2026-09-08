@@ -266,7 +266,7 @@ async function ensureNewThreadCwd(): Promise<string> {
  *
  * The app's half is derived rather than snapshotted: agents are spawned
  * mid-turn, and nothing re-runs `refreshSubagents` at that point — Codex's
- * `collabToolCall` event does not fire for our tools. Reading the store keeps
+ * `subagentsChanged` outcome does not fire for our tools. Reading the store keeps
  * the menu live while they work.
  */
 const appSubagentDetails = $derived(
@@ -1125,6 +1125,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
                   stranded={strandedContext(segment.item, turn.id)}
                   model={turn.model}
                   effort={turn.reasoningEffort}
+                  subagents={subagentDetails}
                 />
               {:else if segment === liveSegment}
                 {@const liveSegments = turnSegments(segment.items)}
@@ -1135,7 +1136,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
                       live={liveIndex === liveSegments.length - 1}
                     />
                   {:else}
-                    <WorkItem item={liveSeg.item} {collapseDiffs} />
+                    <WorkItem item={liveSeg.item} {collapseDiffs} subagents={subagentDetails} />
                   {/if}
                 {/each}
               {:else}
@@ -1148,7 +1149,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
                     <Collapsible.Content>
                       <div class="mt-3 space-y-4 border-l-2 border-surface-200-800 pl-4">
                         {#each segment.items as item (item.id)}
-                          <WorkItem {item} {collapseDiffs} />
+                          <WorkItem {item} {collapseDiffs} subagents={subagentDetails} />
                         {/each}
                       </div>
                     </Collapsible.Content>

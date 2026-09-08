@@ -377,7 +377,7 @@ export class ThreadSession {
       // the thread actually turned out to be about, so re-name off the exchange.
       if (thread.turns.length === 1) requestAutoName(id, "reply");
     }
-    if (outcome.collabToolCall) void this.refreshSubagents();
+    if (outcome.subagentsChanged) void this.refreshSubagents();
     this.revision++;
     if (outcome.turnCompleted) {
       this.queue.maybeDrain();

@@ -136,7 +136,8 @@ export interface ApplyOutcome {
   /** A turn finished; the caller should invalidate the thread cache. */
   turnCompleted?: boolean;
   /** A collab tool call landed; the caller should refresh subagents. */
-  collabToolCall?: boolean;
+  /** A Codex subagent was spawned, messaged, stopped or finished: relist them. */
+  subagentsChanged?: boolean;
   /** The event targeted this thread (caller should keep the view scrolled). */
   changed: boolean;
   /** Codex stopped the turn for an alignment reason; drawn in the transcript
@@ -148,6 +149,17 @@ export interface ApplyOutcome {
  * Applies a streaming Codex event to the thread's turns in place. The thread
  * may be a $state proxy; mutations flow through Svelte reactivity.
  */
+/**
+ * Whether an item means the thread's subagent listing is out of date. V1
+ * collab calls carry their own states; V2 only reports path-based activity, and
+ * only its lifecycle kinds change the listing (a message does not).
+ */
+function subagentsChanged(item: { type?: string; kind?: string } | undefined): boolean {
+  if (!item) return false;
+  if (item.type === "collabAgentToolCall") return true;
+  return item.type === "subAgentActivity" && ["started", "interrupted", "completed"].includes(item.kind ?? "");
+}
+
 export function applyThreadEvent(thread: ThreadDetail, event: CodexEvent): ApplyOutcome {
   const { method, params } = event;
   const outcome: ApplyOutcome = { changed: true };
@@ -191,7 +203,7 @@ export function applyThreadEvent(thread: ThreadDetail, event: CodexEvent): Apply
     case "item/started":
     case "item/completed":
       upsertItem(thread.turns, params.turnId, params.item);
-      if (params.item?.type === "collabAgentToolCall") outcome.collabToolCall = true;
+      if (subagentsChanged(params.item)) outcome.subagentsChanged = true;
       // Leaving review mode is the only end a review gets: Codex sends no
       // `turn/completed` for one. Only the review's own turn ends here — a
       // queued message that raced in must not be marked completed with it.

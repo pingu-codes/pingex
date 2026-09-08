@@ -353,7 +353,7 @@ export interface ThreadItem {
   unanswered?: boolean;
   // set when the user gave up on a question stranded that way
   dismissed?: boolean;
-  // subAgentActivity: "started" | "interacted" | "interrupted"
+  // subAgentActivity: "started" | "interacted" | "interrupted" | "completed"
   kind?: string;
   agentThreadId?: string;
   agentPath?: string;
@@ -364,7 +364,7 @@ export interface ThreadItem {
   savedPath?: string;
   // enteredReviewMode / exitedReviewMode
   review?: string;
-  // collabAgentToolCall
+  // collabAgentToolCall (`tool` above is the camelCase CollabAgentTool: spawnAgent, sendInput, wait, …)
   senderThreadId?: string;
   receiverThreadIds?: string[];
   prompt?: string | null;

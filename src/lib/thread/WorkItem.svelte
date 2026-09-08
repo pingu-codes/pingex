@@ -30,7 +30,8 @@ import { copyText, killAgentRun } from "$lib/services/api";
 import { openSettings } from "$lib/services/settingsNav.svelte";
 import QuestionCard from "$lib/thread/QuestionCard.svelte";
 import { functionCallOutputText, reasoningContent } from "$lib/thread/turnSegments";
-import type { AgentRun, ThreadItem } from "$lib/types";
+import { openSubagent } from "$lib/app/actions.svelte";
+import type { AgentRun, SubagentDetail, ThreadItem } from "$lib/types";
 import { copyCode } from "$lib/utils/copy";
 import { renderMarkdown } from "$lib/utils/markdown";
 
@@ -40,9 +41,12 @@ let {
   stranded,
   model = null,
   effort = null,
+  subagents = [],
 }: {
   item: ThreadItem;
   collapseDiffs?: boolean;
+  /** The thread's known subagents, so activity rows can name and open them. */
+  subagents?: SubagentDetail[];
   /** What the turn ran on, shown alongside the message's hover actions. */
   model?: string | null;
   effort?: string | null;
@@ -106,9 +110,47 @@ const SUB_AGENT_VERBS: Record<string, string> = {
   started: "Spawned agent",
   interacted: "Messaged agent",
   interrupted: "Stopped agent",
+  completed: "Agent finished",
 };
+/**
+ * The verb for a Codex collab tool call, keyed on the camelCase `tool` the
+ * app-server sends (`CollabAgentTool` in the v2 protocol). The V1 tools and
+ * the V2 ones are both listed: a thread can hold either generation.
+ */
+const COLLAB_TOOL_VERBS: Record<string, string> = {
+  spawnAgent: "Spawned",
+  sendInput: "Sent input to",
+  sendMessage: "Messaged",
+  followupTask: "Sent a follow-up to",
+  resumeAgent: "Resumed",
+  wait: "Waited for",
+  closeAgent: "Closed",
+  interruptAgent: "Stopped",
+  listAgents: "Listed",
+};
+/** "Spawned 3 subagents", "Waited for a subagent", "Listed agents". */
+function collabHeader(item: ThreadItem): string {
+  const verb = COLLAB_TOOL_VERBS[item.tool ?? ""] ?? "Agent call";
+  const count = collabAgentCount(item);
+  if (item.tool === "listAgents") return `${verb} agents`;
+  if (count > 1) return `${verb} ${count} subagents`;
+  if (count === 1) return `${verb} a subagent`;
+  return verb;
+}
 
 const isAgentTool = (tool: string | undefined) => Boolean(tool && tool in AGENT_TOOL_VERBS);
+
+/**
+ * The Codex subagent an activity row refers to, when the thread's listing has
+ * it. A row can arrive before the listing refreshes, so the lookup may miss;
+ * the raw agent path still renders then.
+ */
+const subagentById = $derived(new Map(subagents.map((agent) => [agent.id, agent])));
+const activityAgent = (item: ThreadItem) => (item.agentThreadId ? subagentById.get(item.agentThreadId) : undefined);
+const activityLabel = (item: ThreadItem, agent: SubagentDetail | undefined) =>
+  agent?.agentNickname ?? agent?.agentRole ?? item.agentPath ?? "";
+/** Once an agent has finished or been stopped, its live status is stale news. */
+const activityShowsStatus = (item: ThreadItem) => item.kind === "started" || item.kind === "interacted";
 const agentToolVerb = (tool: string | undefined) => AGENT_TOOL_VERBS[tool ?? ""] ?? "Agent";
 
 /**
@@ -369,11 +411,11 @@ const commandStatusClass = (item: ThreadItem) =>
   <Collapsible>
     <Collapsible.Trigger class="group flex w-full items-center gap-2 text-left text-xs text-surface-500 hover:text-surface-700-300">
       <Bot size={12} class="shrink-0" />
-      <span class="shrink-0">
-        {collabAgentCount(item) > 1 ? `Spawned ${collabAgentCount(item)} subagents` : "Spawned a subagent"}
-      </span>
+      <span class="shrink-0">{collabHeader(item)}</span>
       <span class="min-w-0 flex-1 truncate font-mono text-[10px]">
-        {item.model ?? "default model"} · {item.reasoningEffort ?? "default effort"}
+        {#if item.model || item.reasoningEffort}
+          {item.model ?? "default model"} · {item.reasoningEffort ?? "default effort"}
+        {/if}
       </span>
       <ChevronDown size={12} class="shrink-0 transition group-data-[state=open]:rotate-180" />
     </Collapsible.Trigger>
@@ -446,12 +488,29 @@ const commandStatusClass = (item: ThreadItem) =>
     <p class="mt-1 pl-5 text-[11px] leading-4 text-error-500">{run.error}</p>
   {/if}
 {:else if item.type === "subAgentActivity"}
+  <!-- On Codex's path-based (V2) agents this row is all the parent transcript
+       gets: the message sent lives only in the child thread, never on the
+       parent's wire, so "Open thread" is the way to read it. -->
+  {@const agent = activityAgent(item)}
+  {@const label = activityLabel(item, agent)}
   <div class="flex items-center gap-2 text-xs">
     <Bot size={12} class="shrink-0 text-surface-500" />
     <span class="min-w-0 flex-1 truncate text-surface-500">
       {SUB_AGENT_VERBS[item.kind ?? ""] ?? "Agent"}
-      {#if item.agentPath}<span class="text-surface-700-300">{item.agentPath}</span>{/if}
+      {#if label}<span class="text-surface-700-300">{label}</span>{/if}
     </span>
+    {#if agent}
+      {#if activityShowsStatus(item) && agent.status}
+        <span class={`shrink-0 ${collabStateClass(agent.status)}`}>{agent.status}</span>
+      {/if}
+      <button
+        type="button"
+        onclick={() => openSubagent(agent)}
+        class="shrink-0 text-[10px] text-surface-500 hover:text-primary-500"
+      >
+        Open thread
+      </button>
+    {/if}
   </div>
 {:else if item.type === "enteredReviewMode" || item.type === "exitedReviewMode"}
   <div

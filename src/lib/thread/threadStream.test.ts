@@ -216,7 +216,19 @@ describe("applyThreadEvent", () => {
       method: "item/completed",
       params: { threadId: "t", turnId: "turn-1", item: { type: "collabAgentToolCall", id: "c1" } },
     });
-    expect(collab.collabToolCall).toBe(true);
+    expect(collab.subagentsChanged).toBe(true);
+    for (const kind of ["started", "interrupted", "completed"]) {
+      const activity = applyThreadEvent(thread, {
+        method: "item/completed",
+        params: { threadId: "t", turnId: "turn-1", item: { type: "subAgentActivity", id: `a-${kind}`, kind } },
+      });
+      expect(activity.subagentsChanged, kind).toBe(true);
+    }
+    const message = applyThreadEvent(thread, {
+      method: "item/completed",
+      params: { threadId: "t", turnId: "turn-1", item: { type: "subAgentActivity", id: "a-msg", kind: "interacted" } },
+    });
+    expect(message.subagentsChanged).toBeFalsy();
     const errored = applyThreadEvent(thread, {
       method: "error",
       params: { threadId: "t", error: { message: "boom" } },
