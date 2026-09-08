@@ -81,6 +81,17 @@ describe("FloatingMenu", () => {
     expect(screen.getByText("Ship the feature")).toBeInTheDocument();
   });
 
+  it("anchors the overview to the thread view and scrolls long content inside it", () => {
+    setup();
+
+    expect(screen.getByRole("menu", { name: "Thread overview panel" })).toHaveClass(
+      "absolute",
+      "top-[52px]",
+      "bottom-4",
+      "overflow-y-auto",
+    );
+  });
+
   it("lists nested subagents with resolved model, effort, state, and navigation", async () => {
     const user = userEvent.setup();
     const { onOpenSubagent } = setup({

@@ -26,6 +26,25 @@ test.beforeEach(async ({ page }) => {
   await selectPreviewThread(page);
 });
 
+test("keeps the overview in a short viewport and scrolls its contents", async ({ page }) => {
+  await page.setViewportSize({ width: 820, height: 560 });
+
+  const overview = page.getByRole("menu", { name: "Thread overview panel" });
+  await expect(overview).toBeVisible();
+
+  const [bounds, viewport] = await Promise.all([overview.boundingBox(), page.viewportSize()]);
+  if (!bounds || !viewport) throw new Error("Expected overview and viewport bounds");
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height);
+
+  const scroll = await overview.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+    overflowY: getComputedStyle(element).overflowY,
+  }));
+  expect(scroll.overflowY).toBe("auto");
+  expect(scroll.scrollHeight).toBeGreaterThan(scroll.clientHeight);
+});
+
 test("opens a diff from the overview outputs in the right panel", async ({ page }) => {
   await page.getByTitle("View diff for src/lib/utils.ts").click();
   await closeOverview(page);

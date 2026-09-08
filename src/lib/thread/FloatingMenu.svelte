@@ -172,10 +172,13 @@ function closeDropdown() {
 <svelte:window onclick={closeDropdown} onkeydown={(event) => event.key === "Escape" && closeDropdown()} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
-<div class="absolute right-4 top-2 z-30 select-none" onclick={(event) => event.stopPropagation()}>
+<div class="pointer-events-none absolute inset-0 z-30 select-none">
   <!-- backdrop-blur makes this a stacking context, so it needs its own z-index to
        let the "Open in" dropdown paint above the overview panel below it. -->
-  <div class="relative z-50 flex items-center gap-1 rounded-full border border-surface-200-800 bg-surface-50-950/95 p-1 shadow-md backdrop-blur">
+  <div
+    class="pointer-events-auto absolute right-4 top-2 z-50 flex items-center gap-1 rounded-full border border-surface-200-800 bg-surface-50-950/95 p-1 shadow-md backdrop-blur"
+    onclick={(event) => event.stopPropagation()}
+  >
     <div class="relative">
       <button
         onclick={() => {
@@ -227,8 +230,14 @@ function closeDropdown() {
   </div>
 
   {#if panel}
-    <!-- max-height keeps the panel on-screen with lots of content; it scrolls instead. -->
-    <div class="card absolute right-0 top-11 z-40 max-h-[calc(100vh-6rem)] w-[270px] overflow-y-auto border border-surface-200-800 bg-surface-50-950 p-2 shadow-xl" role="menu" aria-label="Thread overview panel">
+    <!-- The full-height overlay makes this panel's bottom inset relative to the
+         thread view, so long content scrolls inside the visible viewport. -->
+    <div
+      class="card pointer-events-auto absolute right-4 top-[52px] bottom-4 z-40 w-[270px] overflow-y-auto border border-surface-200-800 bg-surface-50-950 p-2 shadow-xl"
+      role="menu"
+      aria-label="Thread overview panel"
+      onclick={(event) => event.stopPropagation()}
+    >
       <div class="flex items-center px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-surface-500">
         <span class="flex-1">Usage</span>
         {#if cost}<span class="normal-case tracking-normal">{cost} est.</span>{/if}
