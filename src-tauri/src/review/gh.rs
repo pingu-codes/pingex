@@ -42,8 +42,9 @@ pub(crate) fn run_gh(
     timeout: Duration,
 ) -> Result<CommandOutput, String> {
     process::run(Run {
+        host: &crate::util::host::Host::Native,
         program: "gh",
-        dir,
+        dir: &dir.to_string_lossy(),
         args,
         env: &NON_INTERACTIVE,
         stdin: None,
@@ -60,8 +61,9 @@ pub(crate) fn run_gh_with_input(
     body: &str,
 ) -> Result<CommandOutput, String> {
     process::run(Run {
+        host: &crate::util::host::Host::Native,
         program: "gh",
-        dir,
+        dir: &dir.to_string_lossy(),
         args: &["api", "--method", "POST", endpoint, "--input", "-"],
         env: &NON_INTERACTIVE,
         stdin: Some(body),

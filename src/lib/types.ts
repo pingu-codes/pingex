@@ -46,6 +46,7 @@ export type {
   GitRepoInfo,
   GitStatus,
   HomeOverview,
+  Host,
   IntegrationsList,
   LaunchState,
   McpServerInfo,

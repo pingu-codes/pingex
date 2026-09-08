@@ -1,3 +1,4 @@
+import { NATIVE_HOST, sameHost } from "$lib/app/host";
 import { commands } from "$lib/bindings";
 import { deleteFromLayout, emptyLayout, nextOrdinal, placeInLayout, resetLayoutOrder } from "$lib/layout/sidebarTree";
 import { previewStageBytes, previewStageFile, previewStageFromPath } from "$lib/services/preview/attachments";
@@ -67,6 +68,7 @@ import type {
   GitRepoInfo,
   GitStatus,
   HomeOverview,
+  Host,
   IntegrationsList,
   LaunchState,
   McpServerStatus,
@@ -1067,16 +1069,26 @@ export async function updateRuntimeSettings(
   codexBinary: string | null,
   claudeBinary: string | null = null,
   claudeConfigDir: string | null = null,
+  codexHost: Host | null = null,
+  claudeHost: Host | null = null,
 ): Promise<RuntimeSettings> {
   if (!isTauri()) {
     previewRuntimeSettings.overrideCodexHome = codexHome;
     previewRuntimeSettings.overrideCodexBinary = codexBinary;
     previewRuntimeSettings.overrideClaudeBinary = claudeBinary;
     previewRuntimeSettings.overrideClaudeConfigDir = claudeConfigDir;
-    previewRuntimeSettings.restartRequired = Boolean(codexHome || codexBinary);
+    previewRuntimeSettings.overrideCodexHost = codexHost;
+    previewRuntimeSettings.overrideClaudeHost = claudeHost;
+    previewRuntimeSettings.restartRequired = Boolean(codexHome || codexBinary || codexHost);
     return { ...previewRuntimeSettings };
   }
-  return commands.updateRuntimeSettings(codexHome, codexBinary, claudeBinary, claudeConfigDir);
+  return commands.updateRuntimeSettings(codexHome, codexBinary, claudeBinary, claudeConfigDir, codexHost, claudeHost);
+}
+
+/** The WSL distributions installed here; empty anywhere but Windows. */
+export async function listWslDistros(): Promise<string[]> {
+  if (!isTauri()) return [];
+  return commands.listWslDistros();
 }
 
 export async function readLaunchState(): Promise<LaunchState> {
@@ -1084,17 +1096,23 @@ export async function readLaunchState(): Promise<LaunchState> {
   return commands.readLaunchState();
 }
 
-export async function selectCodexHome(path: string): Promise<LaunchState> {
+/**
+ * Bind this window to a home. `host` says where it lives; `null` lets the
+ * backend infer it from the path (a `\\wsl.localhost\..` pick is a WSL home).
+ */
+export async function selectCodexHome(path: string, host: Host | null = null): Promise<LaunchState> {
   if (!isTauri()) {
+    const settled = host ?? NATIVE_HOST;
     previewLaunchState.codexHome = path;
+    previewLaunchState.host = settled;
     previewLaunchState.needsPicker = false;
     previewLaunchState.recentHomes = [
-      { path, lastUsed: Math.floor(Date.now() / 1000), exists: true },
-      ...previewLaunchState.recentHomes.filter((home) => home.path !== path),
+      { path, lastUsed: Math.floor(Date.now() / 1000), exists: true, host: settled },
+      ...previewLaunchState.recentHomes.filter((home) => home.path !== path || !sameHost(home.host, settled)),
     ];
     return structuredClone(previewLaunchState);
   }
-  return commands.selectCodexHome(path);
+  return commands.selectCodexHome(path, host);
 }
 
 /**
@@ -1102,13 +1120,13 @@ export async function selectCodexHome(path: string): Promise<LaunchState> {
  * Codex home) or showing the launch picker when not. Returns the new window's
  * label.
  */
-export async function openHomeWindow(path?: string): Promise<string | null> {
+export async function openHomeWindow(path?: string, host: Host | null = null): Promise<string | null> {
   if (!isTauri()) return null;
-  return commands.openHomeWindow(path ?? null);
+  return commands.openHomeWindow(path ?? null, host);
 }
 
 /** Probe a Codex CLI path without saving it (blank = the active binary). */
-export async function checkCodexBinary(path: string | null): Promise<BinaryStatus> {
+export async function checkCodexBinary(path: string | null, host: Host | null = null): Promise<BinaryStatus> {
   if (!isTauri()) {
     const binary = path?.trim() || previewLaunchState.codexBinaryStatus.binary;
     const found = binary === "codex" || binary.endsWith("/codex");
@@ -1119,7 +1137,7 @@ export async function checkCodexBinary(path: string | null): Promise<BinaryStatu
       message: found ? null : `No executable Codex CLI at ${binary}.`,
     };
   }
-  return commands.checkCodexBinary(path);
+  return commands.checkCodexBinary(path, host);
 }
 
 /** Persist and immediately apply a Codex CLI path (null clears the override). */
@@ -1134,12 +1152,14 @@ export async function setCodexBinary(path: string | null): Promise<LaunchState> 
   return commands.setCodexBinary(path);
 }
 
-export async function removeRecentHome(path: string): Promise<LaunchState> {
+export async function removeRecentHome(path: string, host: Host | null = null): Promise<LaunchState> {
   if (!isTauri()) {
-    previewLaunchState.recentHomes = previewLaunchState.recentHomes.filter((home) => home.path !== path);
+    previewLaunchState.recentHomes = previewLaunchState.recentHomes.filter(
+      (home) => home.path !== path || !sameHost(home.host, host),
+    );
     return structuredClone(previewLaunchState);
   }
-  return commands.removeRecentHome(path);
+  return commands.removeRecentHome(path, host);
 }
 
 export async function readConfigSettings(): Promise<ConfigSetting[]> {

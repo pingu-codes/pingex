@@ -8,13 +8,19 @@ function launchState(overrides: Partial<LaunchState> = {}): LaunchState {
   return {
     codexHome: "/home/user/.codex-work",
     homeKey: "/home/user/.codex-work",
+    host: { kind: "native" },
     codexBinary: "codex",
     defaultHome: "/home/user/.codex",
     explicit: false,
     needsPicker: true,
     recentHomes: [
-      { path: "/home/user/.codex-work", lastUsed: Date.now() / 1000 - 120, exists: true },
-      { path: "/home/user/.codex-personal", lastUsed: Date.now() / 1000 - 90000, exists: true },
+      { path: "/home/user/.codex-work", lastUsed: Date.now() / 1000 - 120, exists: true, host: { kind: "native" } },
+      {
+        path: "/home/user/.codex-personal",
+        lastUsed: Date.now() / 1000 - 90000,
+        exists: true,
+        host: { kind: "native" },
+      },
     ],
     codexBinaryStatus: {
       binary: "codex",
@@ -67,7 +73,9 @@ describe("HomePicker", () => {
   it("does not duplicate a default home that is also a recent", () => {
     const state = launchState({
       defaultHome: "/home/user/.codex-work",
-      recentHomes: [{ path: "/home/user/.codex-work", lastUsed: Date.now() / 1000, exists: true }],
+      recentHomes: [
+        { path: "/home/user/.codex-work", lastUsed: Date.now() / 1000, exists: true, host: { kind: "native" } },
+      ],
     });
     setup(state);
     expect(screen.getAllByTestId("home-option")).toHaveLength(1);
@@ -77,12 +85,14 @@ describe("HomePicker", () => {
     const user = userEvent.setup();
     const { onSelect } = setup();
     await user.click(screen.getByText("/home/user/.codex-personal"));
-    expect(onSelect).toHaveBeenCalledWith("/home/user/.codex-personal");
+    expect(onSelect).toHaveBeenCalledWith("/home/user/.codex-personal", { kind: "native" });
   });
 
   it("marks missing homes as not found on disk", () => {
     const state = launchState({
-      recentHomes: [{ path: "/home/user/.codex-gone", lastUsed: Date.now() / 1000, exists: false }],
+      recentHomes: [
+        { path: "/home/user/.codex-gone", lastUsed: Date.now() / 1000, exists: false, host: { kind: "native" } },
+      ],
     });
     setup(state);
     expect(screen.getByText("Not found on disk")).toBeInTheDocument();
@@ -109,7 +119,7 @@ describe("HomePicker", () => {
     const user = userEvent.setup();
     const { onRemove, onSelect } = setup();
     await user.click(screen.getByLabelText("Remove /home/user/.codex-personal from recents"));
-    expect(onRemove).toHaveBeenCalledWith("/home/user/.codex-personal");
+    expect(onRemove).toHaveBeenCalledWith("/home/user/.codex-personal", { kind: "native" });
     expect(onSelect).not.toHaveBeenCalled();
   });
 
@@ -128,7 +138,8 @@ describe("HomePicker", () => {
     expect(onSelect).not.toHaveBeenCalled();
     expect(screen.getByTestId("pending-home")).toHaveTextContent("/home/user/.codex-new");
     await user.click(screen.getByTestId("confirm-add-home"));
-    expect(onSelect).toHaveBeenCalledWith("/home/user/.codex-new");
+    // A browsed folder carries no host: the backend reads it off the path.
+    expect(onSelect).toHaveBeenCalledWith("/home/user/.codex-new", null);
   });
 
   it("accepts a raw typed path and confirms it", async () => {
@@ -139,7 +150,7 @@ describe("HomePicker", () => {
     expect(onSelect).not.toHaveBeenCalled();
     expect(screen.getByTestId("pending-home")).toHaveTextContent("~/.codex-hidden");
     await user.click(screen.getByTestId("confirm-add-home"));
-    expect(onSelect).toHaveBeenCalledWith("~/.codex-hidden");
+    expect(onSelect).toHaveBeenCalledWith("~/.codex-hidden", { kind: "native" });
   });
 
   it("shows the resolved Codex CLI without a form until asked to change it", async () => {
@@ -187,5 +198,32 @@ describe("HomePicker", () => {
     await user.click(screen.getByLabelText("Clear selection"));
     expect(screen.queryByTestId("pending-home")).not.toBeInTheDocument();
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("labels a WSL home and lets a typed path pick its distribution", async () => {
+    const { onSelect } = setup(
+      launchState({
+        recentHomes: [
+          {
+            path: "/home/user/.codex",
+            lastUsed: Date.now() / 1000,
+            exists: true,
+            host: { kind: "wsl", distro: "Ubuntu" },
+          },
+          { path: "/home/user/.codex", lastUsed: Date.now() / 1000, exists: true, host: { kind: "native" } },
+        ],
+      }),
+      { distros: ["Ubuntu"] },
+    );
+    // The same path on two hosts is two rows, one of them badged.
+    expect(screen.getAllByText("/home/user/.codex")).toHaveLength(2);
+    expect(screen.getByTestId("home-host").textContent).toContain("Ubuntu");
+
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByTestId("raw-home-host"), "Ubuntu");
+    await user.type(screen.getByTestId("raw-home-path"), "~/.codex-wsl");
+    await user.click(screen.getByTestId("use-raw-path"));
+    await user.click(screen.getByTestId("confirm-add-home"));
+    expect(onSelect).toHaveBeenCalledWith("~/.codex-wsl", { kind: "wsl", distro: "Ubuntu" });
   });
 });

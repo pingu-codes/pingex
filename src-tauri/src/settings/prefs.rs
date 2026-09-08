@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::util::host::Host;
+
 /// How many previously-used Codex homes we remember for the launch picker.
 const MAX_RECENT_HOMES: usize = 10;
 
@@ -11,6 +13,10 @@ const MAX_RECENT_HOMES: usize = 10;
 pub(crate) struct RecentHome {
     pub(crate) path: String,
     pub(crate) last_used: i64,
+    /// Where the home lives. Absent in files written before hosts existed,
+    /// which were all native.
+    #[serde(default)]
+    pub(crate) host: Host,
 }
 
 /// Default global shortcut that toggles the quick-chat window. Documented so
@@ -24,11 +30,17 @@ pub(crate) const DEFAULT_QUICK_SHORTCUT: &str = "CmdOrCtrl+Shift+Space";
 pub(crate) struct RuntimeOverrides {
     pub(crate) codex_home: Option<String>,
     pub(crate) codex_binary: Option<String>,
+    /// Where `codex_home` and `codex_binary` live when the app launches
+    /// without an explicit home. `None` means native.
+    pub(crate) codex_host: Option<Host>,
     /// Path to the `claude` binary. `None` means "resolve bare `claude`".
     pub(crate) claude_binary: Option<String>,
     /// Claude Code config directory (`CLAUDE_CONFIG_DIR`). `None` means the
     /// CLI's own default, `~/.claude`.
     pub(crate) claude_config_dir: Option<String>,
+    /// Where `claude` runs and where its config directory lives. `None`
+    /// means native.
+    pub(crate) claude_host: Option<Host>,
     pub(crate) recent_homes: Vec<RecentHome>,
     /// Accelerator string (Tauri syntax) for the quick-chat global shortcut.
     /// `None` means "use the documented default".
@@ -177,28 +189,39 @@ pub(crate) fn write_overrides(path: &Path, overrides: &RuntimeOverrides) -> Resu
     fs::write(path, text).map_err(|error| format!("Could not save settings: {error}"))
 }
 
-/// Remember `home` as the most recently used Codex home. Moves an existing
-/// entry to the front (refreshing its timestamp) and caps the list length so
-/// the launch picker only ever shows a handful of recents.
-pub(crate) fn record_recent_home(path: &Path, home: &str, now: i64) -> Result<(), String> {
+/// Remember `home` on `host` as the most recently used Codex home. Moves an
+/// existing entry to the front (refreshing its timestamp) and caps the list
+/// length so the launch picker only ever shows a handful of recents. The same
+/// path on two hosts is two homes.
+pub(crate) fn record_recent_home(
+    path: &Path,
+    home: &str,
+    host: &Host,
+    now: i64,
+) -> Result<(), String> {
     let mut overrides = read_overrides(path);
-    overrides.recent_homes.retain(|entry| entry.path != home);
+    overrides
+        .recent_homes
+        .retain(|entry| !(entry.path == home && &entry.host == host));
     overrides.recent_homes.insert(
         0,
         RecentHome {
             path: home.to_string(),
             last_used: now,
+            host: host.clone(),
         },
     );
     overrides.recent_homes.truncate(MAX_RECENT_HOMES);
     write_overrides(path, &overrides)
 }
 
-/// Drop `home` from the recents list. Only forgets the entry — the folder on
-/// disk is untouched.
-pub(crate) fn forget_recent_home(path: &Path, home: &str) -> Result<(), String> {
+/// Drop `home` on `host` from the recents list. Only forgets the entry — the
+/// folder on disk is untouched.
+pub(crate) fn forget_recent_home(path: &Path, home: &str, host: &Host) -> Result<(), String> {
     let mut overrides = read_overrides(path);
-    overrides.recent_homes.retain(|entry| entry.path != home);
+    overrides
+        .recent_homes
+        .retain(|entry| !(entry.path == home && &entry.host == host));
     write_overrides(path, &overrides)
 }
 
@@ -234,11 +257,14 @@ mod tests {
         let overrides = RuntimeOverrides {
             codex_home: Some("/tmp/codex-home".into()),
             codex_binary: None,
+            codex_host: Some(Host::wsl("Ubuntu")),
             claude_binary: Some("/bin/claude".into()),
             claude_config_dir: Some("/tmp/claude-config".into()),
+            claude_host: None,
             recent_homes: vec![RecentHome {
                 path: "/tmp/codex-home".into(),
                 last_used: 42,
+                host: Host::wsl("Ubuntu"),
             }],
             quick_shortcut: None,
             auto_name_threads: None,
@@ -444,10 +470,10 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("settings.json");
 
-        record_recent_home(&path, "/home/a", 10).unwrap();
-        record_recent_home(&path, "/home/b", 20).unwrap();
+        record_recent_home(&path, "/home/a", &Host::Native, 10).unwrap();
+        record_recent_home(&path, "/home/b", &Host::Native, 20).unwrap();
         // Re-selecting an existing home moves it to the front and refreshes the time.
-        record_recent_home(&path, "/home/a", 30).unwrap();
+        record_recent_home(&path, "/home/a", &Host::Native, 30).unwrap();
 
         let recents = read_overrides(&path).recent_homes;
         assert_eq!(
@@ -464,17 +490,40 @@ mod tests {
     fn forgets_a_recent_home() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("settings.json");
-        record_recent_home(&path, "/home/a", 10).unwrap();
-        record_recent_home(&path, "/home/b", 20).unwrap();
+        record_recent_home(&path, "/home/a", &Host::Native, 10).unwrap();
+        record_recent_home(&path, "/home/b", &Host::Native, 20).unwrap();
 
-        forget_recent_home(&path, "/home/a").unwrap();
+        forget_recent_home(&path, "/home/a", &Host::Native).unwrap();
 
         let recents = read_overrides(&path).recent_homes;
         assert_eq!(recents.len(), 1);
         assert_eq!(recents[0].path, "/home/b");
         // Forgetting an unknown path is a no-op, not an error.
-        forget_recent_home(&path, "/home/missing").unwrap();
+        forget_recent_home(&path, "/home/missing", &Host::Native).unwrap();
         assert_eq!(read_overrides(&path).recent_homes.len(), 1);
+    }
+
+    #[test]
+    fn the_same_path_on_two_hosts_is_two_recent_homes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+        let wsl = Host::wsl("Ubuntu");
+        record_recent_home(&path, "/home/u/.codex", &Host::Native, 10).unwrap();
+        record_recent_home(&path, "/home/u/.codex", &wsl, 20).unwrap();
+        assert_eq!(read_overrides(&path).recent_homes.len(), 2);
+
+        forget_recent_home(&path, "/home/u/.codex", &wsl).unwrap();
+        let recents = read_overrides(&path).recent_homes;
+        assert_eq!(recents.len(), 1);
+        assert_eq!(recents[0].host, Host::Native);
+    }
+
+    #[test]
+    fn recent_homes_without_a_host_are_native() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+        fs::write(&path, r#"{"recentHomes":[{"path":"/old","lastUsed":1}]}"#).unwrap();
+        assert_eq!(read_overrides(&path).recent_homes[0].host, Host::Native);
     }
 
     #[test]
@@ -482,7 +531,13 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("settings.json");
         for index in 0..(MAX_RECENT_HOMES + 5) {
-            record_recent_home(&path, &format!("/home/{index}"), index as i64).unwrap();
+            record_recent_home(
+                &path,
+                &format!("/home/{index}"),
+                &Host::Native,
+                index as i64,
+            )
+            .unwrap();
         }
         assert_eq!(read_overrides(&path).recent_homes.len(), MAX_RECENT_HOMES);
     }
@@ -500,7 +555,7 @@ mod tests {
             },
         )
         .unwrap();
-        record_recent_home(&path, "/home/a", 5).unwrap();
+        record_recent_home(&path, "/home/a", &Host::Native, 5).unwrap();
         let overrides = read_overrides(&path);
         assert_eq!(overrides.codex_home.as_deref(), Some("/pinned"));
         assert_eq!(overrides.codex_binary.as_deref(), Some("/bin/codex"));

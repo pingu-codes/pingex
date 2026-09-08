@@ -266,7 +266,7 @@ export const commands = {
 	 */
 	quickOpenFullThread: (threadId: string) => __TAURI_INVOKE<null>("quick_open_full_thread", { threadId }),
 	readRuntimeSettings: () => __TAURI_INVOKE<RuntimeSettings>("read_runtime_settings"),
-	updateRuntimeSettings: (codexHome: string | null, codexBinary: string | null, claudeBinary: string | null, claudeConfigDir: string | null) => __TAURI_INVOKE<RuntimeSettings>("update_runtime_settings", { codexHome, codexBinary, claudeBinary, claudeConfigDir }),
+	updateRuntimeSettings: (codexHome: string | null, codexBinary: string | null, claudeBinary: string | null, claudeConfigDir: string | null, codexHost: { kind: "native" } | { kind: "wsl"; distro: string } | null, claudeHost: { kind: "native" } | { kind: "wsl"; distro: string } | null) => __TAURI_INVOKE<RuntimeSettings>("update_runtime_settings", { codexHome, codexBinary, claudeBinary, claudeConfigDir, codexHost, claudeHost }),
 	/**
 	 *  What this window boots against. A window is "explicit" once it is bound to
 	 *  a home — the first window inherits the launch binding, later windows are
@@ -284,7 +284,12 @@ export const commands = {
 	 *  Probe a candidate Codex CLI without saving it, so the picker and the
 	 *  settings form can show "found at …" as the user types.
 	 */
-	checkCodexBinary: (path: string | null) => __TAURI_INVOKE<BinaryStatus>("check_codex_binary", { path }),
+	checkCodexBinary: (path: string | null, host: { kind: "native" } | { kind: "wsl"; distro: string } | null) => __TAURI_INVOKE<BinaryStatus>("check_codex_binary", { path, host }),
+	/**
+	 *  The WSL distributions installed on this machine, for the host pickers.
+	 *  Empty off Windows.
+	 */
+	listWslDistros: () => __TAURI_INVOKE<string[]>("list_wsl_distros"),
 	/**
 	 *  Point the app at a different Codex CLI and apply it immediately: the
 	 *  override is persisted, the live runtime is updated, and any running
@@ -298,17 +303,17 @@ export const commands = {
 	 *  (reused or freshly opened) context for the new home, and the old context is
 	 *  shut down only when no other window still uses it.
 	 */
-	selectCodexHome: (path: string) => __TAURI_INVOKE<LaunchState>("select_codex_home", { path }),
+	selectCodexHome: (path: string, host: { kind: "native" } | { kind: "wsl"; distro: string } | null) => __TAURI_INVOKE<LaunchState>("select_codex_home", { path, host }),
 	/**
 	 *  Open a new app window, optionally bound to a home straight away. With no
 	 *  `path` the window shows the launch picker and binds itself on pick.
 	 */
-	openHomeWindow: (path: string | null) => __TAURI_INVOKE<string>("open_home_window", { path }),
+	openHomeWindow: (path: string | null, host: { kind: "native" } | { kind: "wsl"; distro: string } | null) => __TAURI_INVOKE<string>("open_home_window", { path, host }),
 	/**
 	 *  Forget a home from the recents list shown by the launch picker. Does not
 	 *  touch the folder on disk.
 	 */
-	removeRecentHome: (path: string) => __TAURI_INVOKE<LaunchState>("remove_recent_home", { path }),
+	removeRecentHome: (path: string, host: { kind: "native" } | { kind: "wsl"; distro: string } | null) => __TAURI_INVOKE<LaunchState>("remove_recent_home", { path, host }),
 	/**
 	 *  Read-only overview of the active home's defaults (model, MCP servers,
 	 *  skills) for the homepage dashboard.
@@ -373,7 +378,7 @@ export const commands = {
 	handoffThreadLink: (threadId: string, cwd: string, label: string | null) => __TAURI_INVOKE<string>("handoff_thread_link", { threadId, cwd, label }),
 	/**  Copy text to the system clipboard. */
 	handoffCopy: (text: string) => __TAURI_INVOKE<null>("handoff_copy", { text }),
-	/**  Open Terminal.app and run the handoff command. */
+	/**  Open a terminal and run the handoff command. */
 	handoffLaunchTerminal: (command: string) => __TAURI_INVOKE<null>("handoff_launch_terminal", { command }),
 	reviewProviderStatus: (repoDir: string) => __TAURI_INVOKE<ProviderStatus>("review_provider_status", { repoDir }),
 	reviewListPrs: (repoDir: string) => __TAURI_INVOKE<PrSummary[]>("review_list_prs", { repoDir }),
@@ -442,6 +447,10 @@ export const commands = {
 	readSkill: (path: string) => __TAURI_INVOKE<string>("read_skill", { path }),
 	createSkill: (name: string, description: string, body: string | null, cwds: string[] | null) => __TAURI_INVOKE<IntegrationsList>("create_skill", { name, description, body, cwds }),
 	deleteSkill: (path: string, cwds: string[] | null) => __TAURI_INVOKE<IntegrationsList>("delete_skill", { path, cwds }),
+	/**
+	 *  Show a path in the file manager. `path` is a host path of this window's
+	 *  home; a WSL path opens through the `\\wsl.localhost` share.
+	 */
 	revealInFinder: (path: string) => __TAURI_INVOKE<null>("reveal_in_finder", { path }),
 	/**  Open a URL in the user's default browser (not inside the app webview). */
 	openExternalUrl: (url: string) => __TAURI_INVOKE<null>("open_external_url", { url }),
@@ -951,6 +960,8 @@ export type HookCompletedParams = {
 	run?: unknown,
 };
 
+export type Host = { kind: "native" } | { kind: "wsl"; distro: string };
+
 /**  Everything the Integrations settings section needs in one call. */
 export type IntegrationsList = {
 	mcpServers: McpServerSummary[],
@@ -981,6 +992,8 @@ export type LaunchState = {
 	 *  so the frontend filters by exact equality.
 	 */
 	homeKey: string,
+	/**  Where `codex_home` lives. */
+	host: Host,
 	codexBinary: string,
 	defaultHome: string,
 	/**  The home came from `--codex-home`/`CODEX_HOME`; boot without a picker. */
@@ -1275,6 +1288,7 @@ export type ReasoningTextDeltaParams = {
 export type RecentHomeInfo = {
 	path: string,
 	lastUsed: number,
+	host: Host,
 	/**  Whether the folder still exists on disk (stale entries are dimmed, not hidden). */
 	exists: boolean,
 };
@@ -1310,10 +1324,14 @@ export type ReviewDraft = {
 export type RuntimeSettings = {
 	codexHome: string,
 	codexBinary: string,
+	/**  Where this window's home lives. */
+	codexHost: Host,
 	overrideCodexHome: string | null,
 	overrideCodexBinary: string | null,
+	overrideCodexHost: Host | null,
 	overrideClaudeBinary: string | null,
 	overrideClaudeConfigDir: string | null,
+	overrideClaudeHost: Host | null,
 	settingsPath: string,
 	restartRequired: boolean,
 };

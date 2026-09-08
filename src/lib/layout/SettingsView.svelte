@@ -15,6 +15,7 @@ import {
   X,
 } from "@lucide/svelte";
 import { classifyVersion, LAST_STABLE, STABLE, type VersionTier } from "$lib/app/codexVersion.svelte";
+import { hostFromOption, hostOverride, hostToOption } from "$lib/app/host";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import IntegrationsSection from "$lib/integrations/IntegrationsSection.svelte";
 import { appearance, FONT_SIZE_MAX, FONT_SIZE_MIN } from "$lib/layout/appearancePrefs.svelte";
@@ -27,6 +28,7 @@ import {
   DEFAULT_QUICK_SHORTCUT,
   getQuickShortcut,
   isTauri,
+  listWslDistros,
   readAgentSettings,
   readCodexServerInfo,
   readConfigSettings,
@@ -97,6 +99,11 @@ let settingsHome = $state("");
 let settingsBinary = $state("");
 let settingsClaudeBinary = $state("");
 let settingsClaudeConfig = $state("");
+// Where each harness runs: "native" or a WSL distribution name. The selects
+// only appear when a distribution exists, so the form is unchanged elsewhere.
+let settingsCodexHost = $state("native");
+let settingsClaudeHost = $state("native");
+let distros = $state<string[]>([]);
 let generalError = $state<string | null>(null);
 let generalSaved = $state(false);
 let serverInfo = $state<CodexServerInfo | null>(null);
@@ -179,8 +186,13 @@ $effect(() => {
       settingsBinary = settings.overrideCodexBinary ?? "";
       settingsClaudeBinary = settings.overrideClaudeBinary ?? "";
       settingsClaudeConfig = settings.overrideClaudeConfigDir ?? "";
+      settingsCodexHost = hostToOption(settings.overrideCodexHost);
+      settingsClaudeHost = hostToOption(settings.overrideClaudeHost);
     })
     .catch((cause) => (generalError = cause instanceof Error ? cause.message : String(cause)));
+  listWslDistros()
+    .then((list) => (distros = list))
+    .catch(() => (distros = []));
   // Best effort: a Codex that will not start is already reported elsewhere.
   readCodexServerInfo()
     .then((info) => (serverInfo = info))
@@ -217,6 +229,8 @@ async function saveGeneral(event: SubmitEvent) {
       settingsBinary.trim() || null,
       settingsClaudeBinary.trim() || null,
       settingsClaudeConfig.trim() || null,
+      hostOverride(hostFromOption(settingsCodexHost)),
+      hostOverride(hostFromOption(settingsClaudeHost)),
     );
     generalSaved = true;
   } catch (cause) {
@@ -368,6 +382,24 @@ async function reveal(path: string | null | undefined) {
                   class="input mt-1 w-full font-mono text-xs"
                 />
               </div>
+              {#if distros.length > 0}
+                <div>
+                  <div class="flex items-center gap-2">
+                    <label for="settings-codex-host" class="text-xs font-medium text-surface-500">Codex runs in</label>
+                    {@render restartBadge()}
+                  </div>
+                  <select id="settings-codex-host" bind:value={settingsCodexHost} class="select mt-1 w-full text-xs" data-testid="settings-codex-host">
+                    <option value="native">This PC</option>
+                    {#each distros as distro (distro)}
+                      <option value={distro}>WSL · {distro}</option>
+                    {/each}
+                  </select>
+                  <p class="mt-1 text-[11px] leading-4 text-surface-500">
+                    The home, the binary and every project of a WSL home are Linux paths inside that
+                    distribution. Homes picked from the launcher keep the host they were picked with.
+                  </p>
+                </div>
+              {/if}
               <div>
                 <label for="settings-claude-binary" class="text-xs font-medium text-surface-500">Claude binary</label>
                 <input
@@ -377,6 +409,17 @@ async function reveal(path: string | null | undefined) {
                   class="input mt-1 w-full font-mono text-xs"
                 />
               </div>
+              {#if distros.length > 0}
+                <div>
+                  <label for="settings-claude-host" class="text-xs font-medium text-surface-500">Claude runs in</label>
+                  <select id="settings-claude-host" bind:value={settingsClaudeHost} class="select mt-1 w-full text-xs" data-testid="settings-claude-host">
+                    <option value="native">This PC</option>
+                    {#each distros as distro (distro)}
+                      <option value={distro}>WSL · {distro}</option>
+                    {/each}
+                  </select>
+                </div>
+              {/if}
               <div>
                 <label for="settings-claude-config" class="text-xs font-medium text-surface-500">Claude config directory</label>
                 <input

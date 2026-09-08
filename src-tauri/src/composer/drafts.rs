@@ -76,7 +76,7 @@ pub(crate) fn save_draft(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
-    write_draft(&ctx.runtime().codex_home, &project, &content)
+    write_draft(&ctx.runtime().local_home(), &project, &content)
 }
 
 #[tauri::command]
@@ -87,7 +87,7 @@ pub(crate) fn load_draft(
     state: State<'_, AppState>,
 ) -> Result<Option<String>, String> {
     let ctx = state.ctx(&window);
-    read_draft(&ctx.runtime().codex_home, &project)
+    read_draft(&ctx.runtime().local_home(), &project)
 }
 
 #[tauri::command]
@@ -98,7 +98,7 @@ pub(crate) fn delete_draft(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
-    remove_draft(&ctx.runtime().codex_home, &project)
+    remove_draft(&ctx.runtime().local_home(), &project)
 }
 
 #[cfg(test)]

@@ -15,7 +15,7 @@ use super::types::{
     Account, BootstrapData, BootstrapExtras, Project, ThreadSummary, WorkspaceMember,
 };
 use super::worktrees::{
-    discover_worktrees, is_temp_worktree_path, is_worktree_path, worktree_parent_project,
+    discover_worktrees, is_temp_worktree_path, is_worktree_path, worktree_parent_project_on,
 };
 use crate::storage::{
     self, SideQuestion, Store, StoredProject, StoredProjectSource, StoredThreadSummary,
@@ -254,7 +254,7 @@ async fn temp_worktree_parents(
         if known.contains(&path) || !is_temp_worktree_path(runtime, &path) {
             continue;
         }
-        let Some(parent) = worktree_parent_project(&path) else {
+        let Some(parent) = worktree_parent_project_on(&runtime.host, &path) else {
             continue;
         };
         storage::record_temp_worktree(&ctx.database(), &path, &parent).await?;
@@ -377,7 +377,7 @@ fn build_bootstrap(
     entries.retain(|entry| !is_temp_worktree_path(runtime, &entry.path));
     let mut known: HashSet<String> = entries.iter().map(|entry| entry.path.clone()).collect();
     for path in discover_worktrees(runtime) {
-        if let Some(parent) = worktree_parent_project(&path) {
+        if let Some(parent) = worktree_parent_project_on(&runtime.host, &path) {
             if known.insert(parent.clone()) {
                 entries.push(StoredProject {
                     path: parent,
@@ -404,7 +404,7 @@ fn build_bootstrap(
     // Every repository a temporary worktree points at must be listed, even when
     // the worktree itself is gone, or its threads would have nowhere to live.
     for (_, parent) in &temp_worktree_parents {
-        if Path::new(parent).is_dir() && known.insert(parent.clone()) {
+        if runtime.host.is_dir(parent) && known.insert(parent.clone()) {
             entries.push(StoredProject {
                 path: parent.clone(),
                 name: None,
@@ -437,7 +437,7 @@ fn build_bootstrap(
         let worktree = entry.worktree || is_worktree_path(runtime, &entry.path);
         // A worktree that has been deleted on disk is simply gone; a plain
         // folder is kept so the user can still remove it from the sidebar.
-        if worktree && !Path::new(&entry.path).is_dir() {
+        if worktree && !runtime.host.is_dir(&entry.path) {
             continue;
         }
         let name = entry
@@ -520,7 +520,7 @@ fn build_bootstrap(
                     alias: member.alias,
                     isolated: member.isolated,
                     branch: member.branch,
-                    available: Path::new(&member.effective_path).is_dir(),
+                    available: runtime.host.is_dir(&member.effective_path),
                 })
                 .collect(),
             recency_at: project_recency.get(&workspace.hub_path).copied(),
@@ -639,6 +639,7 @@ mod tests {
             &RuntimeConfig {
                 codex_home: directory.path().join("codex-home"),
                 codex_binary: PathBuf::from("codex"),
+                host: crate::util::host::Host::Native,
             },
             Store {
                 projects: vec![
@@ -735,6 +736,7 @@ mod tests {
             &RuntimeConfig {
                 codex_home: directory.path().join("codex-home"),
                 codex_binary: PathBuf::from("codex"),
+                host: crate::util::host::Host::Native,
             },
             Store {
                 projects: vec![StoredProject {
@@ -813,6 +815,7 @@ mod tests {
             &RuntimeConfig {
                 codex_home: home,
                 codex_binary: PathBuf::from("codex"),
+                host: crate::util::host::Host::Native,
             },
             Store {
                 projects: vec![StoredProject {
@@ -914,6 +917,7 @@ mod tests {
         let runtime = RuntimeConfig {
             codex_home: home,
             codex_binary: PathBuf::from("codex"),
+            host: crate::util::host::Host::Native,
         };
 
         let data = build_bootstrap(
@@ -1000,6 +1004,7 @@ mod tests {
             &RuntimeConfig {
                 codex_home: directory.path().join("codex-home"),
                 codex_binary: PathBuf::from("codex"),
+                host: crate::util::host::Host::Native,
             },
             store,
             vec![moved, orphaned, thread("plain", &api_path, 1)],
@@ -1055,6 +1060,7 @@ mod tests {
             &RuntimeConfig {
                 codex_home: directory.path().join("codex-home"),
                 codex_binary: PathBuf::from("codex"),
+                host: crate::util::host::Host::Native,
             },
             Store {
                 projects: vec![StoredProject {

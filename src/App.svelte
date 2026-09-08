@@ -94,11 +94,12 @@ init();
       launchState={launch.state}
       busy={launch.busy}
       error={launch.error}
+      distros={launch.distros}
       onSelect={chooseHome}
       onBrowse={browseForHome}
       onRemove={removeHome}
       onSetBinary={setBinary}
-      onOpenNewWindow={(path) => void openHomeWindow(path)}
+      onOpenNewWindow={(path, host) => void openHomeWindow(path, host)}
     />
   </div>
 {:else if launch.phase === "loading"}

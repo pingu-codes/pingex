@@ -108,11 +108,21 @@ pub fn delete_skill_on_disk(codex_home: &Path, path: &str) -> Result<(), String>
         .map_err(|e| format!("Could not delete {}: {e}", canonical_dir.display()))
 }
 
+/// Read a `SKILL.md` at a local path.
+pub(crate) fn read_skill_at(path: &str) -> Result<String, String> {
+    let file = skill_file(path)?;
+    fs::read_to_string(&file).map_err(|e| format!("Could not read {}: {e}", file.display()))
+}
+
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn read_skill(path: String) -> Result<String, String> {
-    let file = skill_file(&path)?;
-    fs::read_to_string(&file).map_err(|e| format!("Could not read {}: {e}", file.display()))
+pub(crate) fn read_skill(
+    path: String,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let host = state.ctx(&window).host();
+    read_skill_at(&host.to_local(&path).to_string_lossy())
 }
 
 #[tauri::command]
@@ -127,7 +137,7 @@ pub(crate) async fn create_skill(
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
     let ctx = state.ctx(&window);
-    let home = ctx.runtime().codex_home;
+    let home = ctx.runtime().local_home();
     create_skill_on_disk(&home, name.trim(), &description, body.as_deref())?;
     build_list_with(&app, &ctx, cwds.unwrap_or_default(), true).await
 }
@@ -142,8 +152,10 @@ pub(crate) async fn delete_skill(
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
     let ctx = state.ctx(&window);
-    let home = ctx.runtime().codex_home;
-    delete_skill_on_disk(&home, &path)?;
+    let runtime = ctx.runtime();
+    // Codex reports skill paths as it sees them; open them from here.
+    let local = runtime.host.to_local(&path).to_string_lossy().into_owned();
+    delete_skill_on_disk(&runtime.local_home(), &local)?;
     build_list_with(&app, &ctx, cwds.unwrap_or_default(), true).await
 }
 
@@ -163,11 +175,11 @@ mod tests {
     fn creates_reads_and_deletes_under_home() {
         let home = tempfile::tempdir().unwrap();
         let file = create_skill_on_disk(home.path(), "demo", "Does demo things", None).unwrap();
-        let text = read_skill(file.display().to_string()).unwrap();
+        let text = read_skill_at(&file.display().to_string()).unwrap();
         assert!(text.starts_with("---\nname: demo\ndescription: Does demo things\n---"));
         // Reading the directory works too.
         assert_eq!(
-            read_skill(file.parent().unwrap().display().to_string()).unwrap(),
+            read_skill_at(&file.parent().unwrap().display().to_string()).unwrap(),
             text
         );
         assert!(create_skill_on_disk(home.path(), "demo", "again", None).is_err());

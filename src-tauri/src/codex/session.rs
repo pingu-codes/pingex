@@ -179,15 +179,20 @@ async fn spawn_session(
     app: AppHandle,
     wire: Arc<WireLog>,
 ) -> Result<MainSession, String> {
-    crate::codex::child::kill_orphaned_app_servers();
+    crate::codex::child::kill_orphaned_app_servers(std::slice::from_ref(&runtime.host));
     // Resolve to an absolute path: a Finder-launched bundle has a bare PATH, so
-    // spawning bare `codex` would fail even though the CLI is installed.
-    let program = crate::codex::binary::resolve(&runtime.codex_binary)
-        .ok_or_else(|| crate::codex::binary::missing_message(&runtime.codex_binary))?;
+    // spawning bare `codex` would fail even though the CLI is installed; a
+    // `wsl.exe` launch has no login PATH at all.
+    let binary = runtime.codex_binary_str();
+    let program = runtime
+        .host
+        .resolve_binary(&binary)
+        .ok_or_else(|| crate::codex::binary::missing_message_on(&runtime.host, &binary))?;
     let sink = Arc::new(MainSessionSink::new(app.clone(), home_key));
     let child = spawn_child(
+        &runtime.host,
         &program,
-        std::path::Path::new(&runtime.codex_home),
+        &runtime.codex_home_str(),
         "pingex",
         app,
         wire,

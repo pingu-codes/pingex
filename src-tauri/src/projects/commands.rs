@@ -5,13 +5,14 @@
 //! from cache, since none of them change anything Codex knows about.
 
 use serde_json::json;
-use std::fs;
+use std::path::PathBuf;
 use tauri::{AppHandle, State};
 
 use super::bootstrap::{bootstrap_cached, bootstrap_inner};
 use super::types::BootstrapData;
 use super::worktrees::{is_temp_worktree_path, linked_worktree_parent};
 use crate::storage::{self, SiblingRef, Store, StoredProject};
+use crate::util::host::Host;
 use crate::util::json::Json;
 use crate::AppState;
 
@@ -81,6 +82,17 @@ pub(crate) async fn read_thread_usage(
         .map(Json)
 }
 
+/// A folder the user picked, as the canonical host path the store keys on.
+/// A dialog pick on a WSL home arrives as a local path
+/// (`\\wsl.localhost\..` or `C:\..`) and is translated first.
+fn canonical_project_path(host: &Host, path: &str) -> Result<String, String> {
+    let host_path = host.to_host_path(path.trim());
+    if !host.is_dir(&host_path) {
+        return Err(format!("Could not open {path}: not a folder"));
+    }
+    Ok(host.canonical(&host_path))
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn add_project(
@@ -89,13 +101,9 @@ pub(crate) async fn add_project(
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
-    let canonical =
-        fs::canonicalize(&path).map_err(|error| format!("Could not open {path}: {error}"))?;
-    if !canonical.is_dir() {
-        return Err(format!("{} is not a folder", canonical.display()));
-    }
+    let canonical = canonical_project_path(&ctx.host(), &path)?;
     let mut store = storage::read_store(&ctx.database()).await?;
-    stored_project_mut(&mut store, &canonical.display().to_string());
+    stored_project_mut(&mut store, &canonical);
     storage::write_store(&ctx.database(), &store).await?;
     bootstrap_cached(&ctx).await
 }
@@ -111,18 +119,16 @@ pub(crate) async fn add_worktree_project(
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
-    let canonical =
-        fs::canonicalize(&path).map_err(|error| format!("Could not open {path}: {error}"))?;
-    if !canonical.is_dir() {
-        return Err(format!("{} is not a folder", canonical.display()));
-    }
-    let canonical_text = canonical.display().to_string();
+    let host = ctx.host();
+    let canonical_text = canonical_project_path(&host, &path)?;
     if is_temp_worktree_path(&ctx.runtime(), &canonical_text) {
         return Err("Temporary worktrees belong to their repository and cannot be added".into());
     }
-    let parent = tauri::async_runtime::spawn_blocking(move || linked_worktree_parent(&canonical))
-        .await
-        .map_err(|error| format!("Could not inspect the worktree: {error}"))??;
+    let canonical = PathBuf::from(&canonical_text);
+    let parent =
+        tauri::async_runtime::spawn_blocking(move || linked_worktree_parent(&host, &canonical))
+            .await
+            .map_err(|error| format!("Could not inspect the worktree: {error}"))??;
     let mut store = storage::read_store(&ctx.database()).await?;
     stored_project_mut(&mut store, &parent);
     let entry = stored_project_mut(&mut store, &canonical_text);

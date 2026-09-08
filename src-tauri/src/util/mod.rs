@@ -3,6 +3,7 @@
 //! Everything here is used by two or more domains; anything used by exactly one
 //! belongs in that domain instead.
 
+pub(crate) mod host;
 pub(crate) mod id;
 pub(crate) mod json;
 pub(crate) mod migration;

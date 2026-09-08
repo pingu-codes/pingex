@@ -9,6 +9,7 @@
 //! the built-in, we never see an `item/tool/call`, and the failure looks like
 //! "dynamic tools don't work" rather than "you picked a taken name".
 
+use crate::util::host::Host;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::{Component, Path, PathBuf};
@@ -330,7 +331,7 @@ pub(crate) fn clamp_sandbox(requested: Option<&str>, ceiling: &str) -> String {
 /// Append the requested files to the prompt. A fresh process shares nothing
 /// with its parent, and a bounded file list is the one piece of context the
 /// parent cannot simply write out in prose.
-pub(crate) fn attach_files(prompt: &str, cwd: &Path, files: &[String]) -> String {
+pub(crate) fn attach_files(prompt: &str, cwd: &Path, files: &[String], host: &Host) -> String {
     if files.is_empty() {
         return prompt.to_string();
     }
@@ -341,7 +342,7 @@ pub(crate) fn attach_files(prompt: &str, cwd: &Path, files: &[String]) -> String
         let Ok(path) = resolve_cwd(cwd, Some(file)) else {
             continue;
         };
-        let Ok(content) = std::fs::read_to_string(&path) else {
+        let Ok(content) = std::fs::read_to_string(host.to_local(&host.path_string(&path))) else {
             continue;
         };
         let content = if content.len() > budget {
@@ -411,6 +412,10 @@ pub(crate) fn render_error(message: impl Into<String>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn attach_files_native(prompt: &str, cwd: &Path, files: &[String]) -> String {
+        attach_files(prompt, cwd, files, &Host::Native)
+    }
 
     #[test]
     fn offers_only_real_model_slugs_when_they_are_known() {
@@ -564,7 +569,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         std::fs::write(directory.path().join("a.txt"), "alpha").unwrap();
 
-        let prompt = attach_files(
+        let prompt = attach_files_native(
             "do it",
             directory.path(),
             &["a.txt".into(), "missing.txt".into(), "../escape".into()],
@@ -580,9 +585,9 @@ mod tests {
     #[test]
     fn a_prompt_with_no_readable_files_is_left_alone() {
         let directory = tempfile::tempdir().unwrap();
-        assert_eq!(attach_files("do it", directory.path(), &[]), "do it");
+        assert_eq!(attach_files_native("do it", directory.path(), &[]), "do it");
         assert_eq!(
-            attach_files("do it", directory.path(), &["nope.txt".into()]),
+            attach_files_native("do it", directory.path(), &["nope.txt".into()]),
             "do it"
         );
     }

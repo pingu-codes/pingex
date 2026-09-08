@@ -58,9 +58,12 @@ pub(crate) async fn review_local_diff(
     repo_dir: String,
     base: String,
     head: Option<String>,
+    window: tauri::WebviewWindow,
+    state: State<'_, crate::AppState>,
 ) -> Result<Vec<PrFile>, String> {
+    let host = state.ctx(&window).host();
     tauri::async_runtime::spawn_blocking(move || {
-        local_diff(Path::new(&repo_dir), &base, head.as_deref())
+        local_diff(&host, Path::new(&repo_dir), &base, head.as_deref())
     })
     .await
     .map_err(|_| "Local diff failed".to_string())?

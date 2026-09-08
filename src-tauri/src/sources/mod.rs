@@ -14,6 +14,7 @@ use turso::Database;
 
 use crate::files::fuzzy;
 use crate::storage::{self, StoredProjectSource};
+use crate::util::host::Host;
 use crate::util::id::unique_suffix;
 use crate::AppState;
 
@@ -86,9 +87,10 @@ fn build_preview(content: &str) -> String {
 
 async fn index_source_now(
     database: &Database,
+    host: &Host,
     source: &StoredProjectSource,
 ) -> Result<i64, String> {
-    let root = PathBuf::from(&source.source_path);
+    let root = host.to_local(&source.source_path);
     let kind = source.kind.clone();
     let lines = tauri::async_runtime::spawn_blocking(move || indexer::index_source(&root, &kind))
         .await
@@ -104,10 +106,16 @@ async fn index_source_now(
 
 /// Kick off (or refresh) the index for one source on a background task, moving
 /// its status to indexed/error and emitting `sources://updated` when done.
-fn spawn_index(app: AppHandle, database: Database, source: StoredProjectSource, home_key: String) {
+fn spawn_index(
+    app: AppHandle,
+    database: Database,
+    host: Host,
+    source: StoredProjectSource,
+    home_key: String,
+) {
     tauri::async_runtime::spawn(async move {
         let project_path = source.project_path.clone();
-        let result = index_source_now(&database, &source).await;
+        let result = index_source_now(&database, &host, &source).await;
         let _ = match result {
             Ok(doc_count) => {
                 storage::set_source_status(
@@ -169,18 +177,20 @@ pub(crate) async fn add_project_source(
     if kind != "folder" && kind != "file" {
         return Err(format!("Unknown source kind: {kind}"));
     }
-    let path = PathBuf::from(&source_path);
-    let canonical = std::fs::canonicalize(&path)
-        .map_err(|error| format!("Could not open {source_path}: {error}"))?;
+    // A dialog pick on a WSL home is a local path; the harness and the
+    // indexer both want it as the host sees it.
+    let host = ctx.host();
+    let host_path = host.to_host_path(source_path.trim());
+    let local = host.to_local(&host_path);
     let matches_kind = if kind == "folder" {
-        canonical.is_dir()
+        local.is_dir()
     } else {
-        canonical.is_file()
+        local.is_file()
     };
     if !matches_kind {
-        return Err(format!("{} is not a {kind}", canonical.display()));
+        return Err(format!("{source_path} is not a {kind}"));
     }
-    let canonical = canonical.display().to_string();
+    let canonical = host.canonical(&host_path);
     let database = ctx.database();
     let existing = storage::read_project_sources(&database, &project_path).await?;
     if existing
@@ -201,7 +211,13 @@ pub(crate) async fn add_project_source(
         error: None,
     };
     storage::insert_project_source(&database, &source).await?;
-    spawn_index(app, database.clone(), source, ctx.home_key.clone());
+    spawn_index(
+        app,
+        database.clone(),
+        ctx.host(),
+        source,
+        ctx.home_key.clone(),
+    );
     storage::read_project_sources(&database, &project_path).await
 }
 
@@ -233,7 +249,7 @@ pub(crate) async fn reindex_source(
         return Err("Source no longer exists".to_string());
     };
     storage::set_source_status(&database, &id, "pending", None, 0, None).await?;
-    spawn_index(app, database, source, ctx.home_key.clone());
+    spawn_index(app, database, ctx.host(), source, ctx.home_key.clone());
     Ok(())
 }
 

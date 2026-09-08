@@ -9,14 +9,14 @@
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::AppHandle;
 use tokio::sync::oneshot;
 
 use crate::codex::wire::WireLog;
+use crate::util::host::Host;
 
 /// What the process owner does with the frames the CLI originates.
 pub(crate) trait FrameSink: Send + Sync {
@@ -47,6 +47,13 @@ pub const BASE_ARGS: [&str; 9] = [
     "--permission-prompt-tool",
     "stdio",
 ];
+
+/// Environment every Claude process gets. `CLAUDE_CONFIG_DIR` is added per
+/// spawn.
+const ENV: [(&str, &str); 1] = [("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")];
+/// Inherited API-key variables are stripped so the login in the config
+/// directory is what authenticates, not a stray key in the app's environment.
+pub const UNSET_ENV: [&str; 2] = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"];
 
 pub(crate) struct ClaudeChild {
     stdin: Mutex<ChildStdin>,
@@ -226,30 +233,30 @@ fn reader_loop(
 /// where the driver expects, regardless of what a GUI launch inherited.
 /// Inherited API-key variables are stripped so the login in `config_dir` is
 /// what authenticates, not a stray key in the app's environment.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn spawn(
-    program: &Path,
-    cwd: &Path,
-    config_dir: &Path,
+    host: &Host,
+    program: &str,
+    cwd: &str,
+    config_dir: &str,
     args: &[String],
     app: AppHandle,
     wire: Arc<WireLog>,
     sink: Arc<dyn FrameSink>,
 ) -> Result<Arc<ClaudeChild>, String> {
-    let mut command = Command::new(program);
+    // Every path here is a host path; the host wraps the spawn.
+    let mut argv: Vec<&str> = BASE_ARGS.to_vec();
+    argv.extend(args.iter().map(String::as_str));
+    let mut env: Vec<(&str, &str)> = ENV.to_vec();
+    env.push(("CLAUDE_CONFIG_DIR", config_dir));
+    let mut command = host.command(program, &argv, Some(cwd), &env, &UNSET_ENV);
     command
-        .args(BASE_ARGS)
-        .args(args)
-        .current_dir(cwd)
-        .env("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
-        .env("CLAUDE_CONFIG_DIR", config_dir)
-        .env_remove("ANTHROPIC_API_KEY")
-        .env_remove("ANTHROPIC_AUTH_TOKEN")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut process = command
         .spawn()
-        .map_err(|error| format!("Could not start {}: {error}", program.display()))?;
+        .map_err(|error| format!("Could not start {program} ({}): {error}", host.label()))?;
     let stdin = process.stdin.take().ok_or("Claude stdin was unavailable")?;
     let stdout = process
         .stdout

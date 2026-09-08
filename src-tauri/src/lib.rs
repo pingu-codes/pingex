@@ -22,7 +22,7 @@
 //! - `util`        — cross-cutting helpers owned by no single domain
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use tauri::Manager;
@@ -48,6 +48,7 @@ mod util;
 mod workspaces;
 
 use codex::CodexSession;
+use util::host::Host;
 
 /// The pieces the live end-to-end suite (`tests/live_codex.rs`) replays against
 /// a real `codex` binary: the exact request payloads the app sends and the
@@ -59,6 +60,7 @@ pub mod e2e {
     pub use crate::claude::driver::turn_args as claude_turn_args;
     pub use crate::claude::permissions::permission_result as claude_permission_result;
     pub use crate::codex::binary::{missing_message, resolve as resolve_codex_binary};
+    pub use crate::codex::child::kill_orphaned_app_servers;
     pub use crate::codex::child::APP_SERVER_ARGS as CODEX_APP_SERVER_ARGS;
     pub use crate::codex::compat::{method_unsupported, Feature};
     pub use crate::codex::requests;
@@ -73,13 +75,35 @@ pub mod e2e {
     };
     pub use crate::threads::autoname::NAMER_INSTRUCTIONS;
     pub use crate::threads::side_questions::MAX_TITLE_CHARS;
+    pub use crate::util::host::{orphan_pids, Host};
+    pub use crate::util::process::{run as run_process, CommandOutput, Run};
 }
 use util::time::unix_secs;
 
 #[derive(Clone)]
 pub(crate) struct RuntimeConfig {
+    /// A host path: what `host` sees. Read it through `host.to_local` before
+    /// opening anything in it from this process.
     pub(crate) codex_home: PathBuf,
     pub(crate) codex_binary: PathBuf,
+    /// Where the home, the binary and every process of this home live.
+    pub(crate) host: Host,
+}
+
+impl RuntimeConfig {
+    pub(crate) fn codex_home_str(&self) -> String {
+        self.codex_home.to_string_lossy().into_owned()
+    }
+
+    pub(crate) fn codex_binary_str(&self) -> String {
+        self.codex_binary.to_string_lossy().into_owned()
+    }
+
+    /// The home as a local path this process can open: identity on a native
+    /// host, the `\\wsl.localhost` share on WSL.
+    pub(crate) fn local_home(&self) -> PathBuf {
+        self.host.to_local(&self.codex_home_str())
+    }
 }
 
 /// The active Codex home, shared with `CodexSession` so a home switch is
@@ -88,12 +112,10 @@ pub(crate) type SharedRuntime = Arc<RwLock<RuntimeConfig>>;
 
 /// A home's canonical identity: the registry key and the `codexHome` tag on
 /// every event payload. Falls back to the lexical path when the folder cannot
-/// be canonicalized (e.g. it does not exist yet).
-pub(crate) fn canonical_home(path: &Path) -> String {
-    std::fs::canonicalize(path)
-        .unwrap_or_else(|_| path.to_path_buf())
-        .display()
-        .to_string()
+/// be canonicalized (e.g. it does not exist yet). A WSL home's key carries
+/// its distribution, so the same path on two hosts is two keys.
+pub(crate) fn home_key_for(host: &Host, path: &str) -> String {
+    host.home_key(&host.canonical(path))
 }
 
 /// Everything the app runs against one Codex home: the runtime identity, the
@@ -117,7 +139,7 @@ pub(crate) struct HomeContext {
 
 impl HomeContext {
     fn new(runtime: RuntimeConfig, database: turso::Database) -> Arc<Self> {
-        let home_key = canonical_home(&runtime.codex_home);
+        let home_key = home_key_for(&runtime.host, &runtime.codex_home_str());
         let runtime: SharedRuntime = Arc::new(RwLock::new(runtime));
         let session = CodexSession::new(runtime.clone(), home_key.clone());
         let claude = claude::ClaudeDriver::new(
@@ -141,6 +163,15 @@ impl HomeContext {
     /// across await points, so a concurrent binary switch is observed fresh.
     pub(crate) fn runtime(&self) -> RuntimeConfig {
         self.runtime.read().expect("runtime lock poisoned").clone()
+    }
+
+    /// Where this home lives. Fixed for the life of the context.
+    pub(crate) fn host(&self) -> Host {
+        self.runtime
+            .read()
+            .expect("runtime lock poisoned")
+            .host
+            .clone()
     }
 
     /// A handle to this home's frontend database (an `Arc` clone internally).
@@ -283,27 +314,44 @@ impl AppState {
             .collect()
     }
 
-    /// Reuse the context for `home` or open a new one (which creates the home
-    /// folder on disk via the database open).
-    pub(crate) async fn ensure_context(&self, home: PathBuf) -> Result<Arc<HomeContext>, String> {
-        let key = canonical_home(&home);
+    /// Every distinct host an open home lives on, for process reaping.
+    pub(crate) fn all_hosts(&self) -> Vec<Host> {
+        let mut hosts: Vec<Host> = Vec::new();
+        for context in self.all_contexts() {
+            let host = context.host();
+            if !hosts.contains(&host) {
+                hosts.push(host);
+            }
+        }
+        hosts
+    }
+
+    /// Reuse the context for `home` on `host` or open a new one (which creates
+    /// the home folder on disk via the database open). `home` is a host path.
+    pub(crate) async fn ensure_context(
+        &self,
+        host: Host,
+        home: String,
+    ) -> Result<Arc<HomeContext>, String> {
+        let key = home_key_for(&host, &home);
         if let Some(existing) = self.context_for_home(&key) {
             return Ok(existing);
         }
-        let database = storage::open(&home).await?;
+        let database = storage::open_on(&host, &home).await?;
         // The home folder now exists, so canonicalization can resolve further
         // (e.g. through a symlinked parent); re-key with the settled form.
-        let key = canonical_home(&home);
+        let key = home_key_for(&host, &home);
         if let Some(existing) = self.context_for_home(&key) {
             return Ok(existing);
         }
-        composer::attachments::cleanup_on_startup(&home);
+        composer::attachments::cleanup_on_startup(&host.to_local(&home));
         let _ = storage::orphan_running_agent_runs(&database).await;
         let codex_binary = self.default_context().runtime().codex_binary;
         let context = HomeContext::new(
             RuntimeConfig {
-                codex_home: home,
+                codex_home: PathBuf::from(home),
                 codex_binary,
+                host,
             },
             database,
         );
@@ -467,6 +515,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             settings::commands::read_launch_state,
             settings::commands::read_codex_server_info,
             settings::commands::check_codex_binary,
+            settings::commands::list_wsl_distros,
             settings::commands::set_codex_binary,
             settings::commands::select_codex_home,
             settings::commands::open_home_window,
@@ -580,10 +629,11 @@ fn export_bindings() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let (runtime, launch_explicit) = settings::runtime::parse_runtime();
-    let database = tauri::async_runtime::block_on(storage::open(&runtime.codex_home))
-        .expect("error while opening Pingex database");
+    let database =
+        tauri::async_runtime::block_on(storage::open_on(&runtime.host, &runtime.codex_home_str()))
+            .expect("error while opening Pingex database");
     // Evict stale staged attachments so the directory stays bounded across runs.
-    composer::attachments::cleanup_on_startup(&runtime.codex_home);
+    composer::attachments::cleanup_on_startup(&runtime.host.to_local(&runtime.codex_home_str()));
     // Agent processes died with the previous run, so any row still claiming to
     // be running never will be; otherwise the GUI shows a permanent spinner.
     let _ = tauri::async_runtime::block_on(storage::orphan_running_agent_runs(&database));
@@ -592,7 +642,8 @@ pub fn run() {
     if launch_explicit {
         let _ = settings::prefs::record_recent_home(
             &settings::prefs::settings_path(),
-            &runtime.codex_home.display().to_string(),
+            &runtime.codex_home_str(),
+            &runtime.host,
             unix_secs(),
         );
     }
@@ -670,7 +721,9 @@ pub fn run() {
                     }
                 }
                 // macOS delivers `codex://` links opened while (or as) the app
-                // launches through this event.
+                // launches through this event; other platforms use the
+                // single-instance plugin.
+                #[cfg(any(target_os = "macos", target_os = "ios"))]
                 tauri::RunEvent::Opened { urls } => {
                     for url in urls {
                         handoff::handle_deep_link_url(app, url.as_str());
@@ -684,6 +737,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     async fn state_with_home(dir: &Path) -> AppState {
         let database = storage::open(dir).await.expect("open db");
@@ -691,10 +745,15 @@ mod tests {
             RuntimeConfig {
                 codex_home: dir.to_path_buf(),
                 codex_binary: PathBuf::from("codex"),
+                host: Host::Native,
             },
             database,
         );
         AppState::new(context, true)
+    }
+
+    fn native(path: &Path) -> (Host, String) {
+        (Host::Native, path.display().to_string())
     }
 
     #[tokio::test]
@@ -707,7 +766,8 @@ mod tests {
             .join(".")
             .join("..")
             .join(home.path().file_name().unwrap());
-        let reused = state.ensure_context(alias).await.unwrap();
+        let (host, alias) = native(&alias);
+        let reused = state.ensure_context(host, alias).await.unwrap();
         assert_eq!(reused.home_key, state.default_context().home_key);
         assert_eq!(state.all_contexts().len(), 1);
     }
@@ -717,10 +777,8 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let other = tempfile::tempdir().unwrap();
         let state = state_with_home(home.path()).await;
-        let context = state
-            .ensure_context(other.path().to_path_buf())
-            .await
-            .unwrap();
+        let (host, other) = native(other.path());
+        let context = state.ensure_context(host, other).await.unwrap();
         let key = context.home_key.clone();
 
         assert!(state.bind_window("main-2", &key).is_none());
@@ -732,6 +790,16 @@ mod tests {
         let released = state.unbind_window("main-3").expect("orphaned context");
         assert_eq!(released.home_key, key);
         assert!(state.context_for_home(&key).is_none());
+    }
+
+    #[tokio::test]
+    async fn a_wsl_home_key_never_collides_with_the_native_one() {
+        // A WSL home cannot be opened here (no `wsl.exe`), but its key is
+        // computed before anything spawns: the lexical fallback plus the
+        // distribution prefix.
+        let key = home_key_for(&Host::wsl("Ubuntu"), "/home/u//.codex/");
+        assert_eq!(key, "wsl:Ubuntu:/home/u/.codex");
+        assert_ne!(key, home_key_for(&Host::Native, "/home/u/.codex"));
     }
 
     #[tokio::test]
@@ -750,8 +818,10 @@ mod tests {
         let a = tempfile::tempdir().unwrap();
         let b = tempfile::tempdir().unwrap();
         let state = state_with_home(home.path()).await;
-        let first = state.ensure_context(a.path().to_path_buf()).await.unwrap();
-        let second = state.ensure_context(b.path().to_path_buf()).await.unwrap();
+        let (host, a) = native(a.path());
+        let first = state.ensure_context(host, a).await.unwrap();
+        let (host, b) = native(b.path());
+        let second = state.ensure_context(host, b).await.unwrap();
         assert!(state.bind_window("main-2", &first.home_key).is_none());
         // Switching the window's home orphans the first context.
         let released = state

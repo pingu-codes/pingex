@@ -199,6 +199,7 @@ pub(crate) fn check_freshness(
 /// Diff the working tree against a base revision, producing the same `PrFile`
 /// shape as a real PR so the review view works before a PR exists.
 pub(crate) fn local_diff(
+    host: &crate::util::host::Host,
     dir: &Path,
     base: &str,
     head: Option<&str>,
@@ -209,7 +210,7 @@ pub(crate) fn local_diff(
     };
     // Reuses the native Git service's runner, so the local diff gets the same
     // argument-array discipline and timeout handling as everything else.
-    let output = run_git(dir, &["diff", "--no-color", &range], READ_TIMEOUT)?;
+    let output = run_git(host, dir, &["diff", "--no-color", &range], READ_TIMEOUT)?;
     if !output.ok {
         return Err("Could not diff against that base revision".to_string());
     }

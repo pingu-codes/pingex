@@ -20,22 +20,32 @@ use super::types::{
     WorktreeEntry,
 };
 use super::worktrees::read_worktrees;
-use crate::projects::worktrees::{is_temp_worktree_path, worktree_parent_project};
+use crate::projects::worktrees::{is_temp_worktree_path, worktree_parent_project_on};
 use crate::storage;
 use crate::AppState;
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn git_repo_info(dir: String) -> Result<GitRepoInfo, String> {
-    tauri::async_runtime::spawn_blocking(move || read_repo_info(Path::new(&dir)))
+pub(crate) async fn git_repo_info(
+    dir: String,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<GitRepoInfo, String> {
+    let host = state.ctx(&window).host();
+    tauri::async_runtime::spawn_blocking(move || read_repo_info(&host, Path::new(&dir)))
         .await
         .map_err(|_| "Git inspection failed".to_string())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn git_status(dir: String) -> Result<GitStatus, String> {
-    tauri::async_runtime::spawn_blocking(move || read_status(Path::new(&dir)))
+pub(crate) async fn git_status(
+    dir: String,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<GitStatus, String> {
+    let host = state.ctx(&window).host();
+    tauri::async_runtime::spawn_blocking(move || read_status(&host, Path::new(&dir)))
         .await
         .map_err(|_| "Git inspection failed".to_string())?
 }
@@ -48,10 +58,12 @@ pub(crate) async fn git_worktrees(
     state: State<'_, AppState>,
 ) -> Result<Vec<WorktreeEntry>, String> {
     let ctx = state.ctx(&window);
-    let codex_home = ctx.runtime().codex_home;
-    tauri::async_runtime::spawn_blocking(move || read_worktrees(Path::new(&repo_dir), &codex_home))
-        .await
-        .map_err(|_| "Git inspection failed".to_string())?
+    let runtime = ctx.runtime();
+    tauri::async_runtime::spawn_blocking(move || {
+        read_worktrees(&runtime.host, Path::new(&repo_dir), &runtime.codex_home)
+    })
+    .await
+    .map_err(|_| "Git inspection failed".to_string())?
 }
 
 #[tauri::command]
@@ -59,9 +71,12 @@ pub(crate) async fn git_worktrees(
 pub(crate) async fn git_recent_commits(
     dir: String,
     limit: Option<usize>,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
 ) -> Result<Vec<CommitInfo>, String> {
     let limit = limit.unwrap_or(20);
-    tauri::async_runtime::spawn_blocking(move || read_recent_commits(Path::new(&dir), limit))
+    let host = state.ctx(&window).host();
+    tauri::async_runtime::spawn_blocking(move || read_recent_commits(&host, Path::new(&dir), limit))
         .await
         .map_err(|_| "Git inspection failed".to_string())?
 }
@@ -71,9 +86,12 @@ pub(crate) async fn git_recent_commits(
 pub(crate) async fn git_branches(
     dir: String,
     limit: Option<usize>,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
 ) -> Result<Vec<BranchRef>, String> {
     let limit = limit.unwrap_or(200);
-    tauri::async_runtime::spawn_blocking(move || read_branches(Path::new(&dir), limit))
+    let host = state.ctx(&window).host();
+    tauri::async_runtime::spawn_blocking(move || read_branches(&host, Path::new(&dir), limit))
         .await
         .map_err(|_| "Git inspection failed".to_string())?
 }
@@ -91,16 +109,19 @@ pub(crate) async fn git_worktree_add(
     let database = ctx.database();
     let created = request.path.clone();
     let repo_dir_for_git = repo_dir.clone();
+    let host = runtime.host.clone();
+    let host_for_git = host.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let host = host_for_git;
         let repo = PathBuf::from(&repo_dir_for_git);
-        let common = common_dir_of(&repo)?;
+        let common = common_dir_of(&host, &repo)?;
         let guard = lock_for_common_dir(&common);
         let _lock = guard.lock().expect("git common-dir lock poisoned");
 
         // The Codex-home layouts nest worktrees one level deep
         // (`worktrees/<group>/<name>`); git does not create missing parents.
-        if let Some(parent) = Path::new(&request.path).parent() {
-            let _ = std::fs::create_dir_all(parent);
+        if let Some(parent) = host.parent_str(&request.path) {
+            let _ = std::fs::create_dir_all(host.to_local(&parent));
         }
 
         let mut args: Vec<String> = vec!["worktree".into(), "add".into()];
@@ -126,7 +147,7 @@ pub(crate) async fn git_worktree_add(
             }
         }
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        let output = run_git(&repo, &arg_refs, WRITE_TIMEOUT)?;
+        let output = run_git(&host, &repo, &arg_refs, WRITE_TIMEOUT)?;
         if !output.ok {
             return Err(redact_git_error("Could not create the worktree", &output));
         }
@@ -139,7 +160,7 @@ pub(crate) async fn git_worktree_add(
     // the repository it came from so its threads stay listed there once the
     // worktree is discarded.
     if is_temp_worktree_path(&runtime, &created) {
-        let parent = worktree_parent_project(&created).unwrap_or(repo_dir);
+        let parent = worktree_parent_project_on(&host, &created).unwrap_or(repo_dir);
         storage::record_temp_worktree(&database, &created, &parent).await?;
     }
     Ok(())
@@ -151,16 +172,19 @@ pub(crate) async fn git_worktree_remove(
     repo_dir: String,
     path: String,
     force: bool,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
 ) -> Result<(), String> {
+    let host = state.ctx(&window).host();
     tauri::async_runtime::spawn_blocking(move || {
         let repo = PathBuf::from(&repo_dir);
-        let common = common_dir_of(&repo)?;
+        let common = common_dir_of(&host, &repo)?;
         let guard = lock_for_common_dir(&common);
         let _lock = guard.lock().expect("git common-dir lock poisoned");
 
         // Refuse to remove a dirty worktree unless force is explicitly given.
         if !force {
-            if let Ok(status) = read_status(Path::new(&path)) {
+            if let Ok(status) = read_status(&host, Path::new(&path)) {
                 if status.counts.is_dirty() {
                     return Err("This worktree has uncommitted changes".to_string());
                 }
@@ -171,7 +195,7 @@ pub(crate) async fn git_worktree_remove(
             args.push("--force");
         }
         args.push(&path);
-        let output = run_git(&repo, &args, WRITE_TIMEOUT)?;
+        let output = run_git(&host, &repo, &args, WRITE_TIMEOUT)?;
         if !output.ok {
             return Err(redact_git_error("Could not remove the worktree", &output));
         }
@@ -183,14 +207,19 @@ pub(crate) async fn git_worktree_remove(
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn git_worktree_prune(repo_dir: String) -> Result<(), String> {
+pub(crate) async fn git_worktree_prune(
+    repo_dir: String,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let host = state.ctx(&window).host();
     tauri::async_runtime::spawn_blocking(move || {
         let repo = PathBuf::from(&repo_dir);
-        let common = common_dir_of(&repo)?;
+        let common = common_dir_of(&host, &repo)?;
         let guard = lock_for_common_dir(&common);
         let _lock = guard.lock().expect("git common-dir lock poisoned");
 
-        let output = run_git(&repo, &["worktree", "prune"], WRITE_TIMEOUT)?;
+        let output = run_git(&host, &repo, &["worktree", "prune"], WRITE_TIMEOUT)?;
         if !output.ok {
             return Err(redact_git_error("Could not prune worktrees", &output));
         }
@@ -206,10 +235,13 @@ pub(crate) async fn git_worktree_lock(
     repo_dir: String,
     path: String,
     reason: Option<String>,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
 ) -> Result<(), String> {
+    let host = state.ctx(&window).host();
     tauri::async_runtime::spawn_blocking(move || {
         let repo = PathBuf::from(&repo_dir);
-        let common = common_dir_of(&repo)?;
+        let common = common_dir_of(&host, &repo)?;
         let guard = lock_for_common_dir(&common);
         let _lock = guard.lock().expect("git common-dir lock poisoned");
 
@@ -220,7 +252,7 @@ pub(crate) async fn git_worktree_lock(
         }
         args.push(path);
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        let output = run_git(&repo, &arg_refs, WRITE_TIMEOUT)?;
+        let output = run_git(&host, &repo, &arg_refs, WRITE_TIMEOUT)?;
         if !output.ok {
             return Err(redact_git_error("Could not lock the worktree", &output));
         }
@@ -232,14 +264,20 @@ pub(crate) async fn git_worktree_lock(
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn git_worktree_unlock(repo_dir: String, path: String) -> Result<(), String> {
+pub(crate) async fn git_worktree_unlock(
+    repo_dir: String,
+    path: String,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let host = state.ctx(&window).host();
     tauri::async_runtime::spawn_blocking(move || {
         let repo = PathBuf::from(&repo_dir);
-        let common = common_dir_of(&repo)?;
+        let common = common_dir_of(&host, &repo)?;
         let guard = lock_for_common_dir(&common);
         let _lock = guard.lock().expect("git common-dir lock poisoned");
 
-        let output = run_git(&repo, &["worktree", "unlock", &path], WRITE_TIMEOUT)?;
+        let output = run_git(&host, &repo, &["worktree", "unlock", &path], WRITE_TIMEOUT)?;
         if !output.ok {
             return Err(redact_git_error("Could not unlock the worktree", &output));
         }
@@ -257,10 +295,12 @@ pub(crate) async fn git_changes_summary(
     state: State<'_, AppState>,
 ) -> Result<ChangesSummary, String> {
     let ctx = state.ctx(&window);
-    let codex_home = ctx.runtime().codex_home;
-    tauri::async_runtime::spawn_blocking(move || read_changes_summary(Path::new(&dir), &codex_home))
-        .await
-        .map_err(|_| "Git inspection failed".to_string())?
+    let runtime = ctx.runtime();
+    tauri::async_runtime::spawn_blocking(move || {
+        read_changes_summary(&runtime.host, Path::new(&dir), &runtime.codex_home)
+    })
+    .await
+    .map_err(|_| "Git inspection failed".to_string())?
 }
 
 #[tauri::command]
@@ -271,9 +311,13 @@ pub(crate) async fn git_file_diff(
     path: String,
     untracked: bool,
     max_bytes: Option<usize>,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
 ) -> Result<FileDiff, String> {
+    let host = state.ctx(&window).host();
     tauri::async_runtime::spawn_blocking(move || {
         read_file_diff(
+            &host,
             Path::new(&dir),
             &base,
             &path,
@@ -294,12 +338,13 @@ pub(crate) async fn git_worktree_handoff_preflight(
     state: State<'_, AppState>,
 ) -> Result<HandoffPreflight, String> {
     let ctx = state.ctx(&window);
-    let codex_home = ctx.runtime().codex_home;
+    let runtime = ctx.runtime();
     tauri::async_runtime::spawn_blocking(move || {
         handoff_preflight(
+            &runtime.host,
             Path::new(&worktree_path),
             Path::new(&target_dir),
-            &codex_home,
+            &runtime.codex_home,
         )
     })
     .await
@@ -319,18 +364,19 @@ pub(crate) async fn git_worktree_handoff(
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     let ctx = state.ctx(&window);
-    let codex_home = ctx.runtime().codex_home;
+    let runtime = ctx.runtime();
     let database = ctx.database();
     let worktree_for_db = worktree_path.clone();
     let branch = tauri::async_runtime::spawn_blocking(move || {
         let target = PathBuf::from(&target_dir);
-        let common = common_dir_of(&target)?;
+        let common = common_dir_of(&runtime.host, &target)?;
         let guard = lock_for_common_dir(&common);
         let _lock = guard.lock().expect("git common-dir lock poisoned");
         handoff(
+            &runtime.host,
             Path::new(&worktree_path),
             &target,
-            &codex_home,
+            &runtime.codex_home,
             commit_uncommitted,
             branch_name.as_deref(),
         )
@@ -344,6 +390,7 @@ pub(crate) async fn git_worktree_handoff(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::util::host::Host;
     use std::process::{Command, Stdio};
 
     /// Run git against the fixture repository, isolated from the developer's own
@@ -398,7 +445,8 @@ mod tests {
         assert!(git(&repo, &["commit", "-q", "-m", "init"]));
 
         // repo_info sees a real repo on main.
-        let info = read_repo_info(&repo);
+        let host = Host::Native;
+        let info = read_repo_info(&host, &repo);
         assert!(info.is_git_repo);
         assert_eq!(info.branch.as_deref(), Some("main"));
         assert!(info.common_dir.is_some());
@@ -406,13 +454,14 @@ mod tests {
         // A non-git folder reports is_git_repo=false, no error.
         let plain = temp.path().join("plain");
         std::fs::create_dir_all(&plain).unwrap();
-        let plain_info = read_repo_info(&plain);
+        let plain_info = read_repo_info(&host, &plain);
         assert!(!plain_info.is_git_repo);
         assert!(plain_info.error.is_none());
 
         // Add a linked worktree on a new branch.
         let wt = temp.path().join("wt-feature");
         let add = run_git(
+            &host,
             &repo,
             &["worktree", "add", "-b", "feature", wt.to_str().unwrap()],
             WRITE_TIMEOUT,
@@ -423,7 +472,7 @@ mod tests {
         // Listing includes main + the linked worktree; neither is Codex-managed
         // because they are not under <codex_home>/worktrees.
         let fake_home = temp.path().join("codex-home");
-        let entries = read_worktrees(&repo, &fake_home).unwrap();
+        let entries = read_worktrees(&host, &repo, &fake_home).unwrap();
         assert_eq!(entries.len(), 2);
         assert!(entries[0].is_main);
         assert!(!entries[0].is_codex_managed);
@@ -437,11 +486,11 @@ mod tests {
 
         // Dirty the worktree; a non-forced remove is refused.
         std::fs::write(wt.join("dirty.txt"), "x").unwrap();
-        let refused = read_status(&wt).unwrap();
+        let refused = read_status(&host, &wt).unwrap();
         assert!(refused.counts.is_dirty());
 
         // recent commits are readable.
-        let commits = read_recent_commits(&repo, 10).unwrap();
+        let commits = read_recent_commits(&host, &repo, 10).unwrap();
         assert_eq!(commits.len(), 1);
         assert_eq!(commits[0].subject, "init");
     }

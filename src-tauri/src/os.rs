@@ -4,27 +4,65 @@
 //! deliberately restrictive about schemes: it is reachable from the renderer, so
 //! an unchecked scheme would turn a link into arbitrary command invocation.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use tauri::State;
 
+use crate::AppState;
+
+/// The command that reveals `target` in the platform's file manager.
+fn reveal_command(target: &Path, os: &str) -> Command {
+    match os {
+        "macos" => {
+            let mut command = Command::new("open");
+            if target.is_dir() {
+                command.arg(target);
+            } else {
+                command.arg("-R").arg(target);
+            }
+            command
+        }
+        "windows" => {
+            let mut command = Command::new("explorer.exe");
+            if target.is_dir() {
+                command.arg(target);
+            } else {
+                command.arg(format!("/select,{}", target.display()));
+            }
+            command
+        }
+        _ => {
+            let mut command = Command::new("xdg-open");
+            command.arg(
+                target
+                    .parent()
+                    .filter(|_| !target.is_dir())
+                    .unwrap_or(target),
+            );
+            command
+        }
+    }
+}
+
+/// Show a path in the file manager. `path` is a host path of this window's
+/// home; a WSL path opens through the `\\wsl.localhost` share.
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn reveal_in_finder(path: String) -> Result<(), String> {
-    let target = PathBuf::from(&path);
+pub(crate) fn reveal_in_finder(
+    path: String,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let target = state.ctx(&window).host().to_local(&path);
     if !target.exists() {
         return Err(format!("{path} no longer exists"));
     }
-    let mut command = Command::new("open");
-    if target.is_dir() {
-        command.arg(&target);
-    } else {
-        command.arg("-R").arg(&target);
-    }
-    let status = command
+    let status = reveal_command(&target, std::env::consts::OS)
         .status()
-        .map_err(|error| format!("Could not open Finder: {error}"))?;
-    if !status.success() {
-        return Err(format!("Finder could not open {path}"));
+        .map_err(|error| format!("Could not open the file manager: {error}"))?;
+    // `explorer.exe` reports failure even when it opened the folder.
+    if !status.success() && !cfg!(windows) {
+        return Err(format!("The file manager could not open {path}"));
     }
     Ok(())
 }
@@ -70,17 +108,22 @@ pub(crate) fn open_external_url(url: String) -> Result<(), String> {
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn open_in_zed(path: String) -> Result<(), String> {
-    let target = PathBuf::from(&path);
+pub(crate) fn open_in_zed(
+    path: String,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let target: PathBuf = state.ctx(&window).host().to_local(&path);
     if !target.exists() {
         return Err(format!("{path} no longer exists"));
     }
-    let opened = Command::new("open")
-        .args(["-a", "Zed"])
-        .arg(&target)
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false);
+    let opened = cfg!(target_os = "macos")
+        && Command::new("open")
+            .args(["-a", "Zed"])
+            .arg(&target)
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
     if opened {
         return Ok(());
     }

@@ -5,7 +5,6 @@
 //! leaving notes, plans, and user-created `AGENTS.md` files untouched.
 
 use serde::Serialize;
-use std::path::Path;
 
 use crate::storage;
 use crate::util::id::unique_suffix;
@@ -61,9 +60,10 @@ pub(crate) async fn runtime_for_workspace(
     if members.len() < 2 {
         return Err("A workspace needs at least two members".into());
     }
+    let host = ctx.host();
     if let Some(member) = members
         .iter()
-        .find(|member| !Path::new(&member.effective_path).is_dir())
+        .find(|member| !host.is_dir(&member.effective_path))
     {
         return Err(format!(
             "Workspace member '{}' is unavailable",
@@ -73,7 +73,7 @@ pub(crate) async fn runtime_for_workspace(
     let workspace_for_disk = workspace.clone();
     let members_for_disk = members.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        materialize_hub(&workspace_for_disk, &members_for_disk)
+        materialize_hub(&host, &workspace_for_disk, &members_for_disk)
     })
     .await
     .map_err(|_| "Could not prepare workspace directory".to_string())??;

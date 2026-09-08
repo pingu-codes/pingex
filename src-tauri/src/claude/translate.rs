@@ -11,6 +11,7 @@ use super::tools;
 use crate::harness::{
     HarnessEvent, PlanEntry, StopReason, ToolCallContent, ToolCallStatus, TurnUsage,
 };
+use crate::util::host::Host;
 use crate::util::json::{arr_or_empty, str_at};
 
 #[derive(Clone)]
@@ -42,13 +43,16 @@ pub(crate) struct Translator {
     config_dir: String,
     /// Tool calls announced and not yet resolved: name and input by id.
     open_tools: HashMap<String, (String, Value)>,
+    /// Where the process runs, so a file it names can be read from here.
+    pub(crate) host: Host,
 }
 
 impl Translator {
-    pub(crate) fn new(cwd: String, config_dir: String) -> Self {
+    pub(crate) fn new(cwd: String, config_dir: String, host: Host) -> Self {
         Self {
             cwd,
             config_dir,
+            host,
             ..Default::default()
         }
     }
@@ -276,6 +280,7 @@ impl Translator {
             name,
             input,
             &self.cwd,
+            &self.host,
             ToolCallStatus::InProgress,
         )]
     }
@@ -503,7 +508,7 @@ mod tests {
     use serde_json::json;
 
     fn run(frames: Vec<Value>) -> Vec<HarnessEvent> {
-        let mut translator = Translator::new("/repo".into(), "/cfg".into());
+        let mut translator = Translator::new("/repo".into(), "/cfg".into(), Host::Native);
         translator.turn_id = Some("turn-1".into());
         frames
             .iter()
@@ -641,7 +646,8 @@ mod fixtures {
     use super::*;
 
     fn events_for(wire: &str) -> Vec<HarnessEvent> {
-        let mut translator = Translator::new("/tmp/pingex-fixture".into(), "/cfg".into());
+        let mut translator =
+            Translator::new("/tmp/pingex-fixture".into(), "/cfg".into(), Host::Native);
         translator.turn_id = Some("turn-1".into());
         wire.lines()
             .filter(|line| !line.trim().is_empty())
@@ -727,7 +733,11 @@ mod permission_fixtures {
             .expect("a control request in the recording");
         let can_use_tool = request.get("request").expect("request body");
         assert_eq!(str_at(can_use_tool, "subtype"), Some("can_use_tool"));
-        let mapped = super::super::permissions::request_for(can_use_tool, "/tmp/pingex-fixture");
+        let mapped = super::super::permissions::request_for(
+            can_use_tool,
+            "/tmp/pingex-fixture",
+            &Host::Native,
+        );
         let HarnessRequest::Permission {
             kind,
             options,

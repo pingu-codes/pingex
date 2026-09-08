@@ -38,7 +38,7 @@ pub(super) async fn build_list_with(
     cwds: Vec<String>,
     force_reload: bool,
 ) -> Result<IntegrationsList, String> {
-    let doc = load(&ctx.runtime().codex_home)?;
+    let doc = load(&ctx.runtime().local_home())?;
     Ok(IntegrationsList {
         mcp_servers: summarize_mcp_servers(&doc),
         skills: fetch_skills(app, ctx, cwds, force_reload).await,
@@ -100,7 +100,7 @@ pub(crate) async fn save_mcp_server(
     let ctx = state.ctx(&window);
     let name = server.name;
     validate_server_name(&name)?;
-    let home = ctx.runtime().codex_home;
+    let home = ctx.runtime().local_home();
     let mut doc = load(&home)?;
 
     // Rename first so every later edit targets the entry under its final key,
@@ -158,7 +158,7 @@ pub(crate) async fn remove_mcp_server(
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
     let ctx = state.ctx(&window);
-    let home = ctx.runtime().codex_home;
+    let home = ctx.runtime().local_home();
     let mut doc = load(&home)?;
     remove_server_from_doc(&mut doc, &name)?;
     save(&home, &doc)?;
@@ -176,7 +176,7 @@ pub(crate) async fn set_mcp_enabled(
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
     let ctx = state.ctx(&window);
-    let home = ctx.runtime().codex_home;
+    let home = ctx.runtime().local_home();
     let mut doc = load(&home)?;
     set_enabled_in_doc(&mut doc, &name, enabled)?;
     save(&home, &doc)?;
