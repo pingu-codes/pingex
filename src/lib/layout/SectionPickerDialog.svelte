@@ -63,8 +63,7 @@ function submitNew(event: SubmitEvent) {
 
   {#if creating}
     <form onsubmit={submitNew} class="mt-3 space-y-3 rounded-lg border border-surface-200-800 p-3">
-      <!-- svelte-ignore a11y_autofocus -->
-      <input bind:value={name} autofocus class="input w-full" placeholder="Section name" aria-label="Section name" />
+      <input bind:value={name} data-autofocus class="input w-full" placeholder="Section name" aria-label="Section name" />
       <div class="flex items-center gap-2" role="radiogroup" aria-label="Section colour">
         {#each SWATCHES as swatch (swatch)}
           <button

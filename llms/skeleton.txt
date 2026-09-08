@@ -320,15 +320,14 @@ Using the extensible markup pattern, you may implement custom animations. We sho
 
 Skeleton components maintain a uniform pattern for handling data flow in and out. We lean into the Zag convention for this, which handles this explicitly with a prop for data in and event handler for data out. As opposed to two-way binding (such as `bind:` in Svelte). You can see this in practice below for the Switch component.
 
-{/* prettier-ignore */}
-
 ```svelte
 <script lang="ts">
 	import { Switch } from '@skeletonlabs/skeleton-svelte';
+
 	let checked = $state(false);
 </script>
 
-<Switch checked={checked} onCheckedChange={(e) => (checked = e.checked)}>
+<Switch {checked} onCheckedChange={(e) => (checked = e.checked)}>
 	<Switch.Control>
 		<Switch.Thumb />
 	</Switch.Control>
@@ -374,9 +373,6 @@ Most Skeleton components also support the Provider Pattern. This utilizes a prov
 ### Learn More
 
 For a comprehensive guide to how Skeleton implements components, refer to our [contribution guidelines](/docs/\[framework]/resources/contribute/components).
-
-```
-```
 
 # Core API
 

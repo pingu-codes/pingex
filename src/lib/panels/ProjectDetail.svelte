@@ -276,20 +276,20 @@ const sourceName = (source: ProjectSource) => source.sourcePath.split("/").pop()
     {/if}
 
     <Tabs value={tab} onValueChange={(details) => (tab = details.value as DetailTab)} class="mt-5">
-      <Tabs.List class="flex gap-1 border-b border-surface-200-800">
-        <Tabs.Trigger value="overview" class="px-3 py-2 text-sm">Overview</Tabs.Trigger>
+      <Tabs.List>
+        <Tabs.Trigger value="overview" class="btn-sm">Overview</Tabs.Trigger>
         {#if hasGit}
-          <Tabs.Trigger value="git" class="inline-flex items-center px-3 py-2 text-sm">
+          <Tabs.Trigger value="git" class="btn-sm">
             Git
             {#if status && isDirty(status.counts)}<span class="ml-1 inline-block size-1.5 rounded-full bg-warning-500" aria-label="Uncommitted changes"></span>{/if}
           </Tabs.Trigger>
-          <Tabs.Trigger value="worktrees" class="px-3 py-2 text-sm">Worktrees</Tabs.Trigger>
+          <Tabs.Trigger value="worktrees" class="btn-sm">Worktrees</Tabs.Trigger>
         {/if}
-        <Tabs.Trigger value="sources" class="px-3 py-2 text-sm">Sources</Tabs.Trigger>
+        <Tabs.Trigger value="sources" class="btn-sm">Sources</Tabs.Trigger>
         <Tabs.Indicator />
       </Tabs.List>
 
-      <Tabs.Content value="overview" class="pt-5">
+      <Tabs.Content value="overview">
         {#if hasGit}
           <section class="rounded-xl border border-surface-200-800 bg-surface-100-900 p-4">
             <div class="flex items-center gap-2">
@@ -349,7 +349,7 @@ const sourceName = (source: ProjectSource) => source.sourcePath.split("/").pop()
       </Tabs.Content>
 
       {#if hasGit}
-        <Tabs.Content value="git" class="pt-5">
+        <Tabs.Content value="git">
           {#if context}
             {#key context.dir}
               <GitTab dir={project.path} {context} onContextChanged={(next) => (context = next)} />
@@ -360,7 +360,7 @@ const sourceName = (source: ProjectSource) => source.sourcePath.split("/").pop()
             <div class="placeholder h-24 animate-pulse rounded-xl"></div>
           {/if}
         </Tabs.Content>
-        <Tabs.Content value="worktrees" class="pt-5">
+        <Tabs.Content value="worktrees">
           {#if context}
             {#key repoDir}
               <Worktrees
@@ -382,7 +382,7 @@ const sourceName = (source: ProjectSource) => source.sourcePath.split("/").pop()
         </Tabs.Content>
       {/if}
 
-      <Tabs.Content value="sources" class="pt-5">
+      <Tabs.Content value="sources">
         <div class="flex items-center gap-2">
           <div class="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-surface-200-800 bg-surface-100-900 px-3 py-2">
             <Search size={15} class="shrink-0 text-surface-500" />

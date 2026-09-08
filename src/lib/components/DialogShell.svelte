@@ -4,6 +4,11 @@
  * backdrop / centred card / title row / close button. Dialogs are mounted by
  * DialogHost only while they are open, so the shell is always open and reports
  * every dismissal (Esc, backdrop, close button) through `onClose`.
+ *
+ * The close button is marked `data-no-autofocus` so a dialog without an
+ * explicit `data-autofocus` target opens with focus on its first real control
+ * rather than the X (zag resolves initial focus as `initialFocusEl` →
+ * `[data-autofocus]` → first tabbable without `[data-no-autofocus]`).
  */
 import { X } from "@lucide/svelte";
 import { Dialog, Portal } from "@skeletonlabs/skeleton-svelte";
@@ -51,7 +56,7 @@ let {
               <p class="mt-1 text-xs leading-5 text-surface-500">{subtitle}</p>
             {/if}
           </div>
-          <Dialog.CloseTrigger class="btn-icon btn-icon-sm shrink-0 hover:preset-tonal text-surface-500" aria-label="Close">
+          <Dialog.CloseTrigger data-no-autofocus class="btn-icon btn-icon-sm shrink-0 hover:preset-tonal text-surface-500" aria-label="Close">
             <X size={16} />
           </Dialog.CloseTrigger>
         </div>
