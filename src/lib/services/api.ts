@@ -16,6 +16,7 @@ import {
   previewData,
   previewDeleteSkill,
   previewFiles,
+  previewGitContext,
   previewGitRepoInfo,
   previewGitStatus,
   previewHomeOverview,
@@ -58,12 +59,14 @@ import type {
   BootstrapData,
   ChangesSummary,
   CodexServerInfo,
+  CommitResult,
   ConfigSetting,
   CreateWorkspaceInput,
   FileDiff,
   FileHit,
   GitBranch,
   GitCommit,
+  GitContext,
   GitRepoInfo,
   GitStatus,
   HomeOverview,
@@ -89,6 +92,7 @@ import type {
   SkillSummary,
   SubagentDetail,
   SubagentPolicy,
+  SyncResult,
   ThreadDetail,
   ThreadGoal,
   ThreadItem,
@@ -1182,6 +1186,168 @@ export async function gitRepoInfo(dir: string): Promise<GitRepoInfo> {
 export async function gitStatus(dir: string): Promise<GitStatus> {
   if (!isTauri()) return { ...previewGitStatus, refreshedAt: Date.now() };
   return commands.gitStatus(dir);
+}
+
+export async function gitContext(dir: string): Promise<GitContext> {
+  if (!isTauri()) return previewGitContext(dir);
+  return commands.gitContext(dir);
+}
+
+// Preview-mode git actions edit the shared status fixture in place so the
+// browser build shows stage/unstage/discard/commit working.
+function previewRecount() {
+  const counts = { staged: 0, unstaged: 0, untracked: 0, conflicted: 0 };
+  for (const file of previewGitStatus.files) {
+    if (file.state === "untracked") counts.untracked += 1;
+    else if (file.state === "conflicted") counts.conflicted += 1;
+    else {
+      if (file.code[0] !== ".") counts.staged += 1;
+      if (file.code[1] !== ".") counts.unstaged += 1;
+    }
+  }
+  previewGitStatus.counts = counts;
+}
+
+export async function gitStage(dir: string, paths: string[]): Promise<void> {
+  if (!isTauri()) {
+    for (const file of previewGitStatus.files) {
+      if (!paths.includes(file.path)) continue;
+      file.state = "staged";
+      file.code = file.code ? `${file.code[1] === "." ? "M" : file.code[1]}.` : "A.";
+    }
+    previewRecount();
+    return;
+  }
+  await commands.gitStage(dir, paths);
+}
+
+export async function gitUnstage(dir: string, paths: string[]): Promise<void> {
+  if (!isTauri()) {
+    for (const file of previewGitStatus.files) {
+      if (!paths.includes(file.path) || file.state !== "staged") continue;
+      if (file.code[0] === "A") {
+        file.state = "untracked";
+        file.code = "";
+      } else {
+        file.state = "unstaged";
+        file.code = ".M";
+      }
+    }
+    previewRecount();
+    return;
+  }
+  await commands.gitUnstage(dir, paths);
+}
+
+export async function gitDiscard(dir: string, paths: string[], untrackedPaths: string[]): Promise<void> {
+  if (!isTauri()) {
+    const gone = new Set([...paths, ...untrackedPaths]);
+    previewGitStatus.files = previewGitStatus.files.filter((file) => !gone.has(file.path));
+    previewRecount();
+    return;
+  }
+  await commands.gitDiscard(dir, paths, untrackedPaths);
+}
+
+export async function gitCommit(dir: string, message: string): Promise<CommitResult> {
+  if (!isTauri()) {
+    previewGitStatus.files = previewGitStatus.files.filter((file) => file.code[0] === "." || file.state !== "staged");
+    previewRecount();
+    previewGitStatus.ahead += 1;
+    return {
+      hash: "9f8e7d6c5b4a39281706f5e4d3c2b1a0f9e8d7c6",
+      shortHash: "9f8e7d6",
+      subject: message.split("\n")[0],
+      authorName: "Ciaran",
+      authorEmail: "ciaran@example.com",
+      hookOutput: "pre-commit: lint ok",
+    };
+  }
+  return commands.gitCommit(dir, message);
+}
+
+export async function gitFetch(dir: string): Promise<SyncResult> {
+  if (!isTauri()) {
+    return {
+      operation: "fetch",
+      summary: "Fetched",
+      upstream: previewGitStatus.upstream,
+      ahead: previewGitStatus.ahead,
+      behind: previewGitStatus.behind,
+    };
+  }
+  return commands.gitFetch(dir);
+}
+
+export async function gitPull(dir: string): Promise<SyncResult> {
+  if (!isTauri()) {
+    previewGitStatus.behind = 0;
+    return {
+      operation: "pull",
+      summary: "Already up to date",
+      upstream: previewGitStatus.upstream,
+      ahead: previewGitStatus.ahead,
+      behind: 0,
+    };
+  }
+  return commands.gitPull(dir);
+}
+
+export async function gitPush(dir: string, setUpstream: boolean): Promise<SyncResult> {
+  if (!isTauri()) {
+    if (!previewGitStatus.upstream && !setUpstream)
+      throw new Error("noUpstream: This branch has no upstream. Publish it to create one.");
+    if (setUpstream) previewGitStatus.upstream = `origin/${previewGitStatus.branch ?? "main"}`;
+    previewGitStatus.ahead = 0;
+    return {
+      operation: "push",
+      summary: `Pushed to ${previewGitStatus.upstream}`,
+      upstream: previewGitStatus.upstream,
+      ahead: 0,
+      behind: 0,
+    };
+  }
+  return commands.gitPush(dir, setUpstream);
+}
+
+export async function gitCheckoutBranch(dir: string, name: string, force: boolean): Promise<void> {
+  if (!isTauri()) {
+    const dirty =
+      previewGitStatus.counts.staged + previewGitStatus.counts.unstaged + previewGitStatus.counts.untracked > 0;
+    if (dirty && !force)
+      throw new Error(
+        "dirtyTree: This checkout has uncommitted changes. Commit or discard them, or switch anyway to carry them over.",
+      );
+    previewGitStatus.branch = name;
+    previewGitStatus.upstream = null;
+    previewGitStatus.ahead = 0;
+    previewGitStatus.behind = 0;
+    for (const branch of previewBranches) branch.isCurrent = branch.name === name;
+    return;
+  }
+  await commands.gitCheckoutBranch(dir, name, force);
+}
+
+export async function gitCreateBranch(
+  dir: string,
+  name: string,
+  base: string | null,
+  checkout: boolean,
+): Promise<void> {
+  if (!isTauri()) {
+    previewBranches.unshift({ name, isRemote: false, isCurrent: false });
+    if (checkout) await gitCheckoutBranch(dir, name, true);
+    return;
+  }
+  await commands.gitCreateBranch(dir, name, base, checkout);
+}
+
+export async function gitStagedFileDiff(dir: string, path: string, maxBytes?: number): Promise<FileDiff> {
+  if (!isTauri()) {
+    const patch = `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1,2 +1,2 @@\n line\n-before\n+staged change\n`;
+    return { path, patch, truncated: false, binary: false, bytes: patch.length };
+  }
+  return commands.gitStagedFileDiff(dir, path, maxBytes ?? null);
 }
 
 export async function gitWorktrees(repoDir: string): Promise<WorktreeEntry[]> {

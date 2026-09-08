@@ -332,6 +332,14 @@ export async function menuAction(action: MenuAction, target: MenuTarget): Promis
       if (target.kind === "project") openProjectDetail(target.project);
       return;
     }
+    if (action === "openGit") {
+      if (target.kind === "project") openProjectDetail(target.project, "git");
+      return;
+    }
+    if (action === "openWorktrees") {
+      if (target.kind === "project") openProjectDetail(target.project, "worktrees");
+      return;
+    }
     if (action === "toggleArchive") {
       if (target.kind !== "project") return;
       applyData(await setProjectArchived(target.project.path, !target.project.archived));

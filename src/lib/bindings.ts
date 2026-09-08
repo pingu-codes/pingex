@@ -367,6 +367,18 @@ export const commands = {
 	 *  worktree, so the thread can continue in the local checkout.
 	 */
 	gitWorktreeHandoff: (worktreePath: string, targetDir: string, commitUncommitted: boolean, branchName: string | null) => __TAURI_INVOKE<string>("git_worktree_handoff", { worktreePath, targetDir, commitUncommitted, branchName }),
+	gitContext: (dir: string) => __TAURI_INVOKE<GitContext>("git_context", { dir }),
+	gitStage: (dir: string, paths: string[]) => __TAURI_INVOKE<null>("git_stage", { dir, paths }),
+	gitUnstage: (dir: string, paths: string[]) => __TAURI_INVOKE<null>("git_unstage", { dir, paths }),
+	gitDiscard: (dir: string, paths: string[], untrackedPaths: string[]) => __TAURI_INVOKE<null>("git_discard", { dir, paths, untrackedPaths }),
+	gitCommit: (dir: string, message: string) => __TAURI_INVOKE<CommitResult>("git_commit", { dir, message }),
+	gitFetch: (dir: string) => __TAURI_INVOKE<SyncResult>("git_fetch", { dir }),
+	gitPull: (dir: string) => __TAURI_INVOKE<SyncResult>("git_pull", { dir }),
+	gitPush: (dir: string, setUpstream: boolean) => __TAURI_INVOKE<SyncResult>("git_push", { dir, setUpstream }),
+	gitCheckoutBranch: (dir: string, name: string, force: boolean) => __TAURI_INVOKE<null>("git_checkout_branch", { dir, name, force }),
+	gitCreateBranch: (dir: string, name: string, base: string | null, checkout: boolean) => __TAURI_INVOKE<null>("git_create_branch", { dir, name, base, checkout }),
+	/**  The index versus HEAD for one path: what a commit would contain. */
+	gitStagedFileDiff: (dir: string, path: string, maxBytes: number | null) => __TAURI_INVOKE<FileDiff>("git_staged_file_diff", { dir, path, maxBytes }),
 	/**  Build the reproducible `codex resume` command for the running home. */
 	handoffCommand: (threadId: string, cwd: string) => __TAURI_INVOKE<string>("handoff_command", { threadId, cwd }),
 	/**  Build the shareable `codex://` link for the running home. */
@@ -706,6 +718,17 @@ export type CommitInfo = {
 	timestamp: number,
 };
 
+/**  The commit `git_commit` produced, with whatever the hooks printed. */
+export type CommitResult = {
+	hash: string,
+	shortHash: string,
+	subject: string,
+	authorName: string,
+	authorEmail: string,
+	/**  Combined hook/stdout output of the commit, trimmed; `None` when silent. */
+	hookOutput: string | null,
+};
+
 /**  One setting reported to the frontend. */
 export type ConfigSetting = {
 	key: string,
@@ -832,6 +855,31 @@ export type FileMatch = {
 	preview: string | null,
 	/**  True when the file name (not its content) matched the query. */
 	nameMatch: boolean,
+};
+
+/**
+ *  What the project details page needs to know before showing git tabs:
+ *  whether the folder is the main checkout, a linked worktree, or not a
+ *  repository at all, plus the commit identity that would be used.
+ */
+export type GitContext = {
+	dir: string,
+	isGitRepo: boolean,
+	/**  `main`, `linked`, or `none`. */
+	kind: string,
+	/**  The main working tree, set only for a linked worktree. */
+	parentPath: string | null,
+	root: string | null,
+	commonDir: string | null,
+	branch: string | null,
+	detached: boolean,
+	upstream: string | null,
+	ahead: number,
+	behind: number,
+	inProgress: string | null,
+	identityName: string | null,
+	identityEmail: string | null,
+	error: string | null,
 };
 
 /**  High-level repository facts for a directory. */
@@ -1505,6 +1553,17 @@ export type SummaryTextDeltaParams = {
 	itemId?: string | null,
 	delta?: string | null,
 	summaryIndex?: number | null,
+};
+
+/**  Outcome of a user-initiated fetch, pull or push. */
+export type SyncResult = {
+	/**  `fetch`, `pull`, or `push`. */
+	operation: string,
+	/**  One redacted line, e.g. "Fetched" or "Pushed to origin/main". */
+	summary: string,
+	upstream: string | null,
+	ahead: number,
+	behind: number,
 };
 
 export type TerminalInteractionParams = {

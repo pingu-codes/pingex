@@ -154,3 +154,54 @@ pub(crate) struct WorktreeAddRequest {
     pub(crate) path: String,
     pub(crate) branch: WorktreeBranch,
 }
+
+/// The commit `git_commit` produced, with whatever the hooks printed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CommitResult {
+    pub(crate) hash: String,
+    pub(crate) short_hash: String,
+    pub(crate) subject: String,
+    pub(crate) author_name: String,
+    pub(crate) author_email: String,
+    /// Combined hook/stdout output of the commit, trimmed; `None` when silent.
+    pub(crate) hook_output: Option<String>,
+}
+
+/// Outcome of a user-initiated fetch, pull or push.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SyncResult {
+    /// `fetch`, `pull`, or `push`.
+    pub(crate) operation: String,
+    /// One redacted line, e.g. "Fetched" or "Pushed to origin/main".
+    pub(crate) summary: String,
+    pub(crate) upstream: Option<String>,
+    pub(crate) ahead: i64,
+    pub(crate) behind: i64,
+}
+
+/// What the project details page needs to know before showing git tabs:
+/// whether the folder is the main checkout, a linked worktree, or not a
+/// repository at all, plus the commit identity that would be used.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GitContext {
+    pub(crate) dir: String,
+    pub(crate) is_git_repo: bool,
+    /// `main`, `linked`, or `none`.
+    pub(crate) kind: String,
+    /// The main working tree, set only for a linked worktree.
+    pub(crate) parent_path: Option<String>,
+    pub(crate) root: Option<String>,
+    pub(crate) common_dir: Option<String>,
+    pub(crate) branch: Option<String>,
+    pub(crate) detached: bool,
+    pub(crate) upstream: Option<String>,
+    pub(crate) ahead: i64,
+    pub(crate) behind: i64,
+    pub(crate) in_progress: Option<String>,
+    pub(crate) identity_name: Option<String>,
+    pub(crate) identity_email: Option<String>,
+    pub(crate) error: Option<String>,
+}

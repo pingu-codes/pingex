@@ -7,6 +7,7 @@
 use std::path::{Path, PathBuf};
 use tauri::State;
 
+use super::actions;
 use super::branches::read_branches;
 use super::changes::{
     handoff, handoff_preflight, read_changes_summary, read_file_diff, ChangesSummary, FileDiff,
@@ -16,8 +17,8 @@ use super::commits::read_recent_commits;
 use super::run::{common_dir_of, lock_for_common_dir, redact_git_error, run_git, WRITE_TIMEOUT};
 use super::status::{read_repo_info, read_status};
 use super::types::{
-    BranchRef, CommitInfo, GitRepoInfo, GitStatus, WorktreeAddRequest, WorktreeBranch,
-    WorktreeEntry,
+    BranchRef, CommitInfo, CommitResult, GitContext, GitRepoInfo, GitStatus, SyncResult,
+    WorktreeAddRequest, WorktreeBranch, WorktreeEntry,
 };
 use super::worktrees::read_worktrees;
 use crate::projects::worktrees::{is_temp_worktree_path, worktree_parent_project};
@@ -278,6 +279,7 @@ pub(crate) async fn git_file_diff(
             &base,
             &path,
             untracked,
+            false,
             max_bytes.unwrap_or(DEFAULT_DIFF_BYTES),
         )
     })
@@ -339,6 +341,128 @@ pub(crate) async fn git_worktree_handoff(
     .map_err(|_| "Git operation failed".to_string())??;
     let _ = storage::remove_temp_worktree(&database, &worktree_for_db).await;
     Ok(branch)
+}
+
+// --- Project-level git actions (stage, commit, sync, branch) ---
+
+/// Run a mutation under the repository's common-dir lock on a blocking task.
+async fn locked<T, F>(dir: String, work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&Path) -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = PathBuf::from(&dir);
+        let common = common_dir_of(&dir)?;
+        let guard = lock_for_common_dir(&common);
+        let _lock = guard.lock().expect("git common-dir lock poisoned");
+        work(&dir)
+    })
+    .await
+    .map_err(|_| "Git operation failed".to_string())?
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn git_context(dir: String) -> Result<GitContext, String> {
+    tauri::async_runtime::spawn_blocking(move || actions::read_context(Path::new(&dir)))
+        .await
+        .map_err(|_| "Git inspection failed".to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn git_stage(dir: String, paths: Vec<String>) -> Result<(), String> {
+    locked(dir, move |dir| actions::stage_paths(dir, &paths)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn git_unstage(dir: String, paths: Vec<String>) -> Result<(), String> {
+    locked(dir, move |dir| actions::unstage_paths(dir, &paths)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn git_discard(
+    dir: String,
+    paths: Vec<String>,
+    untracked_paths: Vec<String>,
+) -> Result<(), String> {
+    locked(dir, move |dir| {
+        actions::discard_paths(dir, &paths, &untracked_paths)
+    })
+    .await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn git_commit(dir: String, message: String) -> Result<CommitResult, String> {
+    locked(dir, move |dir| actions::commit(dir, &message)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn git_fetch(dir: String) -> Result<SyncResult, String> {
+    locked(dir, actions::fetch).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn git_pull(dir: String) -> Result<SyncResult, String> {
+    locked(dir, actions::pull).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn git_push(dir: String, set_upstream: bool) -> Result<SyncResult, String> {
+    locked(dir, move |dir| actions::push(dir, set_upstream)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn git_checkout_branch(
+    dir: String,
+    name: String,
+    force: bool,
+) -> Result<(), String> {
+    locked(dir, move |dir| actions::checkout_branch(dir, &name, force)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn git_create_branch(
+    dir: String,
+    name: String,
+    base: Option<String>,
+    checkout: bool,
+) -> Result<(), String> {
+    locked(dir, move |dir| {
+        actions::create_branch(dir, &name, base.as_deref(), checkout)
+    })
+    .await
+}
+
+/// The index versus HEAD for one path: what a commit would contain.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn git_staged_file_diff(
+    dir: String,
+    path: String,
+    max_bytes: Option<usize>,
+) -> Result<FileDiff, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        read_file_diff(
+            Path::new(&dir),
+            "HEAD",
+            &path,
+            false,
+            true,
+            max_bytes.unwrap_or(DEFAULT_DIFF_BYTES),
+        )
+    })
+    .await
+    .map_err(|_| "Git inspection failed".to_string())?
 }
 
 #[cfg(test)]
@@ -444,5 +568,139 @@ mod tests {
         let commits = read_recent_commits(&repo, 10).unwrap();
         assert_eq!(commits.len(), 1);
         assert_eq!(commits[0].subject, "init");
+
+        // Context: the repo is the main checkout, the worktree is linked to it.
+        let main_ctx = actions::read_context(&repo);
+        assert_eq!(main_ctx.kind, "main");
+        assert!(main_ctx.parent_path.is_none());
+        let linked_ctx = actions::read_context(&wt);
+        assert_eq!(linked_ctx.kind, "linked");
+        let parent = linked_ctx
+            .parent_path
+            .expect("linked worktree names its parent");
+        assert_eq!(
+            std::fs::canonicalize(&parent).unwrap(),
+            std::fs::canonicalize(&repo).unwrap()
+        );
+        let plain_ctx = actions::read_context(&plain);
+        assert_eq!(plain_ctx.kind, "none");
+    }
+
+    /// Stage, unstage, commit, discard, branch and sync against a real repo
+    /// with a bare remote.
+    #[test]
+    fn integration_git_actions() {
+        if !git_available() {
+            eprintln!("skipping: git not available");
+            return;
+        }
+        // The functions under test spawn git themselves, so the isolation the
+        // `git()` helper applies has to come from this process's environment.
+        for (key, value) in [
+            ("GIT_CONFIG_GLOBAL", "/dev/null"),
+            ("GIT_CONFIG_SYSTEM", "/dev/null"),
+            ("GIT_TERMINAL_PROMPT", "0"),
+        ] {
+            std::env::set_var(key, value);
+        }
+        let temp = tempfile::tempdir().expect("temp dir");
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        assert!(git(&repo, &["init", "-q", "-b", "main"]));
+        assert!(git(&repo, &["config", "user.name", "Test"]));
+        assert!(git(&repo, &["config", "user.email", "test@example.com"]));
+        std::fs::write(repo.join("file.txt"), "hello\n").unwrap();
+        assert!(git(&repo, &["add", "."]));
+        assert!(git(&repo, &["commit", "-q", "-m", "init"]));
+
+        // Stage → staged; unstage → unstaged.
+        std::fs::write(repo.join("file.txt"), "hello\nworld\n").unwrap();
+        std::fs::write(repo.join("new.txt"), "new\n").unwrap();
+        actions::stage_paths(&repo, &["file.txt".into()]).unwrap();
+        let status = read_status(&repo).unwrap();
+        assert_eq!(status.counts.staged, 1);
+        assert_eq!(status.counts.untracked, 1);
+        let staged =
+            read_file_diff(&repo, "HEAD", "file.txt", false, true, DEFAULT_DIFF_BYTES).unwrap();
+        assert!(staged.patch.contains("+world"), "{}", staged.patch);
+        actions::unstage_paths(&repo, &["file.txt".into()]).unwrap();
+        let status = read_status(&repo).unwrap();
+        assert_eq!(status.counts.staged, 0);
+        assert_eq!(status.counts.unstaged, 1);
+
+        // Paths outside the repository are refused before git runs.
+        assert!(actions::stage_paths(&repo, &["../escape".into()]).is_err());
+
+        // Commit what is staged; the identity is the repo's.
+        actions::stage_paths(&repo, &["file.txt".into(), "new.txt".into()]).unwrap();
+        let commit = actions::commit(&repo, "add world").unwrap();
+        assert_eq!(commit.subject, "add world");
+        assert_eq!(commit.author_name, "Test");
+        assert_eq!(commit.short_hash.len(), 7);
+        assert!(read_status(&repo).unwrap().counts.is_dirty() == false);
+        let empty = actions::commit(&repo, "nothing").unwrap_err();
+        assert!(empty.contains("Nothing is staged"), "{empty}");
+
+        // A dirty tree refuses a branch switch unless forced; discard clears it.
+        actions::create_branch(&repo, "feature", None, false).unwrap();
+        std::fs::write(repo.join("file.txt"), "dirty\n").unwrap();
+        let refused = actions::checkout_branch(&repo, "feature", false).unwrap_err();
+        assert!(refused.starts_with("dirtyTree: "), "{refused}");
+        std::fs::write(repo.join("junk.txt"), "x").unwrap();
+        actions::discard_paths(&repo, &["file.txt".into()], &["junk.txt".into()]).unwrap();
+        assert!(!read_status(&repo).unwrap().counts.is_dirty());
+        assert!(!repo.join("junk.txt").exists());
+        actions::checkout_branch(&repo, "feature", false).unwrap();
+        assert_eq!(
+            read_status(&repo).unwrap().branch.as_deref(),
+            Some("feature")
+        );
+        let dup = actions::create_branch(&repo, "feature", None, false).unwrap_err();
+        assert!(dup.contains("already exists"), "{dup}");
+        assert!(actions::create_branch(&repo, "bad name", None, false).is_err());
+
+        // No remote: push fails fast with a classified error, never hangs.
+        let no_remote = actions::push(&repo, false).unwrap_err();
+        assert!(no_remote.contains(": "), "{no_remote}");
+
+        // Bare remote: publish, fetch, pull.
+        let remote = temp.path().join("remote.git");
+        std::fs::create_dir_all(&remote).unwrap();
+        assert!(git(&remote, &["init", "-q", "--bare", "-b", "main"]));
+        assert!(git(
+            &repo,
+            &["remote", "add", "origin", remote.to_str().unwrap()]
+        ));
+        let published = actions::push(&repo, true).unwrap();
+        assert_eq!(published.operation, "push");
+        assert_eq!(published.upstream.as_deref(), Some("origin/feature"));
+        assert!(actions::fetch(&repo).is_ok());
+        let pulled = actions::pull(&repo).unwrap();
+        assert_eq!(pulled.operation, "pull");
+
+        // A second clone pushes first; our push is then non-fast-forward.
+        let other = temp.path().join("other");
+        assert!(git(
+            temp.path(),
+            &[
+                "clone",
+                "-q",
+                "-b",
+                "feature",
+                remote.to_str().unwrap(),
+                "other"
+            ]
+        ));
+        assert!(git(&other, &["config", "user.name", "Other"]));
+        assert!(git(&other, &["config", "user.email", "other@example.com"]));
+        std::fs::write(other.join("other.txt"), "o").unwrap();
+        assert!(git(&other, &["add", "."]));
+        assert!(git(&other, &["commit", "-q", "-m", "other"]));
+        assert!(git(&other, &["push", "-q"]));
+        std::fs::write(repo.join("mine.txt"), "m").unwrap();
+        actions::stage_paths(&repo, &["mine.txt".into()]).unwrap();
+        actions::commit(&repo, "mine").unwrap();
+        let rejected = actions::push(&repo, false).unwrap_err();
+        assert!(rejected.starts_with("nonFastForward: "), "{rejected}");
     }
 }

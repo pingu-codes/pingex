@@ -29,7 +29,7 @@ const branch = $derived(status?.detached ? "detached" : (status?.branch ?? null)
       event.stopPropagation();
       onOpen(path);
     }}
-    title="{branch}{dirty ? ' · uncommitted changes' : ''} — open worktrees"
+    title="{branch}{dirty ? ' · uncommitted changes' : ''} — open git"
     class="inline-flex {maxWidthClass} items-center gap-1 rounded-full bg-surface-200-800 px-1.5 py-0.5 text-[10px] font-medium text-surface-600-400 transition hover:preset-tonal-primary"
   >
     <GitBranch size={9} class="shrink-0" />

@@ -37,12 +37,14 @@ export type {
   ChangedFile,
   ChangesSummary,
   ChecksSummary,
+  CommitResult,
   ConfigSetting,
   CreateWorkspaceInput,
   DiffHunk,
   DiffLine,
   FileDiff,
   FileHit,
+  GitContext,
   GitRepoInfo,
   GitStatus,
   HomeOverview,
@@ -70,6 +72,7 @@ export type {
   SkillSummary,
   StatusCounts,
   StatusFile,
+  SyncResult,
   ThreadBranch,
   ThreadSearchItem,
   ThreadSearchPage,
@@ -115,6 +118,8 @@ export type MenuTarget =
 export type MenuAction =
   | "reveal"
   | "addWorktree"
+  | "openGit"
+  | "openWorktrees"
   | "rename"
   | "togglePin"
   | "toggleHidden"

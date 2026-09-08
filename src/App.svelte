@@ -13,7 +13,7 @@ import {
   slashCommand,
   threadCreated,
 } from "$lib/app/actions.svelte";
-import { addProject, appData, applyData, projects, refresh } from "$lib/app/appData.svelte";
+import { addProject, appData, applyData, projectForCwd, projects, refresh } from "$lib/app/appData.svelte";
 import { expectedCwdFor, handoff, movedToWorktree } from "$lib/app/handoff.svelte";
 import {
   browseForHome,
@@ -45,7 +45,6 @@ import {
   reviewRepo,
   selectedThreadInfo,
   view,
-  worktreesRepo,
 } from "$lib/app/navigation.svelte";
 import VersionBanner from "$lib/app/VersionBanner.svelte";
 import DialogHost from "$lib/components/DialogHost.svelte";
@@ -66,7 +65,6 @@ import ThreadHeader from "$lib/thread/ThreadHeader.svelte";
 import ThreadView from "$lib/thread/ThreadView.svelte";
 import { dragRegion } from "$lib/utils/dragRegion";
 import { loadSize, resizeHandle } from "$lib/utils/resize";
-import Worktrees from "$lib/worktrees/Worktrees.svelte";
 
 let settingsOpen = $state(false);
 let sidebarWidth = $state(loadSize("layout.sidebarWidth", 280, 200, 480));
@@ -74,7 +72,6 @@ let sidebarWidth = $state(loadSize("layout.sidebarWidth", 280, 200, 480));
 const thread = $derived(selectedThreadInfo());
 const project = $derived(currentProject());
 const review = $derived(reviewRepo());
-const worktrees = $derived(worktreesRepo());
 const detail = $derived(detailProject());
 
 // Deep links (e.g. an MCP tool-call in the thread view) request Settings via
@@ -174,7 +171,7 @@ init();
       </div>
       <div class="flex shrink-0 items-center gap-2">
         <AuthRecoveryPill threadId={view.threadId} />
-        {#if (view.threadId || view.draftCwd) && !view.worktreesPath}
+        {#if view.threadId || view.draftCwd}
           <ThreadHeader
             codexHome={codexHome()}
             repoName={project?.name ?? null}
@@ -207,23 +204,6 @@ init();
           <ReviewView repoDir={review.path} repoName={review.name} onBack={goHome} onAskCodex={askCodexReview} />
         {/key}
       </div>
-    {:else if worktrees}
-      <div class="min-h-0 flex-1">
-        {#key worktrees.path}
-          <Worktrees
-            repoDir={worktrees.path}
-            repoName={worktrees.name}
-            projects={projects()}
-            codexHome={codexHome()}
-            onBack={goHome}
-            onOpenInApp={focusProjectPath}
-            onRevealInFinder={(path) => revealInFinder(path)}
-            onNewThread={newThreadInDir}
-            onReview={() => openReview(worktrees)}
-            onRenameProject={renameProjectAt}
-          />
-        {/key}
-      </div>
     {:else if (view.threadId || view.draftCwd) && !appData.error}
       <div class="min-h-0 flex-1">
         {#key view.epoch}
@@ -248,7 +228,24 @@ init();
     {:else if detail && !appData.error}
       <div class="min-h-0 flex-1">
         {#key detail.path}
-          <ProjectDetail project={detail} onOpenThread={openThreadById} onNewThread={newThread} onManageWorkspace={openWorkspaceDialog} />
+          <ProjectDetail
+            project={detail}
+            initialTab={view.detailTab ?? "overview"}
+            projects={projects()}
+            codexHome={codexHome()}
+            onOpenThread={openThreadById}
+            onNewThread={newThread}
+            onNewThreadInDir={newThreadInDir}
+            onManageWorkspace={openWorkspaceDialog}
+            onOpenInApp={focusProjectPath}
+            onRevealInFinder={(path) => revealInFinder(path)}
+            onReview={() => openReview(detail)}
+            onRenameProject={renameProjectAt}
+            onOpenProjectPath={(path, tab) => {
+              const target = projectForCwd(path);
+              if (target) openProjectDetail(target, tab);
+            }}
+          />
         {/key}
       </div>
     {:else if appData.error}

@@ -16,6 +16,8 @@ use crate::util::process::{self, CommandOutput, Run, RunError};
 pub(crate) const READ_TIMEOUT: Duration = Duration::from_secs(10);
 /// Mutations (worktree add/remove) can legitimately take longer.
 pub(crate) const WRITE_TIMEOUT: Duration = Duration::from_secs(60);
+/// Network operations (fetch/pull/push) wait on a remote.
+pub(crate) const NETWORK_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Run `git -C <dir> <args...>` with a timeout. Returns an error when the
 /// executable is missing or the command exceeds the timeout; a non-zero exit is
@@ -38,6 +40,129 @@ pub(crate) fn run_git(
         RunError::Timeout => "git timed out".to_string(),
         RunError::NoOutput => "git did not produce any output".to_string(),
     })
+}
+
+/// Run a network command (fetch/pull/push). Credential prompts are disabled so
+/// a missing login fails fast with an `Auth` classification instead of
+/// hanging until the timeout.
+pub(crate) fn run_git_network(dir: &Path, args: &[&str]) -> Result<CommandOutput, String> {
+    let mut full_args: Vec<&str> = vec!["-C"];
+    let dir_str = dir.to_str().unwrap_or_default();
+    full_args.push(dir_str);
+    full_args.extend_from_slice(args);
+    let spec = Run {
+        program: "git",
+        dir,
+        args: &full_args,
+        env: &[("GIT_TERMINAL_PROMPT", "0")],
+        stdin: None,
+        timeout: NETWORK_TIMEOUT,
+    };
+    process::run(spec).map_err(|error| match error {
+        RunError::NotFound => "Git is not installed or not on PATH".to_string(),
+        RunError::Spawn => "Could not start git".to_string(),
+        RunError::Timeout => "git timed out waiting for the remote".to_string(),
+        RunError::NoOutput => "git did not produce any output".to_string(),
+    })
+}
+
+/// Why a git mutation failed, coarse enough for the UI to pick a hint.
+///
+/// Commands keep returning `Result<_, String>` like every other command; the
+/// kind travels as a `<kind>: ` prefix on the message (see `classified_error`)
+/// and the frontend splits it off.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GitErrorKind {
+    Auth,
+    NonFastForward,
+    NoUpstream,
+    Conflict,
+    DirtyTree,
+    HookRejected,
+    Other,
+}
+
+impl GitErrorKind {
+    pub(crate) fn tag(self) -> &'static str {
+        match self {
+            GitErrorKind::Auth => "auth",
+            GitErrorKind::NonFastForward => "nonFastForward",
+            GitErrorKind::NoUpstream => "noUpstream",
+            GitErrorKind::Conflict => "conflict",
+            GitErrorKind::DirtyTree => "dirtyTree",
+            GitErrorKind::HookRejected => "hookRejected",
+            GitErrorKind::Other => "other",
+        }
+    }
+}
+
+/// Classify a failed invocation from its stderr.
+pub(crate) fn classify_git_error(output: &CommandOutput) -> GitErrorKind {
+    let stderr = output.stderr.to_lowercase();
+    let any = |needles: &[&str]| needles.iter().any(|n| stderr.contains(n));
+    if any(&[
+        "authentication failed",
+        "could not read username",
+        "could not read password",
+        "permission denied (publickey)",
+        "terminal prompts disabled",
+        "invalid credentials",
+    ]) {
+        GitErrorKind::Auth
+    } else if any(&["non-fast-forward", "fetch first", "[rejected]"]) {
+        GitErrorKind::NonFastForward
+    } else if any(&[
+        "no upstream",
+        "no tracking information",
+        "has no upstream branch",
+    ]) {
+        GitErrorKind::NoUpstream
+    } else if any(&[
+        "automatic merge failed",
+        "needs merge",
+        "conflict",
+        "not possible to fast-forward",
+    ]) {
+        GitErrorKind::Conflict
+    } else if any(&[
+        "would be overwritten by",
+        "local changes",
+        "uncommitted changes",
+    ]) {
+        GitErrorKind::DirtyTree
+    } else if any(&[
+        "hook declined",
+        "pre-commit hook",
+        "commit-msg hook",
+        "pre-push hook",
+    ]) {
+        GitErrorKind::HookRejected
+    } else {
+        GitErrorKind::Other
+    }
+}
+
+/// `"<kind>: <message>"` — the wire form of a classified error.
+pub(crate) fn classified_error(kind: GitErrorKind, message: &str) -> String {
+    format!("{}: {}", kind.tag(), message)
+}
+
+/// Redact a failed mutation into a classified, actionable message that never
+/// includes raw stderr.
+pub(crate) fn redact_classified(fallback: &str, output: &CommandOutput) -> String {
+    let kind = classify_git_error(output);
+    let message = match kind {
+        GitErrorKind::Auth => {
+            "Git could not authenticate with the remote. Sign in on the command line or configure a credential helper."
+        }
+        GitErrorKind::NonFastForward => "The remote has commits you do not have. Pull first, then push again.",
+        GitErrorKind::NoUpstream => "This branch has no upstream. Publish it to create one.",
+        GitErrorKind::Conflict => "The change could not be applied cleanly. Resolve the conflicts in a terminal.",
+        GitErrorKind::DirtyTree => "Uncommitted changes would be overwritten. Commit or discard them first.",
+        GitErrorKind::HookRejected => "A Git hook rejected the operation.",
+        GitErrorKind::Other => fallback,
+    };
+    classified_error(kind, message)
 }
 
 /// Redact a `git` failure, promoting a few well-known messages to an actionable
@@ -125,6 +250,62 @@ mod tests {
         let redacted = redact_git_error("Could not do the thing", &output("fatal: /secret/path"));
         assert_eq!(redacted, "Could not do the thing");
         assert!(!redacted.contains("/secret/path"));
+    }
+
+    #[test]
+    fn classifies_mutation_failures() {
+        let cases = [
+            (
+                "fatal: Authentication failed for 'https://x'",
+                GitErrorKind::Auth,
+            ),
+            (
+                "fatal: could not read Username for 'https://x': terminal prompts disabled",
+                GitErrorKind::Auth,
+            ),
+            (
+                "! [rejected] main -> main (non-fast-forward)",
+                GitErrorKind::NonFastForward,
+            ),
+            (
+                "fatal: The current branch feat has no upstream branch.",
+                GitErrorKind::NoUpstream,
+            ),
+            (
+                "There is no tracking information for the current branch.",
+                GitErrorKind::NoUpstream,
+            ),
+            (
+                "CONFLICT (content): Merge conflict in a.txt",
+                GitErrorKind::Conflict,
+            ),
+            (
+                "fatal: Not possible to fast-forward, aborting.",
+                GitErrorKind::Conflict,
+            ),
+            (
+                "error: Your local changes to the following files would be overwritten by checkout",
+                GitErrorKind::DirtyTree,
+            ),
+            (
+                "error: failed to push some refs\nremote: hook declined",
+                GitErrorKind::HookRejected,
+            ),
+            ("fatal: something else", GitErrorKind::Other),
+        ];
+        for (stderr, expected) in cases {
+            assert_eq!(classify_git_error(&output(stderr)), expected, "{stderr}");
+        }
+    }
+
+    #[test]
+    fn classified_errors_carry_a_kind_prefix_and_no_stderr() {
+        let redacted =
+            redact_classified("Could not push", &output("fatal: /secret non-fast-forward"));
+        assert!(redacted.starts_with("nonFastForward: "));
+        assert!(!redacted.contains("/secret"));
+        let other = redact_classified("Could not push", &output("fatal: /secret"));
+        assert_eq!(other, "other: Could not push");
     }
 
     #[test]

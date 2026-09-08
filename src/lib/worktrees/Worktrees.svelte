@@ -35,6 +35,7 @@ import { type CodexEvent, setThreadHandler } from "$lib/services/codexEvents.sve
 import HandoffToLocalDialog from "$lib/thread/HandoffToLocalDialog.svelte";
 import type { GitRepoInfo, Project, WorktreeBranchRequest, WorktreeEntry } from "$lib/types";
 import CreateWorktreeDialog from "$lib/worktrees/CreateWorktreeDialog.svelte";
+import { refreshGitStatus } from "$lib/worktrees/gitStatus.svelte";
 import RemoveWorktreeDialog from "$lib/worktrees/RemoveWorktreeDialog.svelte";
 import { isTempWorktreePath, type WorktreeCard, worktreeCards } from "$lib/worktrees/worktrees";
 
@@ -43,6 +44,7 @@ let {
   repoName,
   projects = [],
   codexHome = null,
+  embedded = false,
   onBack,
   onOpenInApp,
   onRevealInFinder,
@@ -54,7 +56,9 @@ let {
   repoName: string;
   projects?: Project[];
   codexHome?: string | null;
-  onBack: () => void;
+  /** Rendered inside the project details tab: no back button or title. */
+  embedded?: boolean;
+  onBack?: () => void;
   onOpenInApp: (path: string) => void;
   onRevealInFinder: (path: string) => void;
   onNewThread: (cwd: string) => void;
@@ -103,6 +107,7 @@ async function runAction(fn: () => Promise<void>) {
   try {
     await fn();
     await load();
+    void refreshGitStatus(repoDir);
   } catch (cause) {
     actionError = cause instanceof Error ? cause.message : String(cause);
   }
@@ -149,19 +154,23 @@ async function removeWorktree(entry: WorktreeEntry) {
 }
 </script>
 
-<div class="h-full overflow-y-auto">
-  <div class="mx-auto max-w-3xl px-6 py-6">
+<div class={embedded ? "" : "h-full overflow-y-auto"}>
+  <div class={embedded ? "" : "mx-auto max-w-3xl px-6 py-6"}>
     <div class="flex items-center gap-2">
-      <TooltipButton label="Back" onclick={onBack} aria-label="Back" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
-        <ArrowLeft size={16} />
-      </TooltipButton>
-      <div class="min-w-0 flex-1">
-        <h1 class="flex items-center gap-2 text-lg font-semibold tracking-[-0.02em]">
-          <FolderGit2 size={18} class="text-primary-500" />
-          <span class="truncate">{repoName}</span>
-        </h1>
-        <p class="truncate text-[11px] text-surface-500" title={repoDir}>{repoDir}</p>
-      </div>
+      {#if !embedded}
+        <TooltipButton label="Back" onclick={() => onBack?.()} aria-label="Back" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
+          <ArrowLeft size={16} />
+        </TooltipButton>
+        <div class="min-w-0 flex-1">
+          <h1 class="flex items-center gap-2 text-lg font-semibold tracking-[-0.02em]">
+            <FolderGit2 size={18} class="text-primary-500" />
+            <span class="truncate">{repoName}</span>
+          </h1>
+          <p class="truncate text-[11px] text-surface-500" title={repoDir}>{repoDir}</p>
+        </div>
+      {:else}
+        <div class="min-w-0 flex-1 text-xs text-surface-500">Worktrees of <span class="font-mono">{repoName}</span></div>
+      {/if}
       {#if hasStale}
         <button onclick={() => runAction(() => gitWorktreePrune(repoDir))} class="btn btn-sm preset-tonal">
           <Trash2 size={14} />
@@ -204,7 +213,7 @@ async function removeWorktree(entry: WorktreeEntry) {
       {/if}
 
       {#if mainCard}
-        <h2 class="mt-6 text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Main checkout</h2>
+        <h2 class="{embedded ? 'mt-4' : 'mt-6'} text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Main checkout</h2>
         <div class="mt-2 rounded-xl border-2 border-primary-500/40 bg-surface-100-900 p-4">
           {@render cardBody(mainCard)}
         </div>

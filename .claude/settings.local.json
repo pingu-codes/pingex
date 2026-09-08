@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": ["Bash(npm view *)", "mcp__penpot__penpot_api_info", "mcp__penpot__execute_code"]
+  },
+  "enabledPlugins": {
+    "figma@claude-plugins-official": true
+  }
+}

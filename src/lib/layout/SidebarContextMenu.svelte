@@ -186,6 +186,24 @@ const hiddenCount = (target: MenuTarget) =>
       <Settings2 size={13} class="text-surface-500" />
       {menu.target.project.kind === "multiProject" ? "Workspace details" : "Project details"}
     </button>
+    {#if menu.target.project.kind !== "multiProject"}
+      <button
+        role="menuitem"
+        onclick={() => onAct("openGit")}
+        class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+      >
+        <GitBranch size={13} class="text-surface-500" />
+        Git
+      </button>
+      <button
+        role="menuitem"
+        onclick={() => onAct("openWorktrees")}
+        class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+      >
+        <FolderGit2 size={13} class="text-surface-500" />
+        Worktrees
+      </button>
+    {/if}
     {#if menu.target.project.kind === "folder"}
       <button
         role="menuitem"

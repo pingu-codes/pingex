@@ -8,6 +8,7 @@ import type {
   FileHit,
   GitBranch,
   GitCommit,
+  GitContext,
   GitRepoInfo,
   GitStatus,
   HomeOverview,
@@ -805,6 +806,29 @@ const previewDefaultRepoInfo = (dir: string): GitRepoInfo => ({
 
 export function previewGitRepoInfo(dir: string): GitRepoInfo {
   return previewRepoInfo[dir] ?? previewDefaultRepoInfo(dir);
+}
+
+/** Main checkout for the first project, a linked worktree for the discovered one. */
+export function previewGitContext(dir: string): GitContext {
+  const info = previewGitRepoInfo(dir);
+  const linked = dir.includes("/.codex/worktrees/");
+  return {
+    dir,
+    isGitRepo: info.isGitRepo,
+    kind: !info.isGitRepo ? "none" : linked ? "linked" : "main",
+    parentPath: linked ? "/Users/ciaran/Projects/codex-custom" : null,
+    root: info.root,
+    commonDir: info.commonDir,
+    branch: info.branch,
+    detached: info.detached,
+    upstream: info.upstream,
+    ahead: info.ahead,
+    behind: info.behind,
+    inProgress: info.inProgress,
+    identityName: "Ciaran",
+    identityEmail: "ciaran@example.com",
+    error: null,
+  };
 }
 
 export const previewGitStatus: GitStatus = {

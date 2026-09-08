@@ -5,6 +5,8 @@ import {
   currentProject,
   goHome,
   newThreadInDir,
+  openGit,
+  openProjectDetail,
   openThread,
   openThreadInCwd,
   openWorktrees,
@@ -72,12 +74,23 @@ describe("navigation", () => {
     expect(isTouched("thread-1")).toBe(true);
   });
 
+  it("opens worktrees and git as tabs of the project detail view", () => {
+    openWorktrees(api);
+    expect(view.detailPath).toBe("/projects/api");
+    expect(view.detailTab).toBe("worktrees");
+    openGit(api);
+    expect(view.detailTab).toBe("git");
+    openProjectDetail(api);
+    expect(view.detailTab).toBe("overview");
+  });
+
   it("clears the views a navigation does not name", () => {
     openWorktrees(api);
-    expect(view.worktreesPath).toBe("/projects/api");
+    expect(view.detailPath).toBe("/projects/api");
 
     openThread(api, "thread-1");
-    expect(view.worktreesPath).toBeNull();
+    expect(view.detailPath).toBeNull();
+    expect(view.detailTab).toBeNull();
     expect(view.draftCwd).toBeNull();
     expect(view.threadId).toBe("thread-1");
     expect(view.projectPath).toBe("/projects/api");

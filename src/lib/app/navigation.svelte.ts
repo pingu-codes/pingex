@@ -10,6 +10,9 @@ import { touchThread } from "$lib/layout/sessionFocus.svelte";
 import { newestLeaf, rootThreadId } from "$lib/thread/messageVersions";
 import type { Project, ThreadSummary } from "$lib/types";
 
+/** The tabs of the project detail view. */
+export type DetailTab = "overview" | "git" | "worktrees" | "sources";
+
 export type View = {
   /** Live thread being viewed. */
   threadId: string | null;
@@ -17,21 +20,21 @@ export type View = {
   projectPath: string | null;
   /** Draft thread directory (a new, unsent thread). */
   draftCwd: string | null;
-  /** Repository whose worktrees view is open. */
-  worktreesPath: string | null;
   /** Repository whose pull-request review view is open. */
   reviewPath: string | null;
-  /** Project whose detail view (instructions, sources, search) is open. */
+  /** Project whose detail view (overview, git, worktrees, sources) is open. */
   detailPath: string | null;
+  /** Which detail tab to land on; `null` means the overview. */
+  detailTab: DetailTab | null;
 };
 
 const EMPTY: View = {
   threadId: null,
   projectPath: null,
   draftCwd: null,
-  worktreesPath: null,
   reviewPath: null,
   detailPath: null,
+  detailTab: null,
 };
 
 export const view = $state<View & { epoch: number }>({
@@ -55,10 +58,6 @@ export function setView(patch: Partial<View>, options: { remount?: boolean } = {
 
 export function currentProject(): Project | null {
   return projectByPath(view.projectPath);
-}
-
-export function worktreesRepo(): Project | null {
-  return projectByPath(view.worktreesPath);
 }
 
 export function reviewRepo(): Project | null {
@@ -134,12 +133,18 @@ export function newThreadInDir(cwd: string): void {
   setView({ draftCwd: cwd, projectPath: projectForCwd(cwd)?.path ?? view.projectPath });
 }
 
-export function openProjectDetail(project: Project): void {
-  setView({ projectPath: project.path, detailPath: project.path });
+export function openProjectDetail(project: Project, tab: DetailTab = "overview"): void {
+  setView({ projectPath: project.path, detailPath: project.path, detailTab: tab });
 }
 
+/** The Worktrees tab of a project's details. */
 export function openWorktrees(project: Project): void {
-  setView({ projectPath: project.path, worktreesPath: project.path });
+  openProjectDetail(project, "worktrees");
+}
+
+/** The Git tab of a project's details. */
+export function openGit(project: Project): void {
+  openProjectDetail(project, "git");
 }
 
 export function openReview(project: Project): void {

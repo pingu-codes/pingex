@@ -3,8 +3,10 @@ import {
   AlertCircle,
   CheckCircle2,
   File as FileIcon,
+  FolderGit2,
   FolderOpen,
   FolderPlus,
+  GitBranch,
   Loader,
   MessageSquare,
   Plus,
@@ -13,14 +15,18 @@ import {
   Trash2,
   X,
 } from "@lucide/svelte";
+import { Tabs } from "@skeletonlabs/skeleton-svelte";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { untrack } from "svelte";
+import { onMount, untrack } from "svelte";
 import { eventMatchesHome } from "$lib/app/launch.svelte";
+import type { DetailTab } from "$lib/app/navigation.svelte";
 import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
+import GitTab from "$lib/git/GitTab.svelte";
 import {
   addProjectSource,
+  gitContext,
   isTauri,
   listProjectSources,
   reindexSource,
@@ -29,21 +35,76 @@ import {
   saveProjectInstructions,
   searchWorkspace,
 } from "$lib/services/api";
-import type { Project, ProjectSource, WorkspaceSearchResults } from "$lib/types";
+import type { GitContext, Project, ProjectSource, WorkspaceSearchResults } from "$lib/types";
 import { relativeTime } from "$lib/utils/time";
+import { ensureGitStatus, gitStatusCache } from "$lib/worktrees/gitStatus.svelte";
+import Worktrees from "$lib/worktrees/Worktrees.svelte";
+import { aheadBehindLabel, folderName, isDirty, statusSummary } from "$lib/worktrees/worktrees";
 import { debounce, emptyStateLabel, isEmptyResults } from "./workspaceSearch";
 
 let {
   project,
+  initialTab = "overview",
+  projects = [],
+  codexHome = null,
   onOpenThread,
   onNewThread,
+  onNewThreadInDir,
   onManageWorkspace,
+  onOpenInApp,
+  onRevealInFinder,
+  onReview,
+  onRenameProject,
+  onOpenProjectPath,
 }: {
   project: Project;
+  initialTab?: DetailTab;
+  projects?: Project[];
+  codexHome?: string | null;
   onOpenThread: (threadId: string) => void;
   onNewThread?: (project: Project) => void;
+  /** New thread with an exact directory as its cwd (a worktree). */
+  onNewThreadInDir?: (cwd: string) => void;
   onManageWorkspace?: (project: Project) => void;
+  onOpenInApp?: (path: string) => void;
+  onRevealInFinder?: (path: string) => void;
+  onReview?: () => void;
+  onRenameProject?: (path: string) => void;
+  /** Open another project's details, e.g. a linked worktree's parent. */
+  onOpenProjectPath?: (path: string, tab: DetailTab) => void;
 } = $props();
+
+// Keyed by project path in the parent, so the initial tab is read once.
+let tab = $state<DetailTab>(untrack(() => initialTab));
+let context = $state<GitContext | null>(null);
+let contextError = $state<string | null>(null);
+
+const isMultiProject = $derived(project.kind === "multiProject");
+const hasGit = $derived(!isMultiProject && context?.kind !== "none");
+const isLinked = $derived(context?.kind === "linked" && !!context.parentPath);
+/** Worktree operations act on the repository, which for a linked worktree is its parent. */
+const repoDir = $derived(isLinked && context?.parentPath ? context.parentPath : project.path);
+const status = $derived(gitStatusCache.byPath[project.path] ?? null);
+
+async function loadContext() {
+  if (isMultiProject) return;
+  try {
+    context = await gitContext(project.path);
+    contextError = null;
+  } catch (cause) {
+    contextError = cause instanceof Error ? cause.message : String(cause);
+  }
+}
+
+onMount(() => {
+  void loadContext();
+  if (!isMultiProject) ensureGitStatus(project.path);
+});
+
+// Tabs the context says do not apply fall back to the overview.
+$effect(() => {
+  if (context && !hasGit && (tab === "git" || tab === "worktrees")) tab = "overview";
+});
 
 // The detail view is keyed by project path in the parent, so this component is
 // recreated when a different project opens; capturing the initial prop values is
@@ -177,11 +238,10 @@ function openFile(path: string) {
 }
 
 const sourceName = (source: ProjectSource) => source.sourcePath.split("/").pop() || source.sourcePath;
-const isMultiProject = $derived(project.kind === "multiProject");
 </script>
 
 <div class="h-full overflow-y-auto">
-  <div class="mx-auto max-w-3xl px-6 py-8">
+  <div class="mx-auto max-w-4xl px-6 py-8">
     <!-- Detail header -->
     <div class="flex items-start justify-between gap-4">
       <div class="min-w-0">
@@ -189,55 +249,162 @@ const isMultiProject = $derived(project.kind === "multiProject");
         <p class="mt-0.5 truncate font-mono text-xs text-surface-500" title={project.path}>{project.path}</p>
       </div>
       <div class="flex shrink-0 items-center gap-2">
+        {#if onRevealInFinder}
+          <TooltipButton label="Reveal in Finder" onclick={() => onRevealInFinder?.(project.path)} aria-label="Reveal in Finder" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
+            <FolderOpen size={15} />
+          </TooltipButton>
+        {/if}
         {#if onNewThread}
-          <button onclick={() => onNewThread?.(project)} class="btn btn-sm preset-tonal">
+          <button onclick={() => onNewThread?.(project)} class="btn btn-sm preset-filled-primary-500">
             <Plus size={14} />
             New thread
           </button>
         {/if}
-        <button onclick={addFiles} class="btn btn-sm preset-tonal">
-          <FileIcon size={14} />
-          Add files
-        </button>
-        <button onclick={addFolder} class="btn btn-sm preset-filled-primary-500">
-          <FolderPlus size={14} />
-          Add source
-        </button>
       </div>
     </div>
 
-    {#if isMultiProject}
-      <section class="mt-5 rounded-xl border border-surface-200-800 bg-surface-100-900 p-4">
-        <div class="flex items-center justify-between gap-3"><h2 class="text-sm font-medium">Workspace members</h2>{#if onManageWorkspace}<button class="btn btn-sm preset-tonal" onclick={() => onManageWorkspace?.(project)}>Edit members</button>{/if}</div>
-        <p class="mt-1 text-xs text-surface-500">The hub is writable for notes and plans. Member aliases are the directories the agent edits.</p>
-        <div class="mt-3 space-y-2">
-          {#each project.members ?? [] as member (member.alias)}
-            <div class="flex min-w-0 items-center gap-3 rounded-lg bg-surface-50-950 px-3 py-2 text-xs">
-              <span class="font-mono font-medium text-primary-600 dark:text-primary-400">{member.alias}</span>
-              <span class="min-w-0 flex-1 truncate text-surface-500" title={member.effectivePath}>{member.effectivePath}</span>
-              <span class="shrink-0 rounded-full bg-surface-200-800 px-2 py-0.5 text-[10px]">{member.isolated ? `isolated${member.branch ? ` · ${member.branch}` : ""}` : "direct"}</span>
-              {#if !member.available}<span class="shrink-0 text-error-500">unavailable</span>{/if}
-            </div>
-          {/each}
-        </div>
-      </section>
+    {#if isLinked && context?.parentPath}
+      <div class="mt-4 flex items-center gap-2 rounded-lg border border-primary-500/30 bg-primary-500/10 px-3 py-2 text-xs">
+        <FolderGit2 size={14} class="shrink-0 text-primary-500" />
+        <span class="min-w-0 flex-1 truncate">
+          This is a worktree of <span class="font-mono" title={context.parentPath}>{folderName(context.parentPath)}</span>
+        </span>
+        {#if onOpenProjectPath}
+          <button type="button" onclick={() => onOpenProjectPath?.(context!.parentPath!, "worktrees")} class="btn btn-sm preset-tonal">Open repository</button>
+        {/if}
+      </div>
     {/if}
 
-    <!-- Search -->
-    <div class="mt-6">
-      <div class="flex items-center gap-2 rounded-xl border border-surface-200-800 bg-surface-100-900 px-3 py-2">
-        <Search size={15} class="shrink-0 text-surface-500" />
-        <input
-          value={query}
-          oninput={onQueryInput}
-          type="search"
-          placeholder="Search project files and chats…"
-          aria-label="Search workspace"
-          class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-surface-500"
-        />
-        {#if searching}<Loader size={14} class="shrink-0 animate-spin text-surface-500" />{/if}
-      </div>
+    <Tabs value={tab} onValueChange={(details) => (tab = details.value as DetailTab)} class="mt-5">
+      <Tabs.List class="flex gap-1 border-b border-surface-200-800">
+        <Tabs.Trigger value="overview" class="px-3 py-2 text-sm">Overview</Tabs.Trigger>
+        {#if hasGit}
+          <Tabs.Trigger value="git" class="inline-flex items-center px-3 py-2 text-sm">
+            Git
+            {#if status && isDirty(status.counts)}<span class="ml-1 inline-block size-1.5 rounded-full bg-warning-500" aria-label="Uncommitted changes"></span>{/if}
+          </Tabs.Trigger>
+          <Tabs.Trigger value="worktrees" class="px-3 py-2 text-sm">Worktrees</Tabs.Trigger>
+        {/if}
+        <Tabs.Trigger value="sources" class="px-3 py-2 text-sm">Sources</Tabs.Trigger>
+        <Tabs.Indicator />
+      </Tabs.List>
 
+      <Tabs.Content value="overview" class="pt-5">
+        {#if hasGit}
+          <section class="rounded-xl border border-surface-200-800 bg-surface-100-900 p-4">
+            <div class="flex items-center gap-2">
+              <GitBranch size={15} class="text-primary-500" />
+              {#if status}
+                <span class="font-mono text-sm font-medium">{status.detached ? "detached HEAD" : (status.branch ?? "(no branch)")}</span>
+                {#if status.upstream}<span class="truncate text-[11px] text-surface-500">→ {status.upstream}</span>{/if}
+                {#if aheadBehindLabel(status.ahead, status.behind)}<span class="font-mono text-[11px] text-surface-500">{aheadBehindLabel(status.ahead, status.behind)}</span>{/if}
+                <span class="flex-1"></span>
+                <span class="text-xs {isDirty(status.counts) ? 'text-warning-600 dark:text-warning-400' : 'text-surface-500'}">{statusSummary(status.counts)}</span>
+              {:else if contextError}
+                <span class="text-xs text-error-500">{contextError}</span>
+              {:else}
+                <span class="text-xs text-surface-500">Reading Git status…</span>
+              {/if}
+            </div>
+            <div class="mt-3 flex flex-wrap gap-2">
+              <button type="button" onclick={() => (tab = "git")} class="btn btn-sm preset-tonal">Open Git</button>
+              <button type="button" onclick={() => (tab = "worktrees")} class="btn btn-sm preset-tonal">Worktrees</button>
+              {#if onReview}<button type="button" onclick={onReview} class="btn btn-sm preset-tonal">Review</button>{/if}
+            </div>
+          </section>
+        {/if}
+
+        {#if isMultiProject}
+          <section class="mt-5 rounded-xl border border-surface-200-800 bg-surface-100-900 p-4">
+            <div class="flex items-center justify-between gap-3"><h2 class="text-sm font-medium">Workspace members</h2>{#if onManageWorkspace}<button class="btn btn-sm preset-tonal" onclick={() => onManageWorkspace?.(project)}>Edit members</button>{/if}</div>
+            <p class="mt-1 text-xs text-surface-500">The hub is writable for notes and plans. Member aliases are the directories the agent edits.</p>
+            <div class="mt-3 space-y-2">
+              {#each project.members ?? [] as member (member.alias)}
+                <div class="flex min-w-0 items-center gap-3 rounded-lg bg-surface-50-950 px-3 py-2 text-xs">
+                  <span class="font-mono font-medium text-primary-600 dark:text-primary-400">{member.alias}</span>
+                  <span class="min-w-0 flex-1 truncate text-surface-500" title={member.effectivePath}>{member.effectivePath}</span>
+                  <span class="shrink-0 rounded-full bg-surface-200-800 px-2 py-0.5 text-[10px]">{member.isolated ? `isolated${member.branch ? ` · ${member.branch}` : ""}` : "direct"}</span>
+                  {#if !member.available}<span class="shrink-0 text-error-500">unavailable</span>{/if}
+                </div>
+              {/each}
+            </div>
+          </section>
+        {/if}
+
+        <!-- Instructions -->
+        <div class="mt-6">
+          <div class="mb-1.5 flex items-center gap-2">
+            <h2 class="text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Instructions</h2>
+            {#if savingInstructions}<span class="text-[10px] text-surface-500">Saving…</span>{/if}
+          </div>
+          <textarea
+            value={instructions}
+            oninput={onInstructionsInput}
+            rows="4"
+            placeholder="Context Codex should keep in mind for every thread in this project…"
+            aria-label="Project instructions"
+            class="w-full resize-y rounded-xl border border-surface-200-800 bg-surface-100-900 px-3 py-2 text-sm outline-none placeholder:text-surface-500 focus:border-primary-500"
+          ></textarea>
+        </div>
+      </Tabs.Content>
+
+      {#if hasGit}
+        <Tabs.Content value="git" class="pt-5">
+          {#if context}
+            {#key context.dir}
+              <GitTab dir={project.path} {context} onContextChanged={(next) => (context = next)} />
+            {/key}
+          {:else if contextError}
+            <p class="text-xs text-error-500">{contextError}</p>
+          {:else}
+            <div class="placeholder h-24 animate-pulse rounded-xl"></div>
+          {/if}
+        </Tabs.Content>
+        <Tabs.Content value="worktrees" class="pt-5">
+          {#if context}
+            {#key repoDir}
+              <Worktrees
+                embedded
+                {repoDir}
+                repoName={folderName(repoDir)}
+                {projects}
+                {codexHome}
+                onOpenInApp={(path) => onOpenInApp?.(path)}
+                onRevealInFinder={(path) => onRevealInFinder?.(path)}
+                onNewThread={(cwd) => onNewThreadInDir?.(cwd)}
+                {onReview}
+                {onRenameProject}
+              />
+            {/key}
+          {:else}
+            <div class="placeholder h-24 animate-pulse rounded-xl"></div>
+          {/if}
+        </Tabs.Content>
+      {/if}
+
+      <Tabs.Content value="sources" class="pt-5">
+        <div class="flex items-center gap-2">
+          <div class="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-surface-200-800 bg-surface-100-900 px-3 py-2">
+            <Search size={15} class="shrink-0 text-surface-500" />
+            <input
+              value={query}
+              oninput={onQueryInput}
+              type="search"
+              placeholder="Search project files and chats…"
+              aria-label="Search workspace"
+              class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-surface-500"
+            />
+            {#if searching}<Loader size={14} class="shrink-0 animate-spin text-surface-500" />{/if}
+          </div>
+          <button onclick={addFiles} class="btn btn-sm preset-tonal">
+            <FileIcon size={14} />
+            Add files
+          </button>
+          <button onclick={addFolder} class="btn btn-sm preset-filled-primary-500">
+            <FolderPlus size={14} />
+            Add source
+          </button>
+        </div>
       {#if query.trim() && results}
         {#if isEmptyResults(results)}
           <div class="mt-3 rounded-xl border border-dashed border-surface-300-700 px-4 py-8 text-center text-sm text-surface-500">
@@ -307,23 +474,6 @@ const isMultiProject = $derived(project.kind === "multiProject");
           </div>
         {/if}
       {/if}
-    </div>
-
-    <!-- Instructions -->
-    <div class="mt-6">
-      <div class="mb-1.5 flex items-center gap-2">
-        <h2 class="text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Instructions</h2>
-        {#if savingInstructions}<span class="text-[10px] text-surface-500">Saving…</span>{/if}
-      </div>
-      <textarea
-        value={instructions}
-        oninput={onInstructionsInput}
-        rows="4"
-        placeholder="Context Codex should keep in mind for every thread in this project…"
-        aria-label="Project instructions"
-        class="w-full resize-y rounded-xl border border-surface-200-800 bg-surface-100-900 px-3 py-2 text-sm outline-none placeholder:text-surface-500 focus:border-primary-500"
-      ></textarea>
-    </div>
 
     <!-- Sources -->
     <div class="mt-6">
@@ -389,5 +539,7 @@ const isMultiProject = $derived(project.kind === "multiProject");
         </div>
       {/if}
     </div>
+      </Tabs.Content>
+    </Tabs>
   </div>
 </div>

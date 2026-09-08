@@ -10,6 +10,7 @@
 //! per Git *common directory* so two concurrent mutations against the same
 //! repository can never interleave.
 
+mod actions;
 mod branches;
 mod changes;
 pub(crate) mod commands;

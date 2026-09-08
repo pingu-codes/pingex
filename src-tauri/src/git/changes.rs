@@ -252,6 +252,7 @@ pub(crate) fn read_file_diff(
     base: &str,
     path: &str,
     untracked: bool,
+    staged: bool,
     max_bytes: usize,
 ) -> Result<FileDiff, String> {
     let max_bytes = max_bytes.clamp(1024, MAX_DIFF_BYTES);
@@ -265,6 +266,9 @@ pub(crate) fn read_file_diff(
     ]);
     if untracked {
         command.args(["--no-index", "--", "/dev/null", path]);
+    } else if staged {
+        // Index versus `base` (normally HEAD): what a commit would contain.
+        command.args(["--cached", base, "--", path]);
     } else {
         command.args([base, "--", path]);
     }
