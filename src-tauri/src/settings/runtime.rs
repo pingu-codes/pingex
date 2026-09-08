@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use super::prefs::{self, RuntimeOverrides};
 use crate::codex::binary;
+use crate::util::host::Host;
 use crate::{HomeContext, RuntimeConfig};
 
 /// The runtime identity as the settings dialog sees it: what is active now,
@@ -19,10 +20,14 @@ use crate::{HomeContext, RuntimeConfig};
 pub(crate) struct RuntimeSettings {
     codex_home: String,
     codex_binary: String,
+    /// Where this window's home lives.
+    codex_host: Host,
     override_codex_home: Option<String>,
     override_codex_binary: Option<String>,
+    override_codex_host: Option<Host>,
     override_claude_binary: Option<String>,
     override_claude_config_dir: Option<String>,
+    override_claude_host: Option<Host>,
     settings_path: String,
     restart_required: bool,
 }
@@ -33,6 +38,7 @@ pub(crate) struct RuntimeSettings {
 pub(crate) struct RecentHomeInfo {
     path: String,
     last_used: i64,
+    host: Host,
     /// Whether the folder still exists on disk (stale entries are dimmed, not hidden).
     exists: bool,
 }
@@ -46,6 +52,8 @@ pub(crate) struct LaunchState {
     /// Canonical form of `codex_home` — the key the backend tags events with,
     /// so the frontend filters by exact equality.
     home_key: String,
+    /// Where `codex_home` lives.
+    host: Host,
     codex_binary: String,
     default_home: String,
     /// The home came from `--codex-home`/`CODEX_HOME`; boot without a picker.
@@ -70,14 +78,21 @@ pub(crate) fn runtime_settings(
         || overrides
             .codex_binary
             .as_ref()
-            .is_some_and(|binary| Path::new(binary) != runtime.codex_binary);
+            .is_some_and(|binary| Path::new(binary) != runtime.codex_binary)
+        || overrides
+            .codex_host
+            .as_ref()
+            .is_some_and(|host| host != &runtime.host);
     RuntimeSettings {
         codex_home: runtime.codex_home.display().to_string(),
         codex_binary: runtime.codex_binary.display().to_string(),
+        codex_host: runtime.host.clone(),
         override_codex_home: overrides.codex_home.clone(),
         override_codex_binary: overrides.codex_binary.clone(),
+        override_codex_host: overrides.codex_host.clone(),
         override_claude_binary: overrides.claude_binary.clone(),
         override_claude_config_dir: overrides.claude_config_dir.clone(),
+        override_claude_host: overrides.claude_host.clone(),
         settings_path: prefs::settings_path().display().to_string(),
         restart_required,
     }
@@ -93,20 +108,22 @@ pub(crate) fn launch_state(ctx: &HomeContext, explicit: bool) -> LaunchState {
         .recent_homes
         .into_iter()
         .map(|home| RecentHomeInfo {
-            exists: Path::new(&home.path).is_dir(),
+            exists: home.host.is_dir(&home.path),
             path: home.path,
             last_used: home.last_used,
+            host: home.host,
         })
         .collect();
     LaunchState {
         codex_home: runtime.codex_home.display().to_string(),
         home_key: ctx.home_key.clone(),
+        host: runtime.host.clone(),
         codex_binary: runtime.codex_binary.display().to_string(),
         default_home: default_codex_home().display().to_string(),
         explicit,
         needs_picker: !explicit,
         recent_homes,
-        codex_binary_status: binary::status(&runtime.codex_binary),
+        codex_binary_status: binary::status_on(&runtime.host, &runtime.codex_binary_str()),
     }
 }
 
@@ -134,12 +151,22 @@ fn resolve_runtime(
     override_home: Option<&str>,
     env_binary: Option<PathBuf>,
     override_binary: Option<&str>,
+    env_host: Option<Host>,
+    override_host: Option<Host>,
 ) -> (RuntimeConfig, bool) {
     let explicit_home = cli_home.is_some() || env_home.is_some();
+    // An explicit home from the command line or the environment is a native
+    // path unless `PINGEX_CODEX_HOST` says otherwise; the saved host only
+    // travels with the saved home.
+    let host = match (&cli_home, &env_home, env_host) {
+        (_, _, Some(host)) => host,
+        (None, None, None) if override_home.is_some() => override_host.unwrap_or_default(),
+        _ => Host::Native,
+    };
     let codex_home = cli_home
         .or(env_home)
         .or_else(|| override_home.map(PathBuf::from))
-        .unwrap_or_else(default_codex_home);
+        .unwrap_or_else(|| default_codex_home_on(&host));
     let codex_binary = env_binary
         .or_else(|| override_binary.map(PathBuf::from))
         .unwrap_or_else(|| PathBuf::from("codex"));
@@ -147,9 +174,23 @@ fn resolve_runtime(
         RuntimeConfig {
             codex_home,
             codex_binary,
+            host,
         },
         explicit_home,
     )
+}
+
+/// `~/.codex` as `host` sees it. A WSL host that cannot be asked for its
+/// home directory falls back to the native default, which the picker then
+/// shows as missing rather than booting into.
+pub(crate) fn default_codex_home_on(host: &Host) -> PathBuf {
+    match host {
+        Host::Native => default_codex_home(),
+        Host::Wsl { .. } => host
+            .home_dir()
+            .map(|home| PathBuf::from(host.join_str(&home, ".codex")))
+            .unwrap_or_else(default_codex_home),
+    }
 }
 
 /// Read the runtime out of the process environment at startup.
@@ -168,12 +209,17 @@ pub(crate) fn parse_runtime() -> (RuntimeConfig, bool) {
         .or_else(|| std::env::var_os("PINGU_CODEX_CLI_PATH"))
         .or_else(|| std::env::var_os("CODEX_CLI_PATH"))
         .map(PathBuf::from);
+    let env_host = std::env::var("PINGEX_CODEX_HOST")
+        .ok()
+        .and_then(|spec| Host::parse_spec(&spec));
     resolve_runtime(
         cli_home,
         std::env::var_os("CODEX_HOME").map(PathBuf::from),
         overrides.codex_home.as_deref(),
         env_binary,
         overrides.codex_binary.as_deref(),
+        env_host,
+        overrides.codex_host.clone(),
     )
 }
 
@@ -189,7 +235,11 @@ mod tests {
             Some("/override-home"),
             Some("/env-codex".into()),
             Some("/override-codex"),
+            None,
+            Some(Host::wsl("Ubuntu")),
         );
+        // The saved host belongs to the saved home, not to an explicit one.
+        assert_eq!(runtime.host, Host::Native);
         assert_eq!(runtime.codex_home, PathBuf::from("/cli-home"));
         assert_eq!(runtime.codex_binary, PathBuf::from("/env-codex"));
         assert!(explicit);
@@ -200,7 +250,10 @@ mod tests {
             Some("/override-home"),
             None,
             Some("/override-codex"),
+            Some(Host::wsl("Ubuntu")),
+            None,
         );
+        assert_eq!(environment.host, Host::wsl("Ubuntu"));
         assert_eq!(environment.codex_home, PathBuf::from("/env-home"));
         assert_eq!(environment.codex_binary, PathBuf::from("/override-codex"));
         assert!(explicit);
@@ -211,9 +264,12 @@ mod tests {
             Some("/override-home"),
             None,
             Some("/override-codex"),
+            None,
+            Some(Host::wsl("Ubuntu")),
         );
         assert_eq!(overrides.codex_home, PathBuf::from("/override-home"));
         assert_eq!(overrides.codex_binary, PathBuf::from("/override-codex"));
+        assert_eq!(overrides.host, Host::wsl("Ubuntu"));
         // A saved override is not "explicit" — the picker should still appear.
         assert!(!explicit);
     }
@@ -223,6 +279,7 @@ mod tests {
         let runtime = RuntimeConfig {
             codex_home: "/home".into(),
             codex_binary: "/bin/codex".into(),
+            host: crate::util::host::Host::Native,
         };
         let unchanged = RuntimeOverrides {
             codex_home: Some("/home".into()),
@@ -237,6 +294,14 @@ mod tests {
             ..Default::default()
         };
         assert!(runtime_settings(&runtime, &changed).restart_required);
+
+        let moved = RuntimeOverrides {
+            codex_home: Some("/home".into()),
+            codex_binary: Some("/bin/codex".into()),
+            codex_host: Some(Host::wsl("Ubuntu")),
+            ..Default::default()
+        };
+        assert!(runtime_settings(&runtime, &moved).restart_required);
     }
 
     #[test]

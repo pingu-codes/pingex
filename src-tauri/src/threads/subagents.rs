@@ -84,7 +84,7 @@ fn collect_spawn_details(thread: &Value, details: &mut HashMap<String, SpawnDeta
 pub(crate) async fn list_subagents(
     thread_id: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<SubagentDetail>, String> {
     let ctx = state.ctx(&window);
@@ -179,7 +179,7 @@ pub(crate) async fn update_subagent_policy(
     model_policy: Json,
     reasoning_effort_policy: Json,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);

@@ -121,6 +121,7 @@ pub struct SideQuestion {
     /// How many turns the fork inherited from its parent when the side
     /// question was asked. The panel hides them; `None` on rows recorded
     /// before this was tracked, which then show the whole fork.
+    #[specta(optional)]
     pub inherited_turns: Option<u32>,
 }
 

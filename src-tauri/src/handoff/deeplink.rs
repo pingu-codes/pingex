@@ -6,31 +6,36 @@
 //! switch, or show an actionable error rather than silently falling back.
 
 use serde::Serialize;
-use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, Manager};
 
 use super::url::{parse_deep_link, DeepLink, DeepLinkKind};
-use crate::AppState;
+use crate::util::host::Host;
+use crate::{home_key_for, AppState};
 
-/// Expand a leading `~` to the user's home directory.
-fn expand_tilde(path: &str) -> PathBuf {
-    if path == "~" {
-        return dirs::home_dir().unwrap_or_else(|| PathBuf::from(path));
+/// Expand a leading `~` to the user's home directory on `host`.
+fn expand_tilde(host: &Host, path: &str) -> String {
+    let Some(rest) = path.strip_prefix('~') else {
+        return path.to_string();
+    };
+    if !(rest.is_empty() || rest.starts_with('/')) {
+        return path.to_string();
     }
-    if let Some(rest) = path.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(rest);
-        }
+    match host.home_dir() {
+        Some(home) => host.join_str(&home, rest),
+        None => path.to_string(),
     }
-    PathBuf::from(path)
 }
 
-/// Compare two homes by canonical path, falling back to a lexical compare when
-/// a path cannot be canonicalized (e.g. it does not exist yet).
-fn homes_match(a: &Path, b: &Path) -> bool {
-    let canonical =
-        |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    canonical(a) == canonical(b)
+/// The home a link asks for, settled onto its host: a `host=` spec names a
+/// distribution; a share path does too; anything else is native.
+fn requested_home(link: &DeepLink) -> Option<(Host, String)> {
+    let raw = link.codex_home.as_deref()?;
+    let (host, path) = match link.host.as_deref().and_then(Host::parse_spec) {
+        Some(host) => (host.clone(), host.to_host_path(raw)),
+        None => Host::from_local(raw),
+    };
+    let path = expand_tilde(&host, &path);
+    Some((host, path))
 }
 
 /// Payload emitted to the frontend when a `codex://` link arrives. The frontend
@@ -45,6 +50,7 @@ pub(crate) struct HandoffOpen {
     pub(crate) path: Option<String>,
     /// The resolved (tilde-expanded) requested home, if the link carried one.
     pub(crate) requested_home: Option<String>,
+    pub(crate) requested_host: Option<Host>,
     pub(crate) label: Option<String>,
     /// The requested home equals the running home (or the link carried none).
     pub(crate) home_matches: bool,
@@ -52,17 +58,19 @@ pub(crate) struct HandoffOpen {
     pub(crate) home_exists: bool,
 }
 
-fn resolve_open(link: &DeepLink, running_home: &Path) -> HandoffOpen {
+/// `running_key` is the running home's key (see `home_key_for`), so two
+/// spellings of one folder match and one folder on two hosts does not.
+fn resolve_open(link: &DeepLink, running_key: &str) -> HandoffOpen {
     let (kind, thread_id) = match &link.kind {
         DeepLinkKind::Thread(id) => ("thread".to_string(), Some(id.clone())),
         DeepLinkKind::New => ("new".to_string(), None),
     };
-    let (requested_home, home_matches, home_exists) = match link.codex_home.as_deref() {
-        Some(raw) => {
-            let expanded = expand_tilde(raw);
-            let matches = homes_match(&expanded, running_home);
-            let exists = expanded.is_dir();
-            (Some(expanded.display().to_string()), matches, exists)
+    let requested_host = requested_home(link).map(|(host, _)| host);
+    let (requested_home, home_matches, home_exists) = match requested_home(link) {
+        Some((host, path)) => {
+            let matches = home_key_for(&host, &path) == running_key;
+            let exists = host.is_dir(&path);
+            (Some(path), matches, exists)
         }
         // No home param: treat as the running home.
         None => (None, true, true),
@@ -72,6 +80,7 @@ fn resolve_open(link: &DeepLink, running_home: &Path) -> HandoffOpen {
         thread_id,
         path: link.path.clone(),
         requested_home,
+        requested_host,
         label: link.label.clone(),
         home_matches,
         home_exists,
@@ -90,27 +99,27 @@ pub(crate) fn handle_deep_link_url(app: &AppHandle, url: &str) {
         return;
     };
     // A window already on the requested home takes the link directly.
-    if let Some(raw) = link.codex_home.as_deref() {
-        let requested = expand_tilde(raw);
+    if let Some((host, path)) = requested_home(&link) {
+        let requested = home_key_for(&host, &path);
         let matching = state
             .window_bindings()
             .into_iter()
-            .find(|(label, key)| label != "quick" && homes_match(Path::new(key), &requested));
+            .find(|(label, key)| label != "quick" && key == &requested);
         if let Some((label, key)) = matching {
             if let Some(window) = app.get_webview_window(&label) {
                 let _ = window.unminimize();
                 let _ = window.show();
                 let _ = window.set_focus();
             }
-            let payload = resolve_open(&link, Path::new(&key));
+            let payload = resolve_open(&link, &key);
             let _ = app.emit_to(&label, "handoff://open", payload);
             return;
         }
     }
     // No open window has this home: let the main window resolve it against
     // its own context and offer the switch flow.
-    let running_home = state.ctx_for_label("main").runtime().codex_home;
-    let payload = resolve_open(&link, &running_home);
+    let running_key = state.ctx_for_label("main").home_key.clone();
+    let payload = resolve_open(&link, &running_key);
     let _ = app.emit_to("main", "handoff://open", payload);
 }
 
@@ -124,9 +133,10 @@ mod tests {
             kind: DeepLinkKind::Thread("t1".into()),
             path: Some("/repo".into()),
             codex_home: Some("/nope/.codex".into()),
+            host: None,
             label: None,
         };
-        let running = PathBuf::from("/other/.codex");
+        let running = home_key_for(&Host::Native, "/other/.codex");
         let open = resolve_open(&link, &running);
         assert_eq!(open.kind, "thread");
         assert_eq!(open.thread_id.as_deref(), Some("t1"));
@@ -140,6 +150,17 @@ mod tests {
             ..link.clone()
         };
         assert!(resolve_open(&same, &running).home_matches);
+
+        // The same folder inside a distribution is a different home.
+        let wsl = DeepLink {
+            codex_home: Some("/other/.codex".into()),
+            host: Some("wsl:Ubuntu".into()),
+            ..link.clone()
+        };
+        assert!(!resolve_open(&wsl, &running).home_matches);
+        assert!(
+            resolve_open(&wsl, &home_key_for(&Host::wsl("Ubuntu"), "/other/.codex")).home_matches
+        );
     }
     #[test]
     fn resolve_without_home_defaults_to_running() {
@@ -147,9 +168,10 @@ mod tests {
             kind: DeepLinkKind::New,
             path: Some("/repo".into()),
             codex_home: None,
+            host: None,
             label: None,
         };
-        let open = resolve_open(&link, &PathBuf::from("/home/.codex"));
+        let open = resolve_open(&link, &home_key_for(&Host::Native, "/home/.codex"));
         assert!(open.home_matches);
         assert!(open.home_exists);
         assert_eq!(open.requested_home, None);

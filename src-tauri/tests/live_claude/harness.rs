@@ -19,12 +19,12 @@
 //! the tests only ever write inside their scratch working directory.
 
 use pingex_app_lib::e2e::{
-    claude_permission_result, claude_turn_args, resolve_codex_binary, CLAUDE_BASE_ARGS,
+    claude_permission_result, claude_turn_args, resolve_codex_binary, Host, CLAUDE_BASE_ARGS,
 };
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Stdio};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -149,14 +149,22 @@ impl Drop for ClaudeProcess {
 pub fn spawn(setup: &Setup, mode: &str) -> ClaudeProcess {
     let session_id = uuid::Uuid::new_v4().to_string();
     let args = claude_turn_args(Some(&setup.model), Some("low"), mode, false, &session_id);
-    let mut process = Command::new(&setup.binary)
-        .args(CLAUDE_BASE_ARGS)
-        .args(&args)
-        .current_dir(&setup.work)
-        .env("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
-        .env("CLAUDE_CONFIG_DIR", &setup.config_dir)
-        .env_remove("ANTHROPIC_API_KEY")
-        .env_remove("ANTHROPIC_AUTH_TOKEN")
+    // The same argv the driver builds, through the same `Host`.
+    let mut argv: Vec<&str> = CLAUDE_BASE_ARGS.to_vec();
+    argv.extend(args.iter().map(String::as_str));
+    let work = setup.work.display().to_string();
+    let config_dir = setup.config_dir.display().to_string();
+    let mut process = Host::Native
+        .command(
+            &setup.binary.display().to_string(),
+            &argv,
+            Some(&work),
+            &[
+                ("CLAUDE_CODE_ENTRYPOINT", "sdk-cli"),
+                ("CLAUDE_CONFIG_DIR", &config_dir),
+            ],
+            &["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
+        )
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

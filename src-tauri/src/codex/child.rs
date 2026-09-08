@@ -8,14 +8,14 @@
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::AppHandle;
 use tokio::sync::oneshot;
 
 use crate::codex::wire::WireLog;
+use crate::util::host::{orphan_pids, Host};
 
 /// What a child's owner does with the traffic the child originates. Responses
 /// to our own requests never reach the sink — those are correlated by id and
@@ -228,24 +228,30 @@ impl CodexChild {
 ///
 /// Subagent children are covered by the same rule: they are `codex app-server`
 /// too, so one that outlives a crashed app is reaped on the next launch.
-pub(crate) fn kill_orphaned_app_servers() {
-    let Ok(output) = Command::new("ps")
-        .args(["-axo", "pid=,ppid=,command="])
-        .output()
-    else {
-        return;
-    };
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
-        let mut parts = line.split_whitespace();
-        let (Some(pid), Some(ppid)) = (parts.next(), parts.next()) else {
+///
+/// Reaps on every host given: natively where `ps` exists, and inside each
+/// distribution, where killing the `wsl.exe` launcher may have left the Linux
+/// process behind.
+pub fn kill_orphaned_app_servers(hosts: &[Host]) {
+    let mut seen: Vec<&Host> = Vec::new();
+    for host in hosts {
+        if seen.contains(&host) {
+            continue;
+        }
+        seen.push(host);
+        if host == &Host::Native && !cfg!(unix) {
+            // No `ps` on Windows, and a native Windows Codex is not the
+            // case this exists for.
+            continue;
+        }
+        let Ok(output) = host
+            .command("ps", &["-axo", "pid=,ppid=,command="], None, &[], &[])
+            .output()
+        else {
             continue;
         };
-        let command: Vec<&str> = parts.collect();
-        if ppid == "1"
-            && command.first().is_some_and(|arg0| arg0.ends_with("codex"))
-            && command.get(1) == Some(&"app-server")
-        {
-            let _ = Command::new("kill").args(["-9", pid]).status();
+        for pid in orphan_pids(&String::from_utf8_lossy(&output.stdout)) {
+            let _ = host.command("kill", &["-9", &pid], None, &[], &[]).status();
         }
     }
 }
@@ -298,21 +304,28 @@ pub const APP_SERVER_ARGS: [&str; 4] = [
 /// return it ready for use. `client_name` identifies us in the server's logs;
 /// subagents use a distinct one so their traffic is separable.
 pub(crate) async fn spawn_child(
-    program: &Path,
-    codex_home: &Path,
+    host: &Host,
+    program: &str,
+    codex_home: &str,
     client_name: &str,
     app: AppHandle,
     wire: Arc<WireLog>,
     sink: Arc<dyn ChildSink>,
 ) -> Result<Arc<CodexChild>, String> {
-    let mut process = Command::new(program)
-        .args(APP_SERVER_ARGS)
-        .env("CODEX_HOME", codex_home)
+    // `program` and `codex_home` are host paths; the host wraps the spawn.
+    let mut process = host
+        .command(
+            program,
+            &APP_SERVER_ARGS,
+            None,
+            &[("CODEX_HOME", codex_home)],
+            &[],
+        )
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| format!("Could not start {}: {error}", program.display()))?;
+        .map_err(|error| format!("Could not start {program} ({}): {error}", host.label()))?;
 
     let stdin = process.stdin.take().ok_or("Codex stdin was unavailable")?;
     let stdout = process

@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 
 use super::tools;
 use crate::harness::{HarnessRequest, PermissionOption};
+use crate::util::host::Host;
 use crate::util::json::{arr_or_empty, str_at, Json};
 
 pub(crate) const ALLOW: &str = "allow";
@@ -63,7 +64,7 @@ fn describe_suggestion(suggestions: &[Value]) -> String {
 }
 
 /// The neutral request for one `can_use_tool`.
-pub(crate) fn request_for(can_use_tool: &Value, cwd: &str) -> HarnessRequest {
+pub(crate) fn request_for(can_use_tool: &Value, cwd: &str, host: &Host) -> HarnessRequest {
     let name = str_at(can_use_tool, "tool_name").unwrap_or("tool");
     let input = can_use_tool.get("input").cloned().unwrap_or(Value::Null);
     if name == "AskUserQuestion" {
@@ -122,7 +123,7 @@ pub(crate) fn request_for(can_use_tool: &Value, cwd: &str) -> HarnessRequest {
             None => line,
         });
     }
-    let content = tools::initial_content(name, &input, cwd);
+    let content = tools::initial_content(name, &input, cwd, host);
     let changes = Json(Value::Array(crate::harness::project::file_changes(
         &content,
     )));
@@ -260,6 +261,7 @@ mod tests {
         let bare = request_for(
             &json!({"tool_name": "Bash", "input": {"command": "ls"}, "tool_use_id": "t"}),
             "/r",
+            &Host::Native,
         );
         let HarnessRequest::Permission { options, .. } = bare else {
             panic!()
@@ -276,6 +278,7 @@ mod tests {
             &json!({"tool_name": "Bash", "input": {"command": "ls"}, "tool_use_id": "t",
                 "permission_suggestions": [{"type": "addRules", "rules": [{"toolName": "Bash", "ruleContent": "ls *"}], "behavior": "allow", "destination": "session"}]}),
             "/r",
+            &Host::Native,
         );
         let HarnessRequest::Permission { options, .. } = suggested else {
             panic!()

@@ -59,12 +59,16 @@ fn enabled(config: &Value, table: &str, id: &str) -> Option<bool> {
     config.get(table)?.get(id)?.get("enabled")?.as_bool()
 }
 
-fn project_dir(path: &str) -> Result<PathBuf, String> {
-    let path = Path::new(path);
-    if !path.is_absolute() || !path.is_dir() {
+fn project_dir(host: &crate::util::host::Host, path: &str) -> Result<PathBuf, String> {
+    let absolute = if host.is_wsl() {
+        path.starts_with('/')
+    } else {
+        Path::new(path).is_absolute()
+    };
+    if !absolute || !host.is_dir(path) {
         return Err("Project must be an existing absolute directory.".into());
     }
-    Ok(path.join(".codex"))
+    Ok(PathBuf::from(host.join_str(path, ".codex")))
 }
 
 fn as_json(doc: &DocumentMut) -> Result<Value, String> {
@@ -162,16 +166,19 @@ pub(super) async fn read(
     if cwds.len() > 1 {
         return Err("Select one project to manage its integrations.".into());
     }
-    let home = ctx.runtime().codex_home;
+    let runtime = ctx.runtime();
+    let home = runtime.codex_home.clone();
     let project = cwds.first();
     let selected = match project {
-        Some(path) => project_dir(path)?,
+        Some(path) => project_dir(&runtime.host, path)?,
         None => home.clone(),
     };
     let cwd = project
         .cloned()
         .unwrap_or_else(|| home.to_string_lossy().into_owned());
-    let local = as_json(&read_doc(&selected)?)?;
+    let local = as_json(&read_doc(
+        &runtime.host.to_local(&runtime.host.path_string(&selected)),
+    )?)?;
     let config = ctx
         .session
         .send(app, requests::integration_config(Some(&cwd)))
@@ -484,7 +491,7 @@ pub(crate) async fn set_integration_enabled(
     enabled: Option<bool>,
     project_path: Option<String>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
     let ctx = state.ctx(&window);
@@ -496,8 +503,9 @@ pub(crate) async fn set_integration_enabled(
     {
         return Err("Integration is no longer available. Refresh and try again.".into());
     }
+    let runtime = ctx.runtime();
     let directory = match project_path {
-        Some(ref path) => project_dir(path)?,
+        Some(ref path) => project_dir(&runtime.host, path)?,
         None => ctx.runtime().codex_home,
     };
     let setting = &before.settings[&format!("{}:{id}", kind.key())];
@@ -511,7 +519,11 @@ pub(crate) async fn set_integration_enabled(
         ],
         _ => vec![kind.table(), &id],
     };
-    write_override(&directory, &path, enabled)?;
+    write_override(
+        &runtime.host.to_local(&runtime.host.path_string(&directory)),
+        &path,
+        enabled,
+    )?;
     let reload = ctx
         .session
         .send(&app, requests::reload_integration_config())

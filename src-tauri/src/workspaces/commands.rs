@@ -6,8 +6,6 @@
 
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::path::{Path, PathBuf};
 use tauri::State;
 
 use super::hub::{materialize_hub, remove_managed_link};
@@ -17,6 +15,7 @@ use super::worktree::{
 use super::{clean_alias, runtime_for_workspace, workspace_id};
 use crate::projects::{bootstrap_cached, BootstrapData};
 use crate::storage::{self, StoredWorkspace, StoredWorkspaceMember};
+use crate::util::host::Host;
 use crate::AppState;
 
 #[derive(Clone, Debug, Deserialize, specta::Type)]
@@ -46,28 +45,33 @@ pub(crate) struct UpdateWorkspaceInput {
 /// Check the requested membership before anything is created: at least two
 /// projects, unique aliases, real folders, and no project nested inside another.
 fn validate_members(
+    host: &Host,
     inputs: &[WorkspaceMemberInput],
-) -> Result<Vec<(WorkspaceMemberInput, PathBuf)>, String> {
+) -> Result<Vec<(WorkspaceMemberInput, String)>, String> {
     if inputs.len() < 2 {
         return Err("Choose at least two projects for a workspace".into());
     }
     let mut aliases = HashSet::new();
     let mut paths = Vec::new();
     for input in inputs {
+        let (picked_host, _) = Host::from_local(&input.source_path);
+        if picked_host.is_wsl() && picked_host != *host {
+            return Err("A workspace can only contain projects on the same Host".into());
+        }
         let alias = clean_alias(&input.alias)?;
         if !aliases.insert(alias) {
             return Err("Workspace member aliases must be unique".into());
         }
-        let path = fs::canonicalize(&input.source_path)
-            .map_err(|_| format!("Could not open {}", input.source_path))?;
-        if !path.is_dir() {
-            return Err(format!("{} is not a folder", path.display()));
+        // A dialog pick on a WSL home is a local path; settle it first.
+        let source = host.to_host_path(&input.source_path);
+        if !host.is_dir(&source) {
+            return Err(format!("Could not open {}", input.source_path));
         }
-        paths.push((input.clone(), path));
+        paths.push((input.clone(), host.canonical(&source)));
     }
     for (index, (_, path)) in paths.iter().enumerate() {
         if paths.iter().enumerate().any(|(other_index, (_, other))| {
-            other_index != index && (path.starts_with(other) || other.starts_with(path))
+            other_index != index && (host.is_under(other, path) || host.is_under(path, other))
         }) {
             return Err("Workspace projects cannot overlap or contain one another".into());
         }
@@ -76,9 +80,9 @@ fn validate_members(
 }
 
 /// Undo every worktree created so far, newest first.
-fn roll_back(created: &[(PathBuf, PathBuf, String)]) {
+fn roll_back(host: &Host, created: &[(String, String, String)]) {
     for (source, destination, branch) in created.iter().rev() {
-        remove_created_worktree(source, destination, branch);
+        remove_created_worktree(host, source, destination, branch);
     }
 }
 
@@ -86,7 +90,7 @@ fn roll_back(created: &[(PathBuf, PathBuf, String)]) {
 #[specta::specta]
 pub(crate) async fn create_workspace(
     input: CreateWorkspaceInput,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
@@ -94,24 +98,29 @@ pub(crate) async fn create_workspace(
     if name.is_empty() {
         return Err("Give the workspace a name".into());
     }
-    let inputs = validate_members(&input.members)?;
     let runtime = ctx.runtime();
+    let host = runtime.host.clone();
+    let home = runtime.codex_home_str();
+    let inputs = validate_members(&host, &input.members)?;
     let id = workspace_id();
-    let hub = runtime.codex_home.join("multi-projects").join(&id);
-    let mut created = Vec::<(PathBuf, PathBuf, String)>::new();
+    let hub = host.join_str(&host.join_str(&home, "multi-projects"), &id);
+    let mut created = Vec::<(String, String, String)>::new();
     let mut members = Vec::new();
     for (ordinal, (input, source)) in inputs.into_iter().enumerate() {
         let alias = clean_alias(&input.alias)?;
-        let source_string = source.display().to_string();
-        let (effective, branch) = if input.isolated && is_git_repository(&source) {
-            let branch = available_branch(&source, &id, &alias);
-            let destination = runtime.codex_home.join("worktrees").join(&id).join(&alias);
-            if let Err(error) = create_isolated_worktree(&source, &destination, &branch) {
-                roll_back(&created);
+        let source_string = source.clone();
+        let (effective, branch) = if input.isolated && is_git_repository(&host, &source) {
+            let branch = available_branch(&host, &source, &id, &alias);
+            let destination = host.join_str(
+                &host.join_str(&host.join_str(&home, "worktrees"), &id),
+                &alias,
+            );
+            if let Err(error) = create_isolated_worktree(&host, &source, &destination, &branch) {
+                roll_back(&host, &created);
                 return Err(error);
             }
             created.push((source.clone(), destination.clone(), branch.clone()));
-            (destination.display().to_string(), Some(branch))
+            (destination, Some(branch))
         } else {
             (source_string.clone(), None)
         };
@@ -128,22 +137,23 @@ pub(crate) async fn create_workspace(
     let workspace = StoredWorkspace {
         id: id.clone(),
         name: name.to_string(),
-        hub_path: hub.display().to_string(),
+        hub_path: hub,
         archived: false,
     };
     let disk_workspace = workspace.clone();
     let disk_members = members.clone();
+    let disk_host = host.clone();
     let materialized = tauri::async_runtime::spawn_blocking(move || {
-        materialize_hub(&disk_workspace, &disk_members)
+        materialize_hub(&disk_host, &disk_workspace, &disk_members)
     })
     .await
     .map_err(|_| "Could not prepare workspace directory".to_string())?;
     if let Err(error) = materialized {
-        roll_back(&created);
+        roll_back(&host, &created);
         return Err(error);
     }
     if let Err(error) = storage::create_workspace(&ctx.database(), &workspace, &members).await {
-        roll_back(&created);
+        roll_back(&host, &created);
         return Err(error);
     }
     bootstrap_cached(&ctx).await
@@ -153,7 +163,7 @@ pub(crate) async fn create_workspace(
 #[specta::specta]
 pub(crate) async fn update_workspace(
     input: UpdateWorkspaceInput,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
@@ -161,7 +171,10 @@ pub(crate) async fn update_workspace(
     if name.is_empty() {
         return Err("Give the workspace a name".into());
     }
-    let requested = validate_members(&input.members)?;
+    let runtime = ctx.runtime();
+    let host = runtime.host.clone();
+    let home = runtime.codex_home_str();
+    let requested = validate_members(&host, &input.members)?;
     let mut workspace = storage::read_workspaces(&ctx.database())
         .await?
         .into_iter()
@@ -172,12 +185,11 @@ pub(crate) async fn update_workspace(
         .iter()
         .map(|member| (member.source_path.as_str(), member))
         .collect();
-    let runtime = ctx.runtime();
-    let mut created = Vec::<(PathBuf, PathBuf, String)>::new();
+    let mut created = Vec::<(String, String, String)>::new();
     let mut members = Vec::new();
     for (ordinal, (requested, source)) in requested.into_iter().enumerate() {
         let alias = clean_alias(&requested.alias)?;
-        let source_path = source.display().to_string();
+        let source_path = source.clone();
         let old = old_by_source.get(source_path.as_str()).copied();
         let (effective_path, branch, isolated) = match old {
             Some(member) if member.isolated == requested.isolated => (
@@ -185,19 +197,19 @@ pub(crate) async fn update_workspace(
                 member.branch.clone(),
                 member.isolated,
             ),
-            _ if requested.isolated && is_git_repository(&source) => {
-                let branch = available_branch(&source, &workspace.id, &alias);
-                let destination = runtime
-                    .codex_home
-                    .join("worktrees")
-                    .join(&workspace.id)
-                    .join(&alias);
-                if let Err(error) = create_isolated_worktree(&source, &destination, &branch) {
-                    roll_back(&created);
+            _ if requested.isolated && is_git_repository(&host, &source) => {
+                let branch = available_branch(&host, &source, &workspace.id, &alias);
+                let destination = host.join_str(
+                    &host.join_str(&host.join_str(&home, "worktrees"), &workspace.id),
+                    &alias,
+                );
+                if let Err(error) = create_isolated_worktree(&host, &source, &destination, &branch)
+                {
+                    roll_back(&host, &created);
                     return Err(error);
                 }
                 created.push((source.clone(), destination.clone(), branch.clone()));
-                (destination.display().to_string(), Some(branch), true)
+                (destination, Some(branch), true)
             }
             _ => (source_path.clone(), None, false),
         };
@@ -212,7 +224,7 @@ pub(crate) async fn update_workspace(
         });
     }
 
-    let hub = Path::new(&workspace.hub_path);
+    let hub = workspace.hub_path.clone();
     // Remove only aliases that were managed and are no longer identical. If
     // any were replaced by a user file, fail before changing the database.
     for old in &old_members {
@@ -220,8 +232,8 @@ pub(crate) async fn update_workspace(
             .iter()
             .any(|member| member.alias == old.alias && member.effective_path == old.effective_path);
         if !retained {
-            if let Err(error) = remove_managed_link(hub, old) {
-                roll_back(&created);
+            if let Err(error) = remove_managed_link(&host, &hub, old) {
+                roll_back(&host, &created);
                 return Err(error);
             }
         }
@@ -229,8 +241,9 @@ pub(crate) async fn update_workspace(
     workspace.name = name.to_string();
     let disk_workspace = workspace.clone();
     let disk_members = members.clone();
+    let disk_host = host.clone();
     let materialized = tauri::async_runtime::spawn_blocking(move || {
-        materialize_hub(&disk_workspace, &disk_members)
+        materialize_hub(&disk_host, &disk_workspace, &disk_members)
     })
     .await
     .map_err(|_| "Could not prepare workspace directory".to_string())?;
@@ -239,15 +252,16 @@ pub(crate) async fn update_workspace(
         // or removal. User files remain untouched in either case.
         let old_workspace = workspace.clone();
         let old_for_disk = old_members.clone();
+        let old_host = host.clone();
         let _ = tauri::async_runtime::spawn_blocking(move || {
-            materialize_hub(&old_workspace, &old_for_disk)
+            materialize_hub(&old_host, &old_workspace, &old_for_disk)
         })
         .await;
-        roll_back(&created);
+        roll_back(&host, &created);
         return Err(error);
     }
     if let Err(error) = storage::update_workspace(&ctx.database(), &workspace, &members).await {
-        roll_back(&created);
+        roll_back(&host, &created);
         return Err(error);
     }
     bootstrap_cached(&ctx).await
@@ -259,7 +273,7 @@ pub(crate) async fn move_thread_to_workspace(
     thread_id: String,
     workspace_id: String,
     app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
@@ -275,6 +289,8 @@ pub(crate) async fn move_thread_to_workspace(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::Path;
 
     #[test]
     fn rejects_nested_workspace_roots() {
@@ -294,7 +310,7 @@ mod tests {
                 isolated: false,
             },
         ];
-        assert!(validate_members(&inputs).is_err());
+        assert!(validate_members(&Host::Native, &inputs).is_err());
     }
 
     #[test]
@@ -310,8 +326,9 @@ mod tests {
             isolated: false,
         };
 
-        assert!(validate_members(&[member(&one, "one")]).is_err());
-        assert!(validate_members(&[member(&one, "same"), member(&two, "same")]).is_err());
-        assert!(validate_members(&[member(&one, "one"), member(&two, "two")]).is_ok());
+        let host = Host::Native;
+        assert!(validate_members(&host, &[member(&one, "one")]).is_err());
+        assert!(validate_members(&host, &[member(&one, "same"), member(&two, "same")]).is_err());
+        assert!(validate_members(&host, &[member(&one, "one"), member(&two, "two")]).is_ok());
     }
 }

@@ -4,17 +4,23 @@ use std::path::Path;
 
 use super::run::{run_git, READ_TIMEOUT};
 use super::types::CommitInfo;
+use crate::util::host::Host;
 
 /// Field and record separators chosen so a commit subject containing tabs,
 /// newlines, or pipes cannot break the parse.
 const FIELD: char = '\u{1f}';
 const RECORD: char = '\u{1e}';
 
-pub(crate) fn read_recent_commits(dir: &Path, limit: usize) -> Result<Vec<CommitInfo>, String> {
+pub(crate) fn read_recent_commits(
+    host: &Host,
+    dir: &Path,
+    limit: usize,
+) -> Result<Vec<CommitInfo>, String> {
     let limit = limit.clamp(1, 100);
     let limit_arg = format!("-n{limit}");
     // Unit-separator (%x1f) between fields, record-separator (%x1e) between lines.
     let output = run_git(
+        host,
         dir,
         &[
             "log",

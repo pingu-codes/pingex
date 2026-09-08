@@ -25,7 +25,7 @@ pub(crate) async fn rename_thread(
     thread_id: String,
     name: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
@@ -61,7 +61,7 @@ pub(crate) async fn rename_thread(
 pub(crate) async fn compact_thread(
     thread_id: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
@@ -91,7 +91,7 @@ pub(crate) async fn start_review(
     thread_id: String,
     target: Option<Json>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
@@ -124,7 +124,7 @@ pub(crate) async fn thread_goal_set(
     objective: Option<String>,
     status: Option<String>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
@@ -147,7 +147,7 @@ pub(crate) async fn thread_goal_set(
 pub(crate) async fn thread_goal_get(
     thread_id: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
@@ -172,7 +172,7 @@ pub(crate) async fn thread_goal_get(
 pub(crate) async fn thread_goal_clear(
     thread_id: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
@@ -188,7 +188,7 @@ pub(crate) async fn thread_goal_clear(
 #[specta::specta]
 pub(crate) async fn invalidate_thread_cache(
     thread_id: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
@@ -214,7 +214,7 @@ async fn remove_thread_locally(ctx: &crate::HomeContext, thread_id: &str) -> Res
 pub(crate) async fn archive_thread(
     thread_id: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
@@ -241,7 +241,7 @@ pub(crate) async fn archive_thread(
 pub(crate) async fn unarchive_thread(
     thread_id: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
@@ -259,7 +259,7 @@ pub(crate) async fn unarchive_thread(
 pub(crate) async fn delete_thread(
     thread_id: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
@@ -303,7 +303,7 @@ async fn delete_one_thread(
 #[specta::specta]
 pub(crate) async fn list_archived_threads(
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
@@ -333,7 +333,7 @@ async fn index_archived_search(ctx: &crate::HomeContext, response: &Value) {
 #[specta::specta]
 pub(crate) async fn list_models(
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
@@ -353,7 +353,7 @@ pub(crate) async fn list_models(
 pub(crate) async fn list_harness_models(
     harness: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     if harness == "claude" {
@@ -370,7 +370,7 @@ pub(crate) async fn list_harness_models(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn read_claude_status(
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<crate::claude::driver::ClaudeStatus, String> {
     let ctx = state.ctx(&window);
@@ -388,7 +388,7 @@ pub(crate) async fn rollback_thread(
     thread_id: String,
     num_turns: u32,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
@@ -424,7 +424,7 @@ pub(crate) async fn revert_thread(
     before_turn_id: String,
     kept_turn_ids: Vec<String>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
@@ -478,7 +478,7 @@ pub(crate) async fn fork_thread(
     last_turn_id: Option<String>,
     cwd: Option<String>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);

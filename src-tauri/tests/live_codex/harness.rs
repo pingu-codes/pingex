@@ -635,11 +635,18 @@ impl Server {
 /// `initialize`/`initialized` handshake, the way `spawn_child` does. Returns
 /// the session and the server's `userAgent`.
 fn start_session(codex_home: &Path, cwd: &Path) -> Result<(Arc<Inner>, String), String> {
-    // Same invocation as `crate::codex::child::spawn_child`.
-    let mut process = Command::new(codex_binary())
-        .args(pingex_app_lib::e2e::CODEX_APP_SERVER_ARGS)
-        .env("CODEX_HOME", codex_home)
-        .current_dir(cwd)
+    // Same invocation as `crate::codex::child::spawn_child`, through the
+    // same `Host` (plus a cwd, which the app sends per thread instead).
+    let home = codex_home.display().to_string();
+    let cwd = cwd.display().to_string();
+    let mut process = pingex_app_lib::e2e::Host::Native
+        .command(
+            &codex_binary().display().to_string(),
+            &pingex_app_lib::e2e::CODEX_APP_SERVER_ARGS,
+            Some(&cwd),
+            &[("CODEX_HOME", &home)],
+            &[],
+        )
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

@@ -4,10 +4,14 @@
 //! so work in the workspace never touches the user's checked-out state in the
 //! source repository. Creation is reversible: a failure part-way through a
 //! multi-member workspace rolls back every worktree made so far.
+//!
+//! Every path here is a host path; git runs on the workspace's host.
 
 use std::fs;
 use std::path::Path;
-use std::process::Command;
+
+use crate::git::run::{run_git, READ_TIMEOUT, WRITE_TIMEOUT};
+use crate::util::host::Host;
 
 /// Cap on a branch component so generated names stay readable.
 const MAX_COMPONENT_CHARS: usize = 40;
@@ -38,32 +42,34 @@ pub(crate) fn branch_component(value: &str) -> String {
     }
 }
 
-pub(crate) fn is_git_repository(path: &Path) -> bool {
-    Command::new("git")
-        .args(["-C"])
-        .arg(path)
-        .args(["rev-parse", "--is-inside-work-tree"])
-        .output()
-        .is_ok_and(|output| output.status.success())
+pub(crate) fn is_git_repository(host: &Host, path: &str) -> bool {
+    run_git(
+        host,
+        Path::new(path),
+        &["rev-parse", "--is-inside-work-tree"],
+        READ_TIMEOUT,
+    )
+    .is_ok_and(|output| output.ok)
 }
 
-fn branch_exists(path: &Path, branch: &str) -> bool {
-    Command::new("git")
-        .args(["-C"])
-        .arg(path)
-        .args([
+fn branch_exists(host: &Host, path: &str, branch: &str) -> bool {
+    run_git(
+        host,
+        Path::new(path),
+        &[
             "show-ref",
             "--verify",
             "--quiet",
             &format!("refs/heads/{branch}"),
-        ])
-        .status()
-        .is_ok_and(|status| status.success())
+        ],
+        READ_TIMEOUT,
+    )
+    .is_ok_and(|output| output.ok)
 }
 
 /// A branch name for this member that does not already exist, suffixing a
 /// counter if the natural name is taken.
-pub(crate) fn available_branch(path: &Path, workspace_id: &str, alias: &str) -> String {
+pub(crate) fn available_branch(host: &Host, path: &str, workspace_id: &str, alias: &str) -> String {
     let base = format!(
         "codex/workspace-{}/{}",
         workspace_id
@@ -73,33 +79,32 @@ pub(crate) fn available_branch(path: &Path, workspace_id: &str, alias: &str) -> 
             .collect::<String>(),
         branch_component(alias)
     );
-    if !branch_exists(path, &base) {
+    if !branch_exists(host, path, &base) {
         return base;
     }
     (2..)
         .map(|index| format!("{base}-{index}"))
-        .find(|candidate| !branch_exists(path, candidate))
+        .find(|candidate| !branch_exists(host, path, candidate))
         .expect("unbounded iterator always finds a branch name")
 }
 
 pub(crate) fn create_isolated_worktree(
-    source: &Path,
-    destination: &Path,
+    host: &Host,
+    source: &str,
+    destination: &str,
     branch: &str,
 ) -> Result<(), String> {
-    if let Some(parent) = destination.parent() {
-        fs::create_dir_all(parent)
+    if let Some(parent) = host.parent_str(destination) {
+        fs::create_dir_all(host.to_local(&parent))
             .map_err(|error| format!("Could not create workspace worktree directory: {error}"))?;
     }
-    let output = Command::new("git")
-        .args(["-C"])
-        .arg(source)
-        .args(["worktree", "add", "-b", branch])
-        .arg(destination)
-        .arg("HEAD")
-        .output()
-        .map_err(|error| format!("Could not start git: {error}"))?;
-    if output.status.success() {
+    let output = run_git(
+        host,
+        Path::new(source),
+        &["worktree", "add", "-b", branch, destination, "HEAD"],
+        WRITE_TIMEOUT,
+    )?;
+    if output.ok {
         Ok(())
     } else {
         Err("Could not create an isolated worktree for this project".into())
@@ -108,18 +113,19 @@ pub(crate) fn create_isolated_worktree(
 
 /// Undo `create_isolated_worktree`. Best-effort: this runs on a failure path
 /// where there is nothing useful to report a second error to.
-pub(crate) fn remove_created_worktree(source: &Path, destination: &Path, branch: &str) {
-    let _ = Command::new("git")
-        .args(["-C"])
-        .arg(source)
-        .args(["worktree", "remove", "--force"])
-        .arg(destination)
-        .status();
-    let _ = Command::new("git")
-        .args(["-C"])
-        .arg(source)
-        .args(["branch", "-D", branch])
-        .status();
+pub(crate) fn remove_created_worktree(host: &Host, source: &str, destination: &str, branch: &str) {
+    let _ = run_git(
+        host,
+        Path::new(source),
+        &["worktree", "remove", "--force", destination],
+        WRITE_TIMEOUT,
+    );
+    let _ = run_git(
+        host,
+        Path::new(source),
+        &["branch", "-D", branch],
+        WRITE_TIMEOUT,
+    );
 }
 
 #[cfg(test)]

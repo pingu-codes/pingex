@@ -72,33 +72,33 @@ fn remove_draft(codex_home: &Path, project: &str) -> Result<(), String> {
 pub(crate) fn save_draft(
     project: String,
     content: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
-    write_draft(&ctx.runtime().codex_home, &project, &content)
+    write_draft(&ctx.runtime().local_home(), &project, &content)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn load_draft(
     project: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Option<String>, String> {
     let ctx = state.ctx(&window);
-    read_draft(&ctx.runtime().codex_home, &project)
+    read_draft(&ctx.runtime().local_home(), &project)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn delete_draft(
     project: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
-    remove_draft(&ctx.runtime().codex_home, &project)
+    remove_draft(&ctx.runtime().local_home(), &project)
 }
 
 #[cfg(test)]

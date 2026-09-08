@@ -7,6 +7,7 @@ use std::path::Path;
 
 use super::run::{run_git, READ_TIMEOUT};
 use super::types::{BranchInfo, GitRepoInfo, GitStatus, StatusCounts, StatusFile};
+use crate::util::host::Host;
 use crate::util::time::unix_millis;
 
 /// Upper bound on the per-status file list handed to the frontend.
@@ -109,8 +110,9 @@ fn parse_status_entries(stdout: &str, max_files: usize) -> (StatusCounts, Vec<St
     (counts, files, truncated)
 }
 
-pub(crate) fn read_status(dir: &Path) -> Result<GitStatus, String> {
+pub(crate) fn read_status(host: &Host, dir: &Path) -> Result<GitStatus, String> {
     let output = run_git(
+        host,
         dir,
         &[
             "status",
@@ -138,9 +140,10 @@ pub(crate) fn read_status(dir: &Path) -> Result<GitStatus, String> {
     })
 }
 
-pub(crate) fn read_repo_info(dir: &Path) -> GitRepoInfo {
+pub(crate) fn read_repo_info(host: &Host, dir: &Path) -> GitRepoInfo {
+    let dir_str = host.path_string(dir);
     let mut info = GitRepoInfo {
-        dir: dir.display().to_string(),
+        dir: dir_str.clone(),
         is_git_repo: false,
         root: None,
         common_dir: None,
@@ -152,11 +155,12 @@ pub(crate) fn read_repo_info(dir: &Path) -> GitRepoInfo {
         in_progress: None,
         error: None,
     };
-    if !dir.is_dir() {
+    if !host.is_dir(&dir_str) {
         info.error = Some("This folder does not exist".to_string());
         return info;
     }
     let rev_parse = match run_git(
+        host,
         dir,
         &[
             "rev-parse",
@@ -182,7 +186,7 @@ pub(crate) fn read_repo_info(dir: &Path) -> GitRepoInfo {
     let common_dir = lines.next().map(str::to_string).filter(|s| !s.is_empty());
     info.common_dir = common_dir.clone();
 
-    if let Ok(status) = read_status(dir) {
+    if let Ok(status) = read_status(host, dir) {
         info.branch = status.branch;
         info.detached = status.detached;
         info.upstream = status.upstream;
@@ -190,7 +194,7 @@ pub(crate) fn read_repo_info(dir: &Path) -> GitRepoInfo {
         info.behind = status.behind;
     }
     if let Some(common) = common_dir {
-        info.in_progress = detect_in_progress(Path::new(&common));
+        info.in_progress = detect_in_progress(&host.to_local(&common));
     }
     info
 }

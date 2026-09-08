@@ -5,7 +5,6 @@
 //! the member alias, so `@api/src/main.rs` addresses the right repository.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
 use tauri::State;
 
 use crate::storage;
@@ -19,14 +18,15 @@ pub(crate) async fn search_project_files(
     root: String,
     query: String,
     limit: Option<usize>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<fuzzy::FileHit>, String> {
     let ctx = state.ctx(&window);
-    let root_path = PathBuf::from(&root);
-    if !root_path.is_dir() {
+    let host = ctx.host();
+    if !host.is_dir(&root) {
         return Err(format!("{root} is not a folder"));
     }
+    let root_path = host.to_local(&root);
     let limit = limit.unwrap_or(20).min(100);
     let workspace_members = workspace_members_for_hub(&root, &ctx).await?;
     tauri::async_runtime::spawn_blocking(move || {
@@ -43,10 +43,10 @@ pub(crate) async fn search_project_files(
             .filter(|hit| !is_workspace_managed_path(&hit.path, &aliases))
             .collect::<Vec<_>>();
         for member in members {
-            let member_root = PathBuf::from(member.effective_path);
-            if !member_root.is_dir() {
+            if !host.is_dir(&member.effective_path) {
                 continue;
             }
+            let member_root = host.to_local(&member.effective_path);
             for mut hit in fuzzy::search_files(&member_root, &query, limit) {
                 hit.path = format!("{}/{}", member.alias, hit.path);
                 hits.push(hit);
@@ -64,14 +64,15 @@ pub(crate) async fn search_project_files(
 #[specta::specta]
 pub(crate) async fn list_project_files(
     root: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
     let ctx = state.ctx(&window);
-    let root_path = PathBuf::from(&root);
-    if !root_path.is_dir() {
+    let host = ctx.host();
+    if !host.is_dir(&root) {
         return Err(format!("{root} is not a folder"));
     }
+    let root_path = host.to_local(&root);
     let workspace_members = workspace_members_for_hub(&root, &ctx).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let Some(members) = workspace_members else {
@@ -87,10 +88,10 @@ pub(crate) async fn list_project_files(
             .filter(|path| !is_workspace_managed_path(path, &aliases))
             .collect::<Vec<_>>();
         for member in members {
-            let member_root = PathBuf::from(member.effective_path);
-            if !member_root.is_dir() {
+            if !host.is_dir(&member.effective_path) {
                 continue;
             }
+            let member_root = host.to_local(&member.effective_path);
             paths.extend(
                 fuzzy::list_files(&member_root)
                     .into_iter()

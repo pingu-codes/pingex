@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::Instant;
 
 use serde::Serialize;
@@ -15,6 +15,7 @@ use serde::Serialize;
 use super::run::{redact_git_error, run_git, READ_TIMEOUT, WRITE_TIMEOUT};
 use super::status::read_status;
 use super::worktrees::read_worktrees;
+use crate::util::host::Host;
 
 pub(crate) const MAX_CHANGED_FILES: usize = 2000;
 pub(crate) const DEFAULT_DIFF_BYTES: usize = 256 * 1024;
@@ -57,27 +58,29 @@ pub(crate) struct FileDiff {
     pub(crate) bytes: usize,
 }
 
-fn same_dir(a: &Path, b: &str) -> bool {
-    let a = std::fs::canonicalize(a).unwrap_or_else(|_| a.to_path_buf());
-    std::fs::canonicalize(b).map(|p| p == a).unwrap_or(false)
+fn same_dir(host: &Host, a: &Path, b: &str) -> bool {
+    if !host.is_dir(b) {
+        return false;
+    }
+    host.canonical(&host.path_string(a)) == host.canonical(b)
 }
 
 /// Resolve what to diff against: for a linked worktree, the merge-base with
 /// the main worktree's branch; otherwise `HEAD`.
-pub(crate) fn resolve_base(dir: &Path, codex_home: &Path) -> (String, Option<String>) {
+pub(crate) fn resolve_base(host: &Host, dir: &Path, codex_home: &Path) -> (String, Option<String>) {
     let head = || ("HEAD".to_string(), None);
-    let Ok(entries) = read_worktrees(dir, codex_home) else {
+    let Ok(entries) = read_worktrees(host, dir, codex_home) else {
         return head();
     };
     let main = entries.iter().find(|entry| entry.is_main);
-    let is_main = main.map(|m| same_dir(dir, &m.path)).unwrap_or(true);
+    let is_main = main.map(|m| same_dir(host, dir, &m.path)).unwrap_or(true);
     if is_main {
         return head();
     }
     let Some(parent) = main.and_then(|entry| entry.branch.clone()) else {
         return head();
     };
-    match run_git(dir, &["merge-base", "HEAD", &parent], READ_TIMEOUT) {
+    match run_git(host, dir, &["merge-base", "HEAD", &parent], READ_TIMEOUT) {
         Ok(output) if output.ok && !output.stdout.trim().is_empty() => {
             (output.stdout.trim().to_string(), Some(parent))
         }
@@ -120,9 +123,10 @@ fn parse_numstat(stdout: &str) -> Vec<ChangedFile> {
 }
 
 /// `git diff --name-status` to tell added/deleted from modified.
-fn read_name_status(dir: &Path, base: &str) -> HashMap<String, String> {
+fn read_name_status(host: &Host, dir: &Path, base: &str) -> HashMap<String, String> {
     let mut map = HashMap::new();
     let Ok(output) = run_git(
+        host,
         dir,
         &["diff", "--name-status", "-z", "-M", "--no-color", base],
         READ_TIMEOUT,
@@ -150,8 +154,9 @@ fn read_name_status(dir: &Path, base: &str) -> HashMap<String, String> {
     map
 }
 
-fn read_untracked(dir: &Path) -> Vec<String> {
+fn read_untracked(host: &Host, dir: &Path) -> Vec<String> {
     let Ok(output) = run_git(
+        host,
         dir,
         &["ls-files", "--others", "--exclude-standard", "-z"],
         READ_TIMEOUT,
@@ -167,11 +172,13 @@ fn read_untracked(dir: &Path) -> Vec<String> {
 }
 
 pub(crate) fn read_changes_summary(
+    host: &Host,
     dir: &Path,
     codex_home: &Path,
 ) -> Result<ChangesSummary, String> {
-    let (base, base_branch) = resolve_base(dir, codex_home);
+    let (base, base_branch) = resolve_base(host, dir, codex_home);
     let output = run_git(
+        host,
         dir,
         &[
             "-c",
@@ -189,18 +196,19 @@ pub(crate) fn read_changes_summary(
         return Err("Could not read changes for this directory".to_string());
     }
     let mut files = parse_numstat(&output.stdout);
-    let statuses = read_name_status(dir, &base);
+    let statuses = read_name_status(host, dir, &base);
     for file in &mut files {
         if let Some(status) = statuses.get(&file.path) {
             file.status = status.clone();
         }
     }
-    let untracked = read_untracked(dir);
+    let untracked = read_untracked(host, dir);
+    let dir_str = host.path_string(dir);
     // Only sample line counts for a bounded number of untracked files; a
     // generated corpus of thousands of files must not cost thousands of reads.
     for (index, path) in untracked.into_iter().enumerate() {
         let (additions, binary) = if index < 200 {
-            untracked_line_count(&dir.join(&path))
+            untracked_line_count(&host.to_local(&host.join_str(&dir_str, &path)))
         } else {
             (0, false)
         };
@@ -248,6 +256,7 @@ fn untracked_line_count(path: &Path) -> (u64, bool) {
 /// Run `git diff` for one path, reading at most `max_bytes` of stdout and then
 /// killing the child, so a huge generated file costs bounded memory and time.
 pub(crate) fn read_file_diff(
+    host: &Host,
     dir: &Path,
     base: &str,
     path: &str,
@@ -256,22 +265,31 @@ pub(crate) fn read_file_diff(
     max_bytes: usize,
 ) -> Result<FileDiff, String> {
     let max_bytes = max_bytes.clamp(1024, MAX_DIFF_BYTES);
-    let mut command = Command::new("git");
-    command.arg("-C").arg(dir).args([
+    let dir_str = host.path_string(dir);
+    let mut args: Vec<&str> = vec![
+        "-C",
+        &dir_str,
         "-c",
         "core.quotepath=off",
         "diff",
         "--no-color",
         "--no-ext-diff",
-    ]);
-    if untracked {
-        command.args(["--no-index", "--", "/dev/null", path]);
-    } else if staged {
-        // Index versus `base` (normally HEAD): what a commit would contain.
-        command.args(["--cached", base, "--", path]);
+    ];
+    // The empty side of an untracked file's diff: the null device as git on
+    // that host spells it.
+    let null_device = if host.is_wsl() || cfg!(unix) {
+        "/dev/null"
     } else {
-        command.args([base, "--", path]);
+        "NUL"
+    };
+    if untracked {
+        args.extend(["--no-index", "--", null_device, path]);
+    } else if staged {
+        args.extend(["--cached", base, "--", path]);
+    } else {
+        args.extend([base, "--", path]);
     }
+    let mut command = host.command("git", &args, Some(&dir_str), &[], &[]);
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -338,22 +356,27 @@ pub(crate) struct HandoffPreflight {
 }
 
 pub(crate) fn handoff_preflight(
+    host: &Host,
     worktree: &Path,
     target: &Path,
     codex_home: &Path,
 ) -> Result<HandoffPreflight, String> {
-    let entries = read_worktrees(worktree, codex_home)?;
-    let entry = entries.iter().find(|entry| same_dir(worktree, &entry.path));
+    let entries = read_worktrees(host, worktree, codex_home)?;
+    let entry = entries
+        .iter()
+        .find(|entry| same_dir(host, worktree, &entry.path));
     let branch = entry.and_then(|entry| entry.branch.clone());
-    let worktree_dirty = read_status(worktree)
+    let worktree_dirty = read_status(host, worktree)
         .map(|status| status.counts.is_dirty())
         .unwrap_or(false);
-    let target_status = read_status(target);
+    let target_status = read_status(host, target);
     let target_dirty = target_status
         .as_ref()
         .map(|status| status.counts.is_dirty())
         .unwrap_or(true);
-    let target_entry = entries.iter().find(|entry| same_dir(target, &entry.path));
+    let target_entry = entries
+        .iter()
+        .find(|entry| same_dir(host, target, &entry.path));
     let same_repo = target_entry.is_some();
     let target_is_worktree = target_entry.map(|e| !e.is_main).unwrap_or(false);
     let blocker = if branch.is_none() {
@@ -383,13 +406,14 @@ pub(crate) fn handoff_preflight(
 /// optionally renaming it to `new_name`. Returns the final branch name.
 /// Restores the worktree if the checkout fails.
 pub(crate) fn handoff(
+    host: &Host,
     worktree: &Path,
     target: &Path,
     codex_home: &Path,
     commit_uncommitted: bool,
     new_name: Option<&str>,
 ) -> Result<String, String> {
-    let preflight = handoff_preflight(worktree, target, codex_home)?;
+    let preflight = handoff_preflight(host, worktree, target, codex_home)?;
     if let Some(blocker) = preflight.blocker {
         return Err(blocker);
     }
@@ -399,6 +423,7 @@ pub(crate) fn handoff(
         .filter(|name| !name.is_empty() && *name != branch);
     if let Some(name) = new_name {
         let valid = run_git(
+            host,
             target,
             &["check-ref-format", "--branch", name],
             WRITE_TIMEOUT,
@@ -407,6 +432,7 @@ pub(crate) fn handoff(
             return Err(format!("\"{name}\" is not a valid branch name"));
         }
         let exists = run_git(
+            host,
             target,
             &[
                 "rev-parse",
@@ -424,11 +450,12 @@ pub(crate) fn handoff(
         if !commit_uncommitted {
             return Err("This worktree has uncommitted changes".to_string());
         }
-        let add = run_git(worktree, &["add", "-A"], WRITE_TIMEOUT)?;
+        let add = run_git(host, worktree, &["add", "-A"], WRITE_TIMEOUT)?;
         if !add.ok {
             return Err("Could not stage the worktree's changes".to_string());
         }
         let commit = run_git(
+            host,
             worktree,
             &[
                 "commit",
@@ -443,8 +470,10 @@ pub(crate) fn handoff(
             return Err("Could not commit the worktree's changes".to_string());
         }
     }
-    let worktree_str = worktree.to_str().unwrap_or_default();
+    let worktree_str = host.path_string(worktree);
+    let worktree_str = worktree_str.as_str();
     let removed = run_git(
+        host,
         target,
         &["worktree", "remove", "--force", worktree_str],
         WRITE_TIMEOUT,
@@ -455,10 +484,11 @@ pub(crate) fn handoff(
             &removed,
         ));
     }
-    let checkout = run_git(target, &["checkout", &branch], WRITE_TIMEOUT)?;
+    let checkout = run_git(host, target, &["checkout", &branch], WRITE_TIMEOUT)?;
     if !checkout.ok {
         // Put the worktree back so nothing is lost.
         let _ = run_git(
+            host,
             target,
             &["worktree", "add", worktree_str, &branch],
             WRITE_TIMEOUT,
@@ -469,7 +499,12 @@ pub(crate) fn handoff(
         ));
     }
     if let Some(name) = new_name {
-        let renamed = run_git(target, &["branch", "-m", &branch, name], WRITE_TIMEOUT)?;
+        let renamed = run_git(
+            host,
+            target,
+            &["branch", "-m", &branch, name],
+            WRITE_TIMEOUT,
+        )?;
         if !renamed.ok {
             return Err(redact_git_error("Could not rename the branch", &renamed));
         }

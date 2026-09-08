@@ -8,34 +8,39 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
+use crate::util::host::Host;
 use crate::RuntimeConfig;
 
 /// Every worktree Codex has created under this home, permanent and temporary.
 pub(crate) fn discover_worktrees(runtime: &RuntimeConfig) -> Vec<String> {
-    let mut found = discover_worktree_root(&runtime.codex_home.join("worktrees"));
+    let host = &runtime.host;
+    let home = runtime.codex_home_str();
+    let mut found = discover_worktree_root(host, &host.join_str(&home, "worktrees"));
     found.extend(discover_worktree_root(
-        &runtime.codex_home.join("worktrees-tmp"),
+        host,
+        &host.join_str(&home, "worktrees-tmp"),
     ));
     found.sort();
     found
 }
 
 /// Scan one `<root>/<group>/<name>` worktree tree (the Codex-home layout for
-/// both permanent `worktrees/` and temporary `worktrees-tmp/`).
-fn discover_worktree_root(root: &Path) -> Vec<String> {
-    let Ok(hashes) = fs::read_dir(root) else {
+/// both permanent `worktrees/` and temporary `worktrees-tmp/`). `root` is a
+/// host path; the result is host paths too.
+fn discover_worktree_root(host: &Host, root: &str) -> Vec<String> {
+    let Ok(hashes) = fs::read_dir(host.to_local(root)) else {
         return Vec::new();
     };
     let mut found = Vec::new();
     for hash in hashes.flatten() {
+        let group = host.join_str(root, &hash.file_name().to_string_lossy());
         let Ok(names) = fs::read_dir(hash.path()) else {
             continue;
         };
         for entry in names.flatten() {
             if entry.path().is_dir() {
-                found.push(entry.path().display().to_string());
+                found.push(host.join_str(&group, &entry.file_name().to_string_lossy()));
             }
         }
     }
@@ -43,9 +48,15 @@ fn discover_worktree_root(root: &Path) -> Vec<String> {
 }
 
 /// Canonical-path prefix check shared by the worktree classifiers.
-fn path_under(root: PathBuf, path: &str) -> bool {
-    let canonical_root = fs::canonicalize(&root).unwrap_or(root);
-    canonicalize_lenient(Path::new(path)).starts_with(&canonical_root)
+fn path_under(host: &Host, root: &str, path: &str) -> bool {
+    match host {
+        Host::Native => {
+            let root = PathBuf::from(root);
+            let canonical_root = fs::canonicalize(&root).unwrap_or(root);
+            canonicalize_lenient(Path::new(path)).starts_with(&canonical_root)
+        }
+        Host::Wsl { .. } => host.is_under(&host.canonical(root), &host.canonical(path)),
+    }
 }
 
 /// `fs::canonicalize` for paths that may no longer exist (a removed temporary
@@ -80,13 +91,18 @@ fn canonicalize_lenient(path: &Path) -> PathBuf {
 /// folder unless the user adopted it (`StoredProject::worktree`), never
 /// labelled Codex-managed by path resemblance alone.
 pub(crate) fn is_worktree_path(runtime: &RuntimeConfig, path: &str) -> bool {
-    path_under(runtime.codex_home.join("worktrees"), path)
+    let host = &runtime.host;
+    path_under(
+        host,
+        &host.join_str(&runtime.codex_home_str(), "worktrees"),
+        path,
+    )
 }
 
 /// Temporary worktrees live under `<codex_home>/worktrees-tmp/` — persistent
 /// across app restarts (never the OS temp dir) but intended to be discarded.
 pub(crate) fn is_temp_worktree_path(runtime: &RuntimeConfig, path: &str) -> bool {
-    is_temp_worktree_path_under(&runtime.codex_home, path)
+    is_temp_worktree_path_on(&runtime.host, &runtime.codex_home_str(), path)
 }
 
 /// Where temporary worktrees for this Codex home live.
@@ -94,27 +110,40 @@ pub fn temp_worktrees_root(codex_home: &Path) -> PathBuf {
     codex_home.join("worktrees-tmp")
 }
 
-/// [`is_temp_worktree_path`] against an explicit Codex home.
+/// [`is_temp_worktree_path`] against an explicit native Codex home.
 pub fn is_temp_worktree_path_under(codex_home: &Path, path: &str) -> bool {
-    path_under(temp_worktrees_root(codex_home), path)
+    is_temp_worktree_path_on(&Host::Native, &codex_home.to_string_lossy(), path)
+}
+
+/// [`is_temp_worktree_path`] against an explicit Codex home on `host`.
+pub(crate) fn is_temp_worktree_path_on(host: &Host, codex_home: &str, path: &str) -> bool {
+    path_under(host, &host.join_str(codex_home, "worktrees-tmp"), path)
 }
 
 /// The main working tree a linked worktree belongs to, so discovering a
 /// worktree also surfaces its repository in the sidebar.
 pub fn worktree_parent_project(worktree: &str) -> Option<String> {
-    let output = Command::new("git")
-        .args(["-C", worktree, "worktree", "list", "--porcelain"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
+    worktree_parent_project_on(&Host::Native, worktree)
+}
+
+/// [`worktree_parent_project`] on `host`.
+pub(crate) fn worktree_parent_project_on(host: &Host, worktree: &str) -> Option<String> {
+    let output = crate::git::run_git(
+        host,
+        Path::new(worktree),
+        &["worktree", "list", "--porcelain"],
+        crate::git::run::READ_TIMEOUT,
+    )
+    .ok()?;
+    if !output.ok {
         return None;
     }
-    let stdout = String::from_utf8(output.stdout).ok()?;
-    let main = stdout
+    let main = output
+        .stdout
         .lines()
         .find_map(|line| line.strip_prefix("worktree "))?
         .trim();
-    if main.is_empty() || main == worktree || !Path::new(main).is_dir() {
+    if main.is_empty() || main == worktree || !host.is_dir(main) {
         return None;
     }
     Some(main.to_string())
@@ -123,8 +152,9 @@ pub fn worktree_parent_project(worktree: &str) -> Option<String> {
 /// The main working tree of a *linked* worktree at `path`, for adopting it as
 /// a sidebar project. Refuses folders that are not a repository and the main
 /// working tree itself, since neither is a worktree to adopt.
-pub(crate) fn linked_worktree_parent(path: &Path) -> Result<String, String> {
+pub(crate) fn linked_worktree_parent(host: &Host, path: &Path) -> Result<String, String> {
     let output = crate::git::run_git(
+        host,
         path,
         &[
             "rev-parse",
@@ -149,13 +179,14 @@ pub(crate) fn linked_worktree_parent(path: &Path) -> Result<String, String> {
             path.display()
         ));
     }
-    worktree_parent_project(&path.display().to_string())
+    worktree_parent_project_on(host, &host.path_string(path))
         .ok_or_else(|| "Could not find the repository this worktree belongs to".to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
 
     #[test]
     fn classifies_worktrees_by_canonical_path_not_by_name() {
@@ -170,6 +201,7 @@ mod tests {
         let runtime = RuntimeConfig {
             codex_home: home.clone(),
             codex_binary: PathBuf::from("codex"),
+            host: crate::util::host::Host::Native,
         };
         let managed = home.join("worktrees/abc/feature").display().to_string();
         let temporary = home.join("worktrees-tmp/abc/scratch").display().to_string();
@@ -180,6 +212,7 @@ mod tests {
         assert!(!is_worktree_path(&runtime, &impostor.display().to_string()));
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_removed_temp_worktree_is_still_classified_under_a_symlinked_home() {
         // macOS temp dirs are symlinks (/var → /private/var): a path that no
@@ -214,6 +247,7 @@ mod tests {
         let found = discover_worktrees(&RuntimeConfig {
             codex_home: home,
             codex_binary: PathBuf::from("codex"),
+            host: crate::util::host::Host::Native,
         });
         assert_eq!(found.len(), 2);
         assert!(found.iter().any(|path| path.ends_with("feature")));
@@ -226,6 +260,7 @@ mod tests {
         assert!(discover_worktrees(&RuntimeConfig {
             codex_home: directory.path().join("never-created"),
             codex_binary: PathBuf::from("codex"),
+            host: crate::util::host::Host::Native,
         })
         .is_empty());
     }
@@ -270,14 +305,14 @@ mod tests {
         let plain = directory.path().join("plain");
         fs::create_dir_all(&plain).unwrap();
 
-        let parent = linked_worktree_parent(&linked).unwrap();
+        let parent = linked_worktree_parent(&Host::Native, &linked).unwrap();
         assert_eq!(
             fs::canonicalize(&parent).unwrap(),
             fs::canonicalize(&repo).unwrap()
         );
-        let main_error = linked_worktree_parent(&repo).unwrap_err();
+        let main_error = linked_worktree_parent(&Host::Native, &repo).unwrap_err();
         assert!(main_error.contains("main working tree"), "{main_error}");
-        let plain_error = linked_worktree_parent(&plain).unwrap_err();
+        let plain_error = linked_worktree_parent(&Host::Native, &plain).unwrap_err();
         assert!(
             plain_error.contains("not a Git repository"),
             "{plain_error}"

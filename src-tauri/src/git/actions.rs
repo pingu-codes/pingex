@@ -14,6 +14,7 @@ use super::run::{
 };
 use super::status::{read_repo_info, read_status};
 use super::types::{CommitResult, GitContext, SyncResult};
+use crate::util::host::Host;
 use crate::util::process::CommandOutput;
 
 /// Hook output longer than this is cut; a chatty hook must not flood the UI.
@@ -27,7 +28,7 @@ fn validate_paths(paths: &[String]) -> Result<(), String> {
     for path in paths {
         let p = Path::new(path);
         let bad = path.is_empty()
-            || p.is_absolute()
+            || p.has_root()
             || p.components()
                 .any(|c| matches!(c, Component::ParentDir | Component::Prefix(_)));
         if bad {
@@ -47,31 +48,36 @@ fn with_paths<'a>(head: &[&'a str], paths: &'a [String]) -> Vec<&'a str> {
     args
 }
 
-fn has_head(dir: &Path) -> bool {
-    run_git(dir, &["rev-parse", "--verify", "-q", "HEAD"], READ_TIMEOUT)
-        .map(|o| o.ok)
-        .unwrap_or(false)
+fn has_head(host: &Host, dir: &Path) -> bool {
+    run_git(
+        host,
+        dir,
+        &["rev-parse", "--verify", "-q", "HEAD"],
+        READ_TIMEOUT,
+    )
+    .map(|o| o.ok)
+    .unwrap_or(false)
 }
 
-pub(crate) fn stage_paths(dir: &Path, paths: &[String]) -> Result<(), String> {
+pub(crate) fn stage_paths(host: &Host, dir: &Path, paths: &[String]) -> Result<(), String> {
     validate_paths(paths)?;
-    let output = run_git(dir, &with_paths(&["add", "-A"], paths), WRITE_TIMEOUT)?;
+    let output = run_git(host, dir, &with_paths(&["add", "-A"], paths), WRITE_TIMEOUT)?;
     if !output.ok {
         return Err(redact_classified("Could not stage those files", &output));
     }
     Ok(())
 }
 
-pub(crate) fn unstage_paths(dir: &Path, paths: &[String]) -> Result<(), String> {
+pub(crate) fn unstage_paths(host: &Host, dir: &Path, paths: &[String]) -> Result<(), String> {
     validate_paths(paths)?;
     // `restore --staged` needs a HEAD to restore from; an unborn branch can
     // only drop entries from the index.
-    let head: &[&str] = if has_head(dir) {
+    let head: &[&str] = if has_head(host, dir) {
         &["restore", "--staged"]
     } else {
         &["rm", "--cached", "-r", "-q"]
     };
-    let output = run_git(dir, &with_paths(head, paths), WRITE_TIMEOUT)?;
+    let output = run_git(host, dir, &with_paths(head, paths), WRITE_TIMEOUT)?;
     if !output.ok {
         return Err(redact_classified("Could not unstage those files", &output));
     }
@@ -81,6 +87,7 @@ pub(crate) fn unstage_paths(dir: &Path, paths: &[String]) -> Result<(), String> 
 /// Throw away working-tree changes: tracked paths are restored from the index
 /// (or HEAD when also staged), untracked paths are deleted.
 pub(crate) fn discard_paths(
+    host: &Host,
     dir: &Path,
     tracked: &[String],
     untracked: &[String],
@@ -90,7 +97,12 @@ pub(crate) fn discard_paths(
     }
     if !tracked.is_empty() {
         validate_paths(tracked)?;
-        let output = run_git(dir, &with_paths(&["checkout"], tracked), WRITE_TIMEOUT)?;
+        let output = run_git(
+            host,
+            dir,
+            &with_paths(&["checkout"], tracked),
+            WRITE_TIMEOUT,
+        )?;
         if !output.ok {
             return Err(redact_classified(
                 "Could not discard those changes",
@@ -101,6 +113,7 @@ pub(crate) fn discard_paths(
     if !untracked.is_empty() {
         validate_paths(untracked)?;
         let output = run_git(
+            host,
             dir,
             &with_paths(&["clean", "-f", "-q"], untracked),
             WRITE_TIMEOUT,
@@ -112,18 +125,18 @@ pub(crate) fn discard_paths(
     Ok(())
 }
 
-fn config_value(dir: &Path, key: &str) -> Option<String> {
-    run_git(dir, &["config", "--get", key], READ_TIMEOUT)
+fn config_value(host: &Host, dir: &Path, key: &str) -> Option<String> {
+    run_git(host, dir, &["config", "--get", key], READ_TIMEOUT)
         .ok()
         .filter(|o| o.ok)
         .map(|o| o.stdout.trim().to_string())
         .filter(|v| !v.is_empty())
 }
 
-pub(crate) fn commit_identity(dir: &Path) -> (Option<String>, Option<String>) {
+pub(crate) fn commit_identity(host: &Host, dir: &Path) -> (Option<String>, Option<String>) {
     (
-        config_value(dir, "user.name"),
-        config_value(dir, "user.email"),
+        config_value(host, dir, "user.name"),
+        config_value(host, dir, "user.email"),
     )
 }
 
@@ -152,7 +165,7 @@ fn trimmed_output(output: &CommandOutput) -> Option<String> {
     Some(text)
 }
 
-pub(crate) fn commit(dir: &Path, message: &str) -> Result<CommitResult, String> {
+pub(crate) fn commit(host: &Host, dir: &Path, message: &str) -> Result<CommitResult, String> {
     let message = message.trim();
     if message.is_empty() {
         return Err(classified_error(
@@ -160,7 +173,7 @@ pub(crate) fn commit(dir: &Path, message: &str) -> Result<CommitResult, String> 
             "A commit message is required",
         ));
     }
-    let output = run_git(dir, &["commit", "-q", "-m", message], WRITE_TIMEOUT)?;
+    let output = run_git(host, dir, &["commit", "-q", "-m", message], WRITE_TIMEOUT)?;
     if !output.ok {
         // "nothing to commit" is printed on stdout even with `-q`.
         let stderr = format!("{}\n{}", output.stderr, output.stdout).to_lowercase();
@@ -182,6 +195,7 @@ pub(crate) fn commit(dir: &Path, message: &str) -> Result<CommitResult, String> 
         };
     }
     let log = run_git(
+        host,
         dir,
         &["log", "-1", "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ae"],
         READ_TIMEOUT,
@@ -200,8 +214,8 @@ pub(crate) fn commit(dir: &Path, message: &str) -> Result<CommitResult, String> 
     })
 }
 
-fn sync_result(dir: &Path, operation: &str, summary: String) -> SyncResult {
-    let status = read_status(dir).ok();
+fn sync_result(host: &Host, dir: &Path, operation: &str, summary: String) -> SyncResult {
+    let status = read_status(host, dir).ok();
     SyncResult {
         operation: operation.to_string(),
         summary,
@@ -211,20 +225,20 @@ fn sync_result(dir: &Path, operation: &str, summary: String) -> SyncResult {
     }
 }
 
-pub(crate) fn fetch(dir: &Path) -> Result<SyncResult, String> {
-    let output = run_git_network(dir, &["fetch", "--prune"])?;
+pub(crate) fn fetch(host: &Host, dir: &Path) -> Result<SyncResult, String> {
+    let output = run_git_network(host, dir, &["fetch", "--prune"])?;
     if !output.ok {
         return Err(redact_classified(
             "Could not fetch from the remote",
             &output,
         ));
     }
-    Ok(sync_result(dir, "fetch", "Fetched".to_string()))
+    Ok(sync_result(host, dir, "fetch", "Fetched".to_string()))
 }
 
-pub(crate) fn pull(dir: &Path) -> Result<SyncResult, String> {
-    let before = read_status(dir).ok();
-    let output = run_git_network(dir, &["pull", "--ff-only"])?;
+pub(crate) fn pull(host: &Host, dir: &Path) -> Result<SyncResult, String> {
+    let before = read_status(host, dir).ok();
+    let output = run_git_network(host, dir, &["pull", "--ff-only"])?;
     if !output.ok {
         return Err(redact_classified("Could not pull from the remote", &output));
     }
@@ -239,26 +253,26 @@ pub(crate) fn pull(dir: &Path) -> Result<SyncResult, String> {
     } else {
         "Pulled".to_string()
     };
-    Ok(sync_result(dir, "pull", summary))
+    Ok(sync_result(host, dir, "pull", summary))
 }
 
-pub(crate) fn push(dir: &Path, set_upstream: bool) -> Result<SyncResult, String> {
+pub(crate) fn push(host: &Host, dir: &Path, set_upstream: bool) -> Result<SyncResult, String> {
     let output = if set_upstream {
-        let status = read_status(dir)?;
+        let status = read_status(host, dir)?;
         let Some(branch) = status.branch.filter(|_| !status.detached) else {
             return Err(classified_error(
                 GitErrorKind::Other,
                 "Check out a branch before publishing it",
             ));
         };
-        run_git_network(dir, &["push", "-u", "origin", &branch])?
+        run_git_network(host, dir, &["push", "-u", "origin", &branch])?
     } else {
-        run_git_network(dir, &["push"])?
+        run_git_network(host, dir, &["push"])?
     };
     if !output.ok {
         return Err(redact_classified("Could not push to the remote", &output));
     }
-    let result = sync_result(dir, "push", String::new());
+    let result = sync_result(host, dir, "push", String::new());
     let summary = match &result.upstream {
         Some(upstream) => format!("Pushed to {upstream}"),
         None => "Pushed".to_string(),
@@ -266,8 +280,13 @@ pub(crate) fn push(dir: &Path, set_upstream: bool) -> Result<SyncResult, String>
     Ok(SyncResult { summary, ..result })
 }
 
-fn validate_branch_name(dir: &Path, name: &str) -> Result<(), String> {
-    let check = run_git(dir, &["check-ref-format", "--branch", name], READ_TIMEOUT)?;
+fn validate_branch_name(host: &Host, dir: &Path, name: &str) -> Result<(), String> {
+    let check = run_git(
+        host,
+        dir,
+        &["check-ref-format", "--branch", name],
+        READ_TIMEOUT,
+    )?;
     if !check.ok {
         return Err(classified_error(
             GitErrorKind::Other,
@@ -279,10 +298,15 @@ fn validate_branch_name(dir: &Path, name: &str) -> Result<(), String> {
 
 /// Switch branches. A dirty tree is refused unless `force`, and `force` only
 /// lifts that check: git still refuses when local changes would be lost.
-pub(crate) fn checkout_branch(dir: &Path, name: &str, force: bool) -> Result<(), String> {
-    validate_branch_name(dir, name)?;
+pub(crate) fn checkout_branch(
+    host: &Host,
+    dir: &Path,
+    name: &str,
+    force: bool,
+) -> Result<(), String> {
+    validate_branch_name(host, dir, name)?;
     if !force {
-        let status = read_status(dir)?;
+        let status = read_status(host, dir)?;
         if status.counts.is_dirty() {
             return Err(classified_error(
                 GitErrorKind::DirtyTree,
@@ -290,7 +314,7 @@ pub(crate) fn checkout_branch(dir: &Path, name: &str, force: bool) -> Result<(),
             ));
         }
     }
-    let output = run_git(dir, &["switch", name], WRITE_TIMEOUT)?;
+    let output = run_git(host, dir, &["switch", name], WRITE_TIMEOUT)?;
     if !output.ok {
         let stderr = output.stderr.to_lowercase();
         if stderr.contains("is already checked out") || stderr.contains("already used by worktree")
@@ -309,12 +333,13 @@ pub(crate) fn checkout_branch(dir: &Path, name: &str, force: bool) -> Result<(),
 }
 
 pub(crate) fn create_branch(
+    host: &Host,
     dir: &Path,
     name: &str,
     base: Option<&str>,
     checkout: bool,
 ) -> Result<(), String> {
-    validate_branch_name(dir, name)?;
+    validate_branch_name(host, dir, name)?;
     let base = base.map(str::trim).filter(|b| !b.is_empty());
     let mut args: Vec<&str> = if checkout {
         vec!["switch", "-c", name]
@@ -324,7 +349,7 @@ pub(crate) fn create_branch(
     if let Some(base) = base {
         args.push(base);
     }
-    let output = run_git(dir, &args, WRITE_TIMEOUT)?;
+    let output = run_git(host, dir, &args, WRITE_TIMEOUT)?;
     if !output.ok {
         let stderr = output.stderr.to_lowercase();
         if stderr.contains("already exists") {
@@ -346,17 +371,17 @@ pub(crate) fn create_branch(
 
 /// Main checkout, linked worktree, or not a repository, from `rev-parse`:
 /// the git dir equals the common dir only for the main working tree.
-pub(crate) fn read_context(dir: &Path) -> GitContext {
-    let info = read_repo_info(dir);
+pub(crate) fn read_context(host: &Host, dir: &Path) -> GitContext {
+    let info = read_repo_info(host, dir);
     let (name, email) = if info.is_git_repo {
-        commit_identity(dir)
+        commit_identity(host, dir)
     } else {
         (None, None)
     };
     let (kind, parent_path) = if !info.is_git_repo {
         ("none", None)
     } else {
-        match crate::projects::worktrees::linked_worktree_parent(dir) {
+        match crate::projects::worktrees::linked_worktree_parent(host, dir) {
             Ok(parent) => ("linked", Some(parent)),
             Err(_) => ("main", None),
         }

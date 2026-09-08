@@ -21,22 +21,33 @@ use super::types::{
     WorktreeAddRequest, WorktreeBranch, WorktreeEntry,
 };
 use super::worktrees::read_worktrees;
-use crate::projects::worktrees::{is_temp_worktree_path, worktree_parent_project};
+use crate::projects::worktrees::{is_temp_worktree_path, worktree_parent_project_on};
 use crate::storage;
+use crate::util::host::Host;
 use crate::AppState;
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn git_repo_info(dir: String) -> Result<GitRepoInfo, String> {
-    tauri::async_runtime::spawn_blocking(move || read_repo_info(Path::new(&dir)))
+pub(crate) async fn git_repo_info(
+    dir: String,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<GitRepoInfo, String> {
+    let host = state.ctx(&window).host();
+    tauri::async_runtime::spawn_blocking(move || read_repo_info(&host, Path::new(&dir)))
         .await
         .map_err(|_| "Git inspection failed".to_string())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn git_status(dir: String) -> Result<GitStatus, String> {
-    tauri::async_runtime::spawn_blocking(move || read_status(Path::new(&dir)))
+pub(crate) async fn git_status(
+    dir: String,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<GitStatus, String> {
+    let host = state.ctx(&window).host();
+    tauri::async_runtime::spawn_blocking(move || read_status(&host, Path::new(&dir)))
         .await
         .map_err(|_| "Git inspection failed".to_string())?
 }
@@ -45,14 +56,16 @@ pub(crate) async fn git_status(dir: String) -> Result<GitStatus, String> {
 #[specta::specta]
 pub(crate) async fn git_worktrees(
     repo_dir: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<WorktreeEntry>, String> {
     let ctx = state.ctx(&window);
-    let codex_home = ctx.runtime().codex_home;
-    tauri::async_runtime::spawn_blocking(move || read_worktrees(Path::new(&repo_dir), &codex_home))
-        .await
-        .map_err(|_| "Git inspection failed".to_string())?
+    let runtime = ctx.runtime();
+    tauri::async_runtime::spawn_blocking(move || {
+        read_worktrees(&runtime.host, Path::new(&repo_dir), &runtime.codex_home)
+    })
+    .await
+    .map_err(|_| "Git inspection failed".to_string())?
 }
 
 #[tauri::command]
@@ -60,9 +73,12 @@ pub(crate) async fn git_worktrees(
 pub(crate) async fn git_recent_commits(
     dir: String,
     limit: Option<usize>,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
 ) -> Result<Vec<CommitInfo>, String> {
     let limit = limit.unwrap_or(20);
-    tauri::async_runtime::spawn_blocking(move || read_recent_commits(Path::new(&dir), limit))
+    let host = state.ctx(&window).host();
+    tauri::async_runtime::spawn_blocking(move || read_recent_commits(&host, Path::new(&dir), limit))
         .await
         .map_err(|_| "Git inspection failed".to_string())?
 }
@@ -72,9 +88,12 @@ pub(crate) async fn git_recent_commits(
 pub(crate) async fn git_branches(
     dir: String,
     limit: Option<usize>,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
 ) -> Result<Vec<BranchRef>, String> {
     let limit = limit.unwrap_or(200);
-    tauri::async_runtime::spawn_blocking(move || read_branches(Path::new(&dir), limit))
+    let host = state.ctx(&window).host();
+    tauri::async_runtime::spawn_blocking(move || read_branches(&host, Path::new(&dir), limit))
         .await
         .map_err(|_| "Git inspection failed".to_string())?
 }
@@ -84,7 +103,7 @@ pub(crate) async fn git_branches(
 pub(crate) async fn git_worktree_add(
     repo_dir: String,
     request: WorktreeAddRequest,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
@@ -92,16 +111,19 @@ pub(crate) async fn git_worktree_add(
     let database = ctx.database();
     let created = request.path.clone();
     let repo_dir_for_git = repo_dir.clone();
+    let host = runtime.host.clone();
+    let host_for_git = host.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let host = host_for_git;
         let repo = PathBuf::from(&repo_dir_for_git);
-        let common = common_dir_of(&repo)?;
+        let common = common_dir_of(&host, &repo)?;
         let guard = lock_for_common_dir(&common);
         let _lock = guard.lock().expect("git common-dir lock poisoned");
 
         // The Codex-home layouts nest worktrees one level deep
         // (`worktrees/<group>/<name>`); git does not create missing parents.
-        if let Some(parent) = Path::new(&request.path).parent() {
-            let _ = std::fs::create_dir_all(parent);
+        if let Some(parent) = host.parent_str(&request.path) {
+            let _ = std::fs::create_dir_all(host.to_local(&parent));
         }
 
         let mut args: Vec<String> = vec!["worktree".into(), "add".into()];
@@ -127,7 +149,7 @@ pub(crate) async fn git_worktree_add(
             }
         }
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        let output = run_git(&repo, &arg_refs, WRITE_TIMEOUT)?;
+        let output = run_git(&host, &repo, &arg_refs, WRITE_TIMEOUT)?;
         if !output.ok {
             return Err(redact_git_error("Could not create the worktree", &output));
         }
@@ -140,7 +162,7 @@ pub(crate) async fn git_worktree_add(
     // the repository it came from so its threads stay listed there once the
     // worktree is discarded.
     if is_temp_worktree_path(&runtime, &created) {
-        let parent = worktree_parent_project(&created).unwrap_or(repo_dir);
+        let parent = worktree_parent_project_on(&host, &created).unwrap_or(repo_dir);
         storage::record_temp_worktree(&database, &created, &parent).await?;
     }
     Ok(())
@@ -152,16 +174,19 @@ pub(crate) async fn git_worktree_remove(
     repo_dir: String,
     path: String,
     force: bool,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
 ) -> Result<(), String> {
+    let host = state.ctx(&window).host();
     tauri::async_runtime::spawn_blocking(move || {
         let repo = PathBuf::from(&repo_dir);
-        let common = common_dir_of(&repo)?;
+        let common = common_dir_of(&host, &repo)?;
         let guard = lock_for_common_dir(&common);
         let _lock = guard.lock().expect("git common-dir lock poisoned");
 
         // Refuse to remove a dirty worktree unless force is explicitly given.
         if !force {
-            if let Ok(status) = read_status(Path::new(&path)) {
+            if let Ok(status) = read_status(&host, Path::new(&path)) {
                 if status.counts.is_dirty() {
                     return Err("This worktree has uncommitted changes".to_string());
                 }
@@ -172,7 +197,7 @@ pub(crate) async fn git_worktree_remove(
             args.push("--force");
         }
         args.push(&path);
-        let output = run_git(&repo, &args, WRITE_TIMEOUT)?;
+        let output = run_git(&host, &repo, &args, WRITE_TIMEOUT)?;
         if !output.ok {
             return Err(redact_git_error("Could not remove the worktree", &output));
         }
@@ -184,14 +209,19 @@ pub(crate) async fn git_worktree_remove(
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn git_worktree_prune(repo_dir: String) -> Result<(), String> {
+pub(crate) async fn git_worktree_prune(
+    repo_dir: String,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let host = state.ctx(&window).host();
     tauri::async_runtime::spawn_blocking(move || {
         let repo = PathBuf::from(&repo_dir);
-        let common = common_dir_of(&repo)?;
+        let common = common_dir_of(&host, &repo)?;
         let guard = lock_for_common_dir(&common);
         let _lock = guard.lock().expect("git common-dir lock poisoned");
 
-        let output = run_git(&repo, &["worktree", "prune"], WRITE_TIMEOUT)?;
+        let output = run_git(&host, &repo, &["worktree", "prune"], WRITE_TIMEOUT)?;
         if !output.ok {
             return Err(redact_git_error("Could not prune worktrees", &output));
         }
@@ -207,10 +237,13 @@ pub(crate) async fn git_worktree_lock(
     repo_dir: String,
     path: String,
     reason: Option<String>,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
 ) -> Result<(), String> {
+    let host = state.ctx(&window).host();
     tauri::async_runtime::spawn_blocking(move || {
         let repo = PathBuf::from(&repo_dir);
-        let common = common_dir_of(&repo)?;
+        let common = common_dir_of(&host, &repo)?;
         let guard = lock_for_common_dir(&common);
         let _lock = guard.lock().expect("git common-dir lock poisoned");
 
@@ -221,7 +254,7 @@ pub(crate) async fn git_worktree_lock(
         }
         args.push(path);
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        let output = run_git(&repo, &arg_refs, WRITE_TIMEOUT)?;
+        let output = run_git(&host, &repo, &arg_refs, WRITE_TIMEOUT)?;
         if !output.ok {
             return Err(redact_git_error("Could not lock the worktree", &output));
         }
@@ -233,14 +266,20 @@ pub(crate) async fn git_worktree_lock(
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn git_worktree_unlock(repo_dir: String, path: String) -> Result<(), String> {
+pub(crate) async fn git_worktree_unlock(
+    repo_dir: String,
+    path: String,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let host = state.ctx(&window).host();
     tauri::async_runtime::spawn_blocking(move || {
         let repo = PathBuf::from(&repo_dir);
-        let common = common_dir_of(&repo)?;
+        let common = common_dir_of(&host, &repo)?;
         let guard = lock_for_common_dir(&common);
         let _lock = guard.lock().expect("git common-dir lock poisoned");
 
-        let output = run_git(&repo, &["worktree", "unlock", &path], WRITE_TIMEOUT)?;
+        let output = run_git(&host, &repo, &["worktree", "unlock", &path], WRITE_TIMEOUT)?;
         if !output.ok {
             return Err(redact_git_error("Could not unlock the worktree", &output));
         }
@@ -254,14 +293,16 @@ pub(crate) async fn git_worktree_unlock(repo_dir: String, path: String) -> Resul
 #[specta::specta]
 pub(crate) async fn git_changes_summary(
     dir: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<ChangesSummary, String> {
     let ctx = state.ctx(&window);
-    let codex_home = ctx.runtime().codex_home;
-    tauri::async_runtime::spawn_blocking(move || read_changes_summary(Path::new(&dir), &codex_home))
-        .await
-        .map_err(|_| "Git inspection failed".to_string())?
+    let runtime = ctx.runtime();
+    tauri::async_runtime::spawn_blocking(move || {
+        read_changes_summary(&runtime.host, Path::new(&dir), &runtime.codex_home)
+    })
+    .await
+    .map_err(|_| "Git inspection failed".to_string())?
 }
 
 #[tauri::command]
@@ -272,9 +313,13 @@ pub(crate) async fn git_file_diff(
     path: String,
     untracked: bool,
     max_bytes: Option<usize>,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
 ) -> Result<FileDiff, String> {
+    let host = state.ctx(&window).host();
     tauri::async_runtime::spawn_blocking(move || {
         read_file_diff(
+            &host,
             Path::new(&dir),
             &base,
             &path,
@@ -292,16 +337,17 @@ pub(crate) async fn git_file_diff(
 pub(crate) async fn git_worktree_handoff_preflight(
     worktree_path: String,
     target_dir: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<HandoffPreflight, String> {
     let ctx = state.ctx(&window);
-    let codex_home = ctx.runtime().codex_home;
+    let runtime = ctx.runtime();
     tauri::async_runtime::spawn_blocking(move || {
         handoff_preflight(
+            &runtime.host,
             Path::new(&worktree_path),
             Path::new(&target_dir),
-            &codex_home,
+            &runtime.codex_home,
         )
     })
     .await
@@ -317,22 +363,23 @@ pub(crate) async fn git_worktree_handoff(
     target_dir: String,
     commit_uncommitted: bool,
     branch_name: Option<String>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     let ctx = state.ctx(&window);
-    let codex_home = ctx.runtime().codex_home;
+    let runtime = ctx.runtime();
     let database = ctx.database();
     let worktree_for_db = worktree_path.clone();
     let branch = tauri::async_runtime::spawn_blocking(move || {
         let target = PathBuf::from(&target_dir);
-        let common = common_dir_of(&target)?;
+        let common = common_dir_of(&runtime.host, &target)?;
         let guard = lock_for_common_dir(&common);
         let _lock = guard.lock().expect("git common-dir lock poisoned");
         handoff(
+            &runtime.host,
             Path::new(&worktree_path),
             &target,
-            &codex_home,
+            &runtime.codex_home,
             commit_uncommitted,
             branch_name.as_deref(),
         )
@@ -346,17 +393,17 @@ pub(crate) async fn git_worktree_handoff(
 // --- Project-level git actions (stage, commit, sync, branch) ---
 
 /// Run a mutation under the repository's common-dir lock on a blocking task.
-async fn locked<T, F>(dir: String, work: F) -> Result<T, String>
+async fn locked<T, F>(host: Host, dir: String, work: F) -> Result<T, String>
 where
     T: Send + 'static,
-    F: FnOnce(&Path) -> Result<T, String> + Send + 'static,
+    F: FnOnce(&Host, &Path) -> Result<T, String> + Send + 'static,
 {
     tauri::async_runtime::spawn_blocking(move || {
         let dir = PathBuf::from(&dir);
-        let common = common_dir_of(&dir)?;
+        let common = common_dir_of(&host, &dir)?;
         let guard = lock_for_common_dir(&common);
         let _lock = guard.lock().expect("git common-dir lock poisoned");
-        work(&dir)
+        work(&host, &dir)
     })
     .await
     .map_err(|_| "Git operation failed".to_string())?
@@ -364,22 +411,43 @@ where
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn git_context(dir: String) -> Result<GitContext, String> {
-    tauri::async_runtime::spawn_blocking(move || actions::read_context(Path::new(&dir)))
+pub(crate) async fn git_context(
+    dir: String,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<GitContext, String> {
+    let host = state.ctx(&window).host();
+    tauri::async_runtime::spawn_blocking(move || actions::read_context(&host, Path::new(&dir)))
         .await
         .map_err(|_| "Git inspection failed".to_string())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn git_stage(dir: String, paths: Vec<String>) -> Result<(), String> {
-    locked(dir, move |dir| actions::stage_paths(dir, &paths)).await
+pub(crate) async fn git_stage(
+    dir: String,
+    paths: Vec<String>,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    locked(state.ctx(&window).host(), dir, move |host, dir| {
+        actions::stage_paths(host, dir, &paths)
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn git_unstage(dir: String, paths: Vec<String>) -> Result<(), String> {
-    locked(dir, move |dir| actions::unstage_paths(dir, &paths)).await
+pub(crate) async fn git_unstage(
+    dir: String,
+    paths: Vec<String>,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    locked(state.ctx(&window).host(), dir, move |host, dir| {
+        actions::unstage_paths(host, dir, &paths)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -388,35 +456,61 @@ pub(crate) async fn git_discard(
     dir: String,
     paths: Vec<String>,
     untracked_paths: Vec<String>,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
 ) -> Result<(), String> {
-    locked(dir, move |dir| {
-        actions::discard_paths(dir, &paths, &untracked_paths)
+    locked(state.ctx(&window).host(), dir, move |host, dir| {
+        actions::discard_paths(host, dir, &paths, &untracked_paths)
     })
     .await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn git_commit(dir: String, message: String) -> Result<CommitResult, String> {
-    locked(dir, move |dir| actions::commit(dir, &message)).await
+pub(crate) async fn git_commit(
+    dir: String,
+    message: String,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<CommitResult, String> {
+    locked(state.ctx(&window).host(), dir, move |host, dir| {
+        actions::commit(host, dir, &message)
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn git_fetch(dir: String) -> Result<SyncResult, String> {
-    locked(dir, actions::fetch).await
+pub(crate) async fn git_fetch(
+    dir: String,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<SyncResult, String> {
+    locked(state.ctx(&window).host(), dir, actions::fetch).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn git_pull(dir: String) -> Result<SyncResult, String> {
-    locked(dir, actions::pull).await
+pub(crate) async fn git_pull(
+    dir: String,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<SyncResult, String> {
+    locked(state.ctx(&window).host(), dir, actions::pull).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn git_push(dir: String, set_upstream: bool) -> Result<SyncResult, String> {
-    locked(dir, move |dir| actions::push(dir, set_upstream)).await
+pub(crate) async fn git_push(
+    dir: String,
+    set_upstream: bool,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<SyncResult, String> {
+    locked(state.ctx(&window).host(), dir, move |host, dir| {
+        actions::push(host, dir, set_upstream)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -425,8 +519,13 @@ pub(crate) async fn git_checkout_branch(
     dir: String,
     name: String,
     force: bool,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
 ) -> Result<(), String> {
-    locked(dir, move |dir| actions::checkout_branch(dir, &name, force)).await
+    locked(state.ctx(&window).host(), dir, move |host, dir| {
+        actions::checkout_branch(host, dir, &name, force)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -436,9 +535,11 @@ pub(crate) async fn git_create_branch(
     name: String,
     base: Option<String>,
     checkout: bool,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
 ) -> Result<(), String> {
-    locked(dir, move |dir| {
-        actions::create_branch(dir, &name, base.as_deref(), checkout)
+    locked(state.ctx(&window).host(), dir, move |host, dir| {
+        actions::create_branch(host, dir, &name, base.as_deref(), checkout)
     })
     .await
 }
@@ -450,9 +551,13 @@ pub(crate) async fn git_staged_file_diff(
     dir: String,
     path: String,
     max_bytes: Option<usize>,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
 ) -> Result<FileDiff, String> {
+    let host = state.ctx(&window).host();
     tauri::async_runtime::spawn_blocking(move || {
         read_file_diff(
+            &host,
             Path::new(&dir),
             "HEAD",
             &path,
@@ -468,6 +573,7 @@ pub(crate) async fn git_staged_file_diff(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::util::host::Host;
     use std::process::{Command, Stdio};
 
     /// Run git against the fixture repository, isolated from the developer's own
@@ -522,7 +628,8 @@ mod tests {
         assert!(git(&repo, &["commit", "-q", "-m", "init"]));
 
         // repo_info sees a real repo on main.
-        let info = read_repo_info(&repo);
+        let host = Host::Native;
+        let info = read_repo_info(&host, &repo);
         assert!(info.is_git_repo);
         assert_eq!(info.branch.as_deref(), Some("main"));
         assert!(info.common_dir.is_some());
@@ -530,13 +637,14 @@ mod tests {
         // A non-git folder reports is_git_repo=false, no error.
         let plain = temp.path().join("plain");
         std::fs::create_dir_all(&plain).unwrap();
-        let plain_info = read_repo_info(&plain);
+        let plain_info = read_repo_info(&host, &plain);
         assert!(!plain_info.is_git_repo);
         assert!(plain_info.error.is_none());
 
         // Add a linked worktree on a new branch.
         let wt = temp.path().join("wt-feature");
         let add = run_git(
+            &host,
             &repo,
             &["worktree", "add", "-b", "feature", wt.to_str().unwrap()],
             WRITE_TIMEOUT,
@@ -547,7 +655,7 @@ mod tests {
         // Listing includes main + the linked worktree; neither is Codex-managed
         // because they are not under <codex_home>/worktrees.
         let fake_home = temp.path().join("codex-home");
-        let entries = read_worktrees(&repo, &fake_home).unwrap();
+        let entries = read_worktrees(&host, &repo, &fake_home).unwrap();
         assert_eq!(entries.len(), 2);
         assert!(entries[0].is_main);
         assert!(!entries[0].is_codex_managed);
@@ -561,19 +669,19 @@ mod tests {
 
         // Dirty the worktree; a non-forced remove is refused.
         std::fs::write(wt.join("dirty.txt"), "x").unwrap();
-        let refused = read_status(&wt).unwrap();
+        let refused = read_status(&host, &wt).unwrap();
         assert!(refused.counts.is_dirty());
 
         // recent commits are readable.
-        let commits = read_recent_commits(&repo, 10).unwrap();
+        let commits = read_recent_commits(&host, &repo, 10).unwrap();
         assert_eq!(commits.len(), 1);
         assert_eq!(commits[0].subject, "init");
 
         // Context: the repo is the main checkout, the worktree is linked to it.
-        let main_ctx = actions::read_context(&repo);
+        let main_ctx = actions::read_context(&Host::Native, &repo);
         assert_eq!(main_ctx.kind, "main");
         assert!(main_ctx.parent_path.is_none());
-        let linked_ctx = actions::read_context(&wt);
+        let linked_ctx = actions::read_context(&Host::Native, &wt);
         assert_eq!(linked_ctx.kind, "linked");
         let parent = linked_ctx
             .parent_path
@@ -582,7 +690,7 @@ mod tests {
             std::fs::canonicalize(&parent).unwrap(),
             std::fs::canonicalize(&repo).unwrap()
         );
-        let plain_ctx = actions::read_context(&plain);
+        let plain_ctx = actions::read_context(&Host::Native, &plain);
         assert_eq!(plain_ctx.kind, "none");
     }
 
@@ -616,51 +724,65 @@ mod tests {
         // Stage → staged; unstage → unstaged.
         std::fs::write(repo.join("file.txt"), "hello\nworld\n").unwrap();
         std::fs::write(repo.join("new.txt"), "new\n").unwrap();
-        actions::stage_paths(&repo, &["file.txt".into()]).unwrap();
-        let status = read_status(&repo).unwrap();
+        actions::stage_paths(&Host::Native, &repo, &["file.txt".into()]).unwrap();
+        let status = read_status(&Host::Native, &repo).unwrap();
         assert_eq!(status.counts.staged, 1);
         assert_eq!(status.counts.untracked, 1);
-        let staged =
-            read_file_diff(&repo, "HEAD", "file.txt", false, true, DEFAULT_DIFF_BYTES).unwrap();
+        let staged = read_file_diff(
+            &Host::Native,
+            &repo,
+            "HEAD",
+            "file.txt",
+            false,
+            true,
+            DEFAULT_DIFF_BYTES,
+        )
+        .unwrap();
         assert!(staged.patch.contains("+world"), "{}", staged.patch);
-        actions::unstage_paths(&repo, &["file.txt".into()]).unwrap();
-        let status = read_status(&repo).unwrap();
+        actions::unstage_paths(&Host::Native, &repo, &["file.txt".into()]).unwrap();
+        let status = read_status(&Host::Native, &repo).unwrap();
         assert_eq!(status.counts.staged, 0);
         assert_eq!(status.counts.unstaged, 1);
 
         // Paths outside the repository are refused before git runs.
-        assert!(actions::stage_paths(&repo, &["../escape".into()]).is_err());
+        assert!(actions::stage_paths(&Host::Native, &repo, &["../escape".into()]).is_err());
 
         // Commit what is staged; the identity is the repo's.
-        actions::stage_paths(&repo, &["file.txt".into(), "new.txt".into()]).unwrap();
-        let commit = actions::commit(&repo, "add world").unwrap();
+        actions::stage_paths(&Host::Native, &repo, &["file.txt".into(), "new.txt".into()]).unwrap();
+        let commit = actions::commit(&Host::Native, &repo, "add world").unwrap();
         assert_eq!(commit.subject, "add world");
         assert_eq!(commit.author_name, "Test");
         assert_eq!(commit.short_hash.len(), 7);
-        assert!(read_status(&repo).unwrap().counts.is_dirty() == false);
-        let empty = actions::commit(&repo, "nothing").unwrap_err();
+        assert!(read_status(&Host::Native, &repo).unwrap().counts.is_dirty() == false);
+        let empty = actions::commit(&Host::Native, &repo, "nothing").unwrap_err();
         assert!(empty.contains("Nothing is staged"), "{empty}");
 
         // A dirty tree refuses a branch switch unless forced; discard clears it.
-        actions::create_branch(&repo, "feature", None, false).unwrap();
+        actions::create_branch(&Host::Native, &repo, "feature", None, false).unwrap();
         std::fs::write(repo.join("file.txt"), "dirty\n").unwrap();
-        let refused = actions::checkout_branch(&repo, "feature", false).unwrap_err();
+        let refused = actions::checkout_branch(&Host::Native, &repo, "feature", false).unwrap_err();
         assert!(refused.starts_with("dirtyTree: "), "{refused}");
         std::fs::write(repo.join("junk.txt"), "x").unwrap();
-        actions::discard_paths(&repo, &["file.txt".into()], &["junk.txt".into()]).unwrap();
-        assert!(!read_status(&repo).unwrap().counts.is_dirty());
+        actions::discard_paths(
+            &Host::Native,
+            &repo,
+            &["file.txt".into()],
+            &["junk.txt".into()],
+        )
+        .unwrap();
+        assert!(!read_status(&Host::Native, &repo).unwrap().counts.is_dirty());
         assert!(!repo.join("junk.txt").exists());
-        actions::checkout_branch(&repo, "feature", false).unwrap();
+        actions::checkout_branch(&Host::Native, &repo, "feature", false).unwrap();
         assert_eq!(
-            read_status(&repo).unwrap().branch.as_deref(),
+            read_status(&Host::Native, &repo).unwrap().branch.as_deref(),
             Some("feature")
         );
-        let dup = actions::create_branch(&repo, "feature", None, false).unwrap_err();
+        let dup = actions::create_branch(&Host::Native, &repo, "feature", None, false).unwrap_err();
         assert!(dup.contains("already exists"), "{dup}");
-        assert!(actions::create_branch(&repo, "bad name", None, false).is_err());
+        assert!(actions::create_branch(&Host::Native, &repo, "bad name", None, false).is_err());
 
         // No remote: push fails fast with a classified error, never hangs.
-        let no_remote = actions::push(&repo, false).unwrap_err();
+        let no_remote = actions::push(&Host::Native, &repo, false).unwrap_err();
         assert!(no_remote.contains(": "), "{no_remote}");
 
         // Bare remote: publish, fetch, pull.
@@ -671,11 +793,11 @@ mod tests {
             &repo,
             &["remote", "add", "origin", remote.to_str().unwrap()]
         ));
-        let published = actions::push(&repo, true).unwrap();
+        let published = actions::push(&Host::Native, &repo, true).unwrap();
         assert_eq!(published.operation, "push");
         assert_eq!(published.upstream.as_deref(), Some("origin/feature"));
-        assert!(actions::fetch(&repo).is_ok());
-        let pulled = actions::pull(&repo).unwrap();
+        assert!(actions::fetch(&Host::Native, &repo).is_ok());
+        let pulled = actions::pull(&Host::Native, &repo).unwrap();
         assert_eq!(pulled.operation, "pull");
 
         // A second clone pushes first; our push is then non-fast-forward.
@@ -698,9 +820,9 @@ mod tests {
         assert!(git(&other, &["commit", "-q", "-m", "other"]));
         assert!(git(&other, &["push", "-q"]));
         std::fs::write(repo.join("mine.txt"), "m").unwrap();
-        actions::stage_paths(&repo, &["mine.txt".into()]).unwrap();
-        actions::commit(&repo, "mine").unwrap();
-        let rejected = actions::push(&repo, false).unwrap_err();
+        actions::stage_paths(&Host::Native, &repo, &["mine.txt".into()]).unwrap();
+        actions::commit(&Host::Native, &repo, "mine").unwrap();
+        let rejected = actions::push(&Host::Native, &repo, false).unwrap_err();
         assert!(rejected.starts_with("nonFastForward: "), "{rejected}");
     }
 }

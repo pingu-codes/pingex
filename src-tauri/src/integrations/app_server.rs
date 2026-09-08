@@ -33,7 +33,7 @@ use crate::AppState;
 #[specta::specta]
 pub(crate) async fn list_mcp_server_status(
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
@@ -51,7 +51,7 @@ pub(crate) async fn list_mcp_server_status(
 pub(crate) async fn mcp_oauth_login(
     name: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
@@ -68,7 +68,7 @@ pub(crate) async fn mcp_oauth_login(
 #[specta::specta]
 pub(crate) async fn reload_mcp_servers(
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
@@ -89,7 +89,7 @@ pub(crate) async fn reload_mcp_config(
 pub(crate) async fn list_skills_for(
     cwds: Vec<String>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
@@ -108,7 +108,7 @@ pub(crate) async fn set_skill_enabled(
     enabled: bool,
     path: Option<String>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);

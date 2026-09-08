@@ -66,7 +66,7 @@ pub(crate) async fn queue_add(
     input: Json,
     client_user_message_id: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
@@ -82,7 +82,7 @@ pub(crate) async fn queue_list(
     thread_id: String,
     cursor: Option<String>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
@@ -99,7 +99,7 @@ pub(crate) async fn queue_update(
     queued_submission_id: String,
     input: Json,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
@@ -115,7 +115,7 @@ pub(crate) async fn queue_delete(
     thread_id: String,
     queued_submission_id: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
@@ -131,7 +131,7 @@ pub(crate) async fn queue_reorder(
     thread_id: String,
     queued_submission_ids: Vec<String>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
@@ -147,7 +147,7 @@ pub(crate) async fn queue_start(
     thread_id: String,
     queued_submission_id: Option<String>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);

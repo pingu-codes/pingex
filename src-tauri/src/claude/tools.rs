@@ -5,6 +5,7 @@
 use serde_json::Value;
 
 use crate::harness::{HarnessEvent, ToolCallContent, ToolCallStatus, ToolKind};
+use crate::util::host::Host;
 use crate::util::json::{str_at, Json};
 
 /// Tools whose result is bookkeeping, not output: the plan event already
@@ -69,7 +70,12 @@ fn diff(path: &str, old: Option<String>, new: String) -> ToolCallContent {
 
 /// The content a call shows before it runs. Edits carry their diff up front
 /// so the approval card and the transcript draw the same thing.
-pub(crate) fn initial_content(name: &str, input: &Value, cwd: &str) -> Vec<ToolCallContent> {
+pub(crate) fn initial_content(
+    name: &str,
+    input: &Value,
+    cwd: &str,
+    host: &Host,
+) -> Vec<ToolCallContent> {
     match name {
         "Bash" => vec![ToolCallContent::Terminal {
             text: String::new(),
@@ -105,7 +111,7 @@ pub(crate) fn initial_content(name: &str, input: &Value, cwd: &str) -> Vec<ToolC
         }
         "Write" => {
             let path = str_at(input, "file_path").unwrap_or_default();
-            let old = std::fs::read_to_string(path).ok();
+            let old = std::fs::read_to_string(host.to_local(path)).ok();
             vec![diff(
                 path,
                 old,
@@ -135,6 +141,7 @@ pub(crate) fn tool_call(
     name: &str,
     input: &Value,
     cwd: &str,
+    host: &Host,
     status: ToolCallStatus,
 ) -> HarnessEvent {
     HarnessEvent::ToolCall {
@@ -143,7 +150,7 @@ pub(crate) fn tool_call(
         kind: kind_for(name),
         status,
         name: name.to_string(),
-        content: initial_content(name, input, cwd),
+        content: initial_content(name, input, cwd, host),
         raw_input: Json(input.clone()),
     }
 }
@@ -173,6 +180,7 @@ mod tests {
             "Bash",
             &json!({"command": "ls"}),
             "/repo",
+            &Host::Native,
             ToolCallStatus::InProgress,
         );
         let HarnessEvent::ToolCall {
@@ -192,7 +200,7 @@ mod tests {
     #[test]
     fn edit_carries_its_diff_up_front() {
         let input = json!({"file_path": "a.rs", "old_string": "x", "new_string": "y"});
-        let content = initial_content("Edit", &input, "/repo");
+        let content = initial_content("Edit", &input, "/repo", &Host::Native);
         assert!(
             matches!(&content[0], ToolCallContent::Diff { path, old_text: Some(o), new_text } if path == "a.rs" && o == "x" && new_text == "y")
         );

@@ -4,6 +4,8 @@
 //! `codex://threads/<id>` grammar. Unit tested against URL decoding, missing
 //! params, and malformed ids.
 
+use crate::util::host::Host;
+
 /// What a `codex://` link asks the app to open.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum DeepLinkKind {
@@ -21,6 +23,8 @@ pub(crate) struct DeepLink {
     pub(crate) path: Option<String>,
     /// Requested `CODEX_HOME` (raw, may contain `~`).
     pub(crate) codex_home: Option<String>,
+    /// Where `codex_home` lives, as a spec (`wsl:<distro>`); absent means native.
+    pub(crate) host: Option<String>,
     /// Optional source label (e.g. the originating CLI).
     pub(crate) label: Option<String>,
 }
@@ -125,6 +129,7 @@ pub(crate) fn parse_deep_link(url: &str) -> Result<DeepLink, String> {
         kind,
         path: get("path"),
         codex_home: get("codexHome"),
+        host: get("host"),
         label: get("label"),
     })
 }
@@ -148,7 +153,21 @@ fn shell_single_quote(value: &str) -> String {
 /// `CODEX_HOME=<home> <binary> resume <id> --cd <cwd>` with every field quoted.
 /// A bare `codex` on PATH is left unquoted for readability; an explicit binary
 /// path is quoted.
+#[cfg(test)]
 pub(crate) fn build_resume_command(
+    codex_home: &str,
+    codex_binary: &str,
+    thread_id: &str,
+    cwd: &str,
+) -> String {
+    build_resume_command_on(&Host::Native, codex_home, codex_binary, thread_id, cwd)
+}
+
+/// [`build_resume_command`] for a home on `host`. A WSL home's command is
+/// meant for a Windows shell: it enters the distribution first, through a
+/// login shell so the user's PATH applies.
+pub(crate) fn build_resume_command_on(
+    host: &Host,
     codex_home: &str,
     codex_binary: &str,
     thread_id: &str,
@@ -159,13 +178,26 @@ pub(crate) fn build_resume_command(
     } else {
         shell_single_quote(codex_binary)
     };
-    format!(
+    let inner = format!(
         "CODEX_HOME={} {} resume {} --cd {}",
         shell_single_quote(codex_home),
         binary,
         shell_single_quote(thread_id),
         shell_single_quote(cwd),
-    )
+    );
+    match host {
+        Host::Native => inner,
+        Host::Wsl { distro } => format!(
+            "wsl.exe -d {distro} --exec sh -lc {}",
+            shell_double_quote(&inner)
+        ),
+    }
+}
+
+/// Double-quote a value for `cmd.exe` and PowerShell, where single quotes
+/// inside are inert and `"` is the only character that needs escaping.
+fn shell_double_quote(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\\\""))
 }
 
 /// Percent-encode an unreserved-only subset for a `codex://` query value.
@@ -183,7 +215,19 @@ fn percent_encode(value: &str) -> String {
 }
 
 /// Build the shareable `codex://threads/<id>?path=&codexHome=&label=` link.
+#[cfg(test)]
 pub(crate) fn build_thread_link(
+    thread_id: &str,
+    cwd: &str,
+    codex_home: &str,
+    label: Option<&str>,
+) -> String {
+    build_thread_link_on(&Host::Native, thread_id, cwd, codex_home, label)
+}
+
+/// [`build_thread_link`] for a home on `host`; a WSL home adds `host=`.
+pub(crate) fn build_thread_link_on(
+    host: &Host,
     thread_id: &str,
     cwd: &str,
     codex_home: &str,
@@ -195,6 +239,12 @@ pub(crate) fn build_thread_link(
         percent_encode(cwd),
         percent_encode(codex_home),
     );
+    if let Host::Wsl { distro } = host {
+        url.push_str(&format!(
+            "&host={}",
+            percent_encode(&format!("wsl:{distro}"))
+        ));
+    }
     if let Some(label) = label.filter(|label| !label.is_empty()) {
         url.push_str(&format!("&label={}", percent_encode(label)));
     }
@@ -259,5 +309,29 @@ mod tests {
         assert_eq!(parsed.path.as_deref(), Some("/repo/wt"));
         assert_eq!(parsed.codex_home.as_deref(), Some("/home/.codex"));
         assert_eq!(parsed.label.as_deref(), Some("desktop"));
+        assert_eq!(parsed.host, None);
+    }
+    #[test]
+    fn a_wsl_link_carries_its_distribution() {
+        let url = build_thread_link_on(&Host::wsl("Ubuntu"), "id", "/repo", "/home/u/.codex", None);
+        assert!(url.contains("&host=wsl%3AUbuntu"));
+        assert_eq!(
+            parse_deep_link(&url).unwrap().host.as_deref(),
+            Some("wsl:Ubuntu")
+        );
+    }
+    #[test]
+    fn a_wsl_resume_command_enters_the_distribution() {
+        let command = build_resume_command_on(
+            &Host::wsl("Ubuntu"),
+            "/home/u/.codex",
+            "codex",
+            "id",
+            "/home/u/repo",
+        );
+        assert_eq!(
+            command,
+            "wsl.exe -d Ubuntu --exec sh -lc \"CODEX_HOME='/home/u/.codex' codex resume 'id' --cd '/home/u/repo'\""
+        );
     }
 }

@@ -11,13 +11,15 @@ import {
   Terminal,
   X,
 } from "@lucide/svelte";
+import { hostFromOption, hostKey, hostLabel, NATIVE_HOST, sameHost } from "$lib/app/host";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
-import type { LaunchState } from "$lib/types";
+import type { Host, LaunchState } from "$lib/types";
 
 let {
   launchState,
   busy = false,
   error = null,
+  distros = [],
   onSelect,
   onBrowse,
   onRemove,
@@ -27,13 +29,16 @@ let {
   launchState: LaunchState;
   busy?: boolean;
   error?: string | null;
-  onSelect: (path: string) => void;
+  /** WSL distributions a typed path may live in; empty hides the host picker. */
+  distros?: string[];
+  /** `host` is null for a browsed folder: the backend infers it from the path. */
+  onSelect: (path: string, host: Host | null) => void;
   onBrowse: () => Promise<string | null>;
-  onRemove: (path: string) => void;
+  onRemove: (path: string, host: Host) => void;
   /** Save a Codex CLI path; rejects with a message when it cannot be run. */
   onSetBinary: (path: string) => Promise<void>;
   /** Open this home in a new window instead of binding it to this one. */
-  onOpenNewWindow?: (path: string) => void;
+  onOpenNewWindow?: (path: string, host: Host | null) => void;
 } = $props();
 
 // Opening a home creates it on disk and spawns the CLI, so a missing binary
@@ -65,9 +70,12 @@ async function saveBinary() {
 }
 
 // A path picked via the dialog or typed manually, awaiting explicit
-// confirmation before it becomes the active home.
+// confirmation before it becomes the active home. A browsed folder carries
+// no host (the backend reads it off the path); a typed one uses the select.
 let pendingPath = $state<string | null>(null);
+let pendingHost = $state<Host | null>(null);
 let rawPath = $state("");
+let rawHost = $state("native");
 let browsing = $state(false);
 
 async function browse() {
@@ -76,6 +84,7 @@ async function browse() {
     const path = await onBrowse();
     if (path) {
       pendingPath = path;
+      pendingHost = null;
       rawPath = "";
     }
   } finally {
@@ -87,35 +96,42 @@ function useRawPath() {
   const trimmed = rawPath.trim();
   if (!trimmed) return;
   pendingPath = trimmed;
+  pendingHost = hostFromOption(rawHost);
 }
 
 interface HomeOption {
   path: string;
+  host: Host;
   lastUsed: number | null;
   exists: boolean;
   isDefault: boolean;
   removable: boolean;
 }
 
+const optionKey = (path: string, host: Host) => `${hostKey(host)}:${path}`;
+
 // Recent homes (newest first) plus the built-in `~/.codex` default, deduped by
-// path so a default that is also a recent only appears once.
+// host and path so a default that is also a recent only appears once.
 const options = $derived.by(() => {
   const seen = new Set<string>();
   const list: HomeOption[] = [];
   for (const home of launchState.recentHomes) {
-    if (seen.has(home.path)) continue;
-    seen.add(home.path);
+    const key = optionKey(home.path, home.host);
+    if (seen.has(key)) continue;
+    seen.add(key);
     list.push({
       path: home.path,
+      host: home.host,
       lastUsed: home.lastUsed,
       exists: home.exists,
-      isDefault: home.path === launchState.defaultHome,
+      isDefault: home.path === launchState.defaultHome && sameHost(home.host, NATIVE_HOST),
       removable: true,
     });
   }
-  if (!seen.has(launchState.defaultHome)) {
+  if (!seen.has(optionKey(launchState.defaultHome, NATIVE_HOST))) {
     list.push({
       path: launchState.defaultHome,
+      host: NATIVE_HOST,
       lastUsed: null,
       exists: true,
       isDefault: true,
@@ -124,6 +140,9 @@ const options = $derived.by(() => {
   }
   return list;
 });
+
+const isCurrent = (option: HomeOption) =>
+  option.path === launchState.codexHome && sameHost(option.host, launchState.host);
 
 const relativeTime = (timestamp: number | null) => {
   if (timestamp === null) return null;
@@ -160,10 +179,10 @@ const relativeTime = (timestamp: number | null) => {
     {/if}
 
     <div class="mt-6 space-y-1.5" aria-busy={busy}>
-      {#each options as option (option.path)}
+      {#each options as option (optionKey(option.path, option.host))}
         <div class="group/row relative">
           <button
-            onclick={() => onSelect(option.path)}
+            onclick={() => onSelect(option.path, option.host)}
             disabled={locked}
             data-testid="home-option"
             class="flex w-full items-center gap-3 rounded-xl border border-surface-200-800 bg-surface-100-900 px-3 py-2.5 text-left transition hover:preset-tonal disabled:pointer-events-none disabled:opacity-60 {option.exists ? '' : 'opacity-60'} {option.removable ? 'pr-14' : 'pr-9'}"
@@ -172,6 +191,9 @@ const relativeTime = (timestamp: number | null) => {
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-1.5">
                 <span class="truncate font-mono text-sm">{option.path}</span>
+                {#if hostLabel(option.host)}
+                  <span class="shrink-0 rounded-full preset-tonal-primary px-1.5 py-0.5 text-[10px] font-medium" data-testid="home-host">{hostLabel(option.host)}</span>
+                {/if}
                 {#if option.isDefault}
                   <span class="shrink-0 rounded-full bg-surface-200-800 px-1.5 py-0.5 text-[10px] font-medium">Default</span>
                 {/if}
@@ -186,14 +208,14 @@ const relativeTime = (timestamp: number | null) => {
                 {/if}
               </div>
             </div>
-            {#if option.path === launchState.codexHome}
+            {#if isCurrent(option)}
               <Check size={15} class="shrink-0 text-primary-500" />
             {/if}
           </button>
           {#if onOpenNewWindow}
             <TooltipButton
               label="Open in new window"
-              onclick={() => onOpenNewWindow(option.path)}
+              onclick={() => onOpenNewWindow(option.path, option.host)}
               disabled={locked || !option.exists}
               aria-label="Open {option.path} in a new window"
               data-testid="open-home-new-window"
@@ -205,7 +227,7 @@ const relativeTime = (timestamp: number | null) => {
           {#if option.removable}
             <TooltipButton
               label="Remove from recents"
-              onclick={() => onRemove(option.path)}
+              onclick={() => onRemove(option.path, option.host)}
               disabled={busy}
               aria-label="Remove {option.path} from recents"
               data-testid="remove-home"
@@ -225,8 +247,11 @@ const relativeTime = (timestamp: number | null) => {
       >
         <CheckCircle2 size={17} strokeWidth={1.8} class="shrink-0 text-success-500" />
         <span class="min-w-0 flex-1 truncate font-mono text-sm">{pendingPath}</span>
+        {#if hostLabel(pendingHost)}
+          <span class="shrink-0 rounded-full preset-tonal-primary px-1.5 py-0.5 text-[10px] font-medium">{hostLabel(pendingHost)}</span>
+        {/if}
         <button
-          onclick={() => onSelect(pendingPath!)}
+          onclick={() => onSelect(pendingPath!, pendingHost)}
           disabled={locked}
           data-testid="confirm-add-home"
           class="btn btn-sm shrink-0 preset-filled-primary-500 disabled:pointer-events-none disabled:opacity-60"
@@ -267,6 +292,21 @@ const relativeTime = (timestamp: number | null) => {
           useRawPath();
         }}
       >
+        {#if distros.length > 0}
+          <!-- The same path can exist natively and inside a distribution. -->
+          <select
+            bind:value={rawHost}
+            disabled={locked}
+            aria-label="Where the home lives"
+            data-testid="raw-home-host"
+            class="select w-auto shrink-0 rounded-xl py-2 text-sm"
+          >
+            <option value="native">This PC</option>
+            {#each distros as distro (distro)}
+              <option value={distro}>WSL · {distro}</option>
+            {/each}
+          </select>
+        {/if}
         <input
           bind:value={rawPath}
           disabled={locked}

@@ -13,6 +13,7 @@ import { messageLog } from "$lib/layout/messageLogPrefs.svelte";
 import { isTauri } from "$lib/services/api";
 import { setThreadHandler, startCodexListeners } from "$lib/services/codexEvents.svelte";
 import { startConnectionsWatch } from "$lib/services/connections.svelte";
+import { belongsToProfile, identity, scopedId, setHomeSelection } from "$lib/services/homeRouting";
 import type { HandoffOpen } from "$lib/types";
 import { installExternalLinkHandler } from "$lib/utils/externalLinks";
 import { refreshAllGitStatus, refreshGitStatus } from "$lib/worktrees/gitStatus.svelte";
@@ -28,6 +29,7 @@ async function openThreadFromQuick(threadId: string) {
 }
 
 export function startApp(): void {
+  setHomeSelection(() => view);
   startCodexListeners();
   // Open links (markdown output, etc.) in the default browser rather than
   // navigating the app webview and stranding the user with no way back.
@@ -87,6 +89,8 @@ export function startApp(): void {
     // Broadcast to every window; only the ones on the quick chat's home react.
     if (!eventMatchesHome(event.payload?.codexHome)) return;
     const threadId = event.payload?.threadId;
-    if (threadId) openThreadFromQuick(threadId);
+    const key = event.payload.codexHome;
+    if (threadId)
+      openThreadFromQuick(key && belongsToProfile(key) && !identity(threadId) ? scopedId(key, threadId) : threadId);
   });
 }

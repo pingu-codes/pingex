@@ -5,6 +5,7 @@ use std::path::Path;
 
 use super::run::{run_git, READ_TIMEOUT};
 use super::types::BranchRef;
+use crate::util::host::Host;
 
 /// Turn `for-each-ref` output into branch rows, most recently committed first.
 ///
@@ -51,10 +52,15 @@ fn parse_branches(stdout: &str, limit: usize) -> Vec<BranchRef> {
     branches
 }
 
-pub(crate) fn read_branches(dir: &Path, limit: usize) -> Result<Vec<BranchRef>, String> {
+pub(crate) fn read_branches(
+    host: &Host,
+    dir: &Path,
+    limit: usize,
+) -> Result<Vec<BranchRef>, String> {
     let limit = limit.clamp(1, 500);
     let count_arg = format!("--count={limit}");
     let output = run_git(
+        host,
         dir,
         &[
             "for-each-ref",

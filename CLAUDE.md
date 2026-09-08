@@ -42,3 +42,12 @@ is absent and never checks the harness kind. Codex-only verbs go through
 `Driver::extension`. When adding a driver, add a golden fixture case under
 `tests/fixtures/protocol/<harness>/` and a live suite under
 `src-tauri/tests/live_<harness>/`.
+
+## Hosts
+
+A Home lives on a `Host` (`src-tauri/src/util/host.rs`): native, or a WSL
+distribution when the app runs on Windows. Spawn processes through
+`host.command`, open files through `host.to_local`, and build paths with
+`host.join_str`; never `Path::join` a Linux path or `Command::new` a harness
+directly. Vocabulary in `CONTEXT.md`, mechanics in `features/13-harnesses.md`
+("Hosts"), rationale in `docs/adr/0003-host-per-home.md`.
