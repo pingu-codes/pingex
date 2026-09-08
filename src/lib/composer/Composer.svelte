@@ -28,6 +28,7 @@ import {
 import MentionPicker from "$lib/composer/MentionPicker.svelte";
 import HarnessMenu from "$lib/composer/HarnessMenu.svelte";
 import ModelPopover from "$lib/composer/ModelPopover.svelte";
+import { fastTier, fastModeState } from "$lib/composer/fastMode";
 import {
   claudeModels as claudeModelList,
   claudeModelsError as claudeModelListError,
@@ -75,6 +76,8 @@ let {
   subagentModelPolicy = null,
   subagentReasoningEffortPolicy = null,
   threadModel = null,
+  threadSpeedTier = undefined,
+  runningSpeedTier = undefined,
   history = [],
   threadHarness = null,
   onSend,
@@ -126,10 +129,12 @@ let {
   onModelChange?: (modelId: string | null) => void;
   /** The user picked a model or effort; the owner decides whether a running
    *  turn can take it now (`turn/settings/update`) or from the next turn. */
-  onLiveSettingsChange?: (settings: { model: string | null; effort: string | null }) => void;
+  onLiveSettingsChange?: (settings: { model?: string | null; effort?: string | null; speedTier?: string }) => void;
   /** The model the thread last ran on; backs the collaboration-mode settings
    *  when nothing is picked and the model list has not loaded yet. */
   threadModel?: string | null;
+  threadSpeedTier?: string | null;
+  runningSpeedTier?: string | null;
   /** Prior user messages, oldest first, for ↑/↓ recall from the composer's edges. */
   history?: string[];
   /** The harness an existing thread runs on. A draft reads the pref instead. */
@@ -452,6 +457,29 @@ const defaultModel = $derived((models ?? []).find((model) => model.isDefault) ??
 const effectiveModel = $derived(prefs.model ?? defaultModel?.id ?? null);
 /** The effort a turn runs at, including the model default the user never touched. */
 const effectiveEffort = $derived(prefs.effort ?? (selectedModel ?? defaultModel)?.defaultReasoningEffort ?? null);
+const speedModel = $derived(selectedModel ?? defaultModel);
+const supportsSpeed = $derived(models?.some((model) => model.speedTiers !== undefined) ?? false);
+const fastSpeedTier = $derived(fastTier(speedModel));
+const inheritedSpeedTier = $derived(threadId ? threadSpeedTier : undefined);
+const selectedSpeedTier = $derived(prefs.speedTier ?? inheritedSpeedTier);
+const selectedFast = $derived(fastModeState(selectedSpeedTier, speedModel));
+const displayedFast = $derived(fastModeState(busy ? runningSpeedTier : selectedSpeedTier, speedModel));
+const speedPending = $derived(busy && prefs.speedTier !== null && selectedFast !== displayedFast);
+
+$effect(() => {
+  if (prefs.speedTier !== null && prefs.speedTier === threadSpeedTier) {
+    prefs.speedTier = null;
+    saveScopedPrefs(projectKey, threadId, prefs);
+  }
+});
+
+function toggleFastMode() {
+  const next = selectedFast === true ? "default" : fastSpeedTier;
+  if (!next) return;
+  prefs.speedTier = next;
+  saveScopedPrefs(projectKey, threadId, prefs);
+  onLiveSettingsChange?.({ speedTier: prefs.speedTier });
+}
 $effect(() => {
   onModelChange?.(effectiveModel);
 });
@@ -465,6 +493,7 @@ function sendOptions(): TurnOptions | undefined {
     defaultModel?.id ?? null,
     threadModel,
   );
+  if (options && !supportsSpeed) delete options.speedTier;
   if (!options?.collaborationMode) {
     console.warn("composer: no model resolved; turn sent without an explicit collaboration mode");
   }
@@ -485,12 +514,14 @@ $effect(() => {
 });
 
 function chooseModel(model: Model) {
+  const keepFast = selectedFast === true;
   prefs.model = model.id;
+  if (keepFast) prefs.speedTier = fastTier(model) ?? "default";
   if (!model.supportedReasoningEfforts.some((option) => option.reasoningEffort === prefs.effort)) {
     prefs.effort = model.defaultReasoningEffort;
   }
   persist();
-  onLiveSettingsChange?.({ model: prefs.model ?? null, effort: prefs.effort ?? null });
+  onLiveSettingsChange?.({ model: prefs.model ?? null, effort: prefs.effort ?? null, ...(keepFast ? { speedTier: prefs.speedTier! } : {}) });
 }
 
 function chooseEffort(effort: string) {
@@ -1214,6 +1245,19 @@ function onPaste(event: ClipboardEvent) {
           onChooseModel={chooseModel}
           onChooseEffort={chooseEffort}
         />
+        {#if supportsSpeed}
+          <TooltipButton
+            label={!fastSpeedTier && selectedFast !== true ? "Fast mode is unavailable for this model" : speedPending ? "The selected speed applies to the next turn until the running turn confirms it" : "Toggle fast mode for this thread"}
+            aria-label="Fast mode"
+            aria-pressed={displayedFast === undefined ? "mixed" : displayedFast}
+            disabled={disabled || (!fastSpeedTier && selectedFast !== true)}
+            onclick={toggleFastMode}
+            class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] transition {displayedFast ? 'preset-filled-primary-500' : 'text-surface-500 hover:bg-surface-200-800'}"
+          >
+            Fast {displayedFast === undefined ? "unknown" : displayedFast ? "on" : "off"}
+            {#if speedPending}<span>· Next {selectedFast ? "on" : "off"}</span>{/if}
+          </TooltipButton>
+        {/if}
         <SubagentPolicyPopover
           open={popover === "subagents"}
           {models}

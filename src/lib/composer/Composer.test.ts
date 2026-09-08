@@ -24,6 +24,50 @@ vi.mock("$lib/services/api", async (importOriginal) => ({
 
 const textInput = (text: string) => [{ type: "text", text }];
 
+describe("fast mode", () => {
+  it("shows inherited fast mode and explicitly disables it for the next send", async () => {
+    const { onSend, textarea } = setup({ threadId: "fast-thread", threadSpeedTier: "priority" });
+    const toggle = await screen.findByRole("button", { name: "Fast mode" });
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await fireEvent.click(toggle);
+    expect(toggle).toHaveTextContent("Fast off");
+    expect(loadScopedPrefs("", "fast-thread").speedTier).toBe("default");
+    await userEvent.setup().click(textarea);
+    await userEvent.setup().keyboard("hello{Enter}");
+    expect(onSend).toHaveBeenCalledWith(textInput("hello"), expect.objectContaining({ speedTier: "default" }));
+  });
+
+  it("keeps running status visible while a different speed is pending", async () => {
+    setup({ threadId: "running", threadSpeedTier: "priority", runningSpeedTier: "priority", busy: true });
+    const toggle = await screen.findByRole("button", { name: "Fast mode" });
+    await fireEvent.click(toggle);
+    expect(toggle).toHaveTextContent("Fast on");
+    expect(toggle).toHaveTextContent("Next off");
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("does not call missing settings off", async () => {
+    setup({ threadId: "unknown" });
+    const toggle = await screen.findByRole("button", { name: "Fast mode" });
+    expect(toggle).toHaveTextContent("Fast unknown");
+    expect(toggle).toHaveAttribute("aria-pressed", "mixed");
+  });
+
+  it("disables the toggle for a model without fast mode", async () => {
+    setup({ prefs: { model: "gpt-5.2" }, threadId: "standard", threadSpeedTier: "default" });
+    expect(await screen.findByRole("button", { name: "Fast mode" })).toBeDisabled();
+  });
+
+  it("still allows disabling inherited fast mode on an unsupported model", async () => {
+    setup({ prefs: { model: "gpt-5.2" }, threadId: "inherited", threadSpeedTier: "priority" });
+    const toggle = await screen.findByRole("button", { name: "Fast mode" });
+    expect(toggle).toBeEnabled();
+    await fireEvent.click(toggle);
+    expect(toggle).toHaveTextContent("Fast off");
+    expect(toggle).toBeDisabled();
+  });
+});
+
 function setup({
   prefs = {},
   ...props
@@ -35,6 +79,8 @@ function setup({
   draftKey?: string;
   projectKey?: string;
   threadId?: string | null;
+  threadSpeedTier?: string | null;
+  runningSpeedTier?: string | null;
   history?: string[];
   subagentModelPolicy?: SubagentPolicy | null;
   subagentReasoningEffortPolicy?: SubagentPolicy | null;

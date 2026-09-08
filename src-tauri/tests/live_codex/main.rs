@@ -1043,6 +1043,24 @@ fn turn_settings_update_or_its_classified_absence() {
         None,
         Some("medium"),
     ));
+    let speed = server.request(requests::turn_speed_update(
+        &thread_id, &turn_id, "default", None, None,
+    ));
+    match speed {
+        Ok(response) => assert!(matches!(
+            response["status"].as_str(),
+            Some("applied" | "targetUnavailable")
+        )),
+        Err(error) => {
+            let wrapped = format!(
+                "Codex request failed: {}",
+                json!({"code": error.code, "message": error.message})
+            );
+            let reason = pingex_app_lib::e2e::speed_tier_unsupported(&wrapped)
+                .expect("speed update failed for a reason other than compatibility");
+            server.expect_legacy(Feature::LIVE_SPEED, &reason);
+        }
+    }
     server.call(requests::turn_interrupt(&thread_id, &turn_id));
     let _ = server.await_turn(from, &turn_id);
     match updated {

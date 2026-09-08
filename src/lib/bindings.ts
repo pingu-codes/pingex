@@ -63,6 +63,8 @@ export const commands = {
 	startTurn: (threadId: string, input: unknown[], options: {
 	model?: string | null,
 	effort?: string | null,
+	/**  An explicit speed selection; absent inherits the thread. "default" disables fast mode. */
+	speedTier?: string | null,
 	approvalPolicy?: string | null,
 	sandboxMode?: string | null,
 	collaborationMode?: unknown | null,
@@ -84,7 +86,7 @@ export const commands = {
 	 *  API, an error prefixed by `Feature::TURN_SETTINGS.error_prefix` so the
 	 *  frontend can fall back to "applies from the next turn".
 	 */
-	updateTurnSettings: (threadId: string, turnId: string, model: string | null, effort: string | null) => __TAURI_INVOKE<unknown>("update_turn_settings", { threadId, turnId, model, effort }),
+	updateTurnSettings: (threadId: string, turnId: string, model: string | null, effort: string | null, speedTier: string | null) => __TAURI_INVOKE<unknown>("update_turn_settings", { threadId, turnId, model, effort, speedTier }),
 	respondApproval: (requestId: number, decision: string) => __TAURI_INVOKE<null>("respond_approval", { requestId, decision }),
 	/**
 	 *  `request_id` is `None` when answering a question whose request died with an
@@ -1729,6 +1731,8 @@ export type ToolKind = "read" | "edit" | "delete" | "move" | "search" | "execute
 export type TurnOptions = {
 	model?: string | null,
 	effort?: string | null,
+	/**  An explicit speed selection; absent inherits the thread. "default" disables fast mode. */
+	speedTier?: string | null,
 	approvalPolicy?: string | null,
 	sandboxMode?: string | null,
 	collaborationMode?: unknown | null,

@@ -32,6 +32,11 @@ pub struct Feature {
 }
 
 impl Feature {
+    pub const LIVE_SPEED: Feature = Feature {
+        method_prefix: "turn/settings/update.serviceTier",
+        error_prefix: "codex-live-speed-unsupported",
+        since: (0, 151),
+    };
     pub const INSTALLED_PLUGINS: Feature = Feature {
         method_prefix: "plugin/installed",
         error_prefix: "codex-installed-plugins-unsupported",
@@ -66,7 +71,8 @@ impl Feature {
     };
 
     /// Every gated API, for the docs matrix and the live suite.
-    pub const ALL: [Feature; 6] = [
+    pub const ALL: [Feature; 7] = [
+        Self::LIVE_SPEED,
         Self::INSTALLED_PLUGINS,
         Self::REVERT,
         Self::QUEUE,
@@ -78,6 +84,15 @@ impl Feature {
     pub(crate) fn error(&self, reason: &str) -> String {
         format!("{}: {reason}", self.error_prefix)
     }
+}
+
+/// A field refusal must not disable model/effort updates on the same method.
+pub fn speed_tier_unsupported(error: &str) -> Option<String> {
+    method_unsupported(error, "turn/settings/update").or_else(|| {
+        ((error.contains("unknown field") || error.contains("unsupported field"))
+            && error.contains("serviceTier"))
+        .then(|| "this Codex cannot change speed during a turn".to_string())
+    })
 }
 
 /// The JSON-RPC error object inside a failure reported by `child.rs`, which
@@ -136,6 +151,16 @@ pub fn method_unsupported(error: &str, method_prefix: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::method_unsupported;
+
+    #[test]
+    fn speed_field_refusal_does_not_disable_other_live_settings() {
+        let error = failure(-32600, "unknown field `serviceTier`");
+        assert!(super::speed_tier_unsupported(&error).is_some());
+        assert!(method_unsupported(&error, "turn/settings/update").is_none());
+        assert!(
+            super::speed_tier_unsupported(&failure(-32600, "invalid serviceTier value")).is_none()
+        );
+    }
 
     /// Wrap a message the way `child.rs` reports a JSON-RPC failure.
     pub(crate) fn failure(code: i64, message: &str) -> String {

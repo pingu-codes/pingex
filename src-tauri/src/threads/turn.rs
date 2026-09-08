@@ -166,7 +166,7 @@ pub(crate) async fn start_thread(
         .cloned()
         .ok_or_else(|| "Codex returned no thread data".to_string())?;
     if let Some(id) = str_at(&thread, "id") {
-        ctx.session.mark_resumed(&app, id).await?;
+        ctx.session.mark_resumed(&app, id, &response).await?;
         // Remembered now so a `pingex_spawn_agent` on this thread's very first
         // message can bound the agent without asking Codex about a thread whose
         // turn is at that moment blocked waiting for the tool's answer.
@@ -175,7 +175,10 @@ pub(crate) async fn start_thread(
             storage::assign_thread_workspace(&ctx.database(), id, &workspace.workspace_id).await?;
         }
     }
-    Ok(Json(thread))
+    Ok(Json(super::read::with_thread_settings(
+        thread,
+        Some(&response),
+    )))
 }
 
 /// A Claude thread is a row and an id; the process is spawned by its first
@@ -283,6 +286,9 @@ pub(crate) async fn start_turn(
             )
         })
         .unwrap_or_default();
+    let speed_tier = options
+        .as_ref()
+        .and_then(|options| options.speed_tier.clone());
     let mut request = requests::turn_start(
         &thread_id,
         input.into_iter().map(|item| item.0).collect(),
@@ -301,6 +307,9 @@ pub(crate) async fn start_turn(
         ctx.agents.remember_cwd(&thread_id, &workspace.cwd);
     }
     let response = ctx.session.send(&app, request).await?;
+    if let Some(tier) = speed_tier.as_deref() {
+        ctx.session.cache_speed_tier(&app, &thread_id, tier).await?;
+    }
     let turn = response
         .get("turn")
         .cloned()
@@ -394,11 +403,31 @@ pub(crate) async fn update_turn_settings(
     turn_id: String,
     model: Option<String>,
     effort: Option<String>,
+    speed_tier: Option<String>,
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
+    if let Some(tier) = speed_tier {
+        let request = requests::turn_speed_update(
+            &thread_id,
+            &turn_id,
+            &tier,
+            model.as_deref(),
+            effort.as_deref(),
+        );
+        return ctx
+            .session
+            .send_gated(
+                &app,
+                Feature::LIVE_SPEED,
+                request,
+                crate::codex::compat::speed_tier_unsupported,
+            )
+            .await
+            .map(Json);
+    }
     let request =
         requests::turn_settings_update(&thread_id, &turn_id, model.as_deref(), effort.as_deref());
     ctx.session
@@ -695,6 +724,7 @@ mod tests {
             TurnOptions {
                 model: Some("gpt-5.6".into()),
                 effort: Some("high".into()),
+                speed_tier: Some("default".into()),
                 approval_policy: Some("on-request".into()),
                 sandbox_mode: Some("workspace-write".into()),
                 collaboration_mode: Some(Json(json!({"mode": "plan"}))),
@@ -706,6 +736,7 @@ mod tests {
         );
         assert_eq!(params["model"], "gpt-5.6");
         assert_eq!(params["effort"], "high");
+        assert_eq!(params["serviceTier"], "default");
         assert_eq!(params["approvalPolicy"], "on-request");
         assert_eq!(params["sandboxPolicy"], json!({"type": "workspaceWrite"}));
         assert_eq!(params["collaborationMode"], json!({"mode": "plan"}));

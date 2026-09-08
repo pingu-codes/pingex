@@ -357,6 +357,7 @@ export async function updateSubagentPolicy(
 }
 
 export interface StartedThread {
+  speedTier?: string | null;
   id: string;
   cwd?: string;
   /** Which harness the thread runs on; absent means Codex. */
@@ -680,8 +681,22 @@ export async function unarchiveThread(threadId: string): Promise<BootstrapData> 
 
 export async function listModels(): Promise<Model[]> {
   if (!isTauri()) return previewModels;
-  const response = await (commands.listModels() as Promise<{ data?: Model[] }>);
-  return response.data ?? [];
+  const response = await (commands.listModels() as Promise<{
+    data?: (Model & {
+      serviceTiers?: Model["speedTiers"];
+      additionalSpeedTiers?: string[];
+      defaultServiceTier?: string | null;
+    })[];
+  }>);
+  return (response.data ?? []).map(({ serviceTiers, additionalSpeedTiers, defaultServiceTier, ...model }) => ({
+    ...model,
+    speedTiers:
+      serviceTiers ??
+      additionalSpeedTiers
+        ?.filter((tier) => tier === "fast")
+        .map(() => ({ id: "priority", name: "Fast", description: "Faster responses" })),
+    defaultSpeedTier: defaultServiceTier,
+  }));
 }
 
 export async function readAccountRateLimits(): Promise<AccountRateLimits> {
@@ -756,10 +771,11 @@ export function isRevertUnsupported(cause: unknown): boolean {
  *  Codex predates the API (0.150.1 and earlier). Kept in step with
  *  `Feature::TURN_SETTINGS` in `src-tauri/src/codex/compat.rs`. */
 export const TURN_SETTINGS_UNSUPPORTED = "codex-turn-settings-unsupported";
+export const LIVE_SPEED_UNSUPPORTED = "codex-live-speed-unsupported";
 
 export function isTurnSettingsUnsupported(cause: unknown): boolean {
   const message = cause instanceof Error ? cause.message : String(cause);
-  return message.startsWith(TURN_SETTINGS_UNSUPPORTED);
+  return message.startsWith(TURN_SETTINGS_UNSUPPORTED) || message.startsWith(LIVE_SPEED_UNSUPPORTED);
 }
 
 export type TurnSettingsUpdateStatus = "applied" | "targetUnavailable";
@@ -769,7 +785,7 @@ export type TurnSettingsUpdateStatus = "applied" | "targetUnavailable";
 export async function updateTurnSettings(
   threadId: string,
   turnId: string,
-  settings: { model?: string | null; effort?: string | null },
+  settings: { model?: string | null; effort?: string | null; speedTier?: string },
 ): Promise<TurnSettingsUpdateStatus> {
   if (!isTauri()) return "applied";
   const response = (await commands.updateTurnSettings(
@@ -777,6 +793,7 @@ export async function updateTurnSettings(
     turnId,
     settings.model ?? null,
     settings.effort ?? null,
+    settings.speedTier ?? null,
   )) as { status?: string } | null;
   return response?.status === "applied" ? "applied" : "targetUnavailable";
 }

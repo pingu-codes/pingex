@@ -511,7 +511,7 @@ pub(crate) async fn fork_thread(
         .cloned()
         .ok_or_else(|| "Codex returned no forked thread".to_string())?;
     if let Some(id) = crate::util::json::str_at(&thread, "id") {
-        ctx.session.mark_resumed(&app, id).await?;
+        ctx.session.mark_resumed(&app, id, &response).await?;
         // The fork carries the parent's history, so it needs the parent's
         // journal too — otherwise the copy loses every command that ran.
         storage::copy_thread_items(&ctx.database(), &thread_id, id).await?;
@@ -527,5 +527,8 @@ pub(crate) async fn fork_thread(
             }
         }
     }
-    Ok(Json(thread))
+    Ok(Json(super::read::with_thread_settings(
+        thread,
+        Some(&response),
+    )))
 }

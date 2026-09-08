@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   listSubagents: vi.fn().mockResolvedValue([]),
   listAgentRuns: vi.fn().mockResolvedValue([]),
   startTurn: vi.fn(),
+  updateTurnSettings: vi.fn().mockResolvedValue("applied"),
   interruptTurn: vi.fn().mockResolvedValue(undefined),
   queueAdd: vi.fn(),
   queueDelete: vi.fn().mockResolvedValue(true),
@@ -27,6 +28,8 @@ vi.mock("$lib/services/api", () => ({
   listSubagents: mocks.listSubagents,
   listAgentRuns: mocks.listAgentRuns,
   startTurn: mocks.startTurn,
+  updateTurnSettings: mocks.updateTurnSettings,
+  isTurnSettingsUnsupported: (cause: unknown) => String(cause).includes("unsupported"),
   interruptTurn: mocks.interruptTurn,
   isQueueUnsupported: () => true,
   queueAdd: mocks.queueAdd,
@@ -90,6 +93,7 @@ beforeEach(() => {
   mocks.queueAdd.mockReset();
   mocks.queueAdd.mockRejectedValue(new Error("codex-queue-unsupported"));
   mocks.startTurn.mockReset();
+  mocks.updateTurnSettings.mockReset().mockResolvedValue("applied");
   mocks.startTurn.mockResolvedValue({ id: "turn-real", status: "inProgress" });
   mocks.requestAutoName.mockClear();
   mocks.getThreadGoal.mockReset();
@@ -97,6 +101,53 @@ beforeEach(() => {
 });
 
 describe("sessions retention", () => {
+  it("updates running speed without changing the thread default", async () => {
+    const session = await leaveWorking("fast");
+    session.thread!.speedTier = "default";
+    await session.updateLiveSettings({ speedTier: "priority" });
+    expect(session.runningSpeedTier).toBe("priority");
+    expect(session.thread!.speedTier).toBe("default");
+  });
+
+  it("keeps confirmed speed on refusal and reports next-turn application", async () => {
+    const session = await leaveWorking("legacy");
+    session.runningSpeedTier = "priority";
+    mocks.updateTurnSettings.mockRejectedValueOnce(new Error("codex-live-speed-unsupported"));
+    await session.updateLiveSettings({ speedTier: "default" });
+    expect(session.runningSpeedTier).toBe("priority");
+    expect(session.notice).toBe("Fast mode will change next turn.");
+  });
+
+  it("serializes rapid toggles and ignores confirmation after the turn finishes", async () => {
+    const session = await leaveWorking("rapid");
+    let resolve!: (status: string) => void;
+    mocks.updateTurnSettings.mockImplementationOnce(
+      () =>
+        new Promise<string>((done) => {
+          resolve = done;
+        }),
+    );
+    const first = session.updateLiveSettings({ speedTier: "priority" });
+    const second = session.updateLiveSettings({ speedTier: "default" });
+    await settle();
+    expect(mocks.updateTurnSettings).toHaveBeenCalledTimes(1);
+    resolve("applied");
+    await Promise.all([first, second]);
+    expect(session.runningSpeedTier).toBe("default");
+    expect(mocks.updateTurnSettings).toHaveBeenCalledTimes(2);
+    mocks.updateTurnSettings.mockImplementationOnce(
+      () =>
+        new Promise<string>((done) => {
+          resolve = done;
+        }),
+    );
+    const ending = session.updateLiveSettings({ speedTier: "priority" });
+    await settle();
+    session.thread!.turns[0].status = "completed";
+    resolve("applied");
+    await ending;
+    expect(session.runningSpeedTier).toBe("default");
+  });
   it("keeps applying events to a working thread that was navigated away from", async () => {
     const left = await leaveWorking("thread-a");
     emit("item/agentMessage/delta", { threadId: "thread-a", turnId: "thread-a-turn", itemId: "m1", delta: "Hel" });

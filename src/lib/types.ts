@@ -474,6 +474,8 @@ export interface AccountRateLimits {
 }
 
 export interface ThreadDetail {
+  /** Confirmed thread speed; undefined means unavailable, null means standard. */
+  speedTier?: string | null;
   id: string;
   preview: string;
   name?: string | null;
@@ -491,6 +493,9 @@ export interface ReasoningEffortOption {
 }
 
 export interface Model {
+  /** Optional capability supplied by the harness model catalog. */
+  speedTiers?: { id: string; name: string; description: string }[];
+  defaultSpeedTier?: string | null;
   id: string;
   model: string;
   displayName: string;
@@ -515,6 +520,7 @@ export interface ModelUpgradeInfo {
 
 /** Per-turn overrides picked in the composer popovers. */
 export interface TurnOptions {
+  speedTier?: string;
   model?: string;
   effort?: string;
   approvalPolicy?: string;

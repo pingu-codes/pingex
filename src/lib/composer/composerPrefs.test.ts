@@ -13,6 +13,10 @@ import {
 beforeEach(() => localStorage.clear());
 
 describe("turnOptionsFrom", () => {
+  it("sends an explicit standard tier when fast mode is disabled", () => {
+    expect(turnOptionsFrom({ ...loadPrefs(), speedTier: "default" })).toEqual({ speedTier: "default" });
+    expect(turnOptionsFrom({ ...loadPrefs(), speedTier: "priority" })).toEqual({ speedTier: "priority" });
+  });
   it("returns undefined when nothing is chosen", () => {
     expect(turnOptionsFrom(loadPrefs())).toBeUndefined();
   });
@@ -60,6 +64,15 @@ describe("turnOptionsFrom", () => {
 });
 
 describe("prefs persistence", () => {
+  it("keeps speed choices per thread without seeding another thread or project", () => {
+    saveScopedPrefs("/repo", "one", { ...loadPrefs(), speedTier: "priority" });
+    expect(loadScopedPrefs("/repo", "one").speedTier).toBe("priority");
+    expect(loadScopedPrefs("/repo", "two").speedTier).toBeNull();
+    expect(loadScopedPrefs("/repo", null).speedTier).toBeNull();
+    expect(loadScopedPrefs("/other", null).speedTier).toBeNull();
+    saveScopedPrefs("/repo", "one", { ...loadScopedPrefs("/repo", "one"), speedTier: "default" });
+    expect(loadScopedPrefs("/repo", "one").speedTier).toBe("default");
+  });
   it("round-trips planMode through localStorage", () => {
     savePrefs({ ...loadPrefs(), planMode: true });
     expect(loadPrefs().planMode).toBe(true);
@@ -77,6 +90,7 @@ describe("scoped prefs", () => {
 
   it("falls back to defaults for a project nobody has used", () => {
     expect(loadScopedPrefs("/repo", null)).toEqual({
+      speedTier: null,
       harness: null,
       model: null,
       effort: null,

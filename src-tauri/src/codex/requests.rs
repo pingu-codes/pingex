@@ -170,6 +170,8 @@ pub fn model_list(limit: u32, include_hidden: bool) -> Request {
 pub struct TurnOptions {
     pub model: Option<String>,
     pub effort: Option<String>,
+    /// An explicit speed selection; absent inherits the thread. "default" disables fast mode.
+    pub speed_tier: Option<String>,
     pub approval_policy: Option<String>,
     pub sandbox_mode: Option<String>,
     pub collaboration_mode: Option<Json>,
@@ -194,6 +196,9 @@ pub fn sandbox_policy_type(mode: &str) -> Option<&'static str> {
 }
 
 pub fn apply_turn_options(params: &mut Value, options: TurnOptions) {
+    if let Some(tier) = options.speed_tier {
+        params["serviceTier"] = json!(tier);
+    }
     if let Some(model) = options.model {
         params["model"] = json!(model);
     }
@@ -266,6 +271,18 @@ pub fn turn_interrupt(thread_id: &str, turn_id: &str) -> Request {
         "turn/interrupt",
         json!({"threadId": thread_id, "turnId": turn_id}),
     )
+}
+
+pub fn turn_speed_update(
+    thread_id: &str,
+    turn_id: &str,
+    tier: &str,
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> Request {
+    let mut request = turn_settings_update(thread_id, turn_id, model, effort);
+    request.params["serviceTier"] = json!(tier);
+    request
 }
 
 /// The result object answering an approval server request.

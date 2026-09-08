@@ -404,7 +404,10 @@ async function ensureLiveThread(): Promise<string> {
     composer?.appSubagentsChoice() ?? null,
     composer?.harnessChoice() ?? null,
   );
-  if (session.thread) session.thread.harness = created.harness ?? null;
+  if (session.thread) {
+    session.thread.harness = created.harness ?? null;
+    session.thread.speedTier = created.speedTier;
+  }
   // The draft is now a real thread: it runs under its id from here, and is
   // retained if the view leaves mid-turn.
   attachSession(session, created.id);
@@ -1351,6 +1354,8 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
     {subagentModelPolicy}
     {subagentReasoningEffortPolicy}
     threadModel={lastTurnModel}
+    threadSpeedTier={thread?.speedTier}
+    runningSpeedTier={session.runningSpeedTier}
     onSubagentPolicyChange={changeSubagentPolicy}
     onModelChange={(modelId) => (activeModel = modelId)}
     onLiveSettingsChange={(settings) => {

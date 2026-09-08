@@ -23,6 +23,8 @@ export type HarnessChoice = "codex" | "claude";
 
 /** Composer model/effort/permission choices, persisted in localStorage. */
 export interface ComposerPrefs extends SubagentPrefs {
+  /** Per-thread speed override; null inherits the harness setting. */
+  speedTier: string | null;
   /** Which harness a new thread starts on; `null` means Codex. Only read
    *  when a draft is sent: an existing thread never switches. */
   harness: HarnessChoice | null;
@@ -120,6 +122,7 @@ interface PrefsStore {
 }
 
 const defaults = (): ComposerPrefs => ({
+  speedTier: null,
   harness: null,
   model: null,
   effort: null,
@@ -234,6 +237,7 @@ export function loadScopedPrefs(project: string, threadId: string | null): Compo
   const own = (threadId ? store.threads[threadId] : null) ?? store.projects[project];
   const scoped = own ?? store.fallback;
   const prefs = scoped ? { ...scoped } : defaults();
+  prefs.speedTier = threadId ? (store.threads[threadId]?.speedTier ?? null) : null;
   if (!own && store.subagentDefaults) Object.assign(prefs, store.subagentDefaults);
   return prefs;
 }
@@ -242,7 +246,7 @@ export function loadScopedPrefs(project: string, threadId: string | null): Compo
 export function saveScopedPrefs(project: string, threadId: string | null, prefs: ComposerPrefs): void {
   const store = readStore();
   const snapshot = { ...prefs };
-  if (project) touch(store.projects, project, snapshot);
+  if (project) touch(store.projects, project, { ...snapshot, speedTier: null });
   if (threadId) touch(store.threads, threadId, snapshot, MAX_THREADS);
   store.subagentDefaults = pickSubagent(snapshot);
   writeStore(store);
@@ -293,6 +297,7 @@ export function turnOptionsFrom(
 ): TurnOptions | undefined {
   const preset = PERMISSION_PRESETS.find((candidate) => candidate.id === prefs.permissionPreset);
   const options: TurnOptions = {};
+  if (prefs.speedTier) options.speedTier = prefs.speedTier;
   if (prefs.model) options.model = prefs.model;
   if (prefs.effort) options.effort = prefs.effort;
   if (preset) {

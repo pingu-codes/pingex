@@ -253,6 +253,7 @@ const previewLongDiff = [
 ].join("\n");
 
 export const previewThread: ThreadDetail = {
+  speedTier: "default",
   id: "1",
   preview: "Custom frontend skeleton",
   name: "Custom frontend skeleton",
@@ -458,6 +459,8 @@ export function previewThreadsPage(
 
 export const previewModels: Model[] = [
   {
+    speedTiers: [{ id: "priority", name: "Fast", description: "Faster responses" }],
+    defaultSpeedTier: null,
     id: "gpt-5.2-codex",
     model: "gpt-5.2-codex",
     displayName: "GPT-5.2 Codex",

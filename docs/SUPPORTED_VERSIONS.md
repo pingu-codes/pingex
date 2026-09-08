@@ -54,6 +54,13 @@ Gated APIs (one row per `Feature`):
 | `PROJECTS` | `project/*` | ✓ | ✓ | ✓ |
 | `SECTIONS` | `threadSection/*` | ✓ | ✓ | ✓ |
 | `TURN_SETTINGS` | `turn/settings/update` — change model/effort mid-turn; needs the `step_model_switching` feature, which the app turns on with `-c` at spawn (`child::APP_SERVER_ARGS`) | ✓ | ✓ | ✓ |
+| `LIVE_SPEED` | `turn/settings/update.serviceTier` — change the running turn's speed; field refusals are cached separately from model/effort updates | ✓ | ✓ | ✓ |
+
+The composer reads speed availability from model catalog metadata and resolved speed
+from thread start/resume/fork responses. Missing state displays as unknown. Fast off
+sends `serviceTier: "default"`, rather than clearing the override. Speed choices
+stay per thread and are included in subsequent turn submissions. A refused live
+update leaves the running status unchanged and applies the choice next turn.
 | `INSTALLED_PLUGINS` | `plugin/installed` — installed-plugin inventory; unsupported responses are remembered | probed | probed | ✓ |
 
 Payload additions the app reads when present (no gating needed — the field is

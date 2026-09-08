@@ -34,7 +34,7 @@ pub(crate) async fn read_thread(
     }
     // Resuming subscribes the app to live updates. Keep this best-effort so a
     // cached thread remains readable while Codex is unavailable.
-    let resume = ctx.session.ensure_resumed(&app, &thread_id).await.ok();
+    let resume = ctx.session.refresh_resumed(&app, &thread_id).await.ok();
     let source_updated_at = storage::thread_updated_at(&ctx.database(), &thread_id)
         .await?
         .unwrap_or_default();
@@ -353,7 +353,7 @@ fn insert_item(
 
 /// Overlay the settings the resume response resolved onto the thread payload,
 /// so a cached read does not report stale subagent policies.
-fn with_thread_settings(mut detail: Value, resume: Option<&Value>) -> Value {
+pub(super) fn with_thread_settings(mut detail: Value, resume: Option<&Value>) -> Value {
     let Some(object) = detail.as_object_mut() else {
         return detail;
     };
@@ -361,6 +361,9 @@ fn with_thread_settings(mut detail: Value, resume: Option<&Value>) -> Value {
         if let Some(value) = resume.and_then(|response| response.get(key)) {
             object.insert(key.to_string(), value.clone());
         }
+    }
+    if let Some(tier) = resume.and_then(|response| response.get("serviceTier")) {
+        object.insert("speedTier".to_string(), tier.clone());
     }
     detail
 }
@@ -683,6 +686,18 @@ mod tests {
             with_thread_settings(detail, Some(&resume)),
             json!({"id": "thread-1", "subagentModelPolicy": {"mode": "new"}})
         );
+    }
+
+    #[test]
+    fn resolved_speed_distinguishes_missing_standard_and_fast() {
+        for tier in [Value::Null, json!("priority"), json!("default")] {
+            let detail =
+                with_thread_settings(json!({"id": "one"}), Some(&json!({"serviceTier": tier})));
+            assert_eq!(detail["speedTier"], tier);
+        }
+        assert!(with_thread_settings(json!({}), Some(&json!({})))
+            .get("speedTier")
+            .is_none());
     }
 
     #[test]

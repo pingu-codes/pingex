@@ -44,6 +44,8 @@ export class ThreadSession {
   id = $state<string | null>(null);
   /** The transcript. Events mutate it in place; the proxy makes that reactive. */
   thread = $state<ThreadDetail | null>(null);
+  runningSpeedTier = $state<string | null | undefined>(undefined);
+  private settingsUpdate: Promise<void> = Promise.resolve();
   loading = $state(false);
   /** A fatal load error: there is no transcript to show. */
   error = $state<string | null>(null);
@@ -155,6 +157,7 @@ export class ThreadSession {
       // as working forever — nothing can complete it, so show it as what it is.
       if (!activeTurns.list.includes(id)) finalizeRunningTurns(detail.turns, "interrupted");
       this.thread = detail;
+      this.runningSpeedTier = detail.speedTier;
       this.subagentModelPolicy = detail.subagentModelPolicy ?? null;
       this.subagentReasoningEffortPolicy = detail.subagentReasoningEffortPolicy ?? null;
       void this.refreshSubagents();
@@ -225,6 +228,8 @@ export class ThreadSession {
       const start = startTurn(id, input, options);
       this.pendingTurnStart = start;
       const turn = await start;
+      if (options?.speedTier !== undefined) thread.speedTier = options.speedTier;
+      this.runningSpeedTier = thread.speedTier;
       // `turn/started` may already have renamed the turn to the id Codex actually
       // runs it under (which can differ from the one returned here); leave that.
       const pending = thread.turns.find((candidate) => candidate.id === localTurnId);
@@ -269,17 +274,28 @@ export class ThreadSession {
    * behaviour, where the choice applies from the next turn. Never throws: the
    * preference itself is already saved by the composer.
    */
-  async updateLiveSettings(settings: { model?: string | null; effort?: string | null }): Promise<void> {
+  updateLiveSettings(settings: { model?: string | null; effort?: string | null; speedTier?: string }): Promise<void> {
     const id = this.id;
     const active = this.activeTurn;
-    if (!id || !active || active.id.startsWith("local-")) return;
-    try {
-      const status = await updateTurnSettings(id, active.id, settings);
-      this.notice = status === "applied" ? LIVE_SETTINGS_APPLIED : LIVE_SETTINGS_NEXT_TURN;
-    } catch (cause) {
-      if (isTurnSettingsUnsupported(cause)) this.notice = LIVE_SETTINGS_NEXT_TURN;
-      else toastError(cause instanceof Error ? cause.message : String(cause));
-    }
+    const nextTurn = settings.speedTier !== undefined ? "Fast mode will change next turn." : LIVE_SETTINGS_NEXT_TURN;
+    this.settingsUpdate = this.settingsUpdate.then(async () => {
+      if (this.disposed) return;
+      if (!id || !active || active.id.startsWith("local-") || this.activeTurn?.id !== active.id) {
+        this.notice = nextTurn;
+        return;
+      }
+      try {
+        const status = await updateTurnSettings(id, active.id, settings);
+        if (this.disposed) return;
+        const applied = status === "applied" && this.activeTurn?.id === active.id;
+        if (applied && settings.speedTier !== undefined) this.runningSpeedTier = settings.speedTier;
+        this.notice = applied ? LIVE_SETTINGS_APPLIED : nextTurn;
+      } catch (cause) {
+        if (isTurnSettingsUnsupported(cause)) this.notice = nextTurn;
+        else toastError(cause instanceof Error ? cause.message : String(cause));
+      }
+    });
+    return this.settingsUpdate;
   }
 
   // Deliberately two independent requests rather than one `Promise.all`:

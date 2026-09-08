@@ -79,7 +79,7 @@ describe("ThreadQueue on a Codex that holds the queue", () => {
 
   it("takes the head off the server before sending it, with its options", async () => {
     const { queue, send, finishTurn } = harness();
-    const options = { model: "gpt-5.2-codex" } as TurnOptions;
+    const options = { model: "gpt-5.2-codex", speedTier: "default" } as TurnOptions;
     await queue.add(text("Then do this"), options);
     const [entry] = queue.entries;
 

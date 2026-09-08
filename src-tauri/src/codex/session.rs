@@ -413,12 +413,47 @@ impl CodexSession {
         &self,
         app: &AppHandle,
         thread_id: &str,
+        response: &Value,
     ) -> Result<(), String> {
         let (_, sink) = self.session(app).await?;
         sink.resumed
             .lock()
             .map_err(|_| "Codex resumed lock was poisoned".to_string())?
-            .insert(thread_id.to_string(), Value::Null);
+            .insert(thread_id.to_string(), response.clone());
         Ok(())
+    }
+
+    pub(crate) async fn cache_speed_tier(
+        &self,
+        app: &AppHandle,
+        thread_id: &str,
+        tier: &str,
+    ) -> Result<(), String> {
+        let (_, sink) = self.session(app).await?;
+        let mut resumed = sink
+            .resumed
+            .lock()
+            .map_err(|_| "Codex resumed lock was poisoned".to_string())?;
+        let response = resumed
+            .entry(thread_id.to_string())
+            .or_insert_with(|| json!({}));
+        if !response.is_object() {
+            *response = json!({});
+        }
+        response["serviceTier"] = json!(tier);
+        Ok(())
+    }
+
+    /// Refresh settings when opening a transcript, including changes made by another client.
+    pub(crate) async fn refresh_resumed(
+        &self,
+        app: &AppHandle,
+        thread_id: &str,
+    ) -> Result<Value, String> {
+        let response = self
+            .send(app, crate::codex::requests::thread_resume(thread_id))
+            .await?;
+        self.mark_resumed(app, thread_id, &response).await?;
+        Ok(response)
     }
 }
