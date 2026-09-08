@@ -48,6 +48,7 @@ export type {
   GitRepoInfo,
   GitStatus,
   HomeOverview,
+  Host,
   IntegrationsList,
   LaunchState,
   McpServerInfo,
@@ -606,6 +607,7 @@ export interface HandoffOpen {
   path: string | null;
   /** Resolved (tilde-expanded) requested home, if the link carried one. */
   requestedHome: string | null;
+  requestedHost?: import("$lib/bindings").Host | null;
   label: string | null;
   /** The requested home equals the running home (or none was supplied). */
   homeMatches: boolean;
@@ -827,7 +829,7 @@ type Override<E, O> = E extends { method: infer M; params: infer P }
  * One notification from Codex, discriminated on `method`. `disconnected` is
  * synthesised by the client when the app-server goes away.
  */
-export type CodexEvent = Override<CodexNotification, CodexEventOverrides> | { method: "disconnected"; params: null };
+export type CodexEvent = Override<CodexNotification, CodexEventOverrides> | { method: "disconnected"; params: null; homeKey?: string };
 
 export type CodexEventOf<M extends CodexEvent["method"]> = Extract<CodexEvent, { method: M }>;
 

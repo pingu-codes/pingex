@@ -10,6 +10,7 @@ use std::path::Path;
 use super::run::{run_git, READ_TIMEOUT};
 use super::status::read_status;
 use super::types::WorktreeEntry;
+use crate::util::host::Host;
 
 /// One raw record from the porcelain listing, before enrichment.
 struct RawWorktree {
@@ -83,22 +84,25 @@ fn parse_worktree_list(stdout: &str) -> Vec<RawWorktree> {
 /// canonicalized path lives under `<codex_home>/worktrees/` (permanent) or
 /// `<codex_home>/worktrees-tmp/` (temporary). Falls back to a lexical check
 /// when the path cannot be canonicalized (e.g. missing dir).
-fn is_codex_managed(path: &str, codex_home: &Path) -> bool {
+fn is_codex_managed(host: &Host, path: &str, codex_home: &Path) -> bool {
+    let home = host.path_string(codex_home);
     ["worktrees", "worktrees-tmp"].iter().any(|dir| {
-        let root = codex_home.join(dir);
-        let canonical_root = std::fs::canonicalize(&root).unwrap_or(root);
-        match std::fs::canonicalize(path) {
-            Ok(canonical) => canonical.starts_with(&canonical_root),
-            Err(_) => Path::new(path).starts_with(&canonical_root),
-        }
+        let root = host.canonical(&host.join_str(&home, dir));
+        host.is_under(&root, &host.canonical(path))
     })
 }
 
 pub(crate) fn read_worktrees(
+    host: &Host,
     repo_dir: &Path,
     codex_home: &Path,
 ) -> Result<Vec<WorktreeEntry>, String> {
-    let output = run_git(repo_dir, &["worktree", "list", "--porcelain"], READ_TIMEOUT)?;
+    let output = run_git(
+        host,
+        repo_dir,
+        &["worktree", "list", "--porcelain"],
+        READ_TIMEOUT,
+    )?;
     if !output.ok {
         return Err("Could not list worktrees for this repository".to_string());
     }
@@ -114,12 +118,12 @@ pub(crate) fn read_worktrees(
 
     let mut entries = Vec::with_capacity(raw.len());
     for (index, item) in raw.into_iter().enumerate() {
-        let missing_dir = !Path::new(&item.path).is_dir();
+        let missing_dir = !host.is_dir(&item.path);
         let branch_checked_out_elsewhere = item
             .branch
             .as_deref()
             .is_some_and(|branch| branch_counts.get(branch).copied().unwrap_or(0) > 1);
-        let is_codex_managed = is_codex_managed(&item.path, codex_home);
+        let is_codex_managed = is_codex_managed(host, &item.path, codex_home);
 
         // A worktree that cannot be inspected still gets a row, tagged with why.
         let mut state = None;
@@ -131,7 +135,7 @@ pub(crate) fn read_worktrees(
             state = Some("missingDir".to_string());
         } else if item.prunable {
             state = Some("prunable".to_string());
-        } else if let Ok(snapshot) = read_status(Path::new(&item.path)) {
+        } else if let Ok(snapshot) = read_status(host, Path::new(&item.path)) {
             ahead = snapshot.ahead;
             behind = snapshot.behind;
             upstream = snapshot.upstream;
@@ -217,18 +221,25 @@ mod tests {
     #[test]
     fn codex_managed_identity_uses_worktrees_prefix_not_name() {
         let home = PathBuf::from("/home/.codex");
+        let host = Host::Native;
         // A path literally under <home>/worktrees is managed.
         assert!(is_codex_managed(
+            &host,
             "/home/.codex/worktrees/0357/feature",
             &home
         ));
         // Temporary worktrees under <home>/worktrees-tmp are managed too.
         assert!(is_codex_managed(
+            &host,
             "/home/.codex/worktrees-tmp/repo/tmp-1",
             &home
         ));
         // A path merely *named* like a worktree elsewhere is not.
-        assert!(!is_codex_managed("/elsewhere/worktrees-of-mine", &home));
-        assert!(!is_codex_managed("/projects/my-worktree", &home));
+        assert!(!is_codex_managed(
+            &host,
+            "/elsewhere/worktrees-of-mine",
+            &home
+        ));
+        assert!(!is_codex_managed(&host, "/projects/my-worktree", &home));
     }
 }

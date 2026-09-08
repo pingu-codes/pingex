@@ -25,7 +25,7 @@ const RESOLVED_SETTINGS: [&str; 2] = ["subagentModelPolicy", "subagentReasoningE
 pub(crate) async fn read_thread(
     thread_id: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);

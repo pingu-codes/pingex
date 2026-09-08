@@ -18,7 +18,7 @@ pub(crate) async fn add_side_question(
     side_thread_id: String,
     title: String,
     inherited_turns: Option<u32>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
@@ -42,7 +42,7 @@ pub(crate) async fn add_side_question(
 #[specta::specta]
 pub(crate) async fn remove_side_question(
     side_thread_id: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);

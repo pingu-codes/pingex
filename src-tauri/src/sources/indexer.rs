@@ -45,7 +45,7 @@ pub(crate) fn index_source(root: &Path, kind: &str) -> Vec<IndexedLine> {
         let Ok(relative) = entry.path().strip_prefix(root) else {
             continue;
         };
-        let relative = relative.to_string_lossy().to_string();
+        let relative = crate::util::walk::relative_path(relative);
         let file_name = entry.file_name().to_string_lossy().to_string();
         index_file_into(entry.path(), &relative, &file_name, &mut lines);
     }

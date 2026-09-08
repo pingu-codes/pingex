@@ -17,7 +17,7 @@ pub(crate) async fn add_thread_branch(
     thread_id: String,
     replaced_turn_id: String,
     inherited_turns: u32,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
@@ -49,7 +49,7 @@ pub(crate) async fn add_thread_branch(
 pub(crate) async fn set_thread_branch_edit_turn(
     thread_id: String,
     edit_turn_id: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);

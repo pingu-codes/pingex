@@ -3,7 +3,7 @@
 use tauri::State;
 
 use super::terminal::{copy_to_clipboard, launch_terminal};
-use super::url::{build_resume_command, build_thread_link};
+use super::url::{build_resume_command_on, build_thread_link_on};
 use crate::AppState;
 
 /// Build the reproducible `codex resume` command for the running home.
@@ -12,14 +12,15 @@ use crate::AppState;
 pub(crate) fn handoff_command(
     thread_id: String,
     cwd: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> String {
     let ctx = state.ctx(&window);
     let runtime = ctx.runtime();
-    build_resume_command(
-        &runtime.codex_home.display().to_string(),
-        &runtime.codex_binary.display().to_string(),
+    build_resume_command_on(
+        &runtime.host,
+        &runtime.codex_home_str(),
+        &runtime.codex_binary_str(),
         &thread_id,
         &cwd,
     )
@@ -32,15 +33,16 @@ pub(crate) fn handoff_thread_link(
     thread_id: String,
     cwd: String,
     label: Option<String>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> String {
     let ctx = state.ctx(&window);
     let runtime = ctx.runtime();
-    build_thread_link(
+    build_thread_link_on(
+        &runtime.host,
         &thread_id,
         &cwd,
-        &runtime.codex_home.display().to_string(),
+        &runtime.codex_home_str(),
         label.as_deref(),
     )
 }
@@ -52,16 +54,20 @@ pub(crate) fn handoff_copy(text: String) -> Result<(), String> {
     copy_to_clipboard(&text)
 }
 
-/// Open Terminal.app and run the handoff command.
+/// Open a terminal and run the handoff command.
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn handoff_launch_terminal(command: String) -> Result<(), String> {
-    launch_terminal(&command)
+pub(crate) fn handoff_launch_terminal(
+    command: String,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    launch_terminal(&state.ctx(&window).host(), &command)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::super::url::{build_resume_command, build_thread_link};
 
     #[test]
     fn builds_resume_command_with_quoting() {

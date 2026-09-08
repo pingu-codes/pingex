@@ -59,7 +59,7 @@ pub(crate) async fn auto_name_thread(
     thread_id: String,
     seed: Option<String>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Option<BootstrapData>, String> {
     let ctx = state.ctx(&window);

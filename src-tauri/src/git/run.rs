@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+use crate::util::host::Host;
 use crate::util::process::{self, CommandOutput, Run, RunError};
 
 /// Read-only Git commands should return quickly; a slow repository (network
@@ -19,23 +20,29 @@ pub(crate) const WRITE_TIMEOUT: Duration = Duration::from_secs(60);
 /// Network operations (fetch/pull/push) wait on a remote.
 pub(crate) const NETWORK_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// Run `git -C <dir> <args...>` with a timeout. Returns an error when the
-/// executable is missing or the command exceeds the timeout; a non-zero exit is
-/// surfaced through `CommandOutput::ok` so callers can classify it.
+/// Run `git -C <dir> <args...>` on `host` with a timeout. `dir` is a host
+/// path. Returns an error when the executable is missing or the command
+/// exceeds the timeout; a non-zero exit is surfaced through
+/// `CommandOutput::ok` so callers can classify it.
 pub(crate) fn run_git(
+    host: &Host,
     dir: &Path,
     args: &[&str],
     timeout: Duration,
 ) -> Result<CommandOutput, String> {
     // `-C <dir>` rather than only a working directory, so git resolves the
     // repository the same way it would from a shell in that folder.
-    let mut full_args: Vec<&str> = vec!["-C"];
-    let dir_str = dir.to_str().unwrap_or_default();
-    full_args.push(dir_str);
+    let dir_str = host.path_string(dir);
+    let mut full_args: Vec<&str> = vec!["-C", &dir_str];
     full_args.extend_from_slice(args);
 
-    process::run(Run::new("git", dir, &full_args, timeout)).map_err(|error| match error {
-        RunError::NotFound => "Git is not installed or not on PATH".to_string(),
+    process::run(Run::on(host, "git", &dir_str, &full_args, timeout)).map_err(|error| match error {
+        RunError::NotFound => match host {
+            Host::Native => "Git is not installed or not on PATH".to_string(),
+            Host::Wsl { distro } => {
+                format!("Git is not installed inside WSL ({distro}), or WSL is unavailable")
+            }
+        },
         RunError::Spawn => "Could not start git".to_string(),
         RunError::Timeout => "git timed out".to_string(),
         RunError::NoOutput => "git did not produce any output".to_string(),
@@ -45,14 +52,19 @@ pub(crate) fn run_git(
 /// Run a network command (fetch/pull/push). Credential prompts are disabled so
 /// a missing login fails fast with an `Auth` classification instead of
 /// hanging until the timeout.
-pub(crate) fn run_git_network(dir: &Path, args: &[&str]) -> Result<CommandOutput, String> {
+pub(crate) fn run_git_network(
+    host: &Host,
+    dir: &Path,
+    args: &[&str],
+) -> Result<CommandOutput, String> {
     let mut full_args: Vec<&str> = vec!["-C"];
-    let dir_str = dir.to_str().unwrap_or_default();
-    full_args.push(dir_str);
+    let dir_str = host.path_string(dir);
+    full_args.push(&dir_str);
     full_args.extend_from_slice(args);
     let spec = Run {
+        host,
         program: "git",
-        dir,
+        dir: &dir_str,
         args: &full_args,
         env: &[("GIT_TERMINAL_PROMPT", "0")],
         stdin: None,
@@ -198,8 +210,9 @@ pub(crate) fn lock_for_common_dir(common_dir: &Path) -> Arc<Mutex<()>> {
 }
 
 /// Resolve the common Git dir for a repository so mutations can be serialized.
-pub(crate) fn common_dir_of(repo_dir: &Path) -> Result<PathBuf, String> {
+pub(crate) fn common_dir_of(host: &Host, repo_dir: &Path) -> Result<PathBuf, String> {
     let output = run_git(
+        host,
         repo_dir,
         &["rev-parse", "--path-format=absolute", "--git-common-dir"],
         READ_TIMEOUT,

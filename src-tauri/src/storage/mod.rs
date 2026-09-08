@@ -7,6 +7,7 @@
 //! of them are re-exported here so callers keep saying `storage::read_store(..)`
 //! without caring which file it lives in.
 
+use crate::util::host::Host;
 use std::fs;
 use std::path::{Path, PathBuf};
 use turso::{Builder, Database};
@@ -18,8 +19,11 @@ mod agent_runs;
 mod branches;
 mod harness;
 mod items;
+mod profile_import;
+pub(crate) mod profiles;
 mod project_expansion;
 mod projects;
+pub(crate) use profile_import::{open_profile_root, open_profile_root_at, profile_root_path_in};
 mod questions;
 mod review;
 mod schema;
@@ -104,19 +108,51 @@ pub(crate) fn database_path(codex_home: &Path) -> PathBuf {
     codex_home.join("pingex.db")
 }
 
+/// Where the database for a home on `host` lives, as a local path. A native
+/// home keeps it inside the home; a WSL home's database stays on this side,
+/// because SQLite over the `\\wsl.localhost` share (9P) locks badly and
+/// crawls. The path encodes the distribution and the home so two WSL homes
+/// never share a file.
+pub(crate) fn database_path_on(host: &Host, codex_home: &str) -> PathBuf {
+    match host {
+        Host::Native => database_path(Path::new(codex_home)),
+        Host::Wsl { distro } => dirs::data_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("pingex")
+            .join("hosts")
+            .join("wsl")
+            .join(distro)
+            .join(codex_home.trim_matches('/').replace('/', "%2F"))
+            .join("pingex.db"),
+    }
+}
+
 fn legacy_database_path(codex_home: &Path) -> PathBuf {
     codex_home.join("pingu-frontend.db")
 }
 
-/// Open (creating if needed) the database for `codex_home`, bringing its schema
-/// up to date and importing the pre-SQLite JSON store on first run.
+/// [`open_on`] for a native home.
 pub async fn open(codex_home: &Path) -> Result<Database, String> {
-    fs::create_dir_all(codex_home)
+    open_on(&Host::Native, &codex_home.to_string_lossy()).await
+}
+
+/// Open (creating if needed) the database for `codex_home` on `host`,
+/// bringing its schema up to date and importing the pre-SQLite JSON store on
+/// first run. `codex_home` is a host path; the home folder itself is created
+/// through the host's local view.
+pub async fn open_on(host: &Host, codex_home: &str) -> Result<Database, String> {
+    let local_home = host.to_local(codex_home);
+    fs::create_dir_all(&local_home)
         .map_err(|error| format!("Could not create CODEX_HOME: {error}"))?;
-    let path = database_path(codex_home);
+    let path = database_path_on(host, codex_home);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Could not create the database directory: {error}"))?;
+    }
     // A database copy is intentionally source-preserving. Pingu Codex should
     // be closed for its final changes to be flushed before first opening Pingex.
-    crate::util::migration::copy_file_if_missing(&legacy_database_path(codex_home), &path)?;
+    crate::util::migration::copy_file_if_missing(&legacy_database_path(&local_home), &path)?;
+    let codex_home = local_home.as_path();
     let path = path
         .to_str()
         .ok_or_else(|| format!("Database path is not valid UTF-8: {}", path.display()))?;
@@ -125,6 +161,22 @@ pub async fn open(codex_home: &Path) -> Result<Database, String> {
         .await
         .map_err(|error| format!("Could not open Pingex database: {error}"))?;
     schema::initialize(&database, codex_home).await?;
+    Ok(database)
+}
+
+/// App-owned storage for an additional Home. Opening the cache does not need
+/// a running distribution or a writable harness configuration directory.
+pub(crate) async fn open_profile_cache(path: &Path) -> Result<Database, String> {
+    let parent = path
+        .parent()
+        .ok_or("Profile cache has no parent directory")?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("Could not create Profile directory: {error}"))?;
+    let database = Builder::new_local(path.to_str().ok_or("Invalid Profile cache path")?)
+        .build()
+        .await
+        .map_err(db::db_error)?;
+    schema::initialize(&database, parent).await?;
     Ok(database)
 }
 

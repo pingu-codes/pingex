@@ -10,47 +10,137 @@ use std::fs;
 use std::path::Path;
 
 use crate::storage::{StoredWorkspace, StoredWorkspaceMember};
+use crate::util::host::Host;
 
 /// The legacy metadata subdirectory Pingex continues to own inside the hub.
 pub(crate) const METADATA_DIR: &str = ".pingu";
 
 #[cfg(unix)]
-fn link_directory(target: &Path, link: &Path) -> std::io::Result<()> {
+fn link_directory_native(target: &Path, link: &Path) -> std::io::Result<()> {
     std::os::unix::fs::symlink(target, link)
 }
 
 #[cfg(windows)]
-fn link_directory(target: &Path, link: &Path) -> std::io::Result<()> {
+fn link_directory_native(target: &Path, link: &Path) -> std::io::Result<()> {
     std::os::windows::fs::symlink_dir(target, link)
+}
+
+/// Create the symlink `link` → `target` on `host`. Both are host paths. A
+/// Linux symlink cannot be made through the `\\wsl.localhost` share, so a
+/// WSL host runs `ln` inside the distribution.
+fn link_directory(host: &Host, target: &str, link: &str) -> Result<(), String> {
+    match host {
+        Host::Native => link_directory_native(Path::new(target), Path::new(link))
+            .map_err(|error| error.to_string()),
+        Host::Wsl { .. } => {
+            let status = host
+                .command("ln", &["-s", "--", target, link], None, &[], &[])
+                .status()
+                .map_err(|error| error.to_string())?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err("ln failed inside the distribution".to_string())
+            }
+        }
+    }
+}
+
+/// What `link` points at, when it is a symlink at all.
+fn link_target(host: &Host, link: &str) -> Option<String> {
+    match host {
+        Host::Native => fs::read_link(link)
+            .ok()
+            .map(|target| target.to_string_lossy().into_owned()),
+        Host::Wsl { .. } => host
+            .command("readlink", &["--", link], None, &[], &[])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+            .filter(|target| !target.is_empty()),
+    }
+}
+
+/// Whether anything (file, folder or symlink, dangling or not) sits at `path`.
+fn entry_exists(host: &Host, path: &str) -> bool {
+    match host {
+        Host::Native => fs::symlink_metadata(path).is_ok(),
+        // The share hides dangling Linux symlinks, so ask the distribution.
+        Host::Wsl { .. } => link_target(host, path).is_some() || host.to_local(path).exists(),
+    }
 }
 
 /// Whether `link` is a symlink resolving to exactly `target` — the proof that
 /// a hub entry is one Pingex created rather than a user's own file.
-pub(crate) fn link_matches(link: &Path, target: &Path) -> bool {
-    fs::read_link(link)
-        .ok()
-        .and_then(|value| fs::canonicalize(value).ok())
-        .zip(fs::canonicalize(target).ok())
-        .is_some_and(|(actual, expected)| actual == expected)
+pub(crate) fn link_matches(host: &Host, link: &str, target: &str) -> bool {
+    let Some(actual) = link_target(host, link) else {
+        return false;
+    };
+    match host {
+        Host::Native => fs::canonicalize(actual)
+            .ok()
+            .zip(fs::canonicalize(target).ok())
+            .is_some_and(|(actual, expected)| actual == expected),
+        Host::Wsl { .. } => host.canonical(&actual) == host.canonical(target),
+    }
+}
+
+/// Remove one member's link, but only if it is still the link Pingex made.
+pub(crate) fn remove_managed_link(
+    host: &Host,
+    hub: &str,
+    member: &StoredWorkspaceMember,
+) -> Result<(), String> {
+    let link = host.join_str(hub, &member.alias);
+    if !entry_exists(host, &link) {
+        return Ok(());
+    }
+    if !link_matches(host, &link, &member.effective_path) {
+        return Err(format!(
+            "Workspace alias '{}' was changed outside Pingex; it will not be removed",
+            member.alias
+        ));
+    }
+    let removed = match host {
+        Host::Native => fs::remove_file(&link).map_err(|error| error.to_string()),
+        Host::Wsl { .. } => host
+            .command("rm", &["-f", "--", &link], None, &[], &[])
+            .status()
+            .map_err(|error| error.to_string())
+            .and_then(|status| {
+                status
+                    .success()
+                    .then_some(())
+                    .ok_or_else(|| "rm failed inside the distribution".to_string())
+            }),
+    };
+    removed.map_err(|error| {
+        format!(
+            "Could not update workspace alias '{}': {error}",
+            member.alias
+        )
+    })
 }
 
 /// Create or repair the hub for `workspace`. Idempotent: an existing correct
 /// link is left alone, and a conflicting entry fails rather than clobbering.
 pub(crate) fn materialize_hub(
+    host: &Host,
     workspace: &StoredWorkspace,
     members: &[StoredWorkspaceMember],
 ) -> Result<(), String> {
-    let hub = Path::new(&workspace.hub_path);
-    fs::create_dir_all(hub)
+    let hub = workspace.hub_path.as_str();
+    fs::create_dir_all(host.to_local(hub))
         .map_err(|error| format!("Could not create workspace directory: {error}"))?;
-    let metadata = hub.join(METADATA_DIR);
-    fs::create_dir_all(&metadata)
+    let metadata = host.join_str(hub, METADATA_DIR);
+    fs::create_dir_all(host.to_local(&metadata))
         .map_err(|error| format!("Could not create workspace metadata directory: {error}"))?;
     for member in members {
-        let link = hub.join(&member.alias);
-        let target = Path::new(&member.effective_path);
-        if link.exists() || fs::symlink_metadata(&link).is_ok() {
-            if !link_matches(&link, target) {
+        let link = host.join_str(hub, &member.alias);
+        let target = member.effective_path.as_str();
+        if entry_exists(host, &link) {
+            if !link_matches(host, &link, target) {
                 return Err(format!(
                     "Workspace alias '{}' already exists and is not the managed project link",
                     member.alias
@@ -58,7 +148,7 @@ pub(crate) fn materialize_hub(
             }
             continue;
         }
-        link_directory(target, &link).map_err(|error| {
+        link_directory(host, target, &link).map_err(|error| {
             format!(
                 "Could not link workspace member '{}': {error}",
                 member.alias
@@ -77,33 +167,10 @@ pub(crate) fn materialize_hub(
         })).collect::<Vec<_>>(),
     });
     fs::write(
-        metadata.join("manifest.json"),
+        host.to_local(&host.join_str(&metadata, "manifest.json")),
         serde_json::to_vec_pretty(&manifest).map_err(|error| error.to_string())?,
     )
     .map_err(|error| format!("Could not write workspace manifest: {error}"))
-}
-
-/// Remove one member's link, but only if it is still the link Pingex made.
-pub(crate) fn remove_managed_link(
-    hub: &Path,
-    member: &StoredWorkspaceMember,
-) -> Result<(), String> {
-    let link = hub.join(&member.alias);
-    if fs::symlink_metadata(&link).is_err() {
-        return Ok(());
-    }
-    if !link_matches(&link, Path::new(&member.effective_path)) {
-        return Err(format!(
-            "Workspace alias '{}' was changed outside Pingex; it will not be removed",
-            member.alias
-        ));
-    }
-    fs::remove_file(&link).map_err(|error| {
-        format!(
-            "Could not update workspace alias '{}': {error}",
-            member.alias
-        )
-    })
 }
 
 #[cfg(test)]
@@ -140,14 +207,18 @@ mod tests {
             member(&workspace.id, "one", &source_one),
             member(&workspace.id, "two", &source_two),
         ];
-        materialize_hub(&workspace, &members).unwrap();
+        materialize_hub(&Host::Native, &workspace, &members).unwrap();
         let note = Path::new(&workspace.hub_path).join("NOTES.md");
         fs::write(&note, "keep this").unwrap();
-        materialize_hub(&workspace, &members).unwrap();
+        materialize_hub(&Host::Native, &workspace, &members).unwrap();
         assert_eq!(fs::read_to_string(note).unwrap(), "keep this");
         assert!(link_matches(
-            &Path::new(&workspace.hub_path).join("one"),
-            &source_one
+            &Host::Native,
+            &Path::new(&workspace.hub_path)
+                .join("one")
+                .display()
+                .to_string(),
+            &source_one.display().to_string()
         ));
     }
 
@@ -168,14 +239,16 @@ mod tests {
             archived: false,
         };
         let members = vec![member("w1", "api", &source)];
-        assert!(materialize_hub(&workspace, &members).is_err());
+        assert!(materialize_hub(&Host::Native, &workspace, &members).is_err());
         // The user's file survives untouched.
         assert_eq!(
             fs::read_to_string(hub.join("api")).unwrap(),
             "a real file the user made"
         );
         // And it is refused for removal too.
-        assert!(remove_managed_link(&hub, &members[0]).is_err());
+        assert!(
+            remove_managed_link(&Host::Native, &hub.display().to_string(), &members[0]).is_err()
+        );
     }
 
     #[test]
@@ -183,6 +256,11 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let hub = temp.path().join("hub");
         fs::create_dir_all(&hub).unwrap();
-        assert!(remove_managed_link(&hub, &member("w1", "gone", &temp.path().join("x"))).is_ok());
+        assert!(remove_managed_link(
+            &Host::Native,
+            &hub.display().to_string(),
+            &member("w1", "gone", &temp.path().join("x"))
+        )
+        .is_ok());
     }
 }

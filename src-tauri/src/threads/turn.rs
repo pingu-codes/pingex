@@ -151,10 +151,20 @@ pub(crate) async fn start_thread(
     app_subagents: Option<bool>,
     harness: Option<String>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
+    if let Some(kind) = ctx.harness_kind {
+        let requested = if harness.as_deref() == Some("claude") {
+            crate::harness::HarnessKind::Claude
+        } else {
+            crate::harness::HarnessKind::Codex
+        };
+        if requested != kind {
+            return Err("Choose a Home for the selected harness".into());
+        }
+    }
     if harness.as_deref() == Some("claude") {
         return start_claude_thread(&ctx, cwd, workspace_id).await;
     }
@@ -268,7 +278,7 @@ pub(crate) async fn start_turn(
     input: Vec<Json>,
     options: Option<TurnOptions>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
@@ -355,7 +365,7 @@ pub(crate) async fn interrupt_turn(
     thread_id: String,
     turn_id: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
@@ -405,7 +415,7 @@ pub(crate) async fn update_turn_settings(
     effort: Option<String>,
     speed_tier: Option<String>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
@@ -441,7 +451,7 @@ pub(crate) async fn update_turn_settings(
 pub(crate) async fn respond_approval(
     request_id: i64,
     decision: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
@@ -461,7 +471,7 @@ pub(crate) async fn respond_approval(
 pub(crate) async fn respond_server_request(
     request_id: i64,
     result: Json,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
@@ -489,7 +499,7 @@ pub(crate) async fn record_user_input_request(
     item_id: String,
     item: Json,
     after_item_id: Option<String>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
@@ -507,7 +517,7 @@ pub(crate) async fn record_user_input_request(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn threads_with_unanswered_questions(
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
     let ctx = state.ctx(&window);
@@ -524,7 +534,7 @@ pub(crate) async fn threads_with_unanswered_questions(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn threads_with_active_turns(
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
     let ctx = state.ctx(&window);
@@ -546,7 +556,7 @@ pub(crate) async fn respond_user_input(
     turn_id: Option<String>,
     item_id: Option<String>,
     item: Option<Json>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);

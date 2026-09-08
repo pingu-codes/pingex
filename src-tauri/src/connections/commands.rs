@@ -17,7 +17,7 @@ use crate::AppState;
 #[specta::specta]
 pub(crate) async fn list_connections(
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<Connection>, String> {
     let ctx = state.ctx(&window);
@@ -30,7 +30,7 @@ pub(crate) async fn list_connections(
 #[specta::specta]
 pub(crate) async fn refresh_connections(
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<Connection>, String> {
     let ctx = state.ctx(&window);
@@ -42,7 +42,7 @@ pub(crate) async fn refresh_connections(
 pub(crate) async fn rename_connection(
     client_id: String,
     name: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
@@ -62,7 +62,7 @@ pub(crate) async fn rename_connection(
 #[specta::specta]
 pub(crate) async fn disconnect_connection(
     client_id: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
@@ -78,7 +78,7 @@ pub(crate) async fn disconnect_connection(
 pub(crate) async fn revoke_connection(
     client_id: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);

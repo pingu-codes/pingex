@@ -10,6 +10,7 @@
  */
 import { type CodexEvent, setThreadHandler } from "$lib/services/codexEvents.svelte";
 import { threadIdOf } from "$lib/services/turnLifecycle";
+import { threadBelongsToHome } from "$lib/services/homeRouting";
 import { ThreadSession } from "$lib/thread/threadSession.svelte";
 
 const sessions = new Map<string, ThreadSession>();
@@ -27,6 +28,7 @@ function route(event: CodexEvent) {
     // the honest source for what actually survived — forget every session no
     // view is holding on to; tell the rest.
     for (const [id, session] of [...sessions]) {
+      if (event.homeKey && !threadBelongsToHome(id, event.homeKey)) continue;
       if (session.mounted > 0) session.disconnected();
       else drop(id, session);
     }

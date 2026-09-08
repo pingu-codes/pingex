@@ -5,13 +5,21 @@
  */
 
 import { open } from "@tauri-apps/plugin-dialog";
+import { belongsToProfile } from "$lib/services/homeRouting";
 import { appData, refresh } from "$lib/app/appData.svelte";
 import { checkCodexVersion } from "$lib/app/codexVersion.svelte";
 import { closeAllDialogs } from "$lib/app/dialogs.svelte";
 import { goHome } from "$lib/app/navigation.svelte";
 import { refreshAccountUsage } from "$lib/services/accountUsage.svelte";
-import { isTauri, readLaunchState, removeRecentHome, selectCodexHome, setCodexBinary } from "$lib/services/api";
-import type { LaunchState } from "$lib/types";
+import {
+  isTauri,
+  listWslDistros,
+  readLaunchState,
+  removeRecentHome,
+  selectCodexHome,
+  setCodexBinary,
+} from "$lib/services/api";
+import type { Host, LaunchState } from "$lib/types";
 
 export const launch = $state<{
   /** "loading" while we read launch state, "picker" to choose a Codex home
@@ -20,11 +28,14 @@ export const launch = $state<{
   state: LaunchState | null;
   busy: boolean;
   error: string | null;
+  /** WSL distributions the picker may offer as a host; empty off Windows. */
+  distros: string[];
 }>({
   phase: "loading",
   state: null,
   busy: false,
   error: null,
+  distros: [],
 });
 
 /** The active Codex home, preferring what bootstrap reported. */
@@ -44,6 +55,7 @@ export function homeKey(): string | null {
 /** True when an event tagged `codexHome` belongs to this window's home. */
 export function eventMatchesHome(tag: unknown): boolean {
   if (typeof tag !== "string" || !tag) return true;
+  if (belongsToProfile(tag)) return true;
   const key = homeKey();
   return key === null || tag === key;
 }
@@ -63,11 +75,15 @@ export async function boot(): Promise<void> {
   refreshAccountUsage();
 }
 
-export async function chooseHome(path: string): Promise<void> {
+/**
+ * Bind this window to a home. `host` is where it lives; `null` lets the
+ * backend infer it (a browsed `\\wsl.localhost\..` folder is a WSL home).
+ */
+export async function chooseHome(path: string, host: Host | null = null): Promise<void> {
   launch.busy = true;
   launch.error = null;
   try {
-    launch.state = await selectCodexHome(path);
+    launch.state = await selectCodexHome(path, host);
     await boot();
   } catch (cause) {
     launch.error = cause instanceof Error ? cause.message : String(cause);
@@ -77,8 +93,8 @@ export async function chooseHome(path: string): Promise<void> {
 }
 
 /** Switch home for an incoming handoff; throws so the caller can report it. */
-export async function switchToHome(path: string): Promise<void> {
-  launch.state = await selectCodexHome(path);
+export async function switchToHome(path: string, host: Host | null = null): Promise<void> {
+  launch.state = await selectCodexHome(path, host);
   await boot();
 }
 
@@ -100,10 +116,10 @@ export async function setBinary(path: string): Promise<void> {
 }
 
 // Forget a home from the picker's recents list (the folder itself is kept).
-export async function removeHome(path: string): Promise<void> {
+export async function removeHome(path: string, host: Host | null = null): Promise<void> {
   launch.error = null;
   try {
-    launch.state = await removeRecentHome(path);
+    launch.state = await removeRecentHome(path, host);
   } catch (cause) {
     launch.error = cause instanceof Error ? cause.message : String(cause);
   }
@@ -126,6 +142,10 @@ export async function switchHome(): Promise<void> {
 // Decide whether to boot straight in (an explicit --codex-home/CODEX_HOME) or
 // show the picker first so Codex does not start against the wrong home.
 export async function init(): Promise<void> {
+  // Best effort: no distributions simply means no host picker.
+  listWslDistros()
+    .then((distros) => (launch.distros = distros))
+    .catch(() => (launch.distros = []));
   try {
     launch.state = await readLaunchState();
     if (launch.state.needsPicker) {

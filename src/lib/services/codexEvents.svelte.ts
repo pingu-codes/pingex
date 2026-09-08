@@ -1,4 +1,5 @@
 import { eventMatchesHome } from "$lib/app/launch.svelte";
+import { scopeEvent, threadBelongsToHome } from "$lib/services/homeRouting";
 import { events, type HarnessRequestEnvelope } from "$lib/bindings";
 import { applyRateLimitUpdate } from "$lib/services/accountUsage.svelte";
 import { applyAgentActivity, applyAgentRunEvent } from "$lib/services/agentRuns.svelte";
@@ -191,7 +192,7 @@ export function removeElicitation(requestId: number) {
  */
 const reviewThreads = new Set<string>();
 
-function dispatch(event: CodexEvent) {
+function dispatch(event: CodexEvent, homeKey?: string) {
   // A subagent's notifications arrive here under its own thread id, so every
   // mounted view filters them out. Before that happens, fold them into the
   // agent's activity line — otherwise the only sign of a working agent in the
@@ -213,12 +214,14 @@ function dispatch(event: CodexEvent) {
     delete authRecovery.byThread[end.threadId];
   }
   switch (event.method) {
-    case "disconnected":
-      activeTurns.list = [];
-      turnPlans.byThread = {};
-      authRecovery.byThread = {};
-      reviewThreads.clear();
+    case "disconnected": {
+      const matches = (id: string) => !event.homeKey || threadBelongsToHome(id, event.homeKey);
+      activeTurns.list = activeTurns.list.filter((id) => !matches(id));
+      for (const id of Object.keys(turnPlans.byThread)) if (matches(id)) delete turnPlans.byThread[id];
+      for (const id of Object.keys(authRecovery.byThread)) if (matches(id)) delete authRecovery.byThread[id];
+      for (const id of reviewThreads) if (matches(id)) reviewThreads.delete(id);
       break;
+    }
     // Codex dropped the thread from memory (another client closed it, or it
     // was evicted): nothing can still be running in it.
     case "thread/closed":
@@ -270,7 +273,7 @@ function dispatch(event: CodexEvent) {
     // Rolling rate-limit updates are sparse; the store merges them into the last
     // full snapshot rather than replacing it.
     case "account/rateLimits/updated":
-      if (event.params.rateLimits) applyRateLimitUpdate(event.params.rateLimits);
+      if (event.params.rateLimits) applyRateLimitUpdate(event.params.rateLimits, homeKey);
       break;
     // MCP servers start asynchronously and OAuth completes out of band (in the
     // user's browser), so the Integrations view has to be told to re-read rather
@@ -450,26 +453,26 @@ export async function startCodexListeners(): Promise<void> {
   // shapes in `$lib/types` the reducers read.
   await events.codexEvent.listen(({ payload }) => {
     if (!eventMatchesHome(payload.codexHome)) return;
-    dispatch(payload as CodexEvent);
+    dispatch(scopeEvent(payload.codexHome, payload) as CodexEvent, payload.codexHome);
   });
   await events.codexServerRequest.listen(({ payload }) => {
     if (!eventMatchesHome(payload.codexHome)) return;
-    onServerRequest(payload as CodexServerRequestEvent);
+    onServerRequest(scopeEvent(payload.codexHome, payload) as CodexServerRequestEvent);
   });
   await events.harnessRequest.listen(({ payload }) => {
     if (!eventMatchesHome(payload.codexHome)) return;
-    onHarnessRequest(payload);
+    onHarnessRequest(scopeEvent(payload.codexHome, payload));
   });
   await events.codexAgentRun.listen(({ payload }) => {
     if (!eventMatchesHome(payload.codexHome)) return;
-    applyAgentRunEvent(payload);
+    applyAgentRunEvent(scopeEvent(payload.codexHome, payload));
   });
   await events.codexDisconnected.listen(({ payload }) => {
     if (!eventMatchesHome(payload?.codexHome)) return;
-    approvals.list = [];
-    userInputRequests.list = [];
-    elicitations.list = [];
-    dispatch({ method: "disconnected", params: null });
+    approvals.list = approvals.list.filter((item) => !threadBelongsToHome(item.threadId, payload.codexHome));
+    userInputRequests.list = userInputRequests.list.filter((item) => !threadBelongsToHome(item.threadId, payload.codexHome));
+    elicitations.list = elicitations.list.filter((item) => !threadBelongsToHome(item.threadId, payload.codexHome));
+    dispatch({ method: "disconnected", params: null, homeKey: payload.codexHome });
   });
 }
 

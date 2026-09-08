@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
+use crate::util::host::Host;
 use crate::util::id::unique_suffix;
 use tauri::State;
 
@@ -200,29 +201,55 @@ fn staged_name(id: &str, filename: &str) -> String {
     format!("{id}__{filename}")
 }
 
+/// Where staged files go: the local directory this process writes into, and
+/// the same directory as the harness will see it (`staged_path` is handed to
+/// the harness, which reads it on its own host).
+struct StagingDir {
+    local: PathBuf,
+    host: Host,
+    host_path: String,
+}
+
+impl StagingDir {
+    #[cfg(test)]
+    fn native(local: &Path) -> Self {
+        Self {
+            local: local.to_path_buf(),
+            host: Host::Native,
+            host_path: local.to_string_lossy().into_owned(),
+        }
+    }
+}
+
 /// Copy validated bytes into the staging directory and return the metadata.
-fn stage_bytes(staging_dir: &Path, filename: &str, bytes: &[u8]) -> Result<Attachment, StageError> {
+fn stage_bytes(
+    staging: &StagingDir,
+    filename: &str,
+    bytes: &[u8],
+) -> Result<Attachment, StageError> {
     let filename = safe_filename(filename);
     let (kind, mime) = validate(&filename, bytes)?;
-    fs::create_dir_all(staging_dir).map_err(|error| StageError::Io(error.to_string()))?;
+    fs::create_dir_all(&staging.local).map_err(|error| StageError::Io(error.to_string()))?;
     let id = next_id();
-    let target = staging_dir.join(staged_name(&id, &filename));
+    let name = staged_name(&id, &filename);
+    let target = staging.local.join(&name);
     fs::write(&target, bytes).map_err(|error| StageError::Io(error.to_string()))?;
     let attachment = Attachment {
         id,
         filename,
         mime: mime.to_string(),
         size: bytes.len() as u64,
-        staged_path: target.to_string_lossy().into_owned(),
+        staged_path: staging.host.join_str(&staging.host_path, &name),
         kind: kind.to_string(),
     };
     // Keep the directory bounded; a failure here must never fail the stage.
-    let _ = cleanup(staging_dir, MAX_STAGING_BYTES);
+    let _ = cleanup(&staging.local, MAX_STAGING_BYTES);
     Ok(attachment)
 }
 
-/// Read a source file from disk, validate it, and stage a copy.
-fn stage_source(staging_dir: &Path, source: &Path) -> Result<Attachment, StageError> {
+/// Read a source file from disk, validate it, and stage a copy. `source` is
+/// a local path (a dialog pick).
+fn stage_source(staging: &StagingDir, source: &Path) -> Result<Attachment, StageError> {
     let metadata = fs::metadata(source).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             StageError::NotFound {
@@ -243,7 +270,7 @@ fn stage_source(staging_dir: &Path, source: &Path) -> Result<Attachment, StageEr
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("attachment");
-    stage_bytes(staging_dir, filename, &bytes)
+    stage_bytes(staging, filename, &bytes)
 }
 
 fn remove(staging_dir: &Path, id: &str) -> Result<(), StageError> {
@@ -302,15 +329,26 @@ pub(crate) fn cleanup_on_startup(codex_home: &Path) {
     let _ = cleanup(&codex_home.join("staging"), MAX_STAGING_BYTES);
 }
 
-fn staging_dir(ctx: &crate::HomeContext) -> PathBuf {
-    ctx.runtime().codex_home.join("staging")
+fn staging_dir(ctx: &crate::HomeContext) -> StagingDir {
+    let runtime = ctx.runtime();
+    let host_path = runtime.host.join_str(&runtime.codex_home_str(), "staging");
+    StagingDir {
+        local: runtime.host.to_local(&host_path),
+        host: runtime.host,
+        host_path,
+    }
+}
+
+/// Where staged files live locally, for removal.
+fn staging_local(ctx: &crate::HomeContext) -> PathBuf {
+    staging_dir(ctx).local
 }
 
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn stage_attachment(
     source_path: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Attachment, String> {
     let ctx = state.ctx(&window);
@@ -323,7 +361,7 @@ pub(crate) fn stage_clipboard_image(
     filename: Option<String>,
     mime: Option<String>,
     bytes: Vec<u8>,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Attachment, String> {
     let ctx = state.ctx(&window);
@@ -343,11 +381,11 @@ pub(crate) fn stage_clipboard_image(
 #[specta::specta]
 pub(crate) fn remove_staged(
     id: String,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
-    Ok(remove(&staging_dir(&ctx), &id)?)
+    Ok(remove(&staging_local(&ctx), &id)?)
 }
 
 #[cfg(test)]
@@ -405,7 +443,8 @@ mod tests {
     fn stage_and_remove_round_trip() {
         let dir = tempfile::tempdir().unwrap();
         let staging = dir.path().join("staging");
-        let attachment = stage_bytes(&staging, "note.txt", b"hello world").unwrap();
+        let attachment =
+            stage_bytes(&StagingDir::native(&staging), "note.txt", b"hello world").unwrap();
         assert_eq!(attachment.kind, "file");
         assert_eq!(attachment.filename, "note.txt");
         assert_eq!(attachment.size, 11);
@@ -424,12 +463,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let source = dir.path().join("photo.png");
         fs::write(&source, PNG).unwrap();
-        let attachment = stage_source(&dir.path().join("staging"), &source).unwrap();
+        let staging = StagingDir::native(&dir.path().join("staging"));
+        let attachment = stage_source(&staging, &source).unwrap();
         assert_eq!(attachment.kind, "image");
         assert_eq!(attachment.mime, "image/png");
 
         let missing = dir.path().join("gone.txt");
-        match stage_source(&dir.path().join("staging"), &missing) {
+        match stage_source(&staging, &missing) {
             Err(StageError::NotFound { .. }) => {}
             other => panic!("expected NotFound, got {other:?}"),
         }

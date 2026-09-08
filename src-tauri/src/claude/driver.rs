@@ -20,6 +20,7 @@ use crate::harness::project::Projector;
 use crate::harness::{
     HarnessEvent, HarnessEventEnvelope, HarnessKind, HarnessRequest, HarnessRequestEnvelope,
 };
+use crate::util::host::Host;
 use crate::util::json::str_at;
 
 /// Request ids handed to the frontend for Claude prompts start here, so they
@@ -192,12 +193,12 @@ impl FrameSink for ThreadSink {
     fn on_control_request(&self, child: &Arc<ClaudeChild>, request_id: &str, request: &Value) {
         match str_at(request, "subtype") {
             Some("can_use_tool") => {
-                let cwd = self
+                let (cwd, host) = self
                     .translator
                     .lock()
-                    .map(|t| t.cwd.clone())
+                    .map(|t| (t.cwd.clone(), t.host.clone()))
                     .unwrap_or_default();
-                let harness_request = permissions::request_for(request, &cwd);
+                let harness_request = permissions::request_for(request, &cwd, &host);
                 let id = self.next_request.fetch_add(1, Ordering::SeqCst);
                 if let Ok(mut pending) = self.pending.lock() {
                     pending.insert(
@@ -279,11 +280,14 @@ struct ThreadProcess {
     settings: Mutex<Settings>,
 }
 
-/// Where the driver finds its binary and config directory.
+/// Where the driver finds its binary and config directory, and on which host
+/// both live.
 #[derive(Clone)]
 pub(crate) struct ClaudeRuntime {
     pub(crate) binary: PathBuf,
+    /// A host path.
     pub(crate) config_dir: Option<PathBuf>,
+    pub(crate) host: Host,
 }
 
 impl ClaudeRuntime {
@@ -297,24 +301,50 @@ impl ClaudeRuntime {
             .map(PathBuf::from)
             .or_else(|| overrides.claude_binary.as_deref().map(PathBuf::from))
             .unwrap_or_else(|| PathBuf::from("claude"));
+        let host = overrides.claude_host.clone().unwrap_or_default();
         let config_dir = std::env::var_os("CLAUDE_CONFIG_DIR")
             .map(PathBuf::from)
+            .filter(|_| host == Host::Native)
             .or_else(|| {
                 overrides
                     .claude_config_dir
                     .as_deref()
-                    .map(|dir| crate::codex::binary::expand_tilde(dir))
+                    .map(|dir| match &host {
+                        Host::Native => crate::codex::binary::expand_tilde(dir),
+                        // The distribution's shell expands `~` when the path is
+                        // used; keep the text as typed.
+                        Host::Wsl { .. } => PathBuf::from(dir),
+                    })
             });
-        Self { binary, config_dir }
+        Self {
+            binary,
+            config_dir,
+            host,
+        }
     }
 
-    /// The directory Claude writes sessions under.
+    /// The directory Claude writes sessions under, as a host path.
     pub(crate) fn config_dir(&self) -> PathBuf {
-        self.config_dir.clone().unwrap_or_else(|| {
-            dirs::home_dir()
+        if let Some(dir) = &self.config_dir {
+            return dir.clone();
+        }
+        match &self.host {
+            Host::Native => dirs::home_dir()
                 .unwrap_or_else(|| PathBuf::from("~"))
-                .join(".claude")
-        })
+                .join(".claude"),
+            Host::Wsl { .. } => PathBuf::from(self.host.join_str(
+                &self.host.home_dir().unwrap_or_else(|| "~".to_string()),
+                ".claude",
+            )),
+        }
+    }
+
+    pub(crate) fn config_dir_str(&self) -> String {
+        self.config_dir().to_string_lossy().into_owned()
+    }
+
+    pub(crate) fn binary_str(&self) -> String {
+        self.binary.to_string_lossy().into_owned()
     }
 }
 
@@ -344,9 +374,18 @@ pub(crate) struct ClaudeStatus {
     pub message: Option<String>,
 }
 
+/// [`crate::codex::binary::missing_message_on`], reworded for Claude.
+fn missing_claude_message(host: &Host, binary: &str) -> String {
+    crate::codex::binary::missing_message_on(host, binary)
+        .replace("Codex CLI", "Claude Code CLI")
+        .replace("codex binary", "claude binary")
+        .replace("which codex", "which claude")
+}
+
 pub(crate) fn status(runtime: &ClaudeRuntime) -> ClaudeStatus {
-    let config_dir = runtime.config_dir().display().to_string();
-    let Some(path) = crate::codex::binary::resolve(&runtime.binary) else {
+    let host = &runtime.host;
+    let config_dir = runtime.config_dir_str();
+    let Some(path) = host.resolve_binary(&runtime.binary_str()) else {
         return ClaudeStatus {
             available: false,
             path: None,
@@ -354,12 +393,12 @@ pub(crate) fn status(runtime: &ClaudeRuntime) -> ClaudeStatus {
             config_dir,
             logged_in: None,
             protocol_floor: PROTOCOL_FLOOR.into(),
-            message: Some(crate::codex::binary::missing_message(&runtime.binary)),
+            message: Some(missing_claude_message(host, &runtime.binary_str())),
         };
     };
-    let logged_in = logged_in(&path, &runtime.config_dir());
-    let version = std::process::Command::new(&path)
-        .arg("--version")
+    let logged_in = logged_in(host, &path, &config_dir);
+    let version = host
+        .command(&path, &["--version"], None, &[], &[])
         .output()
         .ok()
         .filter(|output| output.status.success())
@@ -370,7 +409,7 @@ pub(crate) fn status(runtime: &ClaudeRuntime) -> ClaudeStatus {
         .is_some_and(|version| version_below(version, PROTOCOL_FLOOR));
     ClaudeStatus {
         available: !below_floor,
-        path: Some(path.display().to_string()),
+        path: Some(path),
         logged_in,
         message: below_floor.then(|| {
             format!(
@@ -388,12 +427,15 @@ pub(crate) fn status(runtime: &ClaudeRuntime) -> ClaudeStatus {
 /// Tries `claude auth status` (newer CLIs); falls back to whether the
 /// directory holds credentials at all. `None` means "could not tell" — on
 /// macOS the OAuth token may live only in the Keychain.
-fn logged_in(path: &std::path::Path, config_dir: &std::path::Path) -> Option<bool> {
-    let output = std::process::Command::new(path)
-        .args(["auth", "status"])
-        .env("CLAUDE_CONFIG_DIR", config_dir)
-        .env_remove("ANTHROPIC_API_KEY")
-        .env_remove("ANTHROPIC_AUTH_TOKEN")
+fn logged_in(host: &Host, path: &str, config_dir: &str) -> Option<bool> {
+    let output = host
+        .command(
+            path,
+            &["auth", "status"],
+            None,
+            &[("CLAUDE_CONFIG_DIR", config_dir)],
+            &child::UNSET_ENV,
+        )
         .output()
         .ok()?;
     // `claude auth status` prints JSON with a `loggedIn` field and exits 0
@@ -405,7 +447,9 @@ fn logged_in(path: &std::path::Path, config_dir: &std::path::Path) -> Option<boo
     }
     // An old CLI without the subcommand: fall back to the credentials file,
     // which only proves a login when it exists (macOS may use the Keychain).
-    config_dir.join(".credentials.json").is_file().then_some(true)
+    host.to_local(&host.join_str(config_dir, ".credentials.json"))
+        .is_file()
+        .then_some(true)
 }
 
 fn version_below(version: &str, floor: &str) -> bool {
@@ -465,6 +509,7 @@ impl ClaudeDriver {
             .unwrap_or_else(|_| ClaudeRuntime {
                 binary: PathBuf::from("claude"),
                 config_dir: None,
+                host: Host::Native,
             })
     }
 
@@ -508,13 +553,16 @@ impl ClaudeDriver {
             .unwrap_or_default()
     }
 
-    fn resolve_binary(&self, runtime: &ClaudeRuntime) -> Result<PathBuf, String> {
-        crate::codex::binary::resolve(&runtime.binary).ok_or_else(|| {
-            format!(
-                "{} Claude Code is needed for Claude threads.",
-                crate::codex::binary::missing_message(&runtime.binary)
-            )
-        })
+    fn resolve_binary(&self, runtime: &ClaudeRuntime) -> Result<String, String> {
+        runtime
+            .host
+            .resolve_binary(&runtime.binary_str())
+            .ok_or_else(|| {
+                format!(
+                    "{} Claude Code is needed for Claude threads.",
+                    missing_claude_message(&runtime.host, &runtime.binary_str())
+                )
+            })
     }
 
     fn spawn(
@@ -527,7 +575,7 @@ impl ClaudeDriver {
     ) -> Result<Arc<ThreadProcess>, String> {
         let runtime = self.runtime();
         let program = self.resolve_binary(&runtime)?;
-        let config_dir = runtime.config_dir();
+        let config_dir = runtime.config_dir_str();
         let args = turn_args(
             settings.model.as_deref(),
             settings.effort.as_deref(),
@@ -542,7 +590,8 @@ impl ClaudeDriver {
             seq: AtomicU64::new(0),
             translator: Mutex::new(Translator::new(
                 cwd.to_string(),
-                config_dir.display().to_string(),
+                config_dir.clone(),
+                runtime.host.clone(),
             )),
             projector: Mutex::new(Projector::default()),
             journal: TurnJournal::new(app.clone(), self.home_key.clone()),
@@ -550,8 +599,9 @@ impl ClaudeDriver {
             next_request: self.next_request.clone(),
         });
         let child = child::spawn(
+            &runtime.host,
             &program,
-            std::path::Path::new(cwd),
+            cwd,
             &config_dir,
             &args,
             app.clone(),

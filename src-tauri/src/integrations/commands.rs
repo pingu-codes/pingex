@@ -47,7 +47,7 @@ pub(crate) async fn list_integrations(
     cwds: Option<Vec<String>>,
     force_reload: Option<bool>,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
     let ctx = state.ctx(&window);
@@ -95,13 +95,13 @@ pub(crate) struct McpServerInput {
 pub(crate) async fn save_mcp_server(
     server: McpServerInput,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
     let ctx = state.ctx(&window);
     let name = server.name;
     validate_server_name(&name)?;
-    let home = ctx.runtime().codex_home;
+    let home = ctx.runtime().local_home();
     let mut doc = load(&home)?;
 
     // Rename first so every later edit targets the entry under its final key,
@@ -155,11 +155,11 @@ pub(crate) async fn save_mcp_server(
 pub(crate) async fn remove_mcp_server(
     name: String,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
     let ctx = state.ctx(&window);
-    let home = ctx.runtime().codex_home;
+    let home = ctx.runtime().local_home();
     let mut doc = load(&home)?;
     remove_server_from_doc(&mut doc, &name)?;
     save(&home, &doc)?;
@@ -173,11 +173,11 @@ pub(crate) async fn set_mcp_enabled(
     name: String,
     enabled: bool,
     app: AppHandle,
-    window: tauri::WebviewWindow,
+    window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
     let ctx = state.ctx(&window);
-    let home = ctx.runtime().codex_home;
+    let home = ctx.runtime().local_home();
     let mut doc = load(&home)?;
     set_enabled_in_doc(&mut doc, &name, enabled)?;
     save(&home, &doc)?;

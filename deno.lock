@@ -1,6 +1,7 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@deno/installer-shell-setup@*": "0.3.4",
     "npm:@biomejs/biome@*": "2.5.4",
     "npm:@biomejs/biome@2.5.4": "2.5.4",
     "npm:@lucide/svelte@1.25.0": "1.25.0_svelte@5.56.7",
@@ -35,6 +36,11 @@
     "npm:vite@8.1.5": "8.1.5",
     "npm:vitest@*": "4.1.10_jsdom@29.1.1_vite@8.1.5",
     "npm:vitest@4.1.10": "4.1.10_jsdom@29.1.1_vite@8.1.5"
+  },
+  "jsr": {
+    "@deno/installer-shell-setup@0.3.4": {
+      "integrity": "48665d1a737d487cce6874bc97bba70a5aeffa7053aca3f60df93c6fab8963b4"
+    }
   },
   "npm": {
     "@adobe/css-tools@4.5.0": {

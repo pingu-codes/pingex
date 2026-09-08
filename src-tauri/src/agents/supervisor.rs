@@ -489,13 +489,16 @@ pub(crate) async fn spawn_agent(
             settings.max_concurrent
         ));
     }
+    let runtime = ctx.runtime();
     let cwd = tools::resolve_cwd(parent_cwd, args.cwd.as_deref())?;
     let sandbox = tools::clamp_sandbox(args.sandbox.as_deref(), &settings.sandbox);
-    let prompt = tools::attach_files(&args.prompt, &cwd, &args.files);
+    let prompt = tools::attach_files(&args.prompt, &cwd, &args.files, &runtime.host);
 
-    let runtime = ctx.runtime();
-    let program = crate::codex::binary::resolve(&runtime.codex_binary)
-        .ok_or_else(|| crate::codex::binary::missing_message(&runtime.codex_binary))?;
+    let binary = runtime.codex_binary_str();
+    let program = runtime
+        .host
+        .resolve_binary(&binary)
+        .ok_or_else(|| crate::codex::binary::missing_message_on(&runtime.host, &binary))?;
 
     let run_id = ctx.agents.next_run_id();
     let (sender, _) = watch::channel(AgentRunState::Starting);
@@ -523,7 +526,7 @@ pub(crate) async fn spawn_agent(
             child_thread_id: None,
             name: args.name.clone(),
             prompt: prompt.clone(),
-            cwd: cwd.display().to_string(),
+            cwd: runtime.host.path_string(&cwd),
             model: args.model.clone(),
             reasoning_effort: args.effort.clone(),
             status: storage::STATUS_RUNNING.to_string(),
@@ -542,8 +545,9 @@ pub(crate) async fn spawn_agent(
     let sink = AgentSink::new(app.clone(), ctx.home_key.clone());
     sink.attach(run.clone());
     let child = match spawn_child(
+        &runtime.host,
         &program,
-        &runtime.codex_home,
+        &runtime.codex_home_str(),
         "pingex-agent",
         app.clone(),
         ctx.session.wire().clone(),

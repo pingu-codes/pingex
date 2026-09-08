@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { scopedId } from "$lib/services/homeRouting";
 import {
   applyProcessEvent as applyTyped,
   processByKey,
@@ -18,6 +19,15 @@ const started = (threadId: string, itemId: string, command = "sleep 60") => ({
 beforeEach(resetProcesses);
 
 describe("applyProcessEvent", () => {
+  it("disconnects only processes owned by the failed Home", () => {
+    const windows = scopedId("windows", "same-thread");
+    const linux = scopedId("linux", "same-thread");
+    applyProcessEvent(started(windows, "same-item"));
+    applyProcessEvent(started(linux, "same-item"));
+    applyTyped({ method: "disconnected", params: null, homeKey: "linux" });
+    expect(processByKey(`${windows}:same-item`)?.status).toBe("running");
+    expect(processByKey(`${linux}:same-item`)?.status).toBe("interrupted");
+  });
   it("registers a command on item/started and tracks it as running", () => {
     applyProcessEvent(started("t", "c1"));
     expect(processes.list).toHaveLength(1);

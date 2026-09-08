@@ -11,6 +11,15 @@ use std::path::Path;
 /// project (or an accidental `/`) cannot hang the command.
 pub(crate) const MAX_WALKED_FILES: usize = 50_000;
 
+/// Relative paths sent to the UI use `/` on either Host. Joining components
+/// preserves a literal backslash in a Unix file name.
+pub(crate) fn relative_path(path: &Path) -> String {
+    path.components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 /// A gitignore-respecting walk of `root` that never follows symlinks.
 ///
 /// Dot-files and dot-directories are included — `.github/workflows` and

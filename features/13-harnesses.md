@@ -365,6 +365,70 @@ Settings: `agent` becomes per-Home with a Home selector; `modelFeatures`
 folds into it; `integrations` hides for a Claude Home; `data` gains the
 profile path and the import action.
 
+## Hosts
+
+A Home lives on a Host (`CONTEXT.md`): `native`, or `wsl(<distro>)` when
+Pingex runs as a native Windows app and the harness, its config directory and
+the repositories live inside a WSL distribution. The Host is per Home, so a
+Codex home in Ubuntu and a native Claude coexist in one window. Rationale:
+`docs/adr/0003-host-per-home.md`.
+
+`Host` (`src-tauri/src/util/host.rs`) owns what differs:
+
+- **Spawning.** `host.command(program, args, cwd, env, unset)` builds the
+  process. Native is a plain `Command`; WSL is `wsl.exe -d <distro> [--cd
+  <cwd>] --exec /usr/bin/env [-u VAR].. K=V.. <program> args..`. `--exec`
+  skips the distribution's shell, so nothing is re-quoted; `env(1)` sets the
+  variables without `WSLENV`. Both drivers, the app-owned subagents, the git
+  runner (`util/process.rs`, `git/run.rs`) and every worktree and hub
+  operation spawn through it. The live suites build their argv from the same
+  function.
+- **Paths.** A *host path* is what the harness sees; a *local path* is what
+  this process can open. `host.to_local` maps `/home/u/x` to
+  `\\wsl.localhost\<distro>\home\u\x` and `/mnt/c/..` to `C:\..`;
+  `host.to_host_path` settles a dialog pick (`\\wsl.localhost\..` or
+  `C:\..`) onto the distribution; `Host::from_local` recognises a share path
+  and names its distribution, which is how a browsed home becomes a WSL home
+  with no host chosen. `host.join_str`, `parent_str` and `is_under` replace
+  `Path::join` and friends, which insert backslashes into Linux paths on
+  Windows. `host.canonical` is `readlink -m` inside the distribution.
+- **Binaries.** `host.resolve_binary` asks a login `sh` inside the
+  distribution, then an interactive `bash` (version managers export PATH from
+  `.bashrc`), then the usual install directories, and remembers hits per
+  distribution until Settings changes a binary. A GUI-launched `wsl.exe` has
+  no login PATH, so the spawn always gets an absolute Linux path.
+
+Storage: a WSL home's `pingex.db` lives on the Windows side at
+`<data_dir>/pingex/hosts/wsl/<distro>/<path with %2F>/pingex.db`; native
+homes keep `<codex_home>/pingex.db`. Its key is `wsl:<distro>:<canonical
+path>`; native keys are the canonical path as before, so saved recents and
+event filtering are unchanged. Recent homes record their host; the same path
+on two hosts is two entries.
+
+Settings: `RuntimeOverrides` gains `codex_host` (the host of the saved home;
+an explicit `--codex-home` or `CODEX_HOME` is native unless
+`PINGEX_CODEX_HOST=wsl:<distro>` says otherwise) and `claude_host` (where the
+Claude runtime lives; its config directory defaults to `$HOME/.claude` inside
+the distribution). The Settings form shows a "runs in" select beside each
+binary when `list_wsl_distros` returns anything; the launch picker badges WSL
+homes and lets a typed path pick a distribution.
+
+Handoff: the `codex resume` command for a WSL home is `wsl.exe -d <distro>
+--exec sh -lc "CODEX_HOME='..' codex resume '..' --cd '..'"`, meant for a
+Windows shell; a `codex://` link carries `host=wsl:<distro>` and deep links
+compare home keys, so one folder on two hosts never matches the wrong window.
+
+Process hygiene: `kill_orphaned_app_servers` runs `ps` and `kill` inside every
+distribution that has an open home as well as natively, because ending the
+`wsl.exe` launcher does not always end the Linux process. Both harnesses also
+exit on stdin EOF, which closing the pipe delivers.
+
+Not yet supported on a WSL home: workspace hubs are created with `ln -s`
+inside the distribution and have not been exercised against a real Windows
+build; file search and the sources indexer walk the share, which is slower
+than a native tree (`MAX_WALKED_FILES` bounds it); a WSL home opened from a
+Linux build of Pingex has a separate database until Profiles land.
+
 ## Testing and version policy
 
 Golden fixtures in `tests/fixtures/protocol/<harness>/<case>/` with

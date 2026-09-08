@@ -663,14 +663,21 @@ const nowSeconds = () => Math.floor(Date.now() / 1000);
 export const previewLaunchState: LaunchState = {
   codexHome: "~/.codex-personal",
   homeKey: "~/.codex-personal",
+  host: { kind: "native" },
   codexBinary: "codex",
   defaultHome: "~/.codex",
   explicit: true,
   needsPicker: false,
   recentHomes: [
-    { path: "~/.codex-personal", lastUsed: nowSeconds() - 120, exists: true },
-    { path: "~/.codex-work", lastUsed: nowSeconds() - 8600, exists: true },
-    { path: "~/.codex-archive", lastUsed: nowSeconds() - 900000, exists: false },
+    { path: "~/.codex-personal", lastUsed: nowSeconds() - 120, exists: true, host: { kind: "native" } },
+    { path: "~/.codex-work", lastUsed: nowSeconds() - 8600, exists: true, host: { kind: "native" } },
+    {
+      path: "/home/user/.codex",
+      lastUsed: nowSeconds() - 40000,
+      exists: true,
+      host: { kind: "wsl", distro: "Ubuntu" },
+    },
+    { path: "~/.codex-archive", lastUsed: nowSeconds() - 900000, exists: false, host: { kind: "native" } },
   ],
   codexBinaryStatus: {
     binary: "codex",
@@ -1450,10 +1457,13 @@ export function previewSaveMcpServer(input: {
 export const previewRuntimeSettings: RuntimeSettings = {
   codexHome: "~/.codex-personal",
   codexBinary: "codex",
+  codexHost: { kind: "native" },
   overrideCodexHome: null,
   overrideCodexBinary: null,
+  overrideCodexHost: null,
   overrideClaudeBinary: null,
   overrideClaudeConfigDir: null,
+  overrideClaudeHost: null,
   settingsPath: "~/Library/Application Support/pingex/settings.json",
   restartRequired: false,
 };
