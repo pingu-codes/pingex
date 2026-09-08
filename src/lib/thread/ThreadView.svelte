@@ -5,6 +5,7 @@ import { onDestroy, tick, untrack } from "svelte";
 import { nameNewThread } from "$lib/app/appData.svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
+import TypingDots from "$lib/components/TypingDots.svelte";
 import Composer from "$lib/composer/Composer.svelte";
 import type { SlashCommandId } from "$lib/composer/slashCommands";
 import RightPanel, { type PanelView } from "$lib/panels/RightPanel.svelte";
@@ -1195,11 +1196,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
           {/each}
 
           {#if showTypingIndicator}
-            <div class="flex items-center gap-1.5 py-1" aria-label="Codex is working">
-              <span class="typing-dot"></span>
-              <span class="typing-dot" style="animation-delay: 0.18s"></span>
-              <span class="typing-dot" style="animation-delay: 0.36s"></span>
-            </div>
+            <TypingDots />
           {/if}
 
           {#if thread.turns.length === 0}
@@ -1394,24 +1391,3 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
 {/if}
 </div>
 
-<style>
-  .typing-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 9999px;
-    background: color-mix(in oklab, currentColor 45%, transparent);
-    animation: typing-bounce 1.1s ease-in-out infinite;
-  }
-  @keyframes typing-bounce {
-    0%,
-    60%,
-    100% {
-      transform: translateY(0);
-      opacity: 0.45;
-    }
-    30% {
-      transform: translateY(-4px);
-      opacity: 1;
-    }
-  }
-</style>

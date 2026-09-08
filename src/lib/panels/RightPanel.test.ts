@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/svelte";
+import { render, screen, waitFor } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import RightPanel from "$lib/panels/RightPanel.svelte";
@@ -157,8 +157,10 @@ describe("RightPanel", () => {
     await user.type(screen.getByPlaceholderText("Ask a side question…"), "Stream please{Enter}");
 
     const stopButton = await screen.findByRole("button", { name: "Stop side question" });
+    expect(screen.getByRole("button", { name: "Ask side question" })).toBeDisabled();
     await user.click(stopButton);
-    expect(await screen.findByRole("button", { name: "Ask side question" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop side question" })).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Ask side question" })).toBeInTheDocument();
   });
 
   it("resets the open side question when the thread changes", async () => {
