@@ -23,7 +23,7 @@
     ],
     "security": {
       "csp": null,
-      "assetProtocol": { "enable": true, "scope": ["$HOME/**", "\\\\wsl.localhost\\**", "\\\\wsl$\\**"] }
+      "assetProtocol": { "enable": true, "scope": ["$HOME/**"] }
     }
   },
   "plugins": {
