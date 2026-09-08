@@ -54,6 +54,7 @@ Gated APIs (one row per `Feature`):
 | `PROJECTS` | `project/*` | ✓ | ✓ | ✓ |
 | `SECTIONS` | `threadSection/*` | ✓ | ✓ | ✓ |
 | `TURN_SETTINGS` | `turn/settings/update` — change model/effort mid-turn; needs the `step_model_switching` feature, which the app turns on with `-c` at spawn (`child::APP_SERVER_ARGS`) | ✓ | ✓ | ✓ |
+| `INSTALLED_PLUGINS` | `plugin/installed` — installed-plugin inventory; unsupported responses are remembered | probed | probed | ✓ |
 
 Payload additions the app reads when present (no gating needed — the field is
 simply absent on older tiers):
@@ -78,7 +79,7 @@ Deliberately not adopted yet (tracked on the roadmap): paginated history
 (`thread/turns/list`, `thread/items/list`, `thread/timeline/list` — upstream
 deprecates full hydration on resume/fork in their favour), `turn/steer`,
 `thread/search`, `experimentalFeature/list`, `permissionProfile/list`, the MCP
-event stream, realtime/voice, plugins/marketplace, `fs/*`, process/terminal,
+event stream, realtime/voice, marketplace installation, `fs/*`, process/terminal,
 login/Bedrock flows, environments and the Windows sandbox, raw response events.
 
 Protocol added since 0.152 that the app does not read yet:

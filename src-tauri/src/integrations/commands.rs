@@ -9,7 +9,7 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 use tauri::{AppHandle, State};
 
-use super::app_server::{fetch_skills, reload_mcp_config};
+use super::app_server::reload_mcp_config;
 use super::config_doc::{
     load, remove_server_from_doc, rename_server_in_doc, save, set_enabled_in_doc,
     summarize_mcp_servers, upsert_http_server, upsert_stdio_server, validate_server_name,
@@ -38,25 +38,26 @@ pub(super) async fn build_list_with(
     cwds: Vec<String>,
     force_reload: bool,
 ) -> Result<IntegrationsList, String> {
-    let doc = load(&ctx.runtime().codex_home)?;
-    Ok(IntegrationsList {
-        mcp_servers: summarize_mcp_servers(&doc),
-        skills: fetch_skills(app, ctx, cwds, force_reload).await,
-        plugins: Vec::new(),
-        plugins_supported: false,
-    })
+    super::scope::read(app, ctx, cwds, force_reload).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn list_integrations(
     cwds: Option<Vec<String>>,
+    force_reload: Option<bool>,
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<IntegrationsList, String> {
     let ctx = state.ctx(&window);
-    build_list(&app, &ctx, cwds.unwrap_or_default()).await
+    build_list_with(
+        &app,
+        &ctx,
+        cwds.unwrap_or_default(),
+        force_reload.unwrap_or(false),
+    )
+    .await
 }
 
 /// One MCP server as the edit form describes it.

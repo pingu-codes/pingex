@@ -11,7 +11,7 @@ import { newestLeaf, rootThreadId } from "$lib/thread/messageVersions";
 import type { Project, ThreadSummary } from "$lib/types";
 
 /** The tabs of the project detail view. */
-export type DetailTab = "overview" | "git" | "worktrees" | "sources";
+export type DetailTab = "overview" | "git" | "worktrees" | "sources" | "integrations";
 
 export type View = {
   /** Live thread being viewed. */

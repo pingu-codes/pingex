@@ -23,6 +23,7 @@ import {
   type IntegrationFilter,
   parseArgs,
   resourcesOf,
+  retainFailedInventory,
   resourceTemplatesOf,
   rowStatus,
   runtimeStatusLabel,
@@ -48,17 +49,20 @@ import {
   saveMcpServer,
   setMcpEnabled,
   setSkillEnabled,
+  setIntegrationEnabled,
 } from "$lib/services/api";
-import { mcpStatus as mcpStatusEvents } from "$lib/services/codexEvents.svelte";
+import { mcpStatus as mcpStatusEvents, skillsStatus } from "$lib/services/codexEvents.svelte";
 import type { IntegrationsList, McpServerStatus, McpServerSummary, SkillSummary } from "$lib/types";
 import { renderMarkdown } from "$lib/utils/markdown";
 
 let {
+  projectPath = null,
   focusServer = null,
   focusTool = null,
   nonce = 0,
   onGoToConnections,
 }: {
+  projectPath?: string | null;
   focusServer?: string | null;
   /** Tool within `focusServer` to expand and scroll to (from a tool call). */
   focusTool?: string | null;
@@ -69,7 +73,11 @@ let {
 let data = $state<IntegrationsList | null>(null);
 let loadError = $state<string | null>(null);
 let actionError = $state<string | null>(null);
+let actionNotice = $state<string | null>(null);
 let filter = $state<IntegrationFilter>("all");
+let query = $state("");
+let updating = $state(false);
+let loading = $state(false);
 
 /**
  * Live state from Codex, keyed by server name and joined onto `data.mcpServers`
@@ -113,13 +121,29 @@ let formBearerEnv = $state("");
 let formError = $state<string | null>(null);
 let saving = $state(false);
 
-async function load() {
+let loadGeneration = 0;
+async function load(forceReload = false) {
+  const generation = ++loadGeneration;
+  loading = true;
   loadError = null;
   try {
-    data = await listIntegrations();
+    const next = await listIntegrations(projectPath ? [projectPath] : [], forceReload);
+    if (generation === loadGeneration) data = retainFailedInventory(data, next);
   } catch (cause) {
-    loadError = cause instanceof Error ? cause.message : String(cause);
-  }
+    if (generation === loadGeneration) loadError = cause instanceof Error ? cause.message : String(cause);
+  } finally { if (generation === loadGeneration) loading = false; }
+}
+
+let observedSkillsNonce = skillsStatus.nonce;
+$effect(() => {
+  const nonce = skillsStatus.nonce;
+  if (nonce === observedSkillsNonce) return;
+  observedSkillsNonce = nonce;
+  void load();
+});
+
+async function refresh() {
+  await Promise.all([load(true), refreshStatus()]);
 }
 
 /**
@@ -128,6 +152,8 @@ async function load() {
  * one moment when the picture is final.
  */
 async function refreshStatus() {
+  // This API returns the home runtime, not a runtime for an arbitrary project.
+  if (projectPath) { statuses = {}; return; }
   checking = true;
   try {
     statuses = await listMcpServerStatus();
@@ -142,6 +168,7 @@ async function refreshStatus() {
 $effect(() => {
   // Reference nonce so re-opening the same section re-runs this effect.
   void nonce;
+  void projectPath;
   const server = focusServer;
   const tool = focusTool;
   // The tool list has to exist before it can be scrolled to, so wait for the
@@ -167,10 +194,59 @@ $effect(() => {
 });
 
 function apply(next: IntegrationsList) {
-  data = next;
+  ++loadGeneration;
+  loading = false;
+  data = retainFailedInventory(data, next);
+  actionNotice = next.errors.find((message) => message.startsWith("Saved.")) ?? null;
+  // This view already has the refreshed mutation result. Notify other consumers.
+  observedSkillsNonce = ++skillsStatus.nonce;
+}
+
+async function changeSetting(kind: "mcp" | "plugin", id: string, value: string) {
+  const context = projectPath;
+  actionError = null;
+  updating = true;
+  try {
+    const next = await setIntegrationEnabled(kind, id, value === "inherit" ? null : value === "enabled", context);
+    if (projectPath !== context) return;
+    apply(next);
+    await refreshStatus();
+  } catch (cause) {
+    actionError = cause instanceof Error ? cause.message : String(cause);
+  } finally { updating = false; }
+}
+
+function settingValue(key: string): string {
+  const value = data?.settings[key]?.overrideEnabled;
+  return value == null ? "inherit" : value ? "enabled" : "disabled";
+}
+
+function matches(...values: (string | null | undefined)[]): boolean {
+  return values.filter(Boolean).join(" ").toLowerCase().includes(query.trim().toLowerCase());
+}
+
+function liveFor(server: McpServerSummary): McpServerStatus | undefined {
+  const owner = data?.settings[`mcp:${server.name}`]?.pluginId;
+  if (!owner) return statuses[server.name];
+  // Plugin integration IDs include the package ID; runtime MCP names do not.
+  // A different plugin can win the runtime name collision.
+  const live = statuses[server.name.slice(owner.length + 1)];
+  return live?.pluginId === owner ? live : undefined;
+}
+
+function pluginServerLabel(server: McpServerSummary): string {
+  const setting = data?.settings[`mcp:${server.name}`];
+  if (data?.plugins.some((plugin) => plugin.id === setting?.pluginId && !plugin.enabled)) return "Disabled by plugin";
+  if (!server.enabled) return "Disabled";
+  // plugin/read exposes names, not the package's per-server defaults or policy.
+  return setting?.overrideEnabled === true ? "Enabled preference" : "Plugin default";
 }
 
 async function toggleEnabled(server: McpServerSummary) {
+  if (server.scope === "inherited" || server.scope === "plugin") {
+    await changeSetting("mcp", server.name, server.enabled ? "disabled" : "enabled");
+    return;
+  }
   actionError = null;
   try {
     apply(await setMcpEnabled(server.name, !server.enabled));
@@ -201,23 +277,23 @@ async function signIn(server: McpServerSummary) {
 async function toggleSkill(skill: SkillSummary) {
   actionError = null;
   try {
-    await setSkillEnabled(skill.name, !skill.enabled);
-    // Codex owns the enabled state; re-read rather than assuming it took.
-    await load();
+    await setSkillEnabled(skill.name, !skill.enabled, skill.path);
+    skillsStatus.nonce += 1;
+    // The notification reloads Codex's effective state in both views.
   } catch (cause) {
     actionError = cause instanceof Error ? cause.message : String(cause);
   }
 }
 
 async function toggleSkillView(skill: SkillSummary) {
-  const open = !skillOpen[skill.name];
-  skillOpen[skill.name] = open;
-  if (!open || skillText[skill.name] != null) return;
-  skillText[skill.name] = null;
+  const open = !skillOpen[skill.path];
+  skillOpen[skill.path] = open;
+  if (!open || skillText[skill.path] != null) return;
+  skillText[skill.path] = null;
   try {
-    skillText[skill.name] = await readSkill(skill.path);
+    skillText[skill.path] = await readSkill(skill.path);
   } catch (cause) {
-    delete skillOpen[skill.name];
+    delete skillOpen[skill.path];
     actionError = cause instanceof Error ? cause.message : String(cause);
   }
 }
@@ -227,8 +303,8 @@ async function doDeleteSkill(skill: SkillSummary) {
   try {
     apply(await deleteSkill(skill.path));
     confirmDeleteSkill = null;
-    delete skillOpen[skill.name];
-    delete skillText[skill.name];
+    delete skillOpen[skill.path];
+    delete skillText[skill.path];
   } catch (cause) {
     actionError = cause instanceof Error ? cause.message : String(cause);
   }
@@ -393,29 +469,39 @@ const FILTERS: { id: IntegrationFilter; label: string }[] = [
 const showMcp = $derived(filter === "all" || filter === "mcp");
 const showSkills = $derived(filter === "all" || filter === "skills");
 const showPlugins = $derived(filter === "all" || filter === "plugins");
+const servers = $derived((data?.mcpServers ?? []).filter((row) => matches(row.name, liveFor(row)?.serverInfo?.title, liveFor(row)?.serverInfo?.description, data?.settings[`mcp:${row.name}`]?.pluginId)));
+const skills = $derived((data?.skills ?? []).filter((row) => matches(row.name, row.displayName, row.description, row.shortDescription, data?.settings[`skill:${row.path}`]?.pluginId)));
+const plugins = $derived((data?.plugins ?? []).filter((row) => matches(row.id, row.name, row.description)));
+const matchCount = $derived((showMcp ? servers.length : 0) + (showSkills ? skills.length : 0) + (showPlugins ? plugins.length : 0));
 </script>
 
 <div class="text-sm">
   <div class="flex items-center justify-between gap-2">
     <div>
       <div class="text-base font-semibold">Integrations</div>
-      <div class="mt-1 text-xs text-surface-600-400">MCP servers, skills, and plugins for this Codex home.</div>
+      <div class="mt-1 text-xs text-surface-600-400">{projectPath ? "Integration settings for this project. Inherit follows the parent configuration." : "MCP servers, skills, and plugins for this Codex home."}</div>
     </div>
     <div class="flex shrink-0 items-center gap-1.5">
-      <button type="button" onclick={refreshStatus} disabled={checking} class="btn btn-sm hover:preset-tonal text-xs">
+      <button type="button" onclick={refresh} disabled={checking || loading || updating} class="btn btn-sm hover:preset-tonal text-xs">
         <RefreshCw size={13} class={checking ? "animate-spin" : ""} /> Refresh
       </button>
+      {#if !projectPath}
       <button type="button" onclick={openAddSkill} class="btn btn-sm hover:preset-tonal text-xs">
         <Plus size={13} /> Add skill
       </button>
       <button type="button" onclick={openAdd} class="btn btn-sm preset-tonal">
         <Plus size={14} /> Add MCP server
       </button>
+      {/if}
     </div>
   </div>
 
+  <div class="mt-4 flex items-center gap-2">
+    <input type="search" aria-label="Search integrations" placeholder="Search integrations…" class="input w-full" bind:value={query} />
+    {#if query}<button type="button" class="btn btn-sm" onclick={() => (query = "")}>Clear search</button>{/if}
+  </div>
   <div class="mt-4 flex flex-wrap gap-1" role="tablist" aria-label="Integration type">
-    {#each FILTERS as tab (tab.id)}
+    {#each FILTERS.filter((entry) => !projectPath || entry.id !== "connections") as tab (tab.id)}
       <button
         type="button"
         role="tab"
@@ -435,6 +521,13 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
   {/if}
   {#if actionError}
     <div class="card preset-tonal-error mt-4 px-3 py-2 text-xs">{actionError}</div>
+  {/if}
+  {#if actionNotice}<p class="mt-3 text-xs text-surface-500">{actionNotice}</p>{/if}
+  {#each data?.errors ?? [] as error}
+    <div class="card preset-tonal-warning mt-4 px-3 py-2 text-xs">{error}</div>
+  {/each}
+  {#if data && query.trim() && matchCount === 0 && filter !== "connections"}
+    <p class="mt-4 text-xs text-surface-500">No matching integrations.</p>
   {/if}
 
   {#if addingSkill}
@@ -603,11 +696,11 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
   {:else if data}
     <div class="mt-4 space-y-2">
       {#if showMcp}
-        {#if data.mcpServers.length === 0}
+        {#if data.mcpServers.length === 0 && !query.trim()}
           <div class="text-xs text-surface-500">No MCP servers configured.</div>
         {/if}
-        {#each data.mcpServers as server (server.name)}
-          {@const live = statuses[server.name]}
+        {#each servers as server (server.name)}
+          {@const live = liveFor(server)}
           {@const status = rowStatus(server, live, checking)}
           {@const tools = toolsOf(live)}
           {@const resources = resourcesOf(live)}
@@ -628,7 +721,7 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
               </div>
               <div class="flex shrink-0 items-center gap-1.5">
                 <span class="size-1.5 rounded-full {statusDotClass(status)}"></span>
-                <span class="text-[10px] text-surface-500">{statusLabel(status)}</span>
+                <span class="text-[10px] text-surface-500">{server.scope === "plugin" && !live ? pluginServerLabel(server) : projectPath ? server.enabled ? "Enabled" : "Disabled" : statusLabel(status)}</span>
                 {#if runtimeStatusLabel(live) && runtimeStatusLabel(live) !== statusLabel(status)}
                   <span class="text-[10px] text-surface-500" title="Codex runtime status">· {runtimeStatusLabel(live)}</span>
                 {/if}
@@ -650,7 +743,7 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
             {/if}
 
             <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
-              {#if auth === "signIn"}
+              {#if auth === "signIn" && !projectPath}
                 <button
                   type="button"
                   onclick={() => signIn(server)}
@@ -663,10 +756,17 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
               {:else if auth === "signedIn"}
                 <span class="text-[11px] text-success-500">Signed in</span>
               {/if}
+              {#if projectPath}
+                <select aria-label={`Setting for ${server.name}`} class="select text-xs" disabled={updating} value={settingValue(`mcp:${server.name}`)} onchange={(event) => changeSetting("mcp", server.name, event.currentTarget.value)}>
+                  <option value="inherit">{server.scope === "plugin" ? "Inherit" : `Inherit (${data.settings[`mcp:${server.name}`]?.inheritedEnabled ? "enabled" : "disabled"})`}</option>
+                  <option value="enabled">Enabled</option><option value="disabled">Disabled</option>
+                </select>
+              {:else}
               <button type="button" onclick={() => toggleEnabled(server)} class="btn btn-sm hover:preset-tonal text-xs">
                 {server.enabled ? "Disable" : "Enable"}
               </button>
-              <button type="button" onclick={() => openConfigure(server)} class="btn btn-sm hover:preset-tonal text-xs">Edit</button>
+              {#if server.scope === "user" || server.scope === "global"}<button type="button" onclick={() => openConfigure(server)} class="btn btn-sm hover:preset-tonal text-xs">Edit</button>{/if}
+              {/if}
               {#if hasDetails}
                 <button
                   type="button"
@@ -678,6 +778,11 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
                   {contribution || "Details"}
                 </button>
               {/if}
+              {#if data.settings[`mcp:${server.name}`]?.pluginId}
+                {@const owner = data.settings[`mcp:${server.name}`].pluginId}
+                <span class="text-xs text-surface-500">Plugin: {owner}{data.plugins.some((plugin) => plugin.id === owner && !plugin.enabled) ? " (disabled)" : ""}</span>
+              {/if}
+              {#if !projectPath && (server.scope === "user" || server.scope === "global")}
               {#if confirmRemove === server.name}
                 <button type="button" onclick={() => doRemove(server.name)} class="btn btn-sm preset-filled-error-500 text-xs">Confirm remove</button>
                 <button type="button" onclick={() => (confirmRemove = null)} class="btn btn-sm hover:preset-tonal text-xs">Cancel</button>
@@ -691,6 +796,7 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
                 >
                   <Trash2 size={13} />
                 </TooltipButton>
+              {/if}
               {/if}
             </div>
 
@@ -790,14 +896,17 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
       {/if}
 
       {#if showSkills}
-        {#if filter === "skills" && data.skills.length === 0}
+        {#if projectPath}
+          <p class="text-xs text-surface-500">Codex does not apply project skill enablement settings. Manage skill enablement in Settings.</p>
+        {/if}
+        {#if filter === "skills" && data.skills.length === 0 && !query.trim()}
           <div class="flex items-center gap-2 text-xs text-surface-500">
             <span>Codex reported no skills for this home.</span>
-            <button type="button" onclick={openAddSkill} class="btn btn-sm preset-tonal text-xs"><Plus size={12} /> Add skill</button>
+            {#if !projectPath}<button type="button" onclick={openAddSkill} class="btn btn-sm preset-tonal text-xs"><Plus size={12} /> Add skill</button>{/if}
           </div>
         {/if}
-        {#each data.skills as skill (skill.name)}
-          <div id="skill-row-{skill.name}" class="card border border-surface-200-800 bg-surface-50-950 p-3">
+        {#each skills as skill (skill.path)}
+          <div id="skill-row-{encodeURIComponent(skill.path)}" class="card border border-surface-200-800 bg-surface-50-950 p-3">
             <div class="flex items-center gap-3">
               <Sparkles size={16} class="shrink-0 {skill.enabled ? 'text-tertiary-500' : 'text-surface-500'}" />
               <div class="min-w-0 flex-1">
@@ -820,16 +929,21 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
               </p>
             {/if}
             <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
+              {#if !projectPath}
               <button type="button" onclick={() => toggleSkill(skill)} class="btn btn-sm hover:preset-tonal text-xs">
                 {skill.enabled ? "Disable" : "Enable"}
               </button>
+              {/if}
+              {#if data.settings[`skill:${skill.path}`]?.pluginId}
+                <span class="text-xs text-surface-500">Plugin: {data.settings[`skill:${skill.path}`].pluginId}</span>
+              {/if}
               <button
                 type="button"
                 onclick={() => toggleSkillView(skill)}
-                aria-expanded={Boolean(skillOpen[skill.name])}
+                aria-expanded={Boolean(skillOpen[skill.path])}
                 class="btn btn-sm hover:preset-tonal text-xs"
               >
-                <ChevronRight size={12} class="transition-transform {skillOpen[skill.name] ? 'rotate-90' : ''}" />
+                <ChevronRight size={12} class="transition-transform {skillOpen[skill.path] ? 'rotate-90' : ''}" />
                 View SKILL.md
               </button>
               <TooltipButton label="Reveal in Finder" type="button" onclick={() => revealInFinder(skill.path)} aria-label="Reveal {skill.name} in Finder" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
@@ -839,15 +953,15 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
                 <FileText size={13} />
               </TooltipButton>
               <span class="min-w-0 flex-1 truncate font-mono text-[10px] text-surface-500">{skill.path}</span>
-              {#if skill.scope === "user"}
-                {#if confirmDeleteSkill === skill.name}
+              {#if skill.scope === "user" && !projectPath}
+                {#if confirmDeleteSkill === skill.path}
                   <button type="button" onclick={() => doDeleteSkill(skill)} class="btn btn-sm preset-filled-error-500 text-xs">Confirm delete</button>
                   <button type="button" onclick={() => (confirmDeleteSkill = null)} class="btn btn-sm hover:preset-tonal text-xs">Cancel</button>
                 {:else}
                   <TooltipButton
                     label={`Delete ${skill.name}`}
                     type="button"
-                    onclick={() => (confirmDeleteSkill = skill.name)}
+                    onclick={() => (confirmDeleteSkill = skill.path)}
                     aria-label="Delete {skill.name}"
                     class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
                   >
@@ -856,12 +970,12 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
                 {/if}
               {/if}
             </div>
-            {#if skillOpen[skill.name]}
+            {#if skillOpen[skill.path]}
               <div class="mt-2.5 border-t border-surface-200-800 pt-2.5">
-                {#if skillText[skill.name] == null}
+                {#if skillText[skill.path] == null}
                   <div class="text-[11px] text-surface-500">Loading SKILL.md…</div>
                 {:else}
-                  {@const parsed = splitFrontmatter(skillText[skill.name] ?? "")}
+                  {@const parsed = splitFrontmatter(skillText[skill.path] ?? "")}
                   <div class="max-h-80 overflow-auto rounded bg-surface-100-900 p-3 text-xs leading-5">
                     {#if parsed.meta.length > 0}
                       <dl class="mb-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 border-b border-surface-200-800 pb-2 text-[11px]">
@@ -881,10 +995,29 @@ const showPlugins = $derived(filter === "all" || filter === "plugins");
       {/if}
 
       {#if showPlugins}
+        {#each plugins as plugin (plugin.id)}
+          <div class="card border border-surface-200-800 p-3">
+            <div class="flex items-center gap-2"><Puzzle size={16} /><span class="font-medium">{plugin.name}</span><span class="text-xs text-surface-500">{plugin.enabled ? "Enabled" : "Disabled"}</span></div>
+            <p class="mt-1 text-xs text-surface-500">{plugin.id}</p>
+            {#if plugin.description}<p class="mt-1 text-xs">{plugin.description}</p>{/if}
+            {#if projectPath}
+              <select aria-label={`Setting for ${plugin.id}`} class="select mt-2 text-xs" disabled={updating} value={settingValue(`plugin:${plugin.id}`)} onchange={(event) => changeSetting("plugin", plugin.id, event.currentTarget.value)}>
+                <option value="inherit">Inherit ({data.settings[`plugin:${plugin.id}`]?.inheritedEnabled ? "enabled" : "disabled"})</option>
+                <option value="enabled">Enabled</option><option value="disabled">Disabled</option>
+              </select>
+            {:else}
+              <button type="button" class="btn btn-sm mt-2" disabled={updating} onclick={() => changeSetting("plugin", plugin.id, plugin.enabled ? "disabled" : "enabled")}>{plugin.enabled ? "Disable" : "Enable"}</button>
+            {/if}
+          </div>
+        {/each}
+        {#if !data.pluginsSupported}
         <div class="card flex items-center gap-3 border border-dashed border-surface-200-800 p-3 text-xs text-surface-500">
           <Puzzle size={16} class="shrink-0" />
           <span>Plugins are not yet supported by this Codex build.</span>
         </div>
+        {:else if data.plugins.length === 0 && !query.trim()}
+          <p class="text-xs text-surface-500">No installed plugins.</p>
+        {/if}
       {/if}
 
       {#if filter === "connections"}

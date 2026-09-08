@@ -1,4 +1,5 @@
 import type {
+  IntegrationsList,
   McpJsonSchema,
   McpResource,
   McpResourceTemplate,
@@ -6,6 +7,25 @@ import type {
   McpServerSummary,
   McpTool,
 } from "$lib/types";
+
+/** A partial discovery failure must not erase a previously visible inventory. */
+export function retainFailedInventory(previous: IntegrationsList | null, next: IntegrationsList): IntegrationsList {
+  if (!previous) return next;
+  const pluginFailure = next.errors.some((error) => error.startsWith("Plugins:"));
+  const skillFailure = pluginFailure || next.errors.some((error) => error.startsWith("Skills:"));
+  const mergeRows = <T>(old: T[], fresh: T[], key: (row: T) => string): T[] => [...new Map([...old, ...fresh].map((row) => [key(row), row])).values()];
+  const result = {
+    ...next,
+    skills: skillFailure ? mergeRows(previous.skills, next.skills, (row) => row.path) : next.skills,
+    plugins: pluginFailure ? mergeRows(previous.plugins, next.plugins, (row) => row.id) : next.plugins,
+    mcpServers: pluginFailure ? mergeRows(previous.mcpServers, next.mcpServers, (row) => row.name) : next.mcpServers,
+    settings: skillFailure ? { ...previous.settings, ...next.settings } : next.settings,
+  };
+  const disabledOwners = new Set(result.plugins.filter((plugin) => !plugin.enabled).map((plugin) => plugin.id));
+  result.skills = result.skills.map((row) => disabledOwners.has(result.settings[`skill:${row.path}`]?.pluginId ?? "") ? { ...row, enabled: false } : row);
+  result.mcpServers = result.mcpServers.map((row) => disabledOwners.has(result.settings[`mcp:${row.name}`]?.pluginId ?? "") ? { ...row, enabled: false } : row);
+  return result;
+}
 
 export type IntegrationFilter = "all" | "mcp" | "skills" | "plugins" | "connections";
 

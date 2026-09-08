@@ -8,6 +8,7 @@ const listMcpServerStatus = vi.fn();
 const mcpOauthLogin = vi.fn();
 const setMcpEnabled = vi.fn();
 const setSkillEnabled = vi.fn();
+const setIntegrationEnabled = vi.fn();
 const removeMcpServer = vi.fn();
 const saveMcpServer = vi.fn();
 const readSkill = vi.fn();
@@ -18,11 +19,12 @@ const openInZed = vi.fn();
 const openExternalUrl = vi.fn();
 
 vi.mock("$lib/services/api", () => ({
-  listIntegrations: () => listIntegrations(),
+  listIntegrations: (...args: unknown[]) => listIntegrations(...args),
+  setIntegrationEnabled: (...args: unknown[]) => setIntegrationEnabled(...args),
   listMcpServerStatus: () => listMcpServerStatus(),
   mcpOauthLogin: (name: string) => mcpOauthLogin(name),
   setMcpEnabled: (name: string, enabled: boolean) => setMcpEnabled(name, enabled),
-  setSkillEnabled: (name: string, enabled: boolean) => setSkillEnabled(name, enabled),
+  setSkillEnabled: (...args: unknown[]) => setSkillEnabled(...args),
   removeMcpServer: (name: string) => removeMcpServer(name),
   saveMcpServer: (input: unknown) => saveMcpServer(input),
   readSkill: (path: string) => readSkill(path),
@@ -34,6 +36,17 @@ vi.mock("$lib/services/api", () => ({
 }));
 
 import IntegrationsSection from "$lib/integrations/IntegrationsSection.svelte";
+import { skillsStatus } from "$lib/services/codexEvents.svelte";
+
+it("updates an open list when skills change", async () => {
+  render(IntegrationsSection);
+  await screen.findByText("code-reviewer");
+  const next = fixture();
+  next.skills.push({ ...next.skills[0], name: "unslop", path: "/skills/unslop/SKILL.md" });
+  listIntegrations.mockResolvedValue(next);
+  skillsStatus.nonce += 1;
+  expect(await screen.findByText("unslop")).toBeInTheDocument();
+});
 
 function fixture(): IntegrationsList {
   return {
@@ -83,6 +96,8 @@ function fixture(): IntegrationsList {
     ],
     plugins: [],
     pluginsSupported: false,
+    settings: {},
+    errors: [],
   };
 }
 
@@ -126,11 +141,123 @@ function statuses(): Record<string, McpServerStatus> {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  skillsStatus.nonce = 0;
   listIntegrations.mockResolvedValue(fixture());
   listMcpServerStatus.mockResolvedValue(statuses());
 });
 
 describe("IntegrationsSection", () => {
+  it("searches descriptions and combines search with type filters", async () => {
+    const user = userEvent.setup();
+    render(IntegrationsSection);
+    await screen.findByText("code-reviewer");
+    await user.type(screen.getByRole("searchbox", { name: "Search integrations" }), "CORRECTNESS");
+    expect(screen.getByText("code-reviewer")).toBeInTheDocument();
+    expect(screen.queryByText("GitHub")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "MCP" }));
+    expect(screen.getByText("No matching integrations.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(screen.getByText("GitHub")).toBeInTheDocument();
+  });
+
+  it("sends project overrides and reset without offering global mutations", async () => {
+    const user = userEvent.setup();
+    const data = fixture();
+    data.settings["mcp:github"] = { inheritedEnabled: true, overrideEnabled: null, pluginId: null };
+    listIntegrations.mockResolvedValue(data);
+    setIntegrationEnabled.mockResolvedValue(data);
+    render(IntegrationsSection, { projectPath: "/repo" });
+    const control = await screen.findByRole("combobox", { name: "Setting for github" });
+    expect(listIntegrations).toHaveBeenCalledWith(["/repo"], false);
+    expect(screen.queryByRole("button", { name: "Add skill" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    await user.selectOptions(control, "disabled");
+    expect(setIntegrationEnabled).toHaveBeenLastCalledWith("mcp", "github", false, "/repo");
+    await waitFor(() => expect(control).not.toBeDisabled());
+    await user.selectOptions(control, "enabled");
+    await waitFor(() => expect(control).not.toBeDisabled());
+    await user.selectOptions(control, "inherit");
+    expect(setIntegrationEnabled).toHaveBeenLastCalledWith("mcp", "github", null, "/repo");
+  });
+
+  it("refreshes inventory and preserves rows when discovery fails", async () => {
+    const user = userEvent.setup();
+    render(IntegrationsSection);
+    await screen.findByText("code-reviewer");
+    listIntegrations.mockRejectedValue(new Error("Discovery failed"));
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(await screen.findByText("Discovery failed")).toBeInTheDocument();
+    expect(screen.getByText("code-reviewer")).toBeInTheDocument();
+    expect(listIntegrations).toHaveBeenLastCalledWith([], true);
+  });
+
+  it("preserves skill rows after a partial discovery error", async () => {
+    const user = userEvent.setup();
+    render(IntegrationsSection);
+    await screen.findByText("code-reviewer");
+    listIntegrations.mockResolvedValue({ ...fixture(), skills: [], errors: ["Skills: directory unavailable"] });
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(await screen.findByText("Skills: directory unavailable")).toBeInTheDocument();
+    expect(screen.getByText("code-reviewer")).toBeInTheDocument();
+  });
+
+  it("disables retained children when their parent is disabled during a partial refresh", async () => {
+    const user = userEvent.setup();
+    const previous = fixture();
+    previous.plugins = [{ id: "demo@local", name: "Demo", scope: "local", description: null, enabled: true }];
+    previous.pluginsSupported = true;
+    previous.settings[`skill:${previous.skills[0].path}`] = { inheritedEnabled: true, overrideEnabled: null, pluginId: "demo@local" };
+    listIntegrations.mockResolvedValue(previous);
+    render(IntegrationsSection);
+    await screen.findByText("code-reviewer");
+    listIntegrations.mockResolvedValue({ ...previous, skills: [], plugins: [{ ...previous.plugins[0], enabled: false }], errors: ["Plugins: package unavailable"] });
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+    await screen.findByText("Plugins: package unavailable");
+    const row = screen.getByText("code-reviewer").closest(".card") as HTMLElement;
+    expect(within(row).getByText("Disabled", { exact: true })).toBeInTheDocument();
+  });
+
+  it("offers an override but no destructive edits for inherited MCP servers", async () => {
+    const user = userEvent.setup();
+    const data = fixture();
+    data.mcpServers[0].scope = "inherited";
+    listIntegrations.mockResolvedValue(data);
+    setIntegrationEnabled.mockResolvedValue(data);
+    render(IntegrationsSection);
+    const row = (await screen.findByText("GitHub")).closest(".card") as HTMLElement;
+    expect(within(row).queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: "Remove github" })).not.toBeInTheDocument();
+    await user.click(within(row).getByRole("button", { name: "Disable" }));
+    expect(setIntegrationEnabled).toHaveBeenCalledWith("mcp", "github", false, null);
+  });
+
+  it("keeps same-name skill copies separate when viewing and toggling", async () => {
+    const user = userEvent.setup();
+    const data = fixture();
+    data.skills.push({ ...data.skills[0], path: "/project/.agents/skills/code-reviewer/SKILL.md", scope: "repo" });
+    listIntegrations.mockResolvedValue(data);
+    render(IntegrationsSection);
+    const path = await screen.findByText("/project/.agents/skills/code-reviewer/SKILL.md");
+    const row = path.closest(".card") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "Disable" }));
+    expect(setSkillEnabled).toHaveBeenCalledWith("code-reviewer", false, "/project/.agents/skills/code-reviewer/SKILL.md");
+  });
+
+  it("uses marketplace identity for installed plugin controls", async () => {
+    const user = userEvent.setup();
+    const data = fixture();
+    data.pluginsSupported = true;
+    data.plugins = [
+      { id: "demo@a", name: "Demo", scope: "a", description: "Format prose", enabled: true },
+      { id: "demo@b", name: "Demo", scope: "b", description: null, enabled: false },
+    ];
+    listIntegrations.mockResolvedValue(data);
+    setIntegrationEnabled.mockResolvedValue(data);
+    render(IntegrationsSection, { projectPath: "/repo" });
+    const control = await screen.findByRole("combobox", { name: "Setting for demo@b" });
+    await user.selectOptions(control, "enabled");
+    expect(setIntegrationEnabled).toHaveBeenLastCalledWith("plugin", "demo@b", true, "/repo");
+  });
   it("renders MCP servers, skills, and the filter tabs", async () => {
     render(IntegrationsSection, {});
     // The live `serverInfo.title` wins over the config key when present.
@@ -276,7 +403,7 @@ describe("IntegrationsSection", () => {
     render(IntegrationsSection, {});
     const row = (await screen.findByText("code-reviewer")).closest(".card") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Disable" }));
-    expect(setSkillEnabled).toHaveBeenCalledWith("code-reviewer", false);
+    expect(setSkillEnabled).toHaveBeenCalledWith("code-reviewer", false, "~/.codex/skills/code-reviewer/SKILL.md");
     // Re-reads instead of mutating local state: once on mount, once after.
     await waitFor(() => expect(listIntegrations).toHaveBeenCalledTimes(2));
   });

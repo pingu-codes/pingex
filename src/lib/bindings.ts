@@ -427,7 +427,7 @@ export const commands = {
 	 *  record.
 	 */
 	revokeConnection: (clientId: string) => __TAURI_INVOKE<null>("revoke_connection", { clientId }),
-	listIntegrations: (cwds: string[] | null) => __TAURI_INVOKE<IntegrationsList>("list_integrations", { cwds }),
+	listIntegrations: (cwds: string[] | null, forceReload: boolean | null) => __TAURI_INVOKE<IntegrationsList>("list_integrations", { cwds, forceReload }),
 	/**  Add a new MCP server, or save edits to an existing one. */
 	saveMcpServer: (server: McpServerInput) => __TAURI_INVOKE<IntegrationsList>("save_mcp_server", { server }),
 	removeMcpServer: (name: string) => __TAURI_INVOKE<IntegrationsList>("remove_mcp_server", { name }),
@@ -446,11 +446,12 @@ export const commands = {
 	 */
 	reloadMcpServers: () => __TAURI_INVOKE<unknown>("reload_mcp_servers"),
 	listSkillsFor: (cwds: string[]) => __TAURI_INVOKE<unknown>("list_skills_for", { cwds }),
+	setIntegrationEnabled: (kind: IntegrationKind, id: string, enabled: boolean | null, projectPath: string | null) => __TAURI_INVOKE<IntegrationsList>("set_integration_enabled", { kind, id, enabled, projectPath }),
 	/**
 	 *  Enable or disable a skill by name. `skills/config/write` requires exactly
 	 *  one of `name` or `path`; we always key by name.
 	 */
-	setSkillEnabled: (name: string, enabled: boolean) => __TAURI_INVOKE<unknown>("set_skill_enabled", { name, enabled }),
+	setSkillEnabled: (name: string, enabled: boolean, path: string | null) => __TAURI_INVOKE<unknown>("set_skill_enabled", { name, enabled, path }),
 	readSkill: (path: string) => __TAURI_INVOKE<string>("read_skill", { path }),
 	createSkill: (name: string, description: string, body: string | null, cwds: string[] | null) => __TAURI_INVOKE<IntegrationsList>("create_skill", { name, description, body, cwds }),
 	deleteSkill: (path: string, cwds: string[] | null) => __TAURI_INVOKE<IntegrationsList>("delete_skill", { path, cwds }),
@@ -999,17 +1000,23 @@ export type HookCompletedParams = {
 	run?: unknown,
 };
 
+export type IntegrationKind = "mcp" | "plugin";
+
+export type IntegrationSetting = {
+	inheritedEnabled: boolean,
+	overrideEnabled: boolean | null,
+	pluginId: string | null,
+};
+
 /**  Everything the Integrations settings section needs in one call. */
 export type IntegrationsList = {
 	mcpServers: McpServerSummary[],
 	skills: SkillSummary[],
 	plugins: PluginSummary[],
-	/**
-	 *  Whether this build surfaces a real plugins mechanism. Currently `false`:
-	 *  Codex has an internal plugin-provided MCP concept but no user-facing
-	 *  install/enable surface, so we advertise the tab as unsupported.
-	 */
+	/**  Whether the running Codex supports installed-plugin discovery. */
 	pluginsSupported: boolean,
+	settings: { [key in string]: IntegrationSetting },
+	errors: string[],
 };
 
 export type ItemParams = {
@@ -1176,8 +1183,11 @@ export type PlanEntry = {
 };
 
 export type PluginSummary = {
+	id: string,
 	name: string,
 	scope: string,
+	description: string | null,
+	enabled: boolean,
 };
 
 /**

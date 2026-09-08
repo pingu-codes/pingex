@@ -32,6 +32,11 @@ pub struct Feature {
 }
 
 impl Feature {
+    pub const INSTALLED_PLUGINS: Feature = Feature {
+        method_prefix: "plugin/installed",
+        error_prefix: "codex-installed-plugins-unsupported",
+        since: (0, 153),
+    };
     pub const REVERT: Feature = Feature {
         method_prefix: "thread/revert",
         error_prefix: "codex-revert-unsupported",
@@ -61,7 +66,8 @@ impl Feature {
     };
 
     /// Every gated API, for the docs matrix and the live suite.
-    pub const ALL: [Feature; 5] = [
+    pub const ALL: [Feature; 6] = [
+        Self::INSTALLED_PLUGINS,
         Self::REVERT,
         Self::QUEUE,
         Self::PROJECTS,

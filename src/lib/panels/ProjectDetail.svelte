@@ -24,6 +24,7 @@ import type { DetailTab } from "$lib/app/navigation.svelte";
 import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import GitTab from "$lib/git/GitTab.svelte";
+import IntegrationsSection from "$lib/integrations/IntegrationsSection.svelte";
 import {
   addProjectSource,
   gitContext,
@@ -286,8 +287,12 @@ const sourceName = (source: ProjectSource) => source.sourcePath.split("/").pop()
           <Tabs.Trigger value="worktrees" class="btn-sm">Worktrees</Tabs.Trigger>
         {/if}
         <Tabs.Trigger value="sources" class="btn-sm">Sources</Tabs.Trigger>
+        <Tabs.Trigger value="integrations" class="btn-sm">Integrations</Tabs.Trigger>
         <Tabs.Indicator />
       </Tabs.List>
+      <Tabs.Content value="integrations">
+        {#if tab === "integrations"}<div class="mt-5"><IntegrationsSection projectPath={project.path} /></div>{/if}
+      </Tabs.Content>
 
       <Tabs.Content value="overview">
         {#if hasGit}

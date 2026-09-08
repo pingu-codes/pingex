@@ -554,6 +554,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             integrations::app_server::mcp_oauth_login,
             integrations::app_server::reload_mcp_servers,
             integrations::app_server::list_skills_for,
+            integrations::scope::set_integration_enabled,
             integrations::app_server::set_skill_enabled,
             // Skill files on disk: read, scaffold, delete (user scope only).
             integrations::skills_fs::read_skill,

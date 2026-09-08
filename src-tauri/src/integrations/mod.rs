@@ -21,6 +21,7 @@ use serde::Serialize;
 pub(crate) mod app_server;
 pub(crate) mod commands;
 mod config_doc;
+pub(crate) mod scope;
 pub(crate) mod skills_fs;
 
 /// Everything the Integrations settings section needs in one call.
@@ -30,10 +31,10 @@ pub(crate) struct IntegrationsList {
     pub(crate) mcp_servers: Vec<McpServerSummary>,
     pub(crate) skills: Vec<SkillSummary>,
     pub(crate) plugins: Vec<PluginSummary>,
-    /// Whether this build surfaces a real plugins mechanism. Currently `false`:
-    /// Codex has an internal plugin-provided MCP concept but no user-facing
-    /// install/enable surface, so we advertise the tab as unsupported.
+    /// Whether the running Codex supports installed-plugin discovery.
     pub(crate) plugins_supported: bool,
+    pub(crate) settings: std::collections::BTreeMap<String, scope::IntegrationSetting>,
+    pub(crate) errors: Vec<String>,
 }
 
 /// Redacted view of one `[mcp_servers.<name>]` entry. Never carries secret
@@ -80,8 +81,11 @@ pub struct SkillSummary {
 #[derive(Debug, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PluginSummary {
+    pub(crate) id: String,
     pub(crate) name: String,
     pub(crate) scope: String,
+    pub(crate) description: Option<String>,
+    pub(crate) enabled: bool,
 }
 
 // Server health used to be probed by spawning the server ourselves and

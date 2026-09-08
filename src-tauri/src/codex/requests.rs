@@ -289,6 +289,34 @@ pub fn skills_list(cwds: &[String]) -> Request {
     request("skills/list", json!({"cwds": cwds}))
 }
 
+pub fn integration_config(cwd: Option<&str>) -> Request {
+    request("config/read", json!({"cwd": cwd, "includeLayers": true}))
+}
+
+pub fn installed_plugins(cwds: &[String]) -> Request {
+    request("plugin/installed", json!({"cwds": cwds}))
+}
+
+pub fn integration_plugin_detail(
+    name: &str,
+    marketplace_path: Option<&str>,
+    marketplace_name: &str,
+) -> Request {
+    request(
+        "plugin/read",
+        json!({"pluginName": name, "marketplacePath": marketplace_path, "remoteMarketplaceName": if marketplace_path.is_none() { Some(marketplace_name) } else { None }}),
+    )
+}
+
+/// No edits: reload the freshly saved config, including plugin/skill inputs,
+/// into loaded threads. Codex defers active-turn runtime refresh itself.
+pub fn reload_integration_config() -> Request {
+    request(
+        "config/batchWrite",
+        json!({"edits": [], "reloadUserConfig": true}),
+    )
+}
+
 /// `skills/list` with `forceReload`, for right after we created or deleted a
 /// skill directory ourselves — Codex caches the scan otherwise.
 pub fn skills_list_force(cwds: &[String]) -> Request {
@@ -301,6 +329,13 @@ pub fn skill_config_write(name: &str, enabled: bool) -> Request {
     request(
         "skills/config/write",
         json!({"name": name, "enabled": enabled}),
+    )
+}
+
+pub fn skill_config_write_path(path: &str, enabled: bool) -> Request {
+    request(
+        "skills/config/write",
+        json!({"path": path, "enabled": enabled}),
     )
 }
 

@@ -106,13 +106,20 @@ pub(crate) async fn list_skills_for(
 pub(crate) async fn set_skill_enabled(
     name: String,
     enabled: bool,
+    path: Option<String>,
     app: AppHandle,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     ctx.session
-        .send(&app, requests::skill_config_write(&name, enabled))
+        .send(
+            &app,
+            match path {
+                Some(path) => requests::skill_config_write_path(&path, enabled),
+                None => requests::skill_config_write(&name, enabled),
+            },
+        )
         .await
         .map(Json)
 }
@@ -145,6 +152,11 @@ pub(crate) async fn fetch_skills(
 /// Pure over the `skills/list` response so it can be unit-tested without a
 /// running Codex.
 pub fn parse_skills(response: &Value) -> Vec<SkillSummary> {
+    parse_skill_entries(response, false)
+}
+
+/// Settings identifies installed copies by file; the composer resolves names.
+pub(super) fn parse_skill_entries(response: &Value, by_path: bool) -> Vec<SkillSummary> {
     let Some(groups) = response.get("data").and_then(Value::as_array) else {
         return Vec::new();
     };
@@ -157,13 +169,20 @@ pub fn parse_skills(response: &Value) -> Vec<SkillSummary> {
             let Some(name) = skill.get("name").and_then(Value::as_str) else {
                 continue;
             };
-            if out.iter().any(|existing| existing.name == name) {
+            let path = string_at(skill, "path").unwrap_or_default();
+            if out.iter().any(|existing| {
+                if by_path {
+                    existing.path == path
+                } else {
+                    existing.name == name
+                }
+            }) {
                 continue;
             }
             let interface = skill.get("interface");
             out.push(SkillSummary {
                 name: name.to_string(),
-                path: string_at(skill, "path").unwrap_or_default(),
+                path,
                 // Codex reports `user` / `system`; older builds said nothing.
                 scope: string_at(skill, "scope").unwrap_or_else(|| "user".to_string()),
                 description: string_at(skill, "description"),

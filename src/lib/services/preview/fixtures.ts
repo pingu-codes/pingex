@@ -1270,8 +1270,12 @@ export const previewIntegrations: IntegrationsList = {
       shortDescription: "Open and control the in-app browser.",
     },
   ],
-  plugins: [],
-  pluginsSupported: false,
+  plugins: [{ id: "browser-use@local", name: "Browser tools", scope: "local", description: "Browse and inspect websites.", enabled: true }],
+  pluginsSupported: true,
+  settings: {
+    "skill:~/.codex/plugins/cache/browser-use/skills/browser/SKILL.md": { inheritedEnabled: true, overrideEnabled: null, pluginId: "browser-use@local" },
+  },
+  errors: [],
 };
 
 /**

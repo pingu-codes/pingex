@@ -1747,13 +1747,52 @@ export async function writeAgentSettings(settings: AgentSettings): Promise<Agent
 
 // --- Integrations (MCP servers, skills, plugins) ---
 
+const previewProjectOverrides = new Map<string, Record<string, boolean>>();
+
+function previewIntegrationView(projectPath?: string): IntegrationsList {
+  const next = structuredClone(previewIntegrations);
+  const overrides = projectPath ? previewProjectOverrides.get(projectPath) ?? {} : {};
+  for (const [kind, rows] of [["mcp", next.mcpServers], ["plugin", next.plugins]] as const) {
+    for (const row of rows) {
+      const id = "id" in row ? row.id : row.name;
+      const key = `${kind}:${id}`;
+      const inheritedEnabled = row.enabled;
+      const overrideEnabled = overrides[key] ?? null;
+      next.settings[key] = { inheritedEnabled, overrideEnabled, pluginId: null };
+      row.enabled = overrideEnabled ?? inheritedEnabled;
+    }
+  }
+  for (const skill of next.skills) {
+    const owner = next.settings[`skill:${skill.path}`]?.pluginId;
+    if (owner && next.plugins.some((plugin) => plugin.id === owner && !plugin.enabled)) skill.enabled = false;
+  }
+  return next;
+}
+
 /**
  * Config-declared servers plus Codex's skill list. `cwds` scopes the skill
  * lookup — pass the active project directory to pick up project skills.
  */
-export async function listIntegrations(cwds: string[] = []): Promise<IntegrationsList> {
-  if (!isTauri()) return structuredClone(previewIntegrations);
-  return commands.listIntegrations(cwds);
+export async function listIntegrations(cwds: string[] = [], forceReload = false): Promise<IntegrationsList> {
+  if (!isTauri()) return previewIntegrationView(cwds[0]);
+  return commands.listIntegrations(cwds, forceReload);
+}
+
+export async function setIntegrationEnabled(kind: "mcp" | "plugin", id: string, enabled: boolean | null, projectPath: string | null): Promise<IntegrationsList> {
+  if (!isTauri()) {
+    const key = `${kind}:${id}`;
+    if (projectPath) {
+      const overrides = previewProjectOverrides.get(projectPath) ?? {};
+      if (enabled == null) delete overrides[key]; else overrides[key] = enabled;
+      previewProjectOverrides.set(projectPath, overrides);
+    } else {
+      const entry = kind === "mcp" ? previewIntegrations.mcpServers.find((row) => row.name === id) : previewIntegrations.plugins.find((row) => row.id === id);
+      if (entry) entry.enabled = enabled ?? true;
+    }
+    return previewIntegrationView(projectPath ?? undefined);
+  }
+  const result = await commands.setIntegrationEnabled(kind, id, enabled, projectPath);
+  return result;
 }
 
 /**
@@ -1802,13 +1841,13 @@ export async function listSkillsFor(cwds: string[]): Promise<SkillSummary[]> {
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export async function setSkillEnabled(name: string, enabled: boolean): Promise<void> {
+export async function setSkillEnabled(name: string, enabled: boolean, path: string | null = null): Promise<void> {
   if (!isTauri()) {
-    const skill = previewIntegrations.skills.find((entry) => entry.name === name);
+    const skill = previewIntegrations.skills.find((entry) => path ? entry.path === path : entry.name === name);
     if (skill) skill.enabled = enabled;
     return;
   }
-  await commands.setSkillEnabled(name, enabled);
+  await commands.setSkillEnabled(name, enabled, path);
 }
 
 /** Raw `SKILL.md` text for a skill; `path` is the directory or the file. */
