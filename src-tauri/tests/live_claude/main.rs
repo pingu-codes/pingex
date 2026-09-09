@@ -44,6 +44,50 @@ fn simple_echo_turn() {
     );
 }
 
+/// After a turn, `get_context_usage` reports the live context by category,
+/// and the categories that are in use add up to its own total — what
+/// `read_context_breakdown` relies on (`features/15-usage.md`).
+#[test]
+fn context_usage_reports_categories_that_sum_to_the_total() {
+    let setup = live!();
+    let claude = harness::spawn(setup, "default");
+    claude.send_prompt("Reply with exactly PINGEX-OK and nothing else");
+    let (after, _) = claude.expect_success(0, "the echo turn");
+    claude.write_frame(&serde_json::json!({
+        "type": "control_request",
+        "request_id": "pingex-ctx",
+        "request": {"subtype": "get_context_usage"},
+    }));
+    let (_, frame) = claude
+        .wait_for(after, std::time::Duration::from_secs(30), |frame| {
+            frame["type"] == "control_response" && frame["response"]["request_id"] == "pingex-ctx"
+        })
+        .expect("a control_response for get_context_usage");
+    let response = &frame["response"]["response"];
+    let total = response["totalTokens"].as_u64().unwrap_or(0);
+    assert!(total > 0, "no total in {response}");
+    assert!(response["maxTokens"].as_u64().unwrap_or(0) >= total);
+    let categories = response["categories"].as_array().expect("categories");
+    let in_use: u64 = categories
+        .iter()
+        .filter(|c| {
+            let name = c["name"].as_str().unwrap_or_default().to_ascii_lowercase();
+            !c["isDeferred"].as_bool().unwrap_or(false)
+                && !name.contains("free")
+                && !name.contains("buffer")
+        })
+        .map(|c| c["tokens"].as_u64().unwrap_or(0))
+        .sum();
+    assert!(
+        (in_use as i64 - total as i64).abs() <= 2,
+        "categories in use sum to {in_use}, CLI says {total}: {response}"
+    );
+    assert!(
+        categories.iter().any(|c| c["name"] == "System prompt"),
+        "no system prompt category: {response}"
+    );
+}
+
 /// A Write outside the auto-allowed set raises `can_use_tool`; answering it
 /// through the driver's own permission mapping lets the tool run.
 #[test]

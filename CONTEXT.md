@@ -43,6 +43,32 @@ remembered. The UI hides what is absent. Feature is the probed half, kept
 under that name inside the Codex driver.
 _Avoid_: flag, feature flag, version gate, support level
 
+**Usage row**:
+What one turn cost, as stored: the wire token figures, the harness's cost
+where it gives one, and the Attribution of those tokens. One per turn per
+thread, rewritten as the turn's reports arrive; summed for a project or a
+Home.
+_Avoid_: usage record, token log, billing entry
+
+**Attribution**:
+A turn's tokens split across the usage categories — system prompt, skills,
+the user's messages, tool use, replies, reasoning. Input tokens are shared
+out by the Context composition, so the prompt-side categories are estimates
+(marked ≈); replies and reasoning are exact.
+_Avoid_: breakdown (the view, not the split), allocation, apportionment
+
+**Context composition**:
+What a thread's context window holds right now, by category. Estimated from
+the journaled items and the measured context size, or reported by the
+harness where it can say (Claude Code's `get_context_usage`).
+_Avoid_: context usage (the meter's single figure), context map
+
+**Opening row**:
+The one Usage row a thread gets for usage that happened before the ledger
+could see it: what a replayed running total exceeds the stored rows by,
+booked unattributed under `turn_id = "_opening"`.
+_Avoid_: backfill, catch-up row, legacy usage
+
 **Version**:
 One of the texts a user message has had. Editing a message never rewrites
 it: the edit becomes a new Version, shown under the message as `‹ 2 / 3 ›`,

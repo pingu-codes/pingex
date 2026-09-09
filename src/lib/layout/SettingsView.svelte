@@ -5,6 +5,7 @@ import {
   Code2,
   Database,
   FlaskConical,
+  Gauge,
   Keyboard,
   Palette,
   RotateCcw,
@@ -20,8 +21,8 @@ import TooltipButton from "$lib/components/TooltipButton.svelte";
 import IntegrationsSection from "$lib/integrations/IntegrationsSection.svelte";
 import { appearance, FONT_SIZE_MAX, FONT_SIZE_MIN } from "$lib/layout/appearancePrefs.svelte";
 import Connections from "$lib/layout/Connections.svelte";
-import ProfileHomes from "$lib/layout/ProfileHomes.svelte";
 import { messageLog } from "$lib/layout/messageLogPrefs.svelte";
+import ProfileHomes from "$lib/layout/ProfileHomes.svelte";
 import { filterSections, SETTINGS_SECTIONS } from "$lib/layout/settingsSections";
 import { sidebarPrefs } from "$lib/layout/sidebarPrefs.svelte";
 import { acceleratorFromEvent } from "$lib/quick/quickChat";
@@ -43,6 +44,7 @@ import {
 } from "$lib/services/api";
 import type { Account, AgentSettings, CodexServerInfo, ConfigSetting, HomeOverview, RuntimeSettings } from "$lib/types";
 import { codexVersionFromUserAgent } from "$lib/types";
+import UsageSummary from "$lib/usage/UsageSummary.svelte";
 import { dragRegion } from "$lib/utils/dragRegion";
 
 let {
@@ -77,6 +79,7 @@ const sectionIcons: Record<string, typeof Settings2> = {
   integrations: Blocks,
   connections: Smartphone,
   keyboard: Keyboard,
+  usage: Gauge,
   data: Database,
   advanced: FlaskConical,
 };
@@ -675,6 +678,14 @@ async function reveal(path: string | null | undefined) {
                 </div>
               {/each}
             </div>
+          </section>
+        {:else if currentSection === "usage"}
+          <section class="card border border-surface-200-800 bg-surface-50-950 p-5">
+            <h2 class="text-sm font-semibold">Usage</h2>
+            <p class="mt-1 text-xs text-surface-600-400">
+              Token spend across every project in this Home, by category, model and thread.
+            </p>
+            <div class="mt-4"><UsageSummary scope={{ kind: "global" }} /></div>
           </section>
         {:else if currentSection === "data"}
           <section class="card border border-surface-200-800 bg-surface-50-950 p-5">

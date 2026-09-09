@@ -7,6 +7,7 @@ import {
   FileText,
   Folder,
   FolderTree,
+  Gauge,
   Globe,
   Lightbulb,
   ListTree,
@@ -20,7 +21,7 @@ import UsageMeter from "$lib/layout/UsageMeter.svelte";
 import { accountUsage } from "$lib/services/accountUsage.svelte";
 import { elapsedLabel } from "$lib/services/agentRuns.svelte";
 import { processClock, type RunningProcess } from "$lib/services/processes.svelte";
-import { type ContextStats, formatTokens, formatTokensShort } from "$lib/thread/contextUsage";
+import { type ContextStats, formatTokensShort } from "$lib/thread/contextUsage";
 import { changeLabel } from "$lib/thread/fileChanges";
 import { formatCost } from "$lib/thread/usageCost";
 import type { ChangesSummary, FileUpdateChange, SubagentDetail } from "$lib/types";
@@ -46,6 +47,7 @@ let {
   onShowChanges = () => {},
   onShowFiles,
   onShowMessageLog,
+  onShowStatus = () => {},
   onOpenSubagent = () => {},
   onStopSubagent = () => {},
   onOpenProcess = () => {},
@@ -74,6 +76,8 @@ let {
   onShowChanges?: (path: string | null) => void;
   onShowFiles: () => void;
   onShowMessageLog: () => void;
+  /** Open the status panel: context composition, spend and account limits. */
+  onShowStatus?: () => void;
   onOpenSubagent?: (agent: SubagentDetail) => void;
   /** Only ever called for app-owned agents, which are the only ones we can stop. */
   onStopSubagent?: (agent: SubagentDetail) => void;
@@ -240,38 +244,28 @@ function closeDropdown() {
     >
       <div class="flex items-center px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-surface-500">
         <span class="flex-1">Usage</span>
-        {#if cost}<span class="normal-case tracking-normal">{cost} est.</span>{/if}
       </div>
-      {#if contextStats}
-        <dl class="space-y-1 px-2 pb-1.5 text-[11px] leading-4">
-          <div class="flex justify-between gap-3">
-            <dt class="text-surface-500">Context</dt>
-            <dd class="font-mono">
-              {formatTokensShort(contextStats.usedTokens)}{contextStats.contextWindow
-                ? ` / ${formatTokensShort(contextStats.contextWindow)}`
-                : ""}{contextStats.percentUsed !== null ? ` · ${contextStats.percentUsed}%` : ""}
-            </dd>
-          </div>
-          <div class="flex justify-between gap-3">
-            <dt class="text-surface-500">Thread tokens</dt>
-            <dd class="font-mono">{formatTokens(contextStats.sessionTotalTokens)}</dd>
-          </div>
-          <div class="flex justify-between gap-3">
-            <dt class="text-surface-500">In · cached</dt>
-            <dd class="font-mono">
-              {formatTokensShort(contextStats.sessionInputTokens)} · {formatTokensShort(contextStats.sessionCachedInputTokens)}
-            </dd>
-          </div>
-          <div class="flex justify-between gap-3">
-            <dt class="text-surface-500">Out · reasoning</dt>
-            <dd class="font-mono">
-              {formatTokensShort(contextStats.sessionOutputTokens)} · {formatTokensShort(contextStats.sessionReasoningTokens)}
-            </dd>
-          </div>
-        </dl>
-      {:else}
-        <p class="px-2 py-1 text-xs text-surface-500">No tokens used yet.</p>
-      {/if}
+      <!-- The figures themselves live in the status panel; this row is the way in. -->
+      <button
+        type="button"
+        onclick={onShowStatus}
+        class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal"
+        aria-label="Show usage"
+      >
+        <Gauge size={13} class="shrink-0 text-surface-500" />
+        {#if contextStats}
+          <span class="min-w-0 flex-1 truncate font-mono text-[11px]">
+            {formatTokensShort(contextStats.usedTokens)}{contextStats.contextWindow
+              ? ` / ${formatTokensShort(contextStats.contextWindow)}`
+              : ""}{contextStats.percentUsed !== null ? ` · ${contextStats.percentUsed}%` : ""}
+          </span>
+          <span class="shrink-0 font-mono text-[11px] text-surface-500">
+            {formatTokensShort(contextStats.sessionTotalTokens)}{cost ? ` · ≈${cost}` : ""}
+          </span>
+        {:else}
+          <span class="min-w-0 flex-1 truncate text-surface-500">No tokens used yet</span>
+        {/if}
+      </button>
       <div class="space-y-2 px-2 pb-1 pt-1">
         <UsageMeter snapshot={accountUsage.snapshot} />
         {#each extraLimits as bucket (bucket.limitId)}

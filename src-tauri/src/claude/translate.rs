@@ -45,6 +45,9 @@ pub(crate) struct Translator {
     open_tools: HashMap<String, (String, Value)>,
     /// Where the process runs, so a file it names can be read from here.
     pub(crate) host: Host,
+    /// `total_cost_usd` as of the last result: the CLI reports it cumulative
+    /// for the session, and a turn's usage should say what that turn cost.
+    cost_usd_seen: f64,
 }
 
 impl Translator {
@@ -463,20 +466,55 @@ impl Translator {
         };
         let usage = frame.get("usage").map(|usage| {
             let read = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
-            let context_window = frame
+            // `modelUsage` is keyed by model id and cumulative; the heaviest
+            // entry is the model running the main loop (sub-agents on another
+            // model spend far less).
+            let (model, context_window) = frame
                 .get("modelUsage")
                 .and_then(Value::as_object)
-                .and_then(|models| models.values().next())
-                .and_then(|model| model.get("contextWindow"))
-                .and_then(Value::as_u64);
+                .and_then(|models| {
+                    models.iter().max_by_key(|(_, model)| {
+                        ["inputTokens", "cacheReadInputTokens", "outputTokens"]
+                            .iter()
+                            .map(|key| model.get(key).and_then(Value::as_u64).unwrap_or(0))
+                            .sum::<u64>()
+                    })
+                })
+                .map(|(id, model)| {
+                    (
+                        Some(id.clone()),
+                        model.get("contextWindow").and_then(Value::as_u64),
+                    )
+                })
+                .unwrap_or((None, None));
             TurnUsage {
                 input_tokens: read("input_tokens")
                     + read("cache_read_input_tokens")
                     + read("cache_creation_input_tokens"),
                 cached_input_tokens: read("cache_read_input_tokens"),
+                cache_write_input_tokens: read("cache_creation_input_tokens"),
                 output_tokens: read("output_tokens"),
+                reasoning_tokens: usage
+                    .get("output_tokens_details")
+                    .and_then(|details| details.get("thinking_tokens"))
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0),
                 context_window,
-                cost_usd: frame.get("total_cost_usd").and_then(Value::as_f64),
+                cost_usd: frame
+                    .get("total_cost_usd")
+                    .and_then(Value::as_f64)
+                    .map(|total| {
+                        // A process restart resets the CLI's total; never book a
+                        // negative turn.
+                        let turn = if total >= self.cost_usd_seen {
+                            total - self.cost_usd_seen
+                        } else {
+                            total
+                        };
+                        self.cost_usd_seen = total;
+                        turn
+                    }),
+                model,
             }
         });
         // Anything still open did not get a result: the turn was cut short.
@@ -699,15 +737,23 @@ mod fixtures {
         assert!(events
             .iter()
             .any(|e| matches!(e, HarnessEvent::AgentThoughtChunk { done: true, .. })));
-        assert!(matches!(
-            events.last(),
-            Some(HarnessEvent::TurnEnded {
-                stop_reason: StopReason::EndTurn,
-                error: None,
-                usage: Some(_),
-                ..
-            })
-        ));
+        let Some(HarnessEvent::TurnEnded {
+            stop_reason: StopReason::EndTurn,
+            error: None,
+            usage: Some(usage),
+            ..
+        }) = events.last()
+        else {
+            panic!("turn ended normally with usage");
+        };
+        assert_eq!(usage.input_tokens, 18 + 7238 + 36307);
+        assert_eq!(usage.cached_input_tokens, 36307);
+        assert_eq!(usage.cache_write_input_tokens, 7238);
+        assert_eq!(usage.output_tokens, 174);
+        assert_eq!(usage.reasoning_tokens, 87);
+        assert_eq!(usage.context_window, Some(200_000));
+        assert_eq!(usage.model.as_deref(), Some("claude-haiku-4-5-20251001"));
+        assert!((usage.cost_usd.unwrap() - 0.0199867).abs() < 1e-9);
         // Streamed blocks are not rendered twice off the `assistant` frames.
         let messages = events
             .iter()

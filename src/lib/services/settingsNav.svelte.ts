@@ -4,7 +4,7 @@
  * tool-call in the thread view) request the Integrations UI without threading
  * callbacks through every layer.
  */
-export type SettingsSection = "general" | "integrations";
+export type SettingsSection = "general" | "integrations" | "usage";
 
 export const settingsNav = $state<{
   open: boolean;

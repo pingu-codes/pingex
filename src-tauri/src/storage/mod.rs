@@ -34,6 +34,7 @@ mod sidebar_layout;
 mod sources;
 mod threads;
 mod turn_settings;
+mod turn_usage;
 mod workspaces;
 
 pub(crate) use account::{read_account_cache, write_account_cache};
@@ -97,6 +98,10 @@ pub(crate) use threads::{
 pub(crate) use turn_settings::{
     copy_turn_settings, delete_turn_settings, read_turn_settings, record_turn_settings,
     retain_turn_settings, TurnSettings,
+};
+pub(crate) use turn_usage::{
+    read_latest_turn_usage, read_turn_usage, read_usage_breakdown, read_usage_totals,
+    record_turn_usage, CategoryTokens, TurnUsageRow, UsageScope, UsageTokens, OPENING_TURN_ID,
 };
 pub(crate) use workspaces::{
     assign_thread_workspace, create_workspace, read_all_workspace_members, read_workspace_members,

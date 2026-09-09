@@ -114,6 +114,33 @@ const DDL: &str = "CREATE TABLE IF NOT EXISTS metadata (
      reasoning_effort TEXT,
      PRIMARY KEY (thread_id, turn_id)
  );
+ CREATE TABLE IF NOT EXISTS turn_usage (
+     thread_id TEXT NOT NULL,
+     turn_id TEXT NOT NULL,
+     harness TEXT NOT NULL,
+     model TEXT,
+     input_tokens INTEGER NOT NULL DEFAULT 0,
+     cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+     cache_write_input_tokens INTEGER NOT NULL DEFAULT 0,
+     output_tokens INTEGER NOT NULL DEFAULT 0,
+     reasoning_output_tokens INTEGER NOT NULL DEFAULT 0,
+     cost_usd REAL,
+     context_tokens INTEGER,
+     context_window INTEGER,
+     attr_system INTEGER NOT NULL DEFAULT 0,
+     attr_skills INTEGER NOT NULL DEFAULT 0,
+     attr_user INTEGER NOT NULL DEFAULT 0,
+     attr_tool INTEGER NOT NULL DEFAULT 0,
+     attr_output INTEGER NOT NULL DEFAULT 0,
+     attr_reasoning INTEGER NOT NULL DEFAULT 0,
+     attr_unattributed INTEGER NOT NULL DEFAULT 0,
+     recorded_at INTEGER NOT NULL,
+     PRIMARY KEY (thread_id, turn_id)
+ );
+ CREATE INDEX IF NOT EXISTS turn_usage_thread
+     ON turn_usage(thread_id, recorded_at);
+ CREATE INDEX IF NOT EXISTS turn_usage_recorded
+     ON turn_usage(recorded_at);
  CREATE TABLE IF NOT EXISTS agent_runs (
      run_id TEXT PRIMARY KEY,
      parent_thread_id TEXT NOT NULL,

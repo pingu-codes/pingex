@@ -4,7 +4,9 @@ import type {
   AgentSettings,
   ArchivedThread,
   BootstrapData,
+  CategoryTokens,
   ConfigSetting,
+  ContextComposition,
   FileHit,
   GitBranch,
   GitCommit,
@@ -31,6 +33,10 @@ import type {
   ThreadSummary,
   ThreadsPage,
   ThreadUsage,
+  ThreadUsageSummary,
+  UsageBreakdown,
+  UsageScope,
+  UsageTokens,
   WireMessage,
   WorkspaceSearchResults,
   WorktreeEntry,
@@ -525,6 +531,94 @@ export function previewThreadUsage(threadId: string): ThreadUsage {
       },
     ],
   };
+}
+
+function previewCategories(scale: number): CategoryTokens {
+  return {
+    system: Math.round(38_000 * scale),
+    skills: Math.round(6_500 * scale),
+    user: Math.round(9_200 * scale),
+    tool: Math.round(41_000 * scale),
+    output: Math.round(14_600 * scale),
+    reasoning: Math.round(5_300 * scale),
+    unattributed: Math.round(2_000 * scale),
+  };
+}
+
+function previewTokens(scale: number): UsageTokens {
+  const inputTokens = Math.round(96_700 * scale);
+  const outputTokens = Math.round(19_900 * scale);
+  return {
+    inputTokens,
+    cachedInputTokens: Math.round(71_000 * scale),
+    cacheWriteInputTokens: Math.round(8_000 * scale),
+    outputTokens,
+    reasoningOutputTokens: Math.round(5_300 * scale),
+    totalTokens: inputTokens + outputTokens,
+  };
+}
+
+/** Deterministic usage figures for the browser preview and its tests. A
+ *  thread is one unit; a project is three threads; the Home is eight. */
+export function previewUsageBreakdown(scope: UsageScope, since: number | null = null): UsageBreakdown {
+  const scale = (scope.kind === "thread" ? 1 : scope.kind === "project" ? 3 : 8) * (since ? 0.5 : 1);
+  const threads: ThreadUsageSummary[] =
+    scope.kind === "thread"
+      ? []
+      : [
+          {
+            threadId: "thread-1",
+            title: "Fix trailing-edge debounce",
+            tokens: previewTokens(1.4),
+            categories: previewCategories(1.4),
+            costUsd: null,
+            lastAt: 1_720_000_000,
+          },
+          {
+            threadId: "thread-2",
+            title: "Investigate flaky test",
+            tokens: previewTokens(0.9),
+            categories: previewCategories(0.9),
+            costUsd: 0.42,
+            lastAt: 1_719_900_000,
+          },
+        ];
+  return {
+    tokens: previewTokens(scale),
+    categories: previewCategories(scale),
+    reportedCostUsd: scope.kind === "thread" ? null : 0.42,
+    unpricedTokens: true,
+    turns: Math.round(7 * scale),
+    byModel: [
+      { model: "gpt-5.2-codex", harness: "codex", tokens: previewTokens(scale * 0.8), costUsd: null, turns: 5 },
+      ...(scope.kind === "thread"
+        ? []
+        : [
+            {
+              model: "claude-haiku-4-5",
+              harness: "claude",
+              tokens: previewTokens(scale * 0.2),
+              costUsd: 0.42,
+              turns: 2,
+            },
+          ]),
+    ],
+    byThread: threads,
+    context:
+      scope.kind === "thread"
+        ? {
+            categories: { ...previewCategories(0.6), reasoning: 0 },
+            totalTokens: 72_000,
+            contextWindow: 272_000,
+            source: "estimate",
+          }
+        : null,
+  };
+}
+
+/** The preview thread runs on Codex, which cannot report its context. */
+export function previewContextBreakdown(threadId: string): Promise<ContextComposition> {
+  return Promise.reject(new Error(`harness-unsupported:context_breakdown: ${threadId} runs on Codex`));
 }
 
 export const previewFiles: FileHit[] = [
@@ -1280,10 +1374,22 @@ export const previewIntegrations: IntegrationsList = {
       shortDescription: "Open and control the in-app browser.",
     },
   ],
-  plugins: [{ id: "browser-use@local", name: "Browser tools", scope: "local", description: "Browse and inspect websites.", enabled: true }],
+  plugins: [
+    {
+      id: "browser-use@local",
+      name: "Browser tools",
+      scope: "local",
+      description: "Browse and inspect websites.",
+      enabled: true,
+    },
+  ],
   pluginsSupported: true,
   settings: {
-    "skill:~/.codex/plugins/cache/browser-use/skills/browser/SKILL.md": { inheritedEnabled: true, overrideEnabled: null, pluginId: "browser-use@local" },
+    "skill:~/.codex/plugins/cache/browser-use/skills/browser/SKILL.md": {
+      inheritedEnabled: true,
+      overrideEnabled: null,
+      pluginId: "browser-use@local",
+    },
   },
   errors: [],
 };

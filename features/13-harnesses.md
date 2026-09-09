@@ -101,7 +101,10 @@ Session-level:
 - `plan { itemId, entries: [{ content, priority, status }] }`. Codex
   `turn/plan/updated`, Claude `TodoWrite` and `Task*`. The Codex plan-mode
   markdown item is an `agent_message_chunk` with `ext.codex.role = "plan"`.
-- `usage_update { used, size, cost?, breakdown? }`.
+- `usage_update { used, size, cost?, breakdown? }`. Realised today as
+  `TurnEnded.usage` projected onto `thread/tokenUsage/updated`; the ledger
+  records it and `read_context_breakdown` serves `breakdown` where the
+  driver can ask for one (`features/15-usage.md`).
 - `config_options { options: SessionConfigOption[] }`, complete state, ACP
   shape. What the composer renders.
 - `available_commands { commands: [{ name, description, inputHint? }] }`.
@@ -523,8 +526,8 @@ Deliberate differences from the sections above, to land a working slice:
 - Codex `thread/read` projection defects under the neutral item model.
 - Handoff commands and deep links per harness (`codex resume` vs
   `claude --resume`).
-- Which of Claude's hooks, `rewind_files`, thinking budget and per-turn cost
-  become Pingex features.
+- Which of Claude's hooks, `rewind_files` and thinking budget become Pingex
+  features. Per-turn cost is recorded (`features/15-usage.md`).
 - Quick chat harness choice.
 
 ## Out of scope

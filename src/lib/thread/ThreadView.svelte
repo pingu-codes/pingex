@@ -1066,6 +1066,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
       }}
       onShowFiles={() => (panelView = { kind: "files" })}
       onShowMessageLog={() => (panelView = { kind: "messageLog" })}
+      onShowStatus={() => (panelView = { kind: "status" })}
       onOpenSubagent={(agent) => (onOpenSubagent ? onOpenSubagent(agent) : onSelectThread?.(agent.id))}
       onStopSubagent={async (agent) => {
         if (!agent.runId) return;

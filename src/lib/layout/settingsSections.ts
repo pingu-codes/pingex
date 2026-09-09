@@ -32,6 +32,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: "integrations", label: "Integrations", keywords: ["mcp servers", "skills"] },
   { id: "connections", label: "Connections", keywords: ["phone", "pairing", "qr code", "remote control"] },
   { id: "keyboard", label: "Keyboard shortcuts", keywords: ["shortcuts", "hotkeys", "keybindings"] },
+  { id: "usage", label: "Usage", keywords: ["tokens", "cost", "spend", "context", "cache", "system prompt"] },
   { id: "data", label: "Data controls", keywords: ["database", "drafts", "storage", "clear metadata"] },
   {
     id: "advanced",

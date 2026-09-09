@@ -1,5 +1,5 @@
 import { SvelteMap } from "svelte/reactivity";
-import type { BootstrapData, HomeSnapshot, Host, ProfileBootstrap } from "$lib/bindings";
+import type { BootstrapData, HomeSnapshot, Host, ProfileBootstrap, UsageScopeArg } from "$lib/bindings";
 import { commandArguments, commands as nativeCommands } from "$lib/bindings";
 
 const PREFIX = "pingex:";
@@ -380,6 +380,33 @@ export const commands: typeof nativeCommands = new Proxy(nativeCommands, {
         return result;
       }
       if (!profile) return Reflect.apply(method, target, args);
+      if (property === "readUsageBreakdown") {
+        // The scope is an object, not a bare id or path: route by what it names.
+        const [scope, since] = args as [
+          { kind: "thread"; threadId: string } | { kind: "project"; path: string } | { kind: "global" },
+          number | null,
+        ];
+        const owner =
+          scope.kind === "thread"
+            ? profileHomes().find((home) => home.homeKey === identity(scope.threadId)?.homeKey)
+            : scope.kind === "project"
+              ? homeForPath(scope.path)
+              : selectedHome();
+        if (!owner) throw new Error("Choose a Home for this project");
+        const nativeScope: UsageScopeArg =
+          scope.kind === "thread"
+            ? { kind: "thread", threadId: unwrap(scope.threadId) as string }
+            : scope.kind === "project"
+              ? { kind: "project", path: hostPath(owner.home.host, scope.path) }
+              : scope;
+        const breakdown = await nativeCommands.readUsageBreakdown(nativeScope, since, {
+          homeKey: owner.homeKey,
+        });
+        return {
+          ...breakdown,
+          byThread: breakdown.byThread.map((row) => ({ ...row, threadId: scopedId(owner.homeKey, row.threadId) })),
+        };
+      }
       if (property === "searchThreads") {
         const [query, cursor, filter, generation] = args as [
           string,

@@ -1,6 +1,6 @@
 import { NATIVE_HOST, sameHost } from "$lib/app/host";
-import { addProfileProject, commands } from "$lib/services/homeRouting";
 import { deleteFromLayout, emptyLayout, nextOrdinal, placeInLayout, resetLayoutOrder } from "$lib/layout/sidebarTree";
+import { addProfileProject, commands } from "$lib/services/homeRouting";
 import { previewStageBytes, previewStageFile, previewStageFromPath } from "$lib/services/preview/attachments";
 import {
   nextPreviewId,
@@ -13,6 +13,7 @@ import {
   previewCommits,
   previewConfigSettings,
   previewConnections,
+  previewContextBreakdown,
   previewCreateSkill,
   previewData,
   previewDeleteSkill,
@@ -45,6 +46,7 @@ import {
   previewThread,
   previewThreadsPage,
   previewThreadUsage,
+  previewUsageBreakdown,
   previewWireLog,
   previewWorktrees,
 } from "$lib/services/preview/fixtures";
@@ -62,6 +64,7 @@ import type {
   CodexServerInfo,
   CommitResult,
   ConfigSetting,
+  ContextComposition,
   CreateWorkspaceInput,
   FileDiff,
   FileHit,
@@ -105,6 +108,8 @@ import type {
   ThreadUsage,
   Turn,
   TurnOptions,
+  UsageBreakdown,
+  UsageScope,
   UserInputPart,
   WireMessage,
   WorkspaceSearchResults,
@@ -744,6 +749,32 @@ export async function readThreadUsage(threadId: string): Promise<ThreadUsage | n
   if (!isTauri()) return previewThreadUsage(threadId);
   const response = await (commands.readThreadUsage(threadId) as Promise<{ threadUsage?: ThreadUsage | null }>);
   return response.threadUsage ?? null;
+}
+
+/** Token usage summed over a thread, a project, or the whole Home, with the
+ *  ledger's category attribution. `since` is a unix time in seconds. */
+export async function readUsageBreakdown(scope: UsageScope, since: number | null = null): Promise<UsageBreakdown> {
+  if (!isTauri()) return previewUsageBreakdown(scope, since);
+  return commands.readUsageBreakdown(scope, since);
+}
+
+/** Prefix the Rust side puts on `read_context_breakdown` when the thread's
+ *  harness cannot report its live context (Codex has no such API; a Claude
+ *  thread between processes has nothing to ask). Kept in step with
+ *  `CONTEXT_BREAKDOWN_UNSUPPORTED` in `src-tauri/src/usage/commands.rs`. */
+export const CONTEXT_BREAKDOWN_UNSUPPORTED = "harness-unsupported:context_breakdown";
+
+export function isContextBreakdownUnsupported(cause: unknown): boolean {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return message.startsWith(CONTEXT_BREAKDOWN_UNSUPPORTED);
+}
+
+/** The exact composition of a live thread's context, as the harness reports
+ *  it. Rejects with a `CONTEXT_BREAKDOWN_UNSUPPORTED` error when it cannot;
+ *  callers fall back to the estimate in `readUsageBreakdown`. */
+export async function readContextBreakdown(threadId: string): Promise<ContextComposition> {
+  if (!isTauri()) return previewContextBreakdown(threadId);
+  return commands.readContextBreakdown(threadId);
 }
 
 /** Prefix the Rust side puts on a queue error when this Codex has no usable
@@ -1788,8 +1819,11 @@ const previewProjectOverrides = new Map<string, Record<string, boolean>>();
 
 function previewIntegrationView(projectPath?: string): IntegrationsList {
   const next = structuredClone(previewIntegrations);
-  const overrides = projectPath ? previewProjectOverrides.get(projectPath) ?? {} : {};
-  for (const [kind, rows] of [["mcp", next.mcpServers], ["plugin", next.plugins]] as const) {
+  const overrides = projectPath ? (previewProjectOverrides.get(projectPath) ?? {}) : {};
+  for (const [kind, rows] of [
+    ["mcp", next.mcpServers],
+    ["plugin", next.plugins],
+  ] as const) {
     for (const row of rows) {
       const id = "id" in row ? row.id : row.name;
       const key = `${kind}:${id}`;
@@ -1815,15 +1849,24 @@ export async function listIntegrations(cwds: string[] = [], forceReload = false)
   return commands.listIntegrations(cwds, forceReload);
 }
 
-export async function setIntegrationEnabled(kind: "mcp" | "plugin", id: string, enabled: boolean | null, projectPath: string | null): Promise<IntegrationsList> {
+export async function setIntegrationEnabled(
+  kind: "mcp" | "plugin",
+  id: string,
+  enabled: boolean | null,
+  projectPath: string | null,
+): Promise<IntegrationsList> {
   if (!isTauri()) {
     const key = `${kind}:${id}`;
     if (projectPath) {
       const overrides = previewProjectOverrides.get(projectPath) ?? {};
-      if (enabled == null) delete overrides[key]; else overrides[key] = enabled;
+      if (enabled == null) delete overrides[key];
+      else overrides[key] = enabled;
       previewProjectOverrides.set(projectPath, overrides);
     } else {
-      const entry = kind === "mcp" ? previewIntegrations.mcpServers.find((row) => row.name === id) : previewIntegrations.plugins.find((row) => row.id === id);
+      const entry =
+        kind === "mcp"
+          ? previewIntegrations.mcpServers.find((row) => row.name === id)
+          : previewIntegrations.plugins.find((row) => row.id === id);
       if (entry) entry.enabled = enabled ?? true;
     }
     return previewIntegrationView(projectPath ?? undefined);
@@ -1880,7 +1923,7 @@ export async function listSkillsFor(cwds: string[]): Promise<SkillSummary[]> {
 
 export async function setSkillEnabled(name: string, enabled: boolean, path: string | null = null): Promise<void> {
   if (!isTauri()) {
-    const skill = previewIntegrations.skills.find((entry) => path ? entry.path === path : entry.name === name);
+    const skill = previewIntegrations.skills.find((entry) => (path ? entry.path === path : entry.name === name));
     if (skill) skill.enabled = enabled;
     return;
   }

@@ -539,6 +539,20 @@ impl ClaudeDriver {
             .filter(|process| process.child.is_alive())
     }
 
+    /// Ask a live thread's process what its context holds
+    /// (`get_context_usage`). `None` when this driver has no live process for
+    /// the thread — a Codex thread, or a Claude thread between processes.
+    pub(crate) async fn context_usage(&self, thread_id: &str) -> Result<Option<Value>, String> {
+        let Some(process) = self.process(thread_id) else {
+            return Ok(None);
+        };
+        process
+            .child
+            .control(json!({"subtype": "get_context_usage"}))
+            .await
+            .map(Some)
+    }
+
     /// Threads with a turn in flight on a live process.
     pub(crate) fn active_threads(&self) -> Vec<String> {
         self.processes
@@ -594,7 +608,7 @@ impl ClaudeDriver {
                 runtime.host.clone(),
             )),
             projector: Mutex::new(Projector::default()),
-            journal: TurnJournal::new(app.clone(), self.home_key.clone()),
+            journal: TurnJournal::new(app.clone(), self.home_key.clone(), HarnessKind::Claude),
             pending: self.pending.clone(),
             next_request: self.next_request.clone(),
         });

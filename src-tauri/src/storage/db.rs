@@ -168,6 +168,11 @@ pub(crate) fn opt_int(row: &Row, index: usize) -> Result<Option<i64>, String> {
     row.get(index).map_err(db_error)
 }
 
+/// A nullable `REAL` column.
+pub(crate) fn opt_real(row: &Row, index: usize) -> Result<Option<f64>, String> {
+    row.get(index).map_err(db_error)
+}
+
 /// An `INTEGER` column holding a boolean flag, stored as 0 or 1.
 pub(crate) fn flag(row: &Row, index: usize) -> Result<bool, String> {
     Ok(row.get::<i64>(index).map_err(db_error)? != 0)

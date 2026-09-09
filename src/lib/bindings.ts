@@ -64,6 +64,14 @@ export const commands = {
 	readAccountRateLimits: (window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("read_account_rate_limits", { window }),
 	/**  Per-thread usage estimate: `account/usage/read` scoped by `threadId`. */
 	readThreadUsage: (threadId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("read_thread_usage", { threadId, window }),
+	/**  Token usage summed over `scope`, optionally since a unix time. */
+	readUsageBreakdown: (scope: UsageScopeArg, since: number | null, window: HomeRoute | null = null) => __TAURI_INVOKE<UsageBreakdown>("read_usage_breakdown", { scope, since, window }),
+	/**
+	 *  The exact composition of a live thread's context, from the harness.
+	 *  Fails with [`CONTEXT_BREAKDOWN_UNSUPPORTED`] when the thread's harness
+	 *  cannot say (Codex) or has no live process to ask.
+	 */
+	readContextBreakdown: (threadId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<ContextComposition>("read_context_breakdown", { threadId, window }),
 	createWorkspace: (input: CreateWorkspaceInput, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("create_workspace", { input, window }),
 	updateWorkspace: (input: UpdateWorkspaceInput, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("update_workspace", { input, window }),
 	moveThreadToWorkspace: (threadId: string, workspaceId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("move_thread_to_workspace", { threadId, workspaceId, window }),
@@ -612,6 +620,16 @@ export type BranchRef = {
 	isCurrent: boolean,
 };
 
+export type CategoryTokensDto = {
+	system: number,
+	skills: number,
+	user: number,
+	tool: number,
+	output: number,
+	reasoning: number,
+	unattributed: number,
+};
+
 export type ChangedFile = {
 	path: string,
 	oldPath: string | null,
@@ -750,6 +768,13 @@ export type CommitResult = {
 	hookOutput: string | null,
 };
 
+/**  Where a context composition came from. */
+export type CompositionSource = 
+/**  Estimated by the ledger from journaled items. */
+"estimate" | 
+/**  Reported by the harness for the live context. */
+"harness";
+
 /**  One setting reported to the frontend. */
 export type ConfigSetting = {
 	key: string,
@@ -783,6 +808,13 @@ export type Connection = {
 	 *  when it is only known from a recorded pairing claim.
 	 */
 	source: string,
+};
+
+export type ContextComposition = {
+	categories: CategoryTokensDto,
+	totalTokens: number,
+	contextWindow: number | null,
+	source: CompositionSource,
 };
 
 export type CreateWorkspaceInput = {
@@ -1163,6 +1195,14 @@ export type ModelReroutedParams = {
 	turnId?: string | null,
 	fromModel?: string | null,
 	toModel?: string | null,
+};
+
+export type ModelUsage = {
+	model: string | null,
+	harness: string,
+	tokens: UsageTokensDto,
+	costUsd: number | null,
+	turns: number,
 };
 
 /**
@@ -1759,6 +1799,15 @@ export type ThreadTurnParams = {
 	turnId?: string | null,
 };
 
+export type ThreadUsageSummary = {
+	threadId: string,
+	title: string | null,
+	tokens: UsageTokensDto,
+	categories: CategoryTokensDto,
+	costUsd: number | null,
+	lastAt: number,
+};
+
 /**
  *  A single page of threads with an opaque cursor to continue from. The cursor
  *  is the app-server's own `nextCursor`, forwarded to the frontend so paging
@@ -1813,11 +1862,24 @@ export type TurnPlanUpdatedParams = {
 };
 
 export type TurnUsage = {
+	/**  Prompt tokens, cache hits included. */
 	inputTokens: number,
 	cachedInputTokens: number,
+	/**
+	 *  Prompt tokens written to the cache this turn (0 when the harness does
+	 *  not say).
+	 */
+	cacheWriteInputTokens: number,
 	outputTokens: number,
+	/**  The part of `output_tokens` that was thinking. */
+	reasoningTokens: number,
 	contextWindow: number | null,
+	/**
+	 *  Harness-reported cost, cumulative for the session when the harness
+	 *  reports it that way (Claude does).
+	 */
 	costUsd: number | null,
+	model: string | null,
 };
 
 export type UnknownNotification = {
@@ -1830,6 +1892,31 @@ export type UpdateWorkspaceInput = {
 	workspaceId: string,
 	name: string,
 	members: WorkspaceMemberInput[],
+};
+
+export type UsageBreakdown = {
+	tokens: UsageTokensDto,
+	categories: CategoryTokensDto,
+	/**  Sum of what the harnesses reported; `None` when nothing was priced. */
+	reportedCostUsd: number | null,
+	/**  Whether some of the tokens carry no reported cost and need estimating. */
+	unpricedTokens: boolean,
+	turns: number,
+	byModel: ModelUsage[],
+	byThread: ThreadUsageSummary[],
+	/**  The thread's estimated context composition; thread scope only. */
+	context: ContextComposition | null,
+};
+
+export type UsageScopeArg = { kind: "thread"; threadId: string } | { kind: "project"; path: string } | { kind: "global" };
+
+export type UsageTokensDto = {
+	inputTokens: number,
+	cachedInputTokens: number,
+	cacheWriteInputTokens: number,
+	outputTokens: number,
+	reasoningOutputTokens: number,
+	totalTokens: number,
 };
 
 /**  One JSON-RPC message, in whichever direction it travelled. */
@@ -1955,4 +2042,4 @@ function makeEvent<T>(name: string, serialize?: (payload: T) => unknown, deseria
 
 
 /** Command argument names for explicit Home routing. */
-export const commandArguments = {"addProfileProject":["path","host"],"addProject":["path","window"],"addProjectSource":["projectPath","sourcePath","kind","window"],"addSideQuestion":["parentThreadId","sideThreadId","title","inheritedTurns","window"],"addThreadBranch":["parentThreadId","threadId","replacedTurnId","inheritedTurns","window"],"addWorktreeProject":["path","window"],"applySessionFocus":["hide","collapseProjects","collapseFolders","window"],"archiveThread":["threadId","window"],"autoNameThread":["threadId","seed","window"],"bootstrap":["window"],"bootstrapProfile":["refresh"],"checkCodexBinary":["path","host","window"],"clearWireLog":[],"compactThread":["threadId","window"],"createSidebarFolder":["scope","parentId","name","window"],"createSkill":["name","description","body","cwds","window"],"createThreadSection":["name","color","window"],"createWorkspace":["input","window"],"deleteDraft":["project","window"],"deleteSidebarFolder":["id","window"],"deleteSkill":["path","cwds","window"],"deleteThread":["threadId","window"],"deleteThreadSection":["sectionId","window"],"disconnectConnection":["clientId","window"],"forkThread":["threadId","beforeTurnId","lastTurnId","cwd","window"],"getQuickShortcut":[],"gitBranches":["dir","limit","window"],"gitChangesSummary":["dir","window"],"gitCheckoutBranch":["dir","name","force","window"],"gitCommit":["dir","message","window"],"gitContext":["dir","window"],"gitCreateBranch":["dir","name","base","checkout","window"],"gitDiscard":["dir","paths","untrackedPaths","window"],"gitFetch":["dir","window"],"gitFileDiff":["dir","base","path","untracked","maxBytes","window"],"gitPull":["dir","window"],"gitPush":["dir","setUpstream","window"],"gitRecentCommits":["dir","limit","window"],"gitRepoInfo":["dir","window"],"gitStage":["dir","paths","window"],"gitStagedFileDiff":["dir","path","maxBytes","window"],"gitStatus":["dir","window"],"gitUnstage":["dir","paths","window"],"gitWorktreeAdd":["repoDir","request","window"],"gitWorktreeHandoff":["worktreePath","targetDir","commitUncommitted","branchName","window"],"gitWorktreeHandoffPreflight":["worktreePath","targetDir","window"],"gitWorktreeLock":["repoDir","path","reason","window"],"gitWorktreePrune":["repoDir","window"],"gitWorktreeRemove":["repoDir","path","force","window"],"gitWorktreeUnlock":["repoDir","path","window"],"gitWorktrees":["repoDir","window"],"handoffCommand":["threadId","cwd","window"],"handoffCopy":["text"],"handoffLaunchTerminal":["command","window"],"handoffThreadLink":["threadId","cwd","label","window"],"interruptTurn":["threadId","turnId","window"],"invalidateThreadCache":["threadId","window"],"killAgentRun":["runId","window"],"listAgentRuns":["threadId","window"],"listArchivedThreads":["window"],"listConnections":["window"],"listHarnessModels":["harness","window"],"listIntegrations":["cwds","forceReload","window"],"listMcpServerStatus":["window"],"listModels":["window"],"listProjectFiles":["root","window"],"listProjectSources":["projectPath","window"],"listSkillsFor":["cwds","window"],"listSubagents":["threadId","window"],"listThreadsPage":["cursor","pageSize","archived","projectPath","window"],"listWslDistros":[],"loadDraft":["project","window"],"mcpOauthLogin":["name","window"],"moveThreadToSection":["threadId","sectionId","window"],"moveThreadToWorkspace":["threadId","workspaceId","window"],"openAgentThread":["runId","window"],"openExternalUrl":["url"],"openHomeWindow":["path","host"],"openInZed":["path","window"],"placeSidebarItem":["scope","item","parentId","siblings","window"],"prepareProfileWorkspace":["sourceHomeKey","workspaceId","targetHomeKey"],"queueAdd":["threadId","input","clientUserMessageId","window"],"queueDelete":["threadId","queuedSubmissionId","window"],"queueList":["threadId","cursor","window"],"queueReorder":["threadId","queuedSubmissionIds","window"],"queueStart":["threadId","queuedSubmissionId","window"],"queueUpdate":["threadId","queuedSubmissionId","input","window"],"quickOpenFullThread":["threadId"],"readAccountRateLimits":["window"],"readAgentSettings":[],"readClaudeStatus":["window"],"readCodexServerInfo":["window"],"readConfigSettings":["window"],"readHomeOverview":["window"],"readLaunchState":["window"],"readRuntimeSettings":["window"],"readSkill":["path","window"],"readThread":["threadId","window"],"readThreadUsage":["threadId","window"],"readWireLog":["window"],"recordUserInputRequest":["threadId","turnId","itemId","item","afterItemId","window"],"refreshConnections":["window"],"registerProfileHome":["harness","host","configDir","binary","label"],"reindexSource":["id","window"],"reloadMcpServers":["window"],"remotePairingStart":["window"],"remotePairingStatus":["pairingCode","window"],"removeMcpServer":["name","window"],"removeProject":["path","window"],"removeProjectSource":["id","projectPath","window"],"removeRecentHome":["path","host","window"],"removeSideQuestion":["sideThreadId","window"],"removeStaged":["id","window"],"renameConnection":["clientId","name","window"],"renameProject":["path","name","window"],"renameSidebarFolder":["id","name","window"],"renameThread":["threadId","name","window"],"resetSidebarOrder":["scope","window"],"respondApproval":["requestId","decision","window"],"respondServerRequest":["requestId","result","window"],"respondUserInput":["requestId","answers","threadId","turnId","itemId","item","window"],"revealInFinder":["path","window"],"revertThread":["threadId","beforeTurnId","keptTurnIds","window"],"reviewCheckFresh":["repoDir","number","knownHead","knownUpdatedAt"],"reviewDeleteDraft":["provider","repo","prNumber","window"],"reviewListPrs":["repoDir"],"reviewLoadDraft":["provider","repo","prNumber","window"],"reviewLocalDiff":["repoDir","base","head","window"],"reviewPrDetail":["repoDir","number"],"reviewProviderStatus":["repoDir"],"reviewReply":["repoDir","number","commentId","body"],"reviewResolveThread":["repoDir","threadId"],"reviewSaveDraft":["provider","repo","prNumber","headSha","payload","window"],"reviewSubmit":["repoDir","number","event","body","comments"],"revokeConnection":["clientId","window"],"rollbackThread":["threadId","numTurns","window"],"saveDraft":["project","content","window"],"saveMcpServer":["server","window"],"saveProjectInstructions":["projectPath","instructions","window"],"searchProjectFiles":["root","query","limit","window"],"searchThreads":["query","cursor","filter","generation","window"],"searchWorkspace":["projectPath","query","cursor","generation","window"],"selectCodexHome":["path","host","window"],"setCodexBinary":["path","window"],"setIntegrationEnabled":["kind","id","enabled","projectPath","window"],"setMcpEnabled":["name","enabled","window"],"setProfileDefaultHome":["id"],"setProjectArchived":["path","archived","window"],"setProjectExpanded":["path","expanded","window"],"setProjectPinned":["path","pinned","window"],"setQuickShortcut":["accelerator"],"setSidebarFolderExpanded":["id","expanded","window"],"setSkillEnabled":["name","enabled","path","window"],"setThreadBranchEditTurn":["threadId","editTurnId","window"],"setThreadPinned":["threadId","pinned","window"],"setThreadsHidden":["threadIds","hidden","window"],"setWireLogging":["enabled","window"],"stageAttachment":["sourcePath","window"],"stageClipboardImage":["filename","mime","bytes","window"],"startReview":["threadId","target","window"],"startThread":["cwd","workspaceId","appSubagents","harness","window"],"startTurn":["threadId","input","options","window"],"threadGoalClear":["threadId","window"],"threadGoalGet":["threadId","window"],"threadGoalSet":["threadId","objective","status","window"],"threadsWithActiveTurns":["window"],"threadsWithUnansweredQuestions":["window"],"unarchiveThread":["threadId","window"],"updateRuntimeSettings":["codexHome","codexBinary","claudeBinary","claudeConfigDir","codexHost","claudeHost","window"],"updateSubagentPolicy":["threadId","modelPolicy","reasoningEffortPolicy","window"],"updateThreadSection":["sectionId","name","color","window"],"updateTurnSettings":["threadId","turnId","model","effort","speedTier","window"],"updateWorkspace":["input","window"],"writeAgentSettings":["settings"],"writeConfigSetting":["key","value","unset","window"]} as const;
+export const commandArguments = {"addProfileProject":["path","host"],"addProject":["path","window"],"addProjectSource":["projectPath","sourcePath","kind","window"],"addSideQuestion":["parentThreadId","sideThreadId","title","inheritedTurns","window"],"addThreadBranch":["parentThreadId","threadId","replacedTurnId","inheritedTurns","window"],"addWorktreeProject":["path","window"],"applySessionFocus":["hide","collapseProjects","collapseFolders","window"],"archiveThread":["threadId","window"],"autoNameThread":["threadId","seed","window"],"bootstrap":["window"],"bootstrapProfile":["refresh"],"checkCodexBinary":["path","host","window"],"clearWireLog":[],"compactThread":["threadId","window"],"createSidebarFolder":["scope","parentId","name","window"],"createSkill":["name","description","body","cwds","window"],"createThreadSection":["name","color","window"],"createWorkspace":["input","window"],"deleteDraft":["project","window"],"deleteSidebarFolder":["id","window"],"deleteSkill":["path","cwds","window"],"deleteThread":["threadId","window"],"deleteThreadSection":["sectionId","window"],"disconnectConnection":["clientId","window"],"forkThread":["threadId","beforeTurnId","lastTurnId","cwd","window"],"getQuickShortcut":[],"gitBranches":["dir","limit","window"],"gitChangesSummary":["dir","window"],"gitCheckoutBranch":["dir","name","force","window"],"gitCommit":["dir","message","window"],"gitContext":["dir","window"],"gitCreateBranch":["dir","name","base","checkout","window"],"gitDiscard":["dir","paths","untrackedPaths","window"],"gitFetch":["dir","window"],"gitFileDiff":["dir","base","path","untracked","maxBytes","window"],"gitPull":["dir","window"],"gitPush":["dir","setUpstream","window"],"gitRecentCommits":["dir","limit","window"],"gitRepoInfo":["dir","window"],"gitStage":["dir","paths","window"],"gitStagedFileDiff":["dir","path","maxBytes","window"],"gitStatus":["dir","window"],"gitUnstage":["dir","paths","window"],"gitWorktreeAdd":["repoDir","request","window"],"gitWorktreeHandoff":["worktreePath","targetDir","commitUncommitted","branchName","window"],"gitWorktreeHandoffPreflight":["worktreePath","targetDir","window"],"gitWorktreeLock":["repoDir","path","reason","window"],"gitWorktreePrune":["repoDir","window"],"gitWorktreeRemove":["repoDir","path","force","window"],"gitWorktreeUnlock":["repoDir","path","window"],"gitWorktrees":["repoDir","window"],"handoffCommand":["threadId","cwd","window"],"handoffCopy":["text"],"handoffLaunchTerminal":["command","window"],"handoffThreadLink":["threadId","cwd","label","window"],"interruptTurn":["threadId","turnId","window"],"invalidateThreadCache":["threadId","window"],"killAgentRun":["runId","window"],"listAgentRuns":["threadId","window"],"listArchivedThreads":["window"],"listConnections":["window"],"listHarnessModels":["harness","window"],"listIntegrations":["cwds","forceReload","window"],"listMcpServerStatus":["window"],"listModels":["window"],"listProjectFiles":["root","window"],"listProjectSources":["projectPath","window"],"listSkillsFor":["cwds","window"],"listSubagents":["threadId","window"],"listThreadsPage":["cursor","pageSize","archived","projectPath","window"],"listWslDistros":[],"loadDraft":["project","window"],"mcpOauthLogin":["name","window"],"moveThreadToSection":["threadId","sectionId","window"],"moveThreadToWorkspace":["threadId","workspaceId","window"],"openAgentThread":["runId","window"],"openExternalUrl":["url"],"openHomeWindow":["path","host"],"openInZed":["path","window"],"placeSidebarItem":["scope","item","parentId","siblings","window"],"prepareProfileWorkspace":["sourceHomeKey","workspaceId","targetHomeKey"],"queueAdd":["threadId","input","clientUserMessageId","window"],"queueDelete":["threadId","queuedSubmissionId","window"],"queueList":["threadId","cursor","window"],"queueReorder":["threadId","queuedSubmissionIds","window"],"queueStart":["threadId","queuedSubmissionId","window"],"queueUpdate":["threadId","queuedSubmissionId","input","window"],"quickOpenFullThread":["threadId"],"readAccountRateLimits":["window"],"readAgentSettings":[],"readClaudeStatus":["window"],"readCodexServerInfo":["window"],"readConfigSettings":["window"],"readContextBreakdown":["threadId","window"],"readHomeOverview":["window"],"readLaunchState":["window"],"readRuntimeSettings":["window"],"readSkill":["path","window"],"readThread":["threadId","window"],"readThreadUsage":["threadId","window"],"readUsageBreakdown":["scope","since","window"],"readWireLog":["window"],"recordUserInputRequest":["threadId","turnId","itemId","item","afterItemId","window"],"refreshConnections":["window"],"registerProfileHome":["harness","host","configDir","binary","label"],"reindexSource":["id","window"],"reloadMcpServers":["window"],"remotePairingStart":["window"],"remotePairingStatus":["pairingCode","window"],"removeMcpServer":["name","window"],"removeProject":["path","window"],"removeProjectSource":["id","projectPath","window"],"removeRecentHome":["path","host","window"],"removeSideQuestion":["sideThreadId","window"],"removeStaged":["id","window"],"renameConnection":["clientId","name","window"],"renameProject":["path","name","window"],"renameSidebarFolder":["id","name","window"],"renameThread":["threadId","name","window"],"resetSidebarOrder":["scope","window"],"respondApproval":["requestId","decision","window"],"respondServerRequest":["requestId","result","window"],"respondUserInput":["requestId","answers","threadId","turnId","itemId","item","window"],"revealInFinder":["path","window"],"revertThread":["threadId","beforeTurnId","keptTurnIds","window"],"reviewCheckFresh":["repoDir","number","knownHead","knownUpdatedAt"],"reviewDeleteDraft":["provider","repo","prNumber","window"],"reviewListPrs":["repoDir"],"reviewLoadDraft":["provider","repo","prNumber","window"],"reviewLocalDiff":["repoDir","base","head","window"],"reviewPrDetail":["repoDir","number"],"reviewProviderStatus":["repoDir"],"reviewReply":["repoDir","number","commentId","body"],"reviewResolveThread":["repoDir","threadId"],"reviewSaveDraft":["provider","repo","prNumber","headSha","payload","window"],"reviewSubmit":["repoDir","number","event","body","comments"],"revokeConnection":["clientId","window"],"rollbackThread":["threadId","numTurns","window"],"saveDraft":["project","content","window"],"saveMcpServer":["server","window"],"saveProjectInstructions":["projectPath","instructions","window"],"searchProjectFiles":["root","query","limit","window"],"searchThreads":["query","cursor","filter","generation","window"],"searchWorkspace":["projectPath","query","cursor","generation","window"],"selectCodexHome":["path","host","window"],"setCodexBinary":["path","window"],"setIntegrationEnabled":["kind","id","enabled","projectPath","window"],"setMcpEnabled":["name","enabled","window"],"setProfileDefaultHome":["id"],"setProjectArchived":["path","archived","window"],"setProjectExpanded":["path","expanded","window"],"setProjectPinned":["path","pinned","window"],"setQuickShortcut":["accelerator"],"setSidebarFolderExpanded":["id","expanded","window"],"setSkillEnabled":["name","enabled","path","window"],"setThreadBranchEditTurn":["threadId","editTurnId","window"],"setThreadPinned":["threadId","pinned","window"],"setThreadsHidden":["threadIds","hidden","window"],"setWireLogging":["enabled","window"],"stageAttachment":["sourcePath","window"],"stageClipboardImage":["filename","mime","bytes","window"],"startReview":["threadId","target","window"],"startThread":["cwd","workspaceId","appSubagents","harness","window"],"startTurn":["threadId","input","options","window"],"threadGoalClear":["threadId","window"],"threadGoalGet":["threadId","window"],"threadGoalSet":["threadId","objective","status","window"],"threadsWithActiveTurns":["window"],"threadsWithUnansweredQuestions":["window"],"unarchiveThread":["threadId","window"],"updateRuntimeSettings":["codexHome","codexBinary","claudeBinary","claudeConfigDir","codexHost","claudeHost","window"],"updateSubagentPolicy":["threadId","modelPolicy","reasoningEffortPolicy","window"],"updateThreadSection":["sectionId","name","color","window"],"updateTurnSettings":["threadId","turnId","model","effort","speedTier","window"],"updateWorkspace":["input","window"],"writeAgentSettings":["settings"],"writeConfigSetting":["key","value","unset","window"]} as const;

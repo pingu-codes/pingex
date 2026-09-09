@@ -94,11 +94,20 @@ pub(crate) struct PlanEntry {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TurnUsage {
+    /// Prompt tokens, cache hits included.
     pub input_tokens: u64,
     pub cached_input_tokens: u64,
+    /// Prompt tokens written to the cache this turn (0 when the harness does
+    /// not say).
+    pub cache_write_input_tokens: u64,
     pub output_tokens: u64,
+    /// The part of `output_tokens` that was thinking.
+    pub reasoning_tokens: u64,
     pub context_window: Option<u64>,
+    /// Harness-reported cost, cumulative for the session when the harness
+    /// reports it that way (Claude does).
     pub cost_usd: Option<f64>,
+    pub model: Option<String>,
 }
 
 /// Everything a driver can say about a thread. Codex-only detail rides in

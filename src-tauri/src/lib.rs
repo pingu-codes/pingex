@@ -46,6 +46,7 @@ mod settings;
 mod sources;
 mod storage;
 mod threads;
+mod usage;
 mod util;
 mod workspaces;
 
@@ -142,6 +143,9 @@ pub(crate) struct HomeContext {
     /// Subagent processes this home owns. Same lifetime as `session`: reached
     /// from Tauri commands and from the session's reader thread.
     pub(crate) agents: agents::supervisor::AgentSupervisor,
+    /// The token-usage ledger: one consumer per home turning usage
+    /// notifications into `turn_usage` rows.
+    pub(crate) usage: usage::ledger::UsageLedger,
 }
 
 impl HomeContext {
@@ -171,6 +175,7 @@ impl HomeContext {
             session,
             claude,
             agents: agents::supervisor::AgentSupervisor::default(),
+            usage: usage::ledger::UsageLedger::default(),
             runtime,
             database: RwLock::new(database),
             home_key,
@@ -508,6 +513,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             projects::commands::apply_session_focus,
             projects::commands::read_account_rate_limits,
             projects::commands::read_thread_usage,
+            usage::commands::read_usage_breakdown,
+            usage::commands::read_context_breakdown,
             // Workspaces
             workspaces::commands::create_workspace,
             workspaces::commands::update_workspace,

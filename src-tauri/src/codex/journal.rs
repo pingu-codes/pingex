@@ -15,6 +15,9 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::AppHandle;
 
+use crate::harness::HarnessKind;
+use crate::usage::ledger::{self, LedgerEvent};
+
 /// How much aggregated command output to keep. A single build can emit
 /// megabytes, and the transcript only ever shows the tail of it.
 pub(crate) const MAX_OUTPUT_BYTES: usize = 16 * 1024;
@@ -265,10 +268,12 @@ pub(crate) struct TurnJournal {
     /// Canonical home key this journal writes under, resolving the right
     /// per-home database from a background task.
     home_key: String,
+    /// Which harness the child speaks for; the usage ledger records it.
+    harness: HarnessKind,
 }
 
 impl TurnJournal {
-    pub(crate) fn new(app: AppHandle, home_key: String) -> Self {
+    pub(crate) fn new(app: AppHandle, home_key: String, harness: HarnessKind) -> Self {
         Self {
             last_item_id: Mutex::new(HashMap::new()),
             summaries: Mutex::new(HashMap::new()),
@@ -276,7 +281,26 @@ impl TurnJournal {
             open_turn: Mutex::new(HashMap::new()),
             app,
             home_key,
+            harness,
         }
+    }
+
+    fn ledger(&self, event: LedgerEvent) {
+        ledger::send(&self.app, &self.home_key, event);
+    }
+
+    /// Whether `turn_id` is the turn this journal has open on `thread_id`.
+    fn is_open_turn(&self, thread_id: &str, turn_id: Option<&str>) -> bool {
+        let Some(turn_id) = turn_id else {
+            return false;
+        };
+        self.open_turn
+            .lock()
+            .map(|open| {
+                open.get(thread_id)
+                    .is_some_and(|current| current == turn_id)
+            })
+            .unwrap_or(false)
     }
 
     /// Fold one notification into the journal: buffer reasoning, persist
@@ -307,6 +331,30 @@ impl TurnJournal {
                 })
                 .unwrap_or_default();
             journal_item(&self.app, &self.home_key, params, anchor, summary, changes);
+            if let (Some(thread_id), Some(item)) = (
+                params.get("threadId").and_then(Value::as_str),
+                params.get("item"),
+            ) {
+                self.ledger(LedgerEvent::Item {
+                    thread_id: thread_id.to_string(),
+                    payload: item.clone(),
+                });
+            }
+        }
+        if method == "thread/tokenUsage/updated" {
+            if let (Some(thread_id), Some(token_usage)) = (
+                params.get("threadId").and_then(Value::as_str),
+                params.get("tokenUsage"),
+            ) {
+                let turn_id = params.get("turnId").and_then(Value::as_str);
+                self.ledger(LedgerEvent::Usage {
+                    thread_id: thread_id.to_string(),
+                    turn_id: turn_id.map(str::to_string),
+                    turn_open: self.is_open_turn(thread_id, turn_id),
+                    harness: self.harness,
+                    token_usage: token_usage.clone(),
+                });
+            }
         }
         if method == "turn/started" {
             self.track_turn(params, false);
@@ -314,6 +362,15 @@ impl TurnJournal {
         }
         if method == "turn/completed" {
             self.track_turn(params, true);
+            if let (Some(thread_id), Some(turn_id)) = (
+                params.get("threadId").and_then(Value::as_str),
+                turn_id(params),
+            ) {
+                self.ledger(LedgerEvent::TurnCompleted {
+                    thread_id: thread_id.to_string(),
+                    turn_id: turn_id.to_string(),
+                });
+            }
             if let Some(turn_id) = turn_id(params) {
                 self.forget_turn(turn_id);
             }

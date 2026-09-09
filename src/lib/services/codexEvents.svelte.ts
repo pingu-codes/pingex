@@ -1,9 +1,9 @@
 import { eventMatchesHome } from "$lib/app/launch.svelte";
-import { scopeEvent, threadBelongsToHome } from "$lib/services/homeRouting";
 import { events, type HarnessRequestEnvelope } from "$lib/bindings";
 import { applyRateLimitUpdate } from "$lib/services/accountUsage.svelte";
 import { applyAgentActivity, applyAgentRunEvent } from "$lib/services/agentRuns.svelte";
 import { recordUserInputRequest } from "$lib/services/api";
+import { scopeEvent, threadBelongsToHome } from "$lib/services/homeRouting";
 import { applyProcessEvent } from "$lib/services/processes.svelte";
 import { isTauri } from "$lib/services/tauri";
 import { reviewTransition, threadIdOf, turnEnd } from "$lib/services/turnLifecycle";
@@ -151,6 +151,9 @@ function setTurnActive(threadId: string | undefined, active: boolean) {
  */
 export const threadTokenUsage: Record<string, ThreadTokenUsage> = {};
 
+/** Bumped on every usage report, so aggregate usage views know to re-read. */
+export const usageStatus = $state<{ nonce: number }>({ nonce: 0 });
+
 /**
  * The todo list Codex is working through, per thread. It belongs to a single
  * turn — Codex rebuilds it from scratch each time — so it is dropped when that
@@ -269,6 +272,7 @@ function dispatch(event: CodexEvent, homeKey?: string) {
       break;
     case "thread/tokenUsage/updated":
       if (event.params.tokenUsage) threadTokenUsage[event.params.threadId] = event.params.tokenUsage;
+      usageStatus.nonce += 1;
       break;
     // Rolling rate-limit updates are sparse; the store merges them into the last
     // full snapshot rather than replacing it.
@@ -470,7 +474,9 @@ export async function startCodexListeners(): Promise<void> {
   await events.codexDisconnected.listen(({ payload }) => {
     if (!eventMatchesHome(payload?.codexHome)) return;
     approvals.list = approvals.list.filter((item) => !threadBelongsToHome(item.threadId, payload.codexHome));
-    userInputRequests.list = userInputRequests.list.filter((item) => !threadBelongsToHome(item.threadId, payload.codexHome));
+    userInputRequests.list = userInputRequests.list.filter(
+      (item) => !threadBelongsToHome(item.threadId, payload.codexHome),
+    );
     elicitations.list = elicitations.list.filter((item) => !threadBelongsToHome(item.threadId, payload.codexHome));
     dispatch({ method: "disconnected", params: null, homeKey: payload.codexHome });
   });

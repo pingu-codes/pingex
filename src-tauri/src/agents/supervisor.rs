@@ -225,7 +225,11 @@ impl AgentSink {
     fn new(app: AppHandle, home_key: String) -> Arc<Self> {
         Arc::new(Self {
             run: Mutex::new(None),
-            journal: TurnJournal::new(app.clone(), home_key.clone()),
+            journal: TurnJournal::new(
+                app.clone(),
+                home_key.clone(),
+                crate::harness::HarnessKind::Codex,
+            ),
             home_key,
             app,
         })

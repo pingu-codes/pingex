@@ -1,0 +1,187 @@
+{
+  "categories": [
+    {
+      "name": "System prompt",
+      "tokens": 6365,
+      "color": "promptBorder"
+    },
+    {
+      "name": "System tools",
+      "tokens": 9965,
+      "color": "inactive"
+    },
+    {
+      "name": "System tools (deferred)",
+      "tokens": 15395,
+      "color": "inactive",
+      "isDeferred": true
+    },
+    {
+      "name": "Skills",
+      "tokens": 1605,
+      "color": "warning"
+    },
+    {
+      "name": "Messages",
+      "tokens": 2747,
+      "color": "purple_FOR_SUBAGENTS_ONLY"
+    },
+    {
+      "name": "Free space",
+      "tokens": 179318,
+      "color": "promptBorder"
+    }
+  ],
+  "totalTokens": 20681,
+  "maxTokens": 200000,
+  "rawMaxTokens": 200000,
+  "autocompactSource": "auto",
+  "percentage": 10,
+  "model": "claude-haiku-4-5-20251001",
+  "memoryFiles": [],
+  "mcpTools": [],
+  "agents": [],
+  "slashCommands": {
+    "totalCommands": 14,
+    "includedCommands": 14,
+    "tokens": 971
+  },
+  "skills": {
+    "totalSkills": 14,
+    "includedSkills": 14,
+    "tokens": 1605,
+    "skillFrontmatter": [
+      {
+        "name": "frontend-design:frontend-design",
+        "source": "plugin",
+        "pluginName": "frontend-design",
+        "tokens": 60
+      },
+      {
+        "name": "dataviz",
+        "source": "built-in",
+        "tokens": 362
+      },
+      {
+        "name": "update-config",
+        "source": "built-in",
+        "tokens": 177
+      },
+      {
+        "name": "keybindings-help",
+        "source": "built-in",
+        "tokens": 62
+      },
+      {
+        "name": "code-review",
+        "source": "built-in",
+        "tokens": 202
+      },
+      {
+        "name": "simplify",
+        "source": "built-in",
+        "tokens": 47
+      },
+      {
+        "name": "fewer-permission-prompts",
+        "source": "built-in",
+        "tokens": 48
+      },
+      {
+        "name": "loop",
+        "source": "built-in",
+        "tokens": 86
+      },
+      {
+        "name": "schedule",
+        "source": "built-in",
+        "tokens": 95
+      },
+      {
+        "name": "claude-api",
+        "source": "built-in",
+        "tokens": 271
+      },
+      {
+        "name": "workflow-authoring",
+        "source": "built-in",
+        "tokens": 63
+      },
+      {
+        "name": "run",
+        "source": "built-in",
+        "tokens": 92
+      },
+      {
+        "name": "init",
+        "source": "built-in",
+        "tokens": 17
+      },
+      {
+        "name": "security-review",
+        "source": "built-in",
+        "tokens": 23
+      }
+    ]
+  },
+  "autoCompactThreshold": 167000,
+  "isAutoCompactEnabled": true,
+  "messageBreakdown": {
+    "toolCallTokens": 0,
+    "toolResultTokens": 0,
+    "attachmentTokens": 35234,
+    "assistantMessageTokens": 152,
+    "userMessageTokens": 14,
+    "redirectedContextTokens": 0,
+    "unattributedTokens": 0,
+    "toolCallsByType": [],
+    "attachmentsByType": [
+      {
+        "name": "prompt_snapshot",
+        "tokens": 32605
+      },
+      {
+        "name": "skill_listing",
+        "tokens": 1703
+      },
+      {
+        "name": "agent_listing_delta",
+        "tokens": 469
+      },
+      {
+        "name": "deferred_tools_delta",
+        "tokens": 172
+      },
+      {
+        "name": "session_context",
+        "tokens": 80
+      },
+      {
+        "name": "model",
+        "tokens": 70
+      },
+      {
+        "name": "remote_session_change",
+        "tokens": 52
+      },
+      {
+        "name": "environment",
+        "tokens": 51
+      },
+      {
+        "name": "total_tokens_reminder",
+        "tokens": 23
+      },
+      {
+        "name": "date",
+        "tokens": 9
+      }
+    ]
+  },
+  "apiUsage": {
+    "input_tokens": 10,
+    "output_tokens": 40,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 20671
+  }
+}

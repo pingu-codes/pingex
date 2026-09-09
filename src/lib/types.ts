@@ -34,11 +34,14 @@ export type {
   Attachment,
   BinaryStatus,
   BootstrapData,
+  CategoryTokensDto as CategoryTokens,
   ChangedFile,
   ChangesSummary,
   ChecksSummary,
   CommitResult,
+  CompositionSource,
   ConfigSetting,
+  ContextComposition,
   CreateWorkspaceInput,
   DiffHunk,
   DiffLine,
@@ -53,6 +56,7 @@ export type {
   LaunchState,
   McpServerInfo,
   McpServerSummary,
+  ModelUsage,
   PendingComment,
   PluginSummary,
   PrComment,
@@ -79,6 +83,10 @@ export type {
   ThreadSearchPage,
   ThreadSummary,
   ThreadsPage,
+  ThreadUsageSummary,
+  UsageBreakdown,
+  UsageScopeArg as UsageScope,
+  UsageTokensDto as UsageTokens,
   WireMessage,
   WorkspaceMember,
   WorkspaceMemberInput,
@@ -415,12 +423,16 @@ export interface TokenUsageBreakdown {
   cacheWriteInputTokens?: number;
   outputTokens: number;
   reasoningOutputTokens: number;
+  /** Harness-reported spend in USD; only a harness that prices its turns (Claude) sets it. */
+  costUsd?: number | null;
 }
 
 export interface ThreadTokenUsage {
   total: TokenUsageBreakdown;
   last: TokenUsageBreakdown;
   modelContextWindow?: number | null;
+  /** The model the harness says ran the turn, when it reports one. */
+  model?: string | null;
 }
 
 /** One row of the per-model usage breakdown in `ThreadUsage`. */
@@ -829,7 +841,9 @@ type Override<E, O> = E extends { method: infer M; params: infer P }
  * One notification from Codex, discriminated on `method`. `disconnected` is
  * synthesised by the client when the app-server goes away.
  */
-export type CodexEvent = Override<CodexNotification, CodexEventOverrides> | { method: "disconnected"; params: null; homeKey?: string };
+export type CodexEvent =
+  | Override<CodexNotification, CodexEventOverrides>
+  | { method: "disconnected"; params: null; homeKey?: string };
 
 export type CodexEventOf<M extends CodexEvent["method"]> = Extract<CodexEvent, { method: M }>;
 

@@ -161,6 +161,34 @@ describe("FloatingMenu", () => {
     expect(onShowDiff).toHaveBeenCalledWith(null);
   });
 
+  it("opens the status panel from the usage row instead of listing figures inline", async () => {
+    const user = userEvent.setup();
+    const onShowStatus = vi.fn();
+    setup({
+      onShowStatus,
+      costUsd: 0.42,
+      contextStats: {
+        contextWindow: 200_000,
+        usedTokens: 42_000,
+        usedFraction: 0.16,
+        percentUsed: 16,
+        percentRemaining: 84,
+        sessionTotalTokens: 120_600,
+        sessionInputTokens: 114_400,
+        sessionCachedInputTokens: 96_000,
+        sessionOutputTokens: 6_200,
+        sessionReasoningTokens: 1_100,
+      },
+    });
+
+    const row = screen.getByRole("button", { name: "Show usage" });
+    expect(row).toHaveTextContent("42K / 200K · 16%");
+    expect(row).toHaveTextContent("120.6K · ≈$0.42");
+    expect(screen.queryByText("Thread tokens")).not.toBeInTheDocument();
+    await user.click(row);
+    expect(onShowStatus).toHaveBeenCalledOnce();
+  });
+
   it("shows empty states when the thread has no plan or outputs", () => {
     setup({ plan: null, outputs: [], sources: [], sideQuestionCount: 0 });
 
@@ -168,6 +196,7 @@ describe("FloatingMenu", () => {
     expect(screen.getByText("No files changed yet.")).toBeInTheDocument();
     expect(screen.getByText("No web searches.")).toBeInTheDocument();
     expect(screen.getByText("No commands run yet.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show usage" })).toHaveTextContent("No tokens used yet");
   });
 
   describe("processes", () => {

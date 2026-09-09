@@ -18,6 +18,11 @@ describe("filterSections", () => {
     expect(result.map((section) => section.id)).toEqual(["agent"]);
   });
 
+  it("finds the usage section by what it shows", () => {
+    expect(filterSections(SETTINGS_SECTIONS, "cost").map((section) => section.id)).toEqual(["usage"]);
+    expect(filterSections(SETTINGS_SECTIONS, "system prompt").map((section) => section.id)).toEqual(["usage"]);
+  });
+
   it("returns nothing when no section matches", () => {
     expect(filterSections(SETTINGS_SECTIONS, "nonexistent-xyz")).toHaveLength(0);
   });

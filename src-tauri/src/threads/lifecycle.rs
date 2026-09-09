@@ -410,6 +410,15 @@ pub(crate) async fn rollback_thread(
     storage::retain_thread_turns(&ctx.database(), &thread_id, &kept).await?;
     storage::retain_turn_settings(&ctx.database(), &thread_id, &kept).await?;
     storage::retain_agent_runs(&ctx.database(), &thread_id, &kept).await?;
+    // Spend stays booked, but the context composition is rebuilt from the
+    // turns that remain.
+    crate::usage::ledger::send(
+        &app,
+        &ctx.home_key,
+        crate::usage::ledger::LedgerEvent::Reset {
+            thread_id: thread_id.clone(),
+        },
+    );
     Ok(Json(thread))
 }
 
@@ -460,6 +469,13 @@ pub(crate) async fn revert_thread(
     storage::retain_thread_turns(&ctx.database(), &thread_id, &kept_turn_ids).await?;
     storage::retain_turn_settings(&ctx.database(), &thread_id, &kept_turn_ids).await?;
     storage::retain_agent_runs(&ctx.database(), &thread_id, &kept_turn_ids).await?;
+    crate::usage::ledger::send(
+        &app,
+        &ctx.home_key,
+        crate::usage::ledger::LedgerEvent::Reset {
+            thread_id: thread_id.clone(),
+        },
+    );
     Ok(Json(response))
 }
 

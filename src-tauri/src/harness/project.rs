@@ -181,6 +181,50 @@ fn tool_item(
 pub(crate) struct Projector {
     open_tools: std::collections::HashMap<String, OpenTool>,
     message_text: std::collections::HashMap<String, String>,
+    /// Usage summed over every turn this projector has seen, so the
+    /// `thread/tokenUsage/updated` it emits carries the running total Codex
+    /// would (`total`) beside the turn's own figures (`last`).
+    usage_total: UsageSum,
+}
+
+#[derive(Default, Clone, Copy)]
+struct UsageSum {
+    input: u64,
+    cached: u64,
+    cache_write: u64,
+    output: u64,
+    reasoning: u64,
+    cost_usd: f64,
+    priced: bool,
+}
+
+impl UsageSum {
+    fn add(&mut self, usage: &super::TurnUsage) {
+        self.input += usage.input_tokens;
+        self.cached += usage.cached_input_tokens;
+        self.cache_write += usage.cache_write_input_tokens;
+        self.output += usage.output_tokens;
+        self.reasoning += usage.reasoning_tokens;
+        if let Some(cost) = usage.cost_usd {
+            self.cost_usd += cost;
+            self.priced = true;
+        }
+    }
+
+    fn breakdown(&self) -> Value {
+        let mut out = json!({
+            "totalTokens": self.input + self.output,
+            "inputTokens": self.input,
+            "cachedInputTokens": self.cached,
+            "cacheWriteInputTokens": self.cache_write,
+            "outputTokens": self.output,
+            "reasoningOutputTokens": self.reasoning,
+        });
+        if self.priced {
+            out["costUsd"] = json!(self.cost_usd);
+        }
+        out
+    }
 }
 
 struct OpenTool {
@@ -223,23 +267,19 @@ impl Projector {
             } => {
                 let mut out = Vec::new();
                 if let Some(usage) = usage {
-                    let total = usage.input_tokens + usage.output_tokens;
-                    let breakdown = json!({
-                        "totalTokens": total,
-                        "inputTokens": usage.input_tokens,
-                        "cachedInputTokens": usage.cached_input_tokens,
-                        "outputTokens": usage.output_tokens,
-                        "reasoningOutputTokens": 0,
-                    });
+                    let mut last = UsageSum::default();
+                    last.add(usage);
+                    self.usage_total.add(usage);
                     out.push((
                         "thread/tokenUsage/updated",
                         json!({
                             "threadId": thread_id,
                             "turnId": turn_id,
                             "tokenUsage": {
-                                "total": breakdown,
-                                "last": breakdown,
+                                "total": self.usage_total.breakdown(),
+                                "last": last.breakdown(),
                                 "modelContextWindow": usage.context_window,
+                                "model": usage.model,
                             },
                         }),
                     ));
@@ -496,6 +536,45 @@ mod tests {
         let diff = unified_diff("new.txt", None, "x\ny\n");
         assert!(diff.contains("@@ -0,0 +1,2 @@"));
         assert!(diff.contains("+x\n+y\n"));
+    }
+
+    fn ended(input: u64, output: u64, cost: f64) -> HarnessEvent {
+        HarnessEvent::TurnEnded {
+            turn_id: "turn".into(),
+            stop_reason: StopReason::EndTurn,
+            error: None,
+            duration_ms: None,
+            usage: Some(super::super::TurnUsage {
+                input_tokens: input,
+                cached_input_tokens: input / 2,
+                cache_write_input_tokens: 10,
+                output_tokens: output,
+                reasoning_tokens: output / 3,
+                context_window: Some(200_000),
+                cost_usd: Some(cost),
+                model: Some("claude-haiku-4-5".into()),
+            }),
+        }
+    }
+
+    #[test]
+    fn token_usage_carries_the_turn_and_the_running_total() {
+        let mut projector = Projector::default();
+        let first = projector.project("t", "turn", &ended(1000, 90, 0.5));
+        let (method, params) = &first[0];
+        assert_eq!(*method, "thread/tokenUsage/updated");
+        assert_eq!(params["tokenUsage"]["last"]["totalTokens"], 1090);
+        assert_eq!(params["tokenUsage"]["total"]["totalTokens"], 1090);
+        assert_eq!(params["tokenUsage"]["last"]["reasoningOutputTokens"], 30);
+        assert_eq!(params["tokenUsage"]["model"], "claude-haiku-4-5");
+        let second = projector.project("t", "turn", &ended(2000, 30, 0.25));
+        let usage = &second[0].1["tokenUsage"];
+        assert_eq!(usage["last"]["inputTokens"], 2000);
+        assert_eq!(usage["total"]["inputTokens"], 3000);
+        assert_eq!(usage["total"]["cacheWriteInputTokens"], 20);
+        assert!((usage["total"]["costUsd"].as_f64().unwrap() - 0.75).abs() < 1e-9);
+        assert!((usage["last"]["costUsd"].as_f64().unwrap() - 0.25).abs() < 1e-9);
+        assert_eq!(usage["modelContextWindow"], 200_000);
     }
 
     #[test]

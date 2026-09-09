@@ -9,9 +9,16 @@
 -->
 <script lang="ts">
 import { accountUsage } from "$lib/services/accountUsage.svelte";
-import { readThreadUsage } from "$lib/services/api";
+import {
+  isContextBreakdownUnsupported,
+  readContextBreakdown,
+  readThreadUsage,
+  readUsageBreakdown,
+} from "$lib/services/api";
 import { type ContextStats, formatTokens } from "$lib/thread/contextUsage";
-import type { ThreadUsage } from "$lib/types";
+import type { ContextComposition, ThreadUsage } from "$lib/types";
+import UsageBreakdownBar from "$lib/usage/UsageBreakdownBar.svelte";
+import UsageSummary from "$lib/usage/UsageSummary.svelte";
 import { usageWindows } from "$lib/utils/rateLimits";
 
 let {
@@ -55,6 +62,36 @@ $effect(() => {
     .catch(() => {});
 });
 
+/** What the context holds, by category: from the harness when it can say,
+ *  else the ledger's estimate. Re-read whenever the token figures move. */
+let composition = $state<ContextComposition | null>(null);
+let compositionFor: string | null = null;
+let compositionGeneration = 0;
+
+$effect(() => {
+  const id = threadId;
+  stats;
+  if (!id) {
+    composition = null;
+    compositionFor = null;
+    return;
+  }
+  const generation = ++compositionGeneration;
+  compositionFor = id;
+  void (async () => {
+    let next: ContextComposition | null = null;
+    try {
+      next = await readContextBreakdown(id);
+    } catch (cause) {
+      if (!isContextBreakdownUnsupported(cause)) return;
+      next = await readUsageBreakdown({ kind: "thread", threadId: id })
+        .then((breakdown) => breakdown.context ?? null)
+        .catch(() => null);
+    }
+    if (generation === compositionGeneration && compositionFor === id) composition = next;
+  })();
+});
+
 function formatCredits(micros: number): string {
   const credits = micros / 1e6;
   return credits.toFixed(credits < 1 ? 3 : 2);
@@ -94,12 +131,28 @@ const sessionRows = $derived(
 );
 </script>
 
-{#if !stats && !threadUsage}
+{#if !stats && !threadUsage && !composition && !threadId}
   <p class="text-xs text-surface-500">
-    No usage reported yet — Codex sends these figures once this thread runs a turn.
+    No usage reported yet — the harness sends these figures once this thread runs a turn.
   </p>
 {:else}
   <div class="space-y-4 text-xs">
+    {#if composition}
+      <section data-testid="context-composition">
+        <h3 class="mb-1.5 flex items-baseline justify-between gap-3 text-[10px] font-semibold uppercase tracking-wide text-surface-500">
+          <span>Context composition</span>
+          <span class="rounded-full bg-surface-200-800 px-1.5 py-0.5 font-medium normal-case tracking-normal">
+            {composition.source === "harness" ? "reported" : "≈ estimated"}
+          </span>
+        </h3>
+        <UsageBreakdownBar
+          categories={composition.categories}
+          exact={composition.source === "harness"}
+          label="Context composition"
+        />
+      </section>
+    {/if}
+
     {#if stats}
       <section>
         <h3 class="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-surface-500">Context</h3>
@@ -131,6 +184,12 @@ const sessionRows = $derived(
             </div>
           {/if}
         </dl>
+      </section>
+    {/if}
+
+    {#if threadId}
+      <section data-testid="spend-by-category">
+        <UsageSummary scope={{ kind: "thread", threadId }} compact />
       </section>
     {/if}
 

@@ -37,6 +37,7 @@ import {
   searchWorkspace,
 } from "$lib/services/api";
 import type { GitContext, Project, ProjectSource, WorkspaceSearchResults } from "$lib/types";
+import UsageSummary from "$lib/usage/UsageSummary.svelte";
 import { relativeTime } from "$lib/utils/time";
 import { ensureGitStatus, gitStatusCache } from "$lib/worktrees/gitStatus.svelte";
 import Worktrees from "$lib/worktrees/Worktrees.svelte";
@@ -288,10 +289,20 @@ const sourceName = (source: ProjectSource) => source.sourcePath.split("/").pop()
         {/if}
         <Tabs.Trigger value="sources" class="btn-sm">Sources</Tabs.Trigger>
         <Tabs.Trigger value="integrations" class="btn-sm">Integrations</Tabs.Trigger>
+        <Tabs.Trigger value="usage" class="btn-sm">Usage</Tabs.Trigger>
         <Tabs.Indicator />
       </Tabs.List>
       <Tabs.Content value="integrations">
         {#if tab === "integrations"}<div class="mt-5"><IntegrationsSection projectPath={project.path} /></div>{/if}
+      </Tabs.Content>
+      <Tabs.Content value="usage">
+        {#if tab === "usage"}
+          <section class="mt-5 rounded-xl border border-surface-200-800 bg-surface-100-900 p-4">
+            <h2 class="text-sm font-semibold">Token usage</h2>
+            <p class="mt-1 text-xs text-surface-500">Every thread in this project, summed by category.</p>
+            <div class="mt-4"><UsageSummary scope={{ kind: "project", path: project.path }} /></div>
+          </section>
+        {/if}
       </Tabs.Content>
 
       <Tabs.Content value="overview">

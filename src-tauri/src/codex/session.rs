@@ -64,7 +64,11 @@ impl MainSessionSink {
         Self {
             resumed: Mutex::new(HashMap::new()),
             unsupported: Mutex::new(HashMap::new()),
-            journal: TurnJournal::new(app.clone(), home_key.clone()),
+            journal: TurnJournal::new(
+                app.clone(),
+                home_key.clone(),
+                crate::harness::HarnessKind::Codex,
+            ),
             home_key,
             app,
         }

@@ -38,11 +38,21 @@ export function priceFor(modelId: string | null | undefined): ModelPrice {
  */
 export function estimateCost(usage: ThreadTokenUsage | null, modelId: string | null): number | null {
   if (!usage) return null;
+  if (typeof usage.total.costUsd === "number") return usage.total.costUsd;
+  return estimateGroupCost(modelId, usage.total.inputTokens, usage.total.cachedInputTokens, usage.total.outputTokens);
+}
+
+/** Estimated USD for one model's tokens. `cachedInput` is a subset of `input`. */
+export function estimateGroupCost(
+  modelId: string | null | undefined,
+  input: number,
+  cachedInput: number,
+  output: number,
+): number {
   const price = priceFor(modelId);
-  const cached = Math.max(usage.total.cachedInputTokens, 0);
-  const uncachedInput = Math.max(usage.total.inputTokens - cached, 0);
-  const output = Math.max(usage.total.outputTokens, 0);
-  return (uncachedInput * price.input + cached * price.cachedInput + output * price.output) / 1_000_000;
+  const cached = Math.max(cachedInput, 0);
+  const uncachedInput = Math.max(input - cached, 0);
+  return (uncachedInput * price.input + cached * price.cachedInput + Math.max(output, 0) * price.output) / 1_000_000;
 }
 
 /** `$0.42`, `$1.20`, or `<$0.01` for a non-zero rounding to nothing. */

@@ -10,6 +10,7 @@ import {
   Folder,
   FolderGit2,
   FolderOpen,
+  Gauge,
   House,
   Layers3,
   Pencil,
@@ -24,9 +25,12 @@ import {
   X,
 } from "@lucide/svelte";
 import { Portal, Tooltip } from "@skeletonlabs/skeleton-svelte";
-import { openHomeWindow, readHomeOverview } from "$lib/services/api";
+import { openHomeWindow, readHomeOverview, readUsageBreakdown } from "$lib/services/api";
+import { openSettings } from "$lib/services/settingsNav.svelte";
 import { isTauri } from "$lib/services/tauri";
-import type { HomeOverview, MenuTarget, Project, ThreadSummary } from "$lib/types";
+import { formatTokensShort } from "$lib/thread/contextUsage";
+import type { HomeOverview, MenuTarget, Project, ThreadSummary, UsageBreakdown } from "$lib/types";
+import { costFor, costLabel, rangeSince } from "$lib/usage/usageBreakdown";
 import BranchChip from "$lib/worktrees/BranchChip.svelte";
 
 type HomeAction = "reveal" | "rename" | "togglePin" | "toggleArchive" | "remove";
@@ -70,6 +74,25 @@ const pinnedProjectCount = $derived(active.filter((project) => project.pinned).l
 
 let hiddenOpen = $state(false);
 let overview = $state<HomeOverview | null>(null);
+let usage = $state<UsageBreakdown | null>(null);
+const usageCostSummary = $derived(usage ? costFor(usage.byModel, usage.reportedCostUsd) : null);
+const usageCost = $derived(costLabel(usageCostSummary));
+const usageCostEstimated = $derived(usageCostSummary?.estimated ?? false);
+
+// Last 30 days of spend across the Home. Best-effort, like the overview.
+$effect(() => {
+  let cancelled = false;
+  readUsageBreakdown({ kind: "global" }, rangeSince("30d"))
+    .then((result) => {
+      if (!cancelled) usage = result;
+    })
+    .catch(() => {
+      if (!cancelled) usage = null;
+    });
+  return () => {
+    cancelled = true;
+  };
+});
 
 // The active home's defaults (model, MCP servers, skills). Read-only and
 // best-effort — failures leave the dashboard's config panels empty.
@@ -236,6 +259,38 @@ const relativeTime = (timestamp: number) => {
           </div>
         {/each}
       </div>
+    </div>
+
+    <div class="mt-4 rounded-xl border border-surface-200-800 bg-surface-100-900 p-4" data-testid="home-usage-card">
+      <div class="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">
+        <Gauge size={13} />
+        Usage · last 30 days
+        <button type="button" class="ml-auto btn btn-sm preset-tonal normal-case tracking-normal" onclick={() => openSettings("usage")}>
+          Details
+        </button>
+      </div>
+      {#if usage && usage.turns > 0}
+        <div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div class="rounded-lg bg-surface-50-950 px-3 py-2">
+            <div class="text-lg font-semibold tabular-nums">{formatTokensShort(usage.tokens.totalTokens)}</div>
+            <div class="text-[11px] text-surface-500">Tokens</div>
+          </div>
+          <div class="rounded-lg bg-surface-50-950 px-3 py-2">
+            <div class="text-lg font-semibold tabular-nums">{formatTokensShort(usage.tokens.outputTokens)}</div>
+            <div class="text-[11px] text-surface-500">Output</div>
+          </div>
+          <div class="rounded-lg bg-surface-50-950 px-3 py-2">
+            <div class="text-lg font-semibold tabular-nums">{usage.turns}</div>
+            <div class="text-[11px] text-surface-500">Turns</div>
+          </div>
+          <div class="rounded-lg bg-surface-50-950 px-3 py-2">
+            <div class="text-lg font-semibold tabular-nums">{usageCost ?? "—"}</div>
+            <div class="text-[11px] text-surface-500">{usageCostEstimated ? "Est. cost" : "Cost"}</div>
+          </div>
+        </div>
+      {:else}
+        <p class="mt-2 text-xs text-surface-500">No turns recorded in the last 30 days.</p>
+      {/if}
     </div>
 
     <div class="mt-4 grid gap-3 sm:grid-cols-2">
