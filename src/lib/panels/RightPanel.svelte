@@ -102,10 +102,20 @@ function openProjectFile(relativePath: string) {
 }
 </script>
 
+<!--
+  The panel owns Escape. The main composer interrupts the running turn on any
+  Escape that reaches the window unclaimed, and a side question's Stop uses the
+  same key — so an Escape pressed here (typing a side question, or after its
+  answer landed) must never fall through and stop the main thread.
+-->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -- claiming a key, not making the panel interactive -->
 <aside
   class="relative flex h-full shrink-0 flex-col border-l border-surface-200-800 bg-surface-100-900"
   style="width: {panelWidth}px; max-width: max(0px, calc(100% - 280px))"
   aria-label="Thread side panel"
+  onkeydown={(event) => {
+    if (event.key === "Escape") event.preventDefault();
+  }}
 >
   <div
     role="separator"

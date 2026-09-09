@@ -74,7 +74,10 @@ const active = $derived(mine.find((entry) => entry.sideThreadId === activeSideId
 // panel shows only the side conversation. Questions recorded before the fork
 // point was tracked have no count and show the whole fork.
 const visibleTurns = $derived(sideThread?.turns.slice(active?.inheritedTurns ?? 0) ?? []);
-const activeTurn = $derived(sideThread?.turns.find((turn) => turn.status === "inProgress") ?? null);
+// Only the side conversation's own turns count. A fork made mid-turn used to
+// inherit the parent's running turn as `inProgress`, which locked this
+// composer on a turn it could neither finish nor stop.
+const activeTurn = $derived(visibleTurns.find((turn) => turn.status === "inProgress") ?? null);
 const busy = $derived(activeTurn !== null || starting);
 
 const sideApprovals = $derived(approvals.list.filter((approval) => approval.threadId === activeSideId));

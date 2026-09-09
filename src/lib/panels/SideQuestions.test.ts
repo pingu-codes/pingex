@@ -151,6 +151,35 @@ describe("SideQuestions", () => {
     expect(screen.queryByLabelText("Codex is working")).not.toBeInTheDocument();
   });
 
+  it("does not treat an inherited in-progress parent turn as its own", async () => {
+    // The parent was mid-turn when the fork was made: its running turn sits in
+    // the inherited history, which the panel hides. It must not lock the composer.
+    activeTurns.list = [SIDE];
+    mocks.readThread.mockResolvedValue(
+      detail([
+        {
+          id: "parent-turn",
+          status: "inProgress",
+          items: [{ type: "userMessage", id: "u1", content: [{ type: "text", text: "Parent work" }] }],
+        },
+      ]),
+    );
+    render(SideQuestions, {
+      parentThreadId: "parent-1",
+      sideQuestions: [{ ...sideQuestions[0], inheritedTurns: 1 }],
+      activeSideId: SIDE,
+      onDataChanged: vi.fn(),
+    });
+
+    await screen.findByPlaceholderText("Follow up…");
+    await waitFor(() => expect(mocks.readThread).toHaveBeenCalledWith(SIDE));
+    expect(screen.queryByText("Parent work")).not.toBeInTheDocument();
+    expect(stopButton()).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Codex is working")).not.toBeInTheDocument();
+    await userEvent.setup().type(screen.getByPlaceholderText("Follow up…"), "Why?");
+    expect(askButton()).toBeEnabled();
+  });
+
   it("keeps a turn running when the active-turn store says the thread is working", async () => {
     activeTurns.list = [SIDE];
     mocks.readThread.mockResolvedValue(detail([{ id: "turn-live", status: "inProgress", items: [] }]));

@@ -37,6 +37,23 @@ function setup(
 }
 
 describe("RightPanel", () => {
+  it("claims Escape so the main composer does not interrupt the running turn", async () => {
+    const user = userEvent.setup();
+    setup({ kind: "side" });
+    const seen: boolean[] = [];
+    const onWindowKeydown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") seen.push(event.defaultPrevented);
+    };
+    window.addEventListener("keydown", onWindowKeydown);
+    try {
+      await user.click(screen.getByPlaceholderText("Ask a side question…"));
+      await user.keyboard("{Escape}");
+    } finally {
+      window.removeEventListener("keydown", onWindowKeydown);
+    }
+    expect(seen).toEqual([true]);
+  });
+
   it("renders the plan view as markdown and closes", async () => {
     const user = userEvent.setup();
     const { onClose } = setup({ kind: "plan", text: "## The plan\n- step one" });

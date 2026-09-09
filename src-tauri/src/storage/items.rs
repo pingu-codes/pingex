@@ -177,6 +177,10 @@ pub(crate) async fn delete_thread_items(
 /// Carry the journal over to a forked thread. A fork copies the history it was
 /// made from, so its transcript needs the same locally-held items; rows whose
 /// turn the fork does not have are dropped when they are merged, not here.
+///
+/// Only turns seen through to completion carry over. A turn still running when
+/// the fork was made belongs to the source alone: nothing in the fork will ever
+/// complete it, and copied as running it would keep the fork busy for good.
 pub(crate) async fn copy_thread_items(
     database: &Database,
     from_thread_id: &str,
@@ -195,7 +199,8 @@ pub(crate) async fn copy_thread_items(
     db::exec(
         &connection,
         "INSERT INTO journaled_turns(thread_id, turn_id, complete)
-         SELECT ?, turn_id, complete FROM journaled_turns WHERE thread_id = ?
+         SELECT ?, turn_id, complete FROM journaled_turns
+         WHERE thread_id = ? AND complete = 1
          ON CONFLICT(thread_id, turn_id) DO NOTHING",
         (to_thread_id, from_thread_id),
     )
@@ -405,6 +410,39 @@ mod tests {
                 .unwrap()
                 .len(),
             1
+        );
+    }
+
+    #[tokio::test]
+    async fn a_fork_does_not_inherit_a_turn_still_running_on_its_source() {
+        let database = database().await;
+        record_turn_start(&database, "thread-1", "turn-1")
+            .await
+            .unwrap();
+        mark_turn_complete(&database, "thread-1", "turn-1")
+            .await
+            .unwrap();
+        // Running when the fork is made: the source's alone to finish.
+        record_turn_start(&database, "thread-1", "turn-2")
+            .await
+            .unwrap();
+
+        copy_thread_items(&database, "thread-1", "fork-1")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            read_complete_turns(&database, "fork-1").await.unwrap(),
+            vec!["turn-1".to_string()]
+        );
+        assert!(read_running_turns(&database, "fork-1")
+            .await
+            .unwrap()
+            .is_empty());
+        // The source still shows its turn as running.
+        assert_eq!(
+            read_running_turns(&database, "thread-1").await.unwrap(),
+            vec!["turn-2".to_string()]
         );
     }
 
