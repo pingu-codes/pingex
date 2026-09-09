@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pingex architecture review · 9 September 2026</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";mermaid.initialize({startOnLoad:true,theme:"neutral",securityLevel:"strict"});</script>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f7f5ef;color:#202b30;font:16px/1.6 system-ui,sans-serif}main{max-width:1120px;margin:auto;padding:55px 28px}h1,h2{font-family:Georgia,serif;font-weight:400;line-height:1.15}h1{font-size:56px;margin:12px 0 22px}h2{font-size:34px;margin:10px 0 20px}h3,.label{font:600 11px/1.5 system-ui;text-transform:uppercase;letter-spacing:.13em;color:#65706c}.meta{font-size:13px;color:#65706c}.legend{display:flex;gap:22px;flex-wrap:wrap;font-size:12px;margin:25px 0}.badge{display:inline-block;border-radius:30px;padding:4px 12px;font-size:12px;background:#e8ebe8;margin-right:6px}.strong{background:#d4ecdf;color:#20563b}.worth{background:#f5e7bf;color:#77540e}article{background:white;border:1px solid #dadfd8;border-radius:12px;padding:30px;margin:30px 0 45px}.files{font:12px/1.8 ui-monospace,monospace;color:#56645d;overflow-wrap:anywhere}.pair{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:25px 0}.diagram{background:#f8faf8;border:1px solid #e0e6de;border-radius:8px;padding:18px;min-height:300px}.box{border:1px solid #a8b5aa;border-radius:5px;background:white;text-align:center;padding:12px;font-size:13px}.red{border-color:#bd6657;color:#933e31}.deep{background:#193c31;border:4px solid #193c31;color:#fff;border-radius:8px;padding:25px 16px;text-align:center}.inside{color:#cadbd0;border:1px solid #799486;border-radius:4px;padding:12px;margin-top:16px;font-size:13px}.arrow{text-align:center;color:#a1483b;font-size:20px;line-height:1.5}.seam{border-top:2px dashed #8b9c90;margin:18px 0 12px;text-align:center;font-size:11px;color:#596d60}.row{display:flex;gap:9px}.row>*{flex:1}.facts{display:grid;grid-template-columns:95px 1fr;gap:9px;font-size:14px}.facts dt{font-weight:650}.facts dd{margin:0}.wins{display:flex;flex-wrap:wrap;gap:8px 25px;padding-left:18px;font-size:13px}.note{font-size:12px;background:#f3f5ef;padding:12px 15px;margin-top:18px}.proof{font-size:12px;color:#5d675f;margin-top:15px}.mermaid{margin:0;min-height:220px}.top{background:#193c31;color:white;border-radius:12px;padding:32px}.top a{color:#c1edc9}.top h2{margin-top:0}.top p{margin-bottom:0}@media(max-width:700px){h1{font-size:39px}.pair{grid-template-columns:1fr}article{padding:20px}.facts{grid-template-columns:1fr}.facts dd{margin-bottom:10px}}@media print{article{break-inside:avoid}.top{color:black;background:#eee}}
+</style></head><body><main class="max-w-6xl mx-auto">
+<header><div class="label">Codebase review / 09 September 2026 / HEAD 22f1b7a</div><h1>Where Pingex can gain depth</h1>
+<div class="meta">65 commits inspected · ThreadView changed in 22 · lifecycle.rs in 11 · turn.rs in 10</div>
+<div class="legend"><span>□ module</span><span>┄ seam</span><span style="color:#a1483b">↓ knowledge crossing the seam</span><span>■ deep module</span></div></header>
+
+<article id="session"><span class="badge strong">Strong</span><span class="badge">mock</span><h2>1. Let ThreadSession own operation lifetime</h2>
+<div class="files">src/lib/thread/ThreadView.svelte:417, 667, 701, 723, 1066<br>src/lib/thread/threadSession.svelte.ts:52, 95, 110 · threadQueue.svelte.ts · sessions.svelte.ts</div>
+<div class="pair"><div class="diagram"><h3>Before · caller knows the ordering</h3><div class="box red">ThreadView<br>busy flags · request · transcript mutation · cleanup</div><div class="arrow">↓ ↕ ↓</div><div class="row"><div class="box">ThreadSession<br>send · Stop · stream</div><div class="box">review / compact / revert requests</div></div><div class="seam">operation lifetime crosses this seam</div><div class="box">ThreadQueue waits on shared flags</div></div>
+<div class="diagram"><h3>After · lifetime stays with the thread</h3><div class="box">ThreadView · user intent and rendering</div><div class="seam">existing session seam gains depth</div><div class="deep">Deep ThreadSession module<div class="inside">operation lifetime · pending requests<br>queue exclusion · transcript updates · errors</div></div></div></div>
+<dl class="facts"><dt>Problem</dt><dd>The session interface is shallow for review, compaction and revert: callers must manage the same ordering rules its implementation already manages for sends.</dd><dt>Solution</dt><dd>Move those operation lifetimes behind the existing session seam, starting with review and compaction.</dd><dt>Benefits</dt><dd>Locality puts queue and request races in one module; leverage lets mounted and hidden threads share the same behavior tests.</dd></dl>
+<ul class="wins"><li>Interface is the test surface</li><li>Depth without another public module</li><li>Locality for pending request handling</li></ul>
+<div class="note">Adapter scope: keep the existing command transport; tests already use a mock adapter. No new transport abstraction is justified by this review.</div>
+<div class="proof">Deletion test: deleting ThreadSession would scatter stream and queue complexity into views. Keep this deep module; concentrate the remaining caller-owned implementation inside it. Current tests cover compaction queue blocking and stopping review after its request resolves. Add operation-level checks for delayed resolution, view changes and failure cleanup before replacing duplicated orchestration tests.</div>
+<div class="proof">Evidence: ThreadSession explicitly says views toggle starting. Review manually seeds a turn because no turn/started event arrives. ThreadView.test.ts:1224 and threadSession.test.ts:359 cover parts of that contract separately. No ADR change required.</div>
+</article>
+
+<article id="routing"><span class="badge strong">Strong</span><span class="badge">mock</span><h2>2. Concentrate Harness command routing</h2>
+<div class="files">src-tauri/src/threads/lifecycle.rs:24, 61 · threads/turn.rs:364, 458, 541<br>src-tauri/src/usage/commands.rs:223 · harness/mod.rs · claude/driver.rs · codex/session.rs</div>
+<div class="pair"><div class="diagram"><h3>Before · each command selects a Harness</h3><pre class="mermaid">flowchart TB
+ A[Rename] --> Q[Thread ownership lookup]
+ B[Compact] --> Q
+ C[Interrupt] --> Q
+ Q --> D[Claude Code]
+ Q --> E[Codex]
+ A -. native request knowledge .-> E
+ B -. resume knowledge .-> D
+ classDef leak stroke:#ae5648,stroke-width:2px;
+ class A,B,C leak</pre></div>
+<div class="diagram"><h3>After · Driver owns Harness differences</h3><div class="row"><div class="box">Rename</div><div class="box">Compact</div><div class="box">Interrupt</div></div><div class="seam">Harness seam already accepted in ADR-0002</div><div class="deep">Deep Harness module<div class="inside">thread ownership · resume rules<br>Capability refusal · native request translation</div></div><div class="row" style="margin-top:12px"><div class="box">Codex Driver</div><div class="box">Claude Code Driver</div></div></div></div>
+<dl class="facts"><dt>Problem</dt><dd>Command modules repeat thread ownership checks and know how each Harness resumes, interrupts and names a thread.</dd><dt>Solution</dt><dd>Finish the accepted Driver direction in a bounded slice of existing thread operations, preserving Home and Host identity.</dd><dt>Benefits</dt><dd>Locality keeps Harness differences in their Driver; leverage removes repeated routing knowledge from each command interface.</dd></dl>
+<ul class="wins"><li>Depth hides resume ordering</li><li>Locality for Capability refusal</li><li>Shared operation outcome tests</li></ul>
+<div class="note">Adapter scope: Codex and Claude Code are two real Harness implementations. Use Driver in domain language; adapter describes their role at the seam. Mock native transports for deterministic tests.</div>
+<div class="proof">Deletion test: removing a routing helper alone would only move the branches. Depth requires concentrating ownership and operation rules together. Keep storage updates required by rename and deletion; do not hide them behind a pass-through module.</div>
+<div class="proof">ADR-0002 alignment, not a new architectural decision. The Driver trait is specified in features/13-harnesses.md but is not implemented in harness/mod.rs. Existing live Harness suites exercise native behavior; add shared routing checks for known thread ownership and unsupported operations. Preserve ADR-0001 probing and ADR-0003 Host rules.</div>
+</article>
+
+<article id="events"><span class="badge worth">Worth exploring</span><span class="badge">local-substitutable</span><h2>3. Remove the neutral-event round trip</h2>
+<div class="files">src-tauri/src/claude/driver.rs:108 · harness/project.rs:178, 241<br>src-tauri/src/codex/journal.rs:309 · usage/ledger.rs:40, 95<br>src/lib/thread/threadStream.ts · src/lib/services/codexEvents.svelte.ts</div>
+<div class="pair"><div class="diagram"><h3>Before · neutral events become Codex again</h3><div class="box">Claude Code Driver · neutral event</div><div class="arrow">↓</div><div class="box red">Projector module<br>tool state · message text · usage totals</div><div class="arrow">↓ Codex-shaped notification</div><div class="row"><div class="box">TurnJournal → Usage row</div><div class="box">Transcript reducer</div></div></div>
+<div class="diagram"><h3>After · normalize once in each Driver</h3><pre class="mermaid">flowchart TB
+ A[Codex Driver] --> N[Neutral event seam]
+ B[Claude Code Driver] --> N
+ N --> J[Deep journal module]
+ N --> T[Transcript module]
+ J --> U[Usage row and Attribution]
+ classDef deep fill:#193c31,color:#fff,stroke:#193c31,stroke-width:4px;
+ class J deep</pre></div></div>
+<dl class="facts"><dt>Problem</dt><dd>The neutral event interface gains a second stateful implementation just to satisfy downstream Codex vocabulary.</dd><dt>Solution</dt><dd>Continue the planned neutral journal and transcript migration so Driver normalization reaches consumers directly.</dd><dt>Benefits</dt><dd>Locality keeps wire repairs in the Driver; leverage lets both Harnesses exercise the same journal and transcript behavior.</dd></dl>
+<ul class="wins"><li>Depth absorbs compatibility bookkeeping</li><li>One event contract to replay</li><li>Usage Attribution keeps existing tests</li></ul>
+<div class="note">Adapter scope: native Drivers translate at the wire seam; existing recorded fixtures exercise that translation. Journal and ledger checks can use the existing temporary database implementation.</div>
+<div class="proof">Deletion test: deleting Projector today would break consumers and scatter its reconstruction rules. Remove it only after neutral consumers absorb the needed behavior. Preserve streamed tool output, turn stop reasons, replay totals and the Opening row.</div>
+<div class="proof">ADR-0002 explicitly chooses this direction; features/13-harnesses.md documents projection as transitional. Projector tests already cover accumulated usage, compaction and completed tool output. LedgerCore tests cover multiple reports, replay and cold journal recovery. Keep those observable guarantees. Scope is wider than candidates 1 and 2, so this is not the first change.</div>
+</article>
+
+<section class="top" id="top-recommendation"><div class="label" style="color:#bad1c1">Top recommendation</div><h2>Start with ThreadSession operation lifetime</h2><p>It closes a concrete gap in an existing module on the most active handwritten frontend path, with focused tests for request timing and queue behavior. <a href="#session">Explore candidate 1 →</a></p></section>
+<footer class="meta" style="margin-top:26px">Read-only source review. Existing tests inspected, not run. Candidate designs, no new interfaces proposed. Source and ADRs checked at 22f1b7a; history counts cover 65 commits including merges. Generated files were excluded from recommendation priority. The usage ledger already demonstrates useful depth. Tailwind and Mermaid require CDN access; text and custom diagrams retain local styling.</footer>
+</main></body></html>
