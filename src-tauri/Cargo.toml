@@ -32,3 +32,8 @@ toml = { version = "0.8", default-features = false, features = ["parse"] }
 toml_edit = "0.22"
 turso = { version = "0.7", default-features = false }
 uuid = { version = "1", features = ["v4", "v5"] }
+
+# Faster edit/test cycles: skip full debuginfo and keep it out of the link step.
+[profile.dev]
+debug = "line-tables-only"
+split-debuginfo = "unpacked"

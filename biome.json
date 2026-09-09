@@ -16,7 +16,8 @@
       "!test-results",
       "!deno.lock",
       "!src-tauri/icons",
-      "!src/lib/bindings.ts"
+      "!src/lib/bindings.ts",
+      "!.claude/worktrees"
     ]
   },
   "formatter": {

@@ -12,6 +12,10 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    // Terse output by default: agents re-read every line of test output on
+    // every later turn. Failures still print in full.
+    reporters: ["dot"],
+    silent: "passed-only",
     include: ["src/**/*.test.ts"],
     setupFiles: ["./vitest-setup.ts"],
   },
