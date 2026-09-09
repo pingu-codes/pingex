@@ -9,11 +9,13 @@
  * its view goes: reading it back from Codex next time is cheaper and safer.
  */
 import { type CodexEvent, setThreadHandler } from "$lib/services/codexEvents.svelte";
-import { threadIdOf } from "$lib/services/turnLifecycle";
 import { threadBelongsToHome } from "$lib/services/homeRouting";
+import { threadIdOf } from "$lib/services/turnLifecycle";
 import { ThreadSession } from "$lib/thread/threadSession.svelte";
 
 const sessions = new Map<string, ThreadSession>();
+// Until creation returns, only its eventual id tells us which Home owns a draft.
+const drafts = new Map<ThreadSession, Set<string>>();
 let unlisten: (() => void) | null = null;
 
 function listen() {
@@ -27,6 +29,11 @@ function route(event: CodexEvent) {
     // Nothing retained can make progress any more, and a reconnected session is
     // the honest source for what actually survived — forget every session no
     // view is holding on to; tell the rest.
+    for (const [session, disconnectedHomes] of drafts) {
+      if (!session.working()) continue;
+      if (event.homeKey) disconnectedHomes.add(event.homeKey);
+      else session.disconnected();
+    }
     for (const [id, session] of [...sessions]) {
       if (event.homeKey && !threadBelongsToHome(id, event.homeKey)) continue;
       if (session.mounted > 0) session.disconnected();
@@ -80,14 +87,26 @@ export function openSession(id: string): ThreadSession {
 export function draftSession(cwd: string): ThreadSession {
   listen();
   const session = new ThreadSession(null, cwd);
+  drafts.set(session, new Set());
+  session.onIdle = () => {
+    drafts.delete(session);
+    session.dispose();
+  };
   session.mounted++;
   return session;
 }
 
 /** The draft got an id from Codex: run it under that id from here on. */
-export function attachSession(session: ThreadSession, id: string): void {
-  session.attach(id);
+export function attachSession(session: ThreadSession, id: string): boolean {
+  const disconnectedHomes = drafts.get(session);
+  drafts.delete(session);
+  if (disconnectedHomes && [...disconnectedHomes].some((home) => threadBelongsToHome(id, home))) {
+    session.disconnected();
+    return false;
+  }
+  if (!session.attach(id)) return false;
   register(id, session);
+  return true;
 }
 
 /** The view is going away. The session is kept only while the thread still
@@ -97,7 +116,10 @@ export function releaseSession(session: ThreadSession): void {
   if (session.mounted > 0 || session.working()) return;
   const id = session.id;
   if (id) drop(id, session);
-  else session.dispose();
+  else {
+    drafts.delete(session);
+    session.dispose();
+  }
 }
 
 /** The retained session for a thread, if any — for callers other than views. */
@@ -107,6 +129,8 @@ export function peekSession(id: string): ThreadSession | null {
 
 /** Test seam: forget every session and re-subscribe from scratch. */
 export function resetSessions(): void {
+  for (const session of drafts.keys()) session.dispose();
+  drafts.clear();
   for (const [id, session] of [...sessions]) drop(id, session);
   unlisten?.();
   unlisten = null;

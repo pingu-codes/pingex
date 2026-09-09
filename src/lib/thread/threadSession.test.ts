@@ -10,6 +10,10 @@ const mocks = vi.hoisted(() => ({
   listSubagents: vi.fn().mockResolvedValue([]),
   listAgentRuns: vi.fn().mockResolvedValue([]),
   startTurn: vi.fn(),
+  startReview: vi.fn(),
+  compactThread: vi.fn(),
+  revertThread: vi.fn(),
+  rollbackThread: vi.fn(),
   updateTurnSettings: vi.fn().mockResolvedValue("applied"),
   interruptTurn: vi.fn().mockResolvedValue(undefined),
   queueAdd: vi.fn(),
@@ -28,6 +32,11 @@ vi.mock("$lib/services/api", () => ({
   listSubagents: mocks.listSubagents,
   listAgentRuns: mocks.listAgentRuns,
   startTurn: mocks.startTurn,
+  startReview: mocks.startReview,
+  compactThread: mocks.compactThread,
+  revertThread: mocks.revertThread,
+  rollbackThread: mocks.rollbackThread,
+  isRevertUnsupported: (cause: unknown) => String(cause).includes("unsupported"),
   updateTurnSettings: mocks.updateTurnSettings,
   isTurnSettingsUnsupported: (cause: unknown) => String(cause).includes("unsupported"),
   interruptTurn: mocks.interruptTurn,
@@ -92,6 +101,11 @@ beforeEach(() => {
   mocks.queueList.mockResolvedValue([]);
   mocks.queueAdd.mockReset();
   mocks.queueAdd.mockRejectedValue(new Error("codex-queue-unsupported"));
+  mocks.startReview.mockReset().mockResolvedValue({ id: "review", status: "inProgress", items: [] });
+  mocks.compactThread.mockReset().mockResolvedValue(undefined);
+  mocks.revertThread.mockReset().mockResolvedValue(undefined);
+  mocks.rollbackThread.mockReset().mockResolvedValue(undefined);
+  mocks.interruptTurn.mockClear();
   mocks.startTurn.mockReset();
   mocks.updateTurnSettings.mockReset().mockResolvedValue("applied");
   mocks.startTurn.mockResolvedValue({ id: "turn-real", status: "inProgress" });
@@ -361,7 +375,7 @@ describe("session compaction", () => {
     mocks.readThread.mockResolvedValueOnce(detail("thread-a"));
     const session = openSession("thread-a");
     await settle();
-    session.beginCompaction();
+    await session.compact();
 
     // Before Codex has even announced the compaction turn, a send must wait.
     expect(await session.send([{ type: "text", text: "meanwhile" }])).toBe(true);
@@ -387,7 +401,7 @@ describe("session compaction", () => {
     mocks.readThread.mockResolvedValueOnce(detail("thread-a"));
     const session = openSession("thread-a");
     await settle();
-    session.beginCompaction();
+    await session.compact();
     session.disconnected();
     expect(session.compacting).toBe(false);
   });
@@ -423,4 +437,246 @@ describe("session turn options", () => {
     emit("thread/collaborationMode/changed", { threadId: "thread-a", mode: "default" });
     expect(session.collaborationMode).toBe("default");
   });
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (cause: Error) => void;
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
+}
+
+async function idleSession() {
+  mocks.readThread.mockResolvedValueOnce(
+    detail("thread-a", [
+      { id: "old", status: "completed", items: [] },
+      { id: "last", status: "completed", items: [] },
+    ]),
+  );
+  const session = openSession("thread-a");
+  await settle();
+  return session;
+}
+
+describe("session operation lifetime", () => {
+  it("retains a pending review and stops its real turn before output", async () => {
+    const session = await idleSession();
+    const request = deferred<{ id: string; status: string; items: [] }>();
+    mocks.startReview.mockReturnValueOnce(request.promise);
+    const reviewing = session.review({ type: "uncommittedChanges" });
+    const stopping = session.interrupt();
+    await session.review({ type: "uncommittedChanges" });
+    await session.compact();
+    await session.undoTurns(1);
+    releaseSession(session);
+    expect(peekSession("thread-a")).toBe(session);
+    expect(mocks.startReview).toHaveBeenCalledTimes(1);
+    expect(mocks.compactThread).not.toHaveBeenCalled();
+    expect(mocks.revertThread).not.toHaveBeenCalled();
+    expect(mocks.interruptTurn).not.toHaveBeenCalled();
+    request.resolve({ id: "review", status: "inProgress", items: [] });
+    await Promise.all([reviewing, stopping]);
+    expect(session.activeTurn?.id).toBe("review");
+    expect(mocks.interruptTurn).toHaveBeenCalledWith("thread-a", "review");
+  });
+
+  it("does not resurrect a completed review or stop the queued successor", async () => {
+    const session = await idleSession();
+    const request = deferred<{ id: string; status: string; items: [] }>();
+    mocks.startReview.mockReturnValueOnce(request.promise);
+    const reviewing = session.review({ type: "uncommittedChanges" });
+    const stopping = session.interrupt();
+    await session.send([{ type: "text", text: "next" }]);
+    emit("turn/completed", { threadId: "thread-a", turn: { id: "review", status: "completed", items: [] } });
+    expect(mocks.startTurn).not.toHaveBeenCalled();
+    request.resolve({ id: "review", status: "inProgress", items: [] });
+    await Promise.all([reviewing, stopping]);
+    await settle();
+    expect(session.thread?.turns.find((turn) => turn.id === "review")?.status).toBe("completed");
+    expect(mocks.interruptTurn).not.toHaveBeenCalled();
+    expect(mocks.startTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["review", "compact", "undo"] as const)("releases queue exclusion after %s failure", async (kind) => {
+    const session = await idleSession();
+    const request = deferred<never>();
+    const mock = kind === "review" ? mocks.startReview : kind === "compact" ? mocks.compactThread : mocks.revertThread;
+    mock.mockReturnValueOnce(request.promise);
+    const operation =
+      kind === "review"
+        ? session.review({ type: "uncommittedChanges" })
+        : kind === "compact"
+          ? session.compact()
+          : session.undoTurns(1);
+    await session.send([{ type: "text", text: "next" }]);
+    expect(mocks.startTurn).not.toHaveBeenCalled();
+    request.reject(new Error("failed"));
+    await operation;
+    await settle();
+    expect(session.starting).toBe(false);
+    expect(session.compacting).toBe(false);
+    expect(mocks.startTurn).toHaveBeenCalledTimes(1);
+    expect(session.thread?.turns.some((turn) => turn.id === "last")).toBe(true);
+  });
+
+  it("keeps compaction excluded when its event precedes request resolution", async () => {
+    const session = await idleSession();
+    const request = deferred<void>();
+    mocks.compactThread.mockReturnValueOnce(request.promise);
+    const compacting = session.compact();
+    await session.send([{ type: "text", text: "next" }]);
+    emit("thread/compacted", { threadId: "thread-a" });
+    expect(mocks.startTurn).not.toHaveBeenCalled();
+    request.resolve();
+    await compacting;
+    await settle();
+    expect(mocks.startTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it("finishes hidden undo, clamps the count, and drops the idle session", async () => {
+    const session = await idleSession();
+    const request = deferred<void>();
+    mocks.revertThread.mockReturnValueOnce(request.promise);
+    const undoing = session.undoTurns(20);
+    releaseSession(session);
+    expect(peekSession("thread-a")).toBe(session);
+    request.resolve();
+    await undoing;
+    expect(mocks.revertThread).toHaveBeenCalledWith("thread-a", "old", []);
+    expect(session.thread?.turns).toEqual([]);
+    expect(peekSession("thread-a")).toBeNull();
+    expect(mocks.invalidateThreadCache).toHaveBeenCalledWith("thread-a");
+  });
+
+  it("uses rollback only for unsupported revert and preserves history on failure", async () => {
+    const session = await idleSession();
+    mocks.revertThread.mockRejectedValueOnce(new Error("unsupported"));
+    mocks.rollbackThread.mockRejectedValueOnce(new Error("rollback failed"));
+    await session.undoTurns(1);
+    expect(mocks.rollbackThread).toHaveBeenCalledWith("thread-a", 1);
+    expect(session.thread?.turns).toHaveLength(2);
+    expect(session.streamError).toBe("rollback failed");
+    mocks.revertThread.mockRejectedValueOnce(new Error("ordinary failure"));
+    await session.undoTurns(1);
+    expect(mocks.rollbackThread).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["review", "compact", "undo"] as const)("ignores late %s responses after disconnect", async (kind) => {
+    const session = await idleSession();
+    const request = deferred<unknown>();
+    const mock = kind === "review" ? mocks.startReview : kind === "compact" ? mocks.compactThread : mocks.revertThread;
+    mock.mockReturnValueOnce(request.promise);
+    const operation =
+      kind === "review"
+        ? session.review({ type: "uncommittedChanges" })
+        : kind === "compact"
+          ? session.compact()
+          : session.undoTurns(1);
+    await session.send([{ type: "text", text: "next" }]);
+    session.disconnected();
+    request.resolve({ id: "review", status: "inProgress", items: [] });
+    await operation;
+    await settle();
+    expect(session.thread?.turns).toHaveLength(2);
+    expect(session.activeTurn).toBeNull();
+    expect(mocks.startTurn).not.toHaveBeenCalled();
+    expect(session.streamError).toBe("Lost connection to Codex.");
+  });
+
+  it("owns draft creation failure without issuing a review", async () => {
+    const session = draftSession("/repo");
+    const request = deferred<string>();
+    const reviewing = session.review({ type: "uncommittedChanges" }, () => request.promise);
+    releaseSession(session);
+    expect(session.working()).toBe(true);
+    request.reject(new Error("creation failed"));
+    await reviewing;
+    expect(session.starting).toBe(false);
+    expect(session.streamError).toBe("creation failed");
+    expect(mocks.startReview).not.toHaveBeenCalled();
+  });
+});
+
+describe("operation recovery", () => {
+  it("does not finish compaction for an old completion before its start", async () => {
+    const session = await idleSession();
+    await session.compact();
+    await session.send([{ type: "text", text: "next" }]);
+    emit("turn/completed", { threadId: "thread-a", turn: { id: "last", status: "completed" } });
+    expect(session.compacting).toBe(true);
+    expect(mocks.startTurn).not.toHaveBeenCalled();
+  });
+
+  it("allows explicit retry after disconnect without reviving old review", async () => {
+    const session = await idleSession();
+    const request = deferred<unknown>();
+    mocks.startReview.mockReturnValueOnce(request.promise);
+    const reviewing = session.review({ type: "uncommittedChanges" });
+    session.disconnected();
+    expect(await session.send([{ type: "text", text: "retry" }])).toBe(true);
+    request.resolve({ id: "stale-review", status: "inProgress", items: [] });
+    await reviewing;
+    expect(session.activeTurn?.id).toBe("turn-real");
+    emit("turn/completed", { threadId: "thread-a", turn: { id: "turn-real", status: "completed" } });
+    expect(session.activeTurn).toBeNull();
+  });
+
+  it.each(["review", "compact", "undo"] as const)("ignores %s resolution after disposal", async (kind) => {
+    const session = await idleSession();
+    const request = deferred<unknown>();
+    const mock = kind === "review" ? mocks.startReview : kind === "compact" ? mocks.compactThread : mocks.revertThread;
+    mock.mockReturnValueOnce(request.promise);
+    const operation =
+      kind === "review"
+        ? session.review({ type: "uncommittedChanges" })
+        : kind === "compact"
+          ? session.compact()
+          : session.undoTurns(1);
+    session.dispose();
+    request.resolve({ id: "review", status: "inProgress", items: [] });
+    await operation;
+    expect(session.thread?.turns).toHaveLength(2);
+    expect(mocks.startTurn).not.toHaveBeenCalled();
+    expect(attachSession(session, "resurrected")).toBe(false);
+    expect(peekSession("resurrected")).toBeNull();
+  });
+
+  it("applies successful rollback and ignores empty undo", async () => {
+    const session = await idleSession();
+    mocks.revertThread.mockRejectedValueOnce(new Error("unsupported"));
+    await session.undoTurns(10);
+    expect(session.thread?.turns).toEqual([]);
+    expect(mocks.rollbackThread).toHaveBeenCalledWith("thread-a", 2);
+    await session.undoTurns(1);
+    expect(mocks.revertThread).toHaveBeenCalledTimes(1);
+  });
+});
+
+it("rejects draft attachment when creation resolves after registry disconnect", async () => {
+  const session = draftSession("/repo");
+  const request = deferred<string>();
+  const reviewing = session.review({ type: "uncommittedChanges" }, async () => {
+    const id = await request.promise;
+    if (!attachSession(session, id)) throw new Error("interrupted");
+    return id;
+  });
+  emit("disconnected", null);
+  request.resolve("late-draft");
+  await reviewing;
+  expect(mocks.startReview).not.toHaveBeenCalled();
+  expect(peekSession("late-draft")).toBeNull();
+});
+
+it("does not invalidate an idle draft for a disconnect before its first review", async () => {
+  const session = draftSession("/repo");
+  emit("disconnected", null);
+  await session.review({ type: "uncommittedChanges" }, async () => {
+    expect(attachSession(session, "new-draft")).toBe(true);
+    return "new-draft";
+  });
+  expect(mocks.startReview).toHaveBeenCalledWith("new-draft", { type: "uncommittedChanges" });
+  expect(session.activeTurn?.id).toBe("review");
 });

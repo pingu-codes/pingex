@@ -138,7 +138,7 @@ vi.mock("$lib/services/codexEvents.svelte", () => ({
   removeUserInputRequest: vi.fn(),
 }));
 
-import { resetSessions } from "$lib/thread/sessions.svelte";
+import { peekSession, resetSessions } from "$lib/thread/sessions.svelte";
 import ThreadView from "$lib/thread/ThreadView.svelte";
 
 function detail(...turns: Turn[]): ThreadDetail {
@@ -1204,6 +1204,25 @@ describe("ThreadView /review", () => {
 
     expect(mocks.startThread).toHaveBeenCalledWith("/projects/example", null, null, null);
     expect(mocks.startReview).toHaveBeenCalledWith("thread-2", { type: "uncommittedChanges" });
+  });
+
+  it("keeps a draft review on its session after the view leaves", async () => {
+    const user = userEvent.setup();
+    let resolve!: (value: { id: string; cwd: string }) => void;
+    mocks.startThread.mockReturnValueOnce(
+      new Promise((yes) => {
+        resolve = yes;
+      }),
+    );
+    const onThreadCreated = vi.fn();
+    const view = render(ThreadView, { threadId: null, cwd: "/projects/example", onThreadCreated });
+    await user.type(screen.getByRole("textbox", { name: composerLabel }), "/review inspect changes{Enter}");
+    await waitFor(() => expect(mocks.startThread).toHaveBeenCalled());
+    view.unmount();
+    resolve({ id: "thread-2", cwd: "/projects/example" });
+    await waitFor(() => expect(peekSession("thread-2")?.activeTurn?.id).toBe("review-turn-1"));
+    expect(onThreadCreated).not.toHaveBeenCalled();
+    expect(mocks.startReview).toHaveBeenCalledWith("thread-2", { type: "custom", instructions: "inspect changes" });
   });
 
   it("runs a typed instruction as a custom review without asking", async () => {

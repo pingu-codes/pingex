@@ -10,27 +10,34 @@
  */
 import { setAgentRuns } from "$lib/services/agentRuns.svelte";
 import {
+  compactThread,
   getThreadGoal,
   interruptTurn,
   invalidateThreadCache,
+  isRevertUnsupported,
   isTurnSettingsUnsupported,
   listAgentRuns,
   listSubagents,
   readThread,
+  revertThread,
+  rollbackThread,
+  startReview,
   startTurn,
   updateTurnSettings,
 } from "$lib/services/api";
 import { activeTurns, type CodexEvent, threadTokenUsage } from "$lib/services/codexEvents.svelte";
 import { requestAutoName } from "$lib/thread/autoName";
 import { ThreadQueue } from "$lib/thread/threadQueue.svelte";
-import { applyThreadEvent, BUFFERING_NOTICE, finalizeRunningTurns } from "$lib/thread/threadStream";
+import { applyThreadEvent, BUFFERING_NOTICE, ensureTurn, finalizeRunningTurns } from "$lib/thread/threadStream";
 import { toastError } from "$lib/toaster";
 import type {
+  ReviewTarget,
   SubagentDetail,
   SubagentPolicy,
   ThreadDetail,
   ThreadGoal,
   ThreadTokenUsage,
+  Turn,
   TurnOptions,
   UserInputPart,
 } from "$lib/types";
@@ -50,7 +57,7 @@ export class ThreadSession {
   /** A fatal load error: there is no transcript to show. */
   error = $state<string | null>(null);
   /** A thread-level operation in flight (create, revert, review) that must
-   *  finish before another turn can start. Views toggle this around theirs. */
+   *  finish before another turn can start. Legacy draft and fork callers still toggle this around theirs. */
   starting = $state(false);
   compacting = $state(false);
   /** The turn Codex runs the compaction under, once its `turn/started` lands. */
@@ -96,6 +103,120 @@ export class ThreadSession {
    *  wait for the real turn id instead of silently doing nothing. */
   private pendingTurnStart: Promise<unknown> | null = null;
   private disposed = false;
+  private disconnectedState = false;
+  private operation: { kind: "review" | "compact" | "undo" } | null = null;
+  private pendingReview: Promise<Turn | null> | null = null;
+
+  private available(): boolean {
+    return (
+      !this.disposed &&
+      !this.disconnectedState &&
+      !this.loading &&
+      !this.starting &&
+      !this.compacting &&
+      !this.operation &&
+      !this.pendingTurnStart &&
+      !this.activeTurn
+    );
+  }
+
+  private finishOperation(operation: NonNullable<ThreadSession["operation"]>): void {
+    if (this.operation !== operation) return;
+    this.operation = null;
+    this.starting = false;
+    if (this.disposed || this.disconnectedState) return;
+    this.queue.maybeDrain();
+    if (this.mounted === 0 && !this.working()) this.onIdle?.();
+  }
+
+  /** Own the request even while a draft is being created by the view. */
+  async review(target: ReviewTarget, ensureLiveThread?: () => Promise<string>): Promise<void> {
+    if (!this.available() || !this.thread || (!this.id && !ensureLiveThread)) return;
+    const operation = { kind: "review" } as const;
+    this.operation = operation;
+    this.starting = true;
+    this.streamError = null;
+    const request = async (): Promise<Turn | null> => {
+      try {
+        const id = this.id ?? (await ensureLiveThread!());
+        if (this.operation !== operation || this.disposed) return null;
+        const turn = await startReview(id, target);
+        if (this.operation !== operation || this.disposed) return null;
+        const existing = this.thread!.turns.find((candidate) => candidate.id === turn.id);
+        if (!existing)
+          this.thread!.turns.push({ ...turn, status: turn.status ?? "inProgress", items: turn.items ?? [] });
+        this.revision++;
+        return turn;
+      } catch (cause) {
+        if (this.operation === operation && !this.disposed) {
+          this.streamError = cause instanceof Error ? cause.message : String(cause);
+        }
+        return null;
+      }
+    };
+    const pending = request();
+    this.pendingReview = pending;
+    await pending;
+    if (this.pendingReview === pending) this.pendingReview = null;
+    this.finishOperation(operation);
+  }
+
+  /** Request acknowledgement does not end the streamed compaction. */
+  async compact(): Promise<void> {
+    if (!this.available() || !this.id) return;
+    const operation = { kind: "compact" } as const;
+    this.operation = operation;
+    this.starting = true;
+    this.beginCompaction();
+    this.streamError = null;
+    try {
+      await compactThread(this.id);
+    } catch (cause) {
+      if (this.operation === operation && !this.disposed) {
+        this.endCompaction();
+        this.streamError = cause instanceof Error ? cause.message : String(cause);
+      }
+    } finally {
+      this.finishOperation(operation);
+    }
+  }
+
+  /** Rewind history in place, falling back only when revert is unsupported. */
+  async undoTurns(count: number): Promise<void> {
+    if (!this.available() || !this.id || !this.thread || !Number.isInteger(count) || count <= 0) return;
+    const thread = this.thread;
+    const id = this.id;
+    const dropped = Math.min(count, thread.turns.length);
+    if (!dropped) return;
+    const kept = thread.turns.slice(0, -dropped);
+    const operation = { kind: "undo" } as const;
+    this.operation = operation;
+    this.starting = true;
+    this.streamError = null;
+    try {
+      try {
+        await revertThread(
+          id,
+          thread.turns[kept.length].id,
+          kept.map((turn) => turn.id),
+        );
+      } catch (cause) {
+        if (this.operation !== operation || this.disposed) return;
+        if (!isRevertUnsupported(cause)) throw cause;
+        await rollbackThread(id, dropped);
+      }
+      if (this.operation !== operation || this.disposed) return;
+      thread.turns = kept;
+      this.revision++;
+      await invalidateThreadCache(id).catch(() => {});
+    } catch (cause) {
+      if (this.operation === operation && !this.disposed) {
+        this.streamError = cause instanceof Error ? cause.message : String(cause);
+      }
+    } finally {
+      this.finishOperation(operation);
+    }
+  }
   /** Bumped by every deliberate goal write, so the async fetch in `load()`
    *  can tell when its result has been overtaken and must be dropped. */
   #goalEpoch = 0;
@@ -114,7 +235,7 @@ export class ThreadSession {
       threadId: () => this.id,
       send: (input, options) => this.send(input, options),
       interrupt: () => this.interrupt(),
-      idle: () => !this.activeTurn && !this.starting && !this.loading && !this.compacting,
+      idle: () => this.available(),
       onNotice: (text) => {
         this.notice = text;
       },
@@ -130,6 +251,7 @@ export class ThreadSession {
   working(): boolean {
     const id = this.id;
     return (
+      this.operation !== null ||
       this.starting ||
       this.compacting ||
       this.pendingTurnStart !== null ||
@@ -145,6 +267,7 @@ export class ThreadSession {
   async load(): Promise<void> {
     const id = this.id;
     if (!id) return;
+    this.disconnectedState = false;
     this.loading = true;
     this.error = null;
     // Codex replays `thread/tokenUsage/updated` on a thread's first resume; after
@@ -185,14 +308,18 @@ export class ThreadSession {
   }
 
   /** The draft became a real thread: run under its id from here on. */
-  attach(id: string): void {
+  attach(id: string): boolean {
+    if (this.disposed || this.disconnectedState) return false;
     this.id = id;
     if (this.thread) this.thread.id = id;
+    return true;
   }
 
   /** The registry is letting go of this session; late I/O must not touch it. */
   dispose(): void {
     this.disposed = true;
+    this.operation = null;
+    this.pendingReview = null;
   }
 
   /**
@@ -206,11 +333,13 @@ export class ThreadSession {
    */
   async send(input: UserInputPart[], options?: TurnOptions): Promise<boolean> {
     const thread = this.thread;
-    if (!thread) return false;
+    if (!thread || this.disposed) return false;
+    // An explicit send is a retry; late operation callbacks remain invalidated.
+    this.disconnectedState = false;
     options ??= this.turnOptions?.();
     // A compaction is a turn too, even before its `turn/started` arrives: a
     // send now would race it, and its start would adopt the optimistic bubble.
-    if (this.activeTurn || this.starting || this.compacting) {
+    if (this.activeTurn || this.starting || this.compacting || this.operation || this.pendingTurnStart) {
       // Codex is mid-turn: park the message and send it once the turn ends
       // (completed or interrupted via Stop/Esc).
       void this.queue.add(input, options);
@@ -258,10 +387,24 @@ export class ThreadSession {
       return false;
     } finally {
       this.pendingTurnStart = null;
+      if (!this.disposed && !this.disconnectedState) this.queue.maybeDrain();
     }
   }
 
   async interrupt(): Promise<void> {
+    if (this.disposed || this.disconnectedState) return;
+    const review = this.pendingReview;
+    if (review) {
+      const turn = await review;
+      if (!turn || this.disposed || this.disconnectedState || this.activeTurn?.id !== turn.id || !this.id) return;
+      try {
+        await interruptTurn(this.id, turn.id);
+      } catch (cause) {
+        if (!this.disposed && !this.disconnectedState)
+          this.streamError = cause instanceof Error ? cause.message : String(cause);
+      }
+      return;
+    }
     const id = this.id;
     let active = this.activeTurn;
     if (!id || !active) return;
@@ -343,18 +486,22 @@ export class ThreadSession {
   }
 
   /** Begin a compaction: the session is busy until it lands or fails. */
-  beginCompaction(): void {
+  private beginCompaction(): void {
     this.compacting = true;
     this.#compactionTurnId = null;
   }
 
-  endCompaction(): void {
+  private endCompaction(): void {
     this.compacting = false;
     this.#compactionTurnId = null;
   }
 
   /** The stream disconnected: nothing in flight can finish. */
   disconnected(): void {
+    this.disconnectedState = true;
+    this.operation = null;
+    this.pendingReview = null;
+    this.starting = false;
     this.streamError = "Lost connection to Codex.";
     this.endCompaction();
     finalizeRunningTurns(this.thread?.turns ?? [], "interrupted");
@@ -363,7 +510,10 @@ export class ThreadSession {
 
   /** Apply an event addressed to this thread (`params.threadId === id`). */
   handleEvent(event: CodexEvent): void {
+    if (this.disposed) return;
     const { method, params } = event;
+    if (method === "turn/started") this.disconnectedState = false;
+    if (this.disconnectedState) return;
     const id = this.id;
     if (!id || !params) return;
     if (method === "thread/goal/updated") {
@@ -383,6 +533,7 @@ export class ThreadSession {
     if (method === "thread/compacted") {
       this.endCompaction();
       this.queue.maybeDrain();
+      if (this.mounted === 0 && !this.working()) this.onIdle?.();
       return;
     }
     if (method === "thread/collaborationMode/changed") {
@@ -412,6 +563,11 @@ export class ThreadSession {
       // The first turn to start while compacting is the compaction itself.
       if (this.compacting && !this.#compactionTurnId) this.#compactionTurnId = turnIdOf(params);
     }
+    // Review can complete before its request returns, without a start or item.
+    if (this.operation?.kind === "review" && method === "turn/completed") {
+      const completedId = turnIdOf(params);
+      if (completedId) ensureTurn(thread.turns, completedId);
+    }
     const outcome = applyThreadEvent(thread, event);
     if (outcome.streamError) this.streamError = outcome.streamError;
     if (outcome.notice) this.notice = outcome.notice;
@@ -421,7 +577,7 @@ export class ThreadSession {
     if (outcome.turnCompleted) {
       // Compaction runs as a turn, so its end — however it ends — releases the
       // meter. Only its own end, though: a turn that raced it must not.
-      if (this.compacting && (!this.#compactionTurnId || this.#compactionTurnId === turnIdOf(params))) {
+      if (this.compacting && this.#compactionTurnId !== null && this.#compactionTurnId === turnIdOf(params)) {
         this.endCompaction();
       }
       // The detail cache still holds the transcript from before this turn; drop

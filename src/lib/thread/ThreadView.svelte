@@ -13,7 +13,6 @@ import { runsFor } from "$lib/services/agentRuns.svelte";
 import {
   addThreadBranch,
   clearThreadGoal,
-  compactThread,
   copyText,
   forkThread,
   getThreadGoal,
@@ -21,18 +20,14 @@ import {
   gitRepoInfo,
   gitWorktreeAdd,
   interruptTurn,
-  isRevertUnsupported,
   killAgentRun,
   openInZed,
   revealInFinder,
-  revertThread,
   reviewLocalDiff,
-  rollbackThread,
   setThreadBranchEditTurn,
   setThreadGoal,
   setThreadGoalBudget,
   setThreadGoalStatus,
-  startReview,
   startThread,
   startTurn,
   updateSubagentPolicy,
@@ -61,7 +56,7 @@ import { isAtBottom, isFarFromBottom, nextFollowing, recallScroll, rememberScrol
 import { attachSession, draftSession, openSession, releaseSession } from "$lib/thread/sessions.svelte";
 import TurnPlanCard from "$lib/thread/TurnPlanCard.svelte";
 import type { ThreadSession } from "$lib/thread/threadSession.svelte";
-import { ensureTurn, upsertItem } from "$lib/thread/threadStream";
+import { upsertItem } from "$lib/thread/threadStream";
 import {
   completedSegmentKey,
   segmentKey,
@@ -414,23 +409,20 @@ $effect(() => {
  * still an unsent draft. Callers own `starting` around it: it leaves the draft
  * running under its new id either way.
  */
-async function ensureLiveThread(): Promise<string> {
-  if (session.id) return session.id;
+async function ensureLiveThread(owner = session): Promise<string> {
+  if (owner.id) return owner.id;
+  const workspace = workspaceId;
+  const subagents = composer?.appSubagentsChoice() ?? null;
+  const harness = composer?.harnessChoice() ?? null;
+  const createdCallback = onThreadCreated;
   const newCwd = await ensureNewThreadCwd();
-  const created = await startThread(
-    newCwd,
-    workspaceId,
-    composer?.appSubagentsChoice() ?? null,
-    composer?.harnessChoice() ?? null,
-  );
-  if (session.thread) {
-    session.thread.harness = created.harness ?? null;
-    session.thread.speedTier = created.speedTier;
+  const created = await startThread(newCwd, workspace, subagents, harness);
+  if (!attachSession(owner, created.id)) throw new Error("Thread creation was interrupted.");
+  if (owner.thread) {
+    owner.thread.harness = created.harness ?? null;
+    owner.thread.speedTier = created.speedTier;
   }
-  // The draft is now a real thread: it runs under its id from here, and is
-  // retained if the view leaves mid-turn.
-  attachSession(session, created.id);
-  onThreadCreated?.(created.id, created.cwd ?? newCwd);
+  if (owner === session && owner.mounted > 0) createdCallback?.(created.id, created.cwd ?? newCwd);
   return created.id;
 }
 
@@ -698,44 +690,13 @@ const cwdMismatch = $derived(
   Boolean(expectedCwd && thread?.id && thread?.cwd && !cwdBelongsTo(thread.cwd, expectedCwd)),
 );
 
-/** `/compact` is answered here rather than in App because it needs the live thread. */
-async function compact() {
-  if (!liveThreadId || compacting || activeTurn || starting) return;
-  session.beginCompaction();
-  session.streamError = null;
-  try {
-    await compactThread(liveThreadId);
-  } catch (cause) {
-    session.endCompaction();
-    session.streamError = cause instanceof Error ? cause.message : String(cause);
-  }
+function compact() {
+  return session.compact();
 }
 
-/**
- * `/review` — hand the chosen target to Codex as a review turn. A review needs
- * no conversation behind it, so an unsent draft becomes a real thread here
- * rather than turning the command away.
- *
- * The turn is seeded from the response rather than left to the stream: a review
- * sends no `turn/started`, so without this the turn only exists once its first
- * item arrives, and Stop in the meantime would name the wrong turn.
- */
-async function review(target: ReviewTarget) {
-  if (activeTurn || starting) return;
-  session.streamError = null;
-  const fresh = !liveThreadId;
-  if (fresh) session.starting = true;
-  try {
-    const turn = await startReview(await ensureLiveThread(), target);
-    if (thread) {
-      ensureTurn(thread.turns, turn.id).status = turn.status ?? "inProgress";
-      maybeScroll(true);
-    }
-  } catch (cause) {
-    session.streamError = cause instanceof Error ? cause.message : String(cause);
-  } finally {
-    if (fresh) session.starting = false;
-  }
+function review(target: ReviewTarget) {
+  const owner = session;
+  return owner.review(target, () => ensureLiveThread(owner));
 }
 
 /** `/diff` — show the working tree against HEAD in the Changes panel. */
@@ -1053,43 +1014,8 @@ async function exportConversation() {
   }
 }
 
-/**
- * `/undo` — rewind the last N turns in place, keeping the thread id, so the
- * conversation rewinds rather than branching. Mirrors the edit-a-past-message
- * path above, minus the resend.
- *
- * `thread/revert` is the current API; Codex 0.152 refuses the deprecated
- * `thread/rollback` on the (now default) paginated history mode, while older
- * releases lack revert or refuse it on legacy history — so rollback is only
- * the fallback the backend classifies as "revert unsupported".
- */
-async function undoTurns(turns: number) {
-  if (!liveThreadId || activeTurn || starting || !thread) return;
-  const threadIdAtUndo = liveThreadId;
-  const dropped = Math.min(turns, thread.turns.length);
-  if (dropped === 0) return;
-  const kept = thread.turns.slice(0, thread.turns.length - dropped);
-  const firstDropped = thread.turns[kept.length];
-  session.streamError = null;
-  session.starting = true;
-  try {
-    try {
-      await revertThread(
-        threadIdAtUndo,
-        firstDropped.id,
-        kept.map((turn) => turn.id),
-      );
-    } catch (cause) {
-      if (!isRevertUnsupported(cause)) throw cause;
-      await rollbackThread(threadIdAtUndo, dropped);
-    }
-    if (!thread || liveThreadId !== threadIdAtUndo) return;
-    thread.turns = thread.turns.slice(0, thread.turns.length - dropped);
-  } catch (cause) {
-    session.streamError = cause instanceof Error ? cause.message : String(cause);
-  } finally {
-    session.starting = false;
-  }
+function undoTurns(turns: number) {
+  return session.undoTurns(turns);
 }
 
 function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: SubagentPolicy | null) {
