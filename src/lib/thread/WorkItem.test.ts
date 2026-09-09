@@ -3,8 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import WorkItem from "$lib/thread/WorkItem.svelte";
 import type { SubagentDetail, ThreadItem } from "$lib/types";
+import { copyText } from "$lib/services/api";
 
 const openSubagent = vi.fn();
+vi.mock("$lib/services/api", async (orig) => ({ ...(await orig<object>()), copyText: vi.fn(() => Promise.resolve()) }));
 vi.mock("$lib/app/actions.svelte", () => ({ openSubagent: (agent: SubagentDetail) => openSubagent(agent) }));
 
 const agent: SubagentDetail = {
@@ -71,5 +73,35 @@ describe("WorkItem — Codex collab tool calls", () => {
   ])("labels a %s call", (tool, receivers, label) => {
     render(WorkItem, { item: collab(tool, receivers) });
     expect(screen.getByText(label)).toBeInTheDocument();
+  });
+});
+
+describe("WorkItem — command execution", () => {
+  const command = "rg -n 'export function' src/lib/utils.ts src/lib/services/api.ts src/lib/thread/ThreadView.svelte";
+  const item: ThreadItem = {
+    type: "commandExecution",
+    id: "cmd-1",
+    command,
+    cwd: "/repo",
+    status: "completed",
+    exitCode: 0,
+    durationMs: 84,
+    aggregatedOutput: "12:export function a() {}\n",
+  };
+
+  it("shows the full command on hover and when expanded", async () => {
+    const user = userEvent.setup();
+    render(WorkItem, { item });
+    expect(screen.getByTitle(command)).toBeInTheDocument();
+    await user.click(screen.getByText(command, { selector: "code" }));
+    expect(screen.getByText(command, { selector: "pre" })).toBeInTheDocument();
+    expect(screen.getByText("/repo")).toBeInTheDocument();
+  });
+
+  it("copies the command verbatim", async () => {
+    const user = userEvent.setup();
+    render(WorkItem, { item });
+    await user.click(screen.getByRole("button", { name: "Copy command" }));
+    expect(copyText).toHaveBeenCalledWith(command);
   });
 });

@@ -66,6 +66,16 @@ let messageEl = $state<HTMLElement | null>(null);
 let copied = $state(false);
 let menuOpen = $state(false);
 let copyTimer: ReturnType<typeof setTimeout> | undefined;
+let copiedCommand = $state(false);
+let commandCopyTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Copies the command as the harness ran it, so it can be re-run verbatim. */
+function copyCommand() {
+  copyText(item.command ?? "").catch(() => {});
+  copiedCommand = true;
+  clearTimeout(commandCopyTimer);
+  commandCopyTimer = setTimeout(() => (copiedCommand = false), 1500);
+}
 
 function flashCopied() {
   copied = true;
@@ -369,17 +379,42 @@ const commandStatusClass = (item: ThreadItem) =>
   {/if}
 {:else if item.type === "commandExecution"}
   <Collapsible class="min-w-0 items-stretch">
-    <div class="overflow-hidden rounded-xl border border-surface-200-800 bg-surface-100-900">
-      <Collapsible.Trigger class="group flex w-full items-center gap-2.5 px-3 py-2 text-left">
-        <span class="size-1.5 shrink-0 rounded-full {commandStatusClass(item)}"></span>
-        <Terminal size={13} class="shrink-0 text-surface-500" />
-        <code class="min-w-0 flex-1 truncate font-mono text-xs text-surface-700-300">{item.command}</code>
-        {#if item.durationMs != null}
-          <span class="shrink-0 text-[10px] text-surface-500">{(item.durationMs / 1000).toFixed(1)}s</span>
-        {/if}
-        <ChevronDown size={13} class="shrink-0 text-surface-500 transition group-data-[state=open]:rotate-180" />
-      </Collapsible.Trigger>
+    <div class="group/command overflow-hidden rounded-xl border border-surface-200-800 bg-surface-100-900">
+      <div class="flex items-center pr-2">
+        <Collapsible.Trigger class="group flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-left">
+          <span class="size-1.5 shrink-0 rounded-full {commandStatusClass(item)}"></span>
+          <Terminal size={13} class="shrink-0 text-surface-500" />
+          <code class="min-w-0 flex-1 truncate font-mono text-xs text-surface-700-300" title={item.command}>{item.command}</code>
+          {#if item.durationMs != null}
+            <span class="shrink-0 text-[10px] text-surface-500">{(item.durationMs / 1000).toFixed(1)}s</span>
+          {/if}
+          <ChevronDown size={13} class="shrink-0 text-surface-500 transition group-data-[state=open]:rotate-180" />
+        </Collapsible.Trigger>
+        <TooltipButton
+          label="Copy command"
+          type="button"
+          aria-label="Copy command"
+          onclick={copyCommand}
+          class="grid size-6 shrink-0 place-items-center rounded-md text-surface-500 transition-opacity hover:bg-surface-200-800 hover:text-surface-800-200 {copiedCommand
+            ? 'opacity-100'
+            : 'opacity-0 group-hover/command:opacity-100 focus-visible:opacity-100'}"
+        >
+          {#if copiedCommand}
+            <Check size={13} class="text-success-500" />
+          {:else}
+            <Copy size={13} />
+          {/if}
+        </TooltipButton>
+      </div>
       <Collapsible.Content>
+        <!-- The header truncates; here the command wraps in full so long
+             invocations can be read and selected. -->
+        <div class="border-t border-surface-200-800 px-3 py-2">
+          {#if item.cwd}
+            <p class="mb-1 truncate font-mono text-[10px] text-surface-500" title={item.cwd}>{item.cwd}</p>
+          {/if}
+          <pre class="font-mono text-[11px] leading-5 break-all whitespace-pre-wrap text-surface-700-300">{item.command}</pre>
+        </div>
         <pre class="max-h-72 overflow-auto border-t border-surface-200-800 bg-surface-50-950 px-3 py-2.5 font-mono text-[11px] leading-5 text-surface-600-400">{item.aggregatedOutput?.trim() || "No output"}</pre>
       </Collapsible.Content>
     </div>
