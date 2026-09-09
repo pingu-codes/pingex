@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   startReview: vi.fn(),
   interruptTurn: vi.fn(),
   setThreadGoal: vi.fn(),
+  setThreadGoalBudget: vi.fn(),
   getThreadGoal: vi.fn(),
   clearThreadGoal: vi.fn(),
   queueAdd: vi.fn(),
@@ -74,6 +75,7 @@ vi.mock("$lib/services/api", () => ({
   setThreadGoal: mocks.setThreadGoal,
   getThreadGoal: mocks.getThreadGoal,
   setThreadGoalStatus: vi.fn(),
+  setThreadGoalBudget: mocks.setThreadGoalBudget,
   clearThreadGoal: mocks.clearThreadGoal,
   invalidateThreadCache: mocks.invalidateThreadCache,
   isTauri: () => false,
@@ -425,10 +427,11 @@ describe("ThreadView questions stranded by an earlier session", () => {
     await user.type(screen.getByPlaceholderText("Answer…"), "staging");
     await user.click(screen.getByRole("button", { name: "Send as new message" }));
 
+    // The answer runs with the composer's choices — mode included — like any send.
     expect(mocks.startTurn).toHaveBeenCalledWith(
       "thread-1",
       [{ type: "text", text: "Which environment?\nstaging" }],
-      undefined,
+      expect.objectContaining({ collaborationMode: expect.objectContaining({ mode: "default" }) }),
     );
   });
 
@@ -1262,6 +1265,7 @@ describe("ThreadView /goal", () => {
     mocks.startTurn.mockReset();
     mocks.requestAutoName.mockReset();
     mocks.setThreadGoal.mockReset();
+    mocks.setThreadGoalBudget.mockReset();
     mocks.getThreadGoal.mockReset();
     mocks.clearThreadGoal.mockReset();
     mocks.openDialog.mockReset();
@@ -1326,6 +1330,58 @@ describe("ThreadView /goal", () => {
       });
     }
     await waitFor(() => expect(screen.getByTestId("goal-status")).toHaveTextContent("complete"));
+  });
+
+  it("shows the budget's progress and caps it from the command", async () => {
+    const user = userEvent.setup();
+    mocks.readThread.mockResolvedValueOnce(detail());
+    mocks.getThreadGoal.mockResolvedValue({
+      threadId: "thread-1",
+      objective: "keep the build green",
+      status: "active",
+      tokenBudget: 500_000,
+      tokensUsed: 125_000,
+      timeUsedSeconds: 0,
+    });
+    mocks.setThreadGoalBudget.mockImplementation((threadId: string, tokens: number | null) =>
+      Promise.resolve({
+        threadId,
+        objective: "keep the build green",
+        status: "active",
+        tokenBudget: tokens,
+        tokensUsed: 125_000,
+        timeUsedSeconds: 0,
+      }),
+    );
+    render(ThreadView, { threadId: "thread-1", cwd: "/projects/example", projectPath: "/projects/example" });
+    const budget = await screen.findByTestId("goal-budget");
+    expect(budget).toHaveTextContent("125k / 500k");
+    expect(screen.getByRole("button", { name: "Change goal budget" })).toBeVisible();
+
+    await user.type(screen.getByRole("textbox", { name: composerLabel }), "/goal budget 250k{Enter}");
+    await waitFor(() => expect(mocks.setThreadGoalBudget).toHaveBeenCalledWith("thread-1", 250_000));
+    expect(await screen.findByText("Goal budget set: 250k tokens.")).toBeVisible();
+    await waitFor(() => expect(screen.getByTestId("goal-budget")).toHaveTextContent("125k / 250k"));
+
+    await user.type(screen.getByRole("textbox", { name: composerLabel }), "/goal budget clear{Enter}");
+    await waitFor(() => expect(mocks.setThreadGoalBudget).toHaveBeenCalledWith("thread-1", null));
+    await waitFor(() => expect(screen.queryByTestId("goal-budget")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Set goal budget" })).toBeVisible();
+  });
+
+  it("offers to raise an exhausted budget", async () => {
+    mocks.readThread.mockResolvedValueOnce(detail());
+    mocks.getThreadGoal.mockResolvedValue({
+      threadId: "thread-1",
+      objective: "keep the build green",
+      status: "budgetLimited",
+      tokenBudget: 1_000,
+      tokensUsed: 1_000,
+      timeUsedSeconds: 0,
+    });
+    render(ThreadView, { threadId: "thread-1", cwd: "/projects/example", projectPath: "/projects/example" });
+    expect(await screen.findByRole("button", { name: "Raise budget" })).toBeVisible();
+    expect(screen.getByTestId("goal-status")).toHaveTextContent("budget exhausted");
   });
 
   it("names the new thread from the objective, since it has no turn to name it from", async () => {

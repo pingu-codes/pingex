@@ -1,5 +1,5 @@
 <script lang="ts">
-import { ArrowDown, ChevronRight, Pause, Pencil, Play, Target, X } from "@lucide/svelte";
+import { ArrowDown, ChevronRight, Gauge, Pause, Pencil, Play, Target, X } from "@lucide/svelte";
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
 import { onDestroy, tick, untrack } from "svelte";
 import { nameNewThread } from "$lib/app/appData.svelte";
@@ -30,6 +30,7 @@ import {
   rollbackThread,
   setThreadBranchEditTurn,
   setThreadGoal,
+  setThreadGoalBudget,
   setThreadGoalStatus,
   startReview,
   startThread,
@@ -45,6 +46,8 @@ import DiscardQueuedDialog from "$lib/thread/DiscardQueuedDialog.svelte";
 import ElicitationCard from "$lib/thread/ElicitationCard.svelte";
 import FloatingMenu from "$lib/thread/FloatingMenu.svelte";
 import { collectFileChanges } from "$lib/thread/fileChanges";
+import GoalBudgetDialog from "$lib/thread/GoalBudgetDialog.svelte";
+import { formatTokens, parseTokenBudget } from "$lib/thread/goalBudget";
 import { cwdBelongsTo } from "$lib/thread/handoff";
 import { messageText, messageTitle } from "$lib/thread/messageText";
 import { groupForTurn, isPendingEditTurn, versionsForTurn } from "$lib/thread/messageVersions";
@@ -151,6 +154,20 @@ $effect(() => {
   });
 });
 onDestroy(() => releaseSession(untrack(() => session)));
+// Sends that bypass the composer's text (a stranded answer, a steer, a drain
+// that lost its options) still run with the composer's choices.
+$effect(() => {
+  const current = session;
+  current.turnOptions = () => untrack(() => composer?.turnOptions());
+});
+// The harness changed mode by itself (Claude leaves plan mode when a plan is
+// approved); the pill follows once, then the event is spent.
+$effect(() => {
+  const mode = session.collaborationMode;
+  if (!mode || !composer) return;
+  session.collaborationMode = null;
+  composer.syncPlanMode(mode === "plan");
+});
 const thread = $derived(session.thread);
 const liveThreadId = $derived(session.id);
 const activeTurn = $derived(session.activeTurn);
@@ -209,6 +226,7 @@ let composer = $state<{
   harnessChoice: () => "codex" | "claude" | null;
   openReviewPicker: () => void;
   startGoalEdit: (objective: string) => void;
+  syncPlanMode: (on: boolean) => void;
   restoreText: (text: string) => void;
   turnOptions: () => TurnOptions | undefined;
   isEmpty: () => boolean;
@@ -683,12 +701,12 @@ const cwdMismatch = $derived(
 /** `/compact` is answered here rather than in App because it needs the live thread. */
 async function compact() {
   if (!liveThreadId || compacting || activeTurn || starting) return;
-  session.compacting = true;
+  session.beginCompaction();
   session.streamError = null;
   try {
     await compactThread(liveThreadId);
   } catch (cause) {
-    session.compacting = false;
+    session.endCompaction();
     session.streamError = cause instanceof Error ? cause.message : String(cause);
   }
 }
@@ -812,9 +830,9 @@ function failCommand(command: SlashCommandId, typed: string, message?: string) {
 }
 
 /**
- * `/goal` — set, view, or clear the goal for a long-running task. With no
- * argument the current goal is shown; `clear` drops it; anything else becomes
- * the new objective.
+ * `/goal` — set, view, cap or clear the goal for a long-running task. With no
+ * argument the current goal is shown; `clear` drops it; `budget <tokens>` (or
+ * `budget clear`) caps its spend; anything else becomes the new objective.
  *
  * Setting an objective needs no conversation behind it, so — like `/review` —
  * an unsent draft becomes a real thread here: that is what starting a thread
@@ -822,6 +840,11 @@ function failCommand(command: SlashCommandId, typed: string, message?: string) {
  * creating a thread just to report it has no goal would be waste.
  */
 async function goalCommand(argument: string, typed = "") {
+  const budget = /^budget\b\s*(.*)$/i.exec(argument.trim());
+  if (budget) {
+    await goalBudgetCommand(budget[1].trim(), typed);
+    return;
+  }
   const objective = argument && argument.toLowerCase() !== "clear" ? argument : null;
   const current = liveThreadId;
   if (!objective) {
@@ -849,6 +872,48 @@ async function goalCommand(argument: string, typed = "") {
   }
   const ok = await setGoal(objective);
   if (!ok && typed) composer?.restoreText(typed);
+}
+
+/** `/goal budget <tokens|clear>` — cap the goal's spend, or lift the cap. */
+async function goalBudgetCommand(argument: string, typed = "") {
+  if (!liveThreadId || !goal) {
+    session.notice = "No goal is set — /goal <objective> sets one first.";
+    return;
+  }
+  if (!argument) {
+    session.notice = goal.tokenBudget
+      ? `Goal budget: ${formatTokens(goal.tokensUsed)} of ${formatTokens(goal.tokenBudget)} tokens used.`
+      : "The goal has no budget — /goal budget 500k caps it.";
+    return;
+  }
+  const tokens = argument.toLowerCase() === "clear" ? null : parseTokenBudget(argument);
+  if (tokens === null && argument.toLowerCase() !== "clear") {
+    failCommand("goal", typed, "Budgets are a number of tokens, like 250000, 500k or 2m.");
+    return;
+  }
+  await applyGoalBudget(tokens);
+}
+
+/** Write `tokens` (or no cap) to the goal and reflect the answer. */
+async function applyGoalBudget(tokens: number | null): Promise<boolean> {
+  if (!liveThreadId || !goal) return false;
+  try {
+    const set = await setThreadGoalBudget(liveThreadId, tokens);
+    session.setGoal({ ...goal, ...set, objective: set.objective || goal.objective });
+    session.notice = tokens === null ? "Goal budget lifted." : `Goal budget set: ${formatTokens(tokens)} tokens.`;
+    return true;
+  } catch (cause) {
+    toastError(cause instanceof Error ? cause.message : String(cause));
+    return false;
+  }
+}
+
+/** The banner's budget control: cap, raise or lift the goal's token budget. */
+async function editGoalBudget() {
+  if (!goal) return;
+  const chosen = await openDialog(GoalBudgetDialog, { current: goal.tokenBudget, used: goal.tokensUsed });
+  if (chosen === undefined) return;
+  await applyGoalBudget(chosen);
 }
 
 /**
@@ -1242,6 +1307,38 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
           {GOAL_STATUS_LABEL[goal.status] ?? goal.status}
         </span>
         <span class="min-w-0 flex-1 truncate" title={goal.objective}>{goal.objective}</span>
+        {#if goal.tokenBudget}
+          {@const share = Math.min(1, goal.tokensUsed / goal.tokenBudget)}
+          <span class="flex shrink-0 items-center gap-1.5 text-[10px] tabular-nums text-surface-500" data-testid="goal-budget">
+            <span
+              class="h-1.5 w-16 overflow-hidden rounded-full bg-surface-200-800"
+              role="progressbar"
+              aria-label="Goal budget used"
+              aria-valuemin={0}
+              aria-valuemax={goal.tokenBudget}
+              aria-valuenow={goal.tokensUsed}
+            >
+              <span
+                class="block h-full rounded-full {goal.status === 'budgetLimited' ? 'bg-error-500' : share >= 0.9 ? 'bg-warning-500' : 'bg-primary-500'}"
+                style="width: {share * 100}%"
+              ></span>
+            </span>
+            {formatTokens(goal.tokensUsed)} / {formatTokens(goal.tokenBudget)}
+          </span>
+        {/if}
+        {#if goal.status === "budgetLimited"}
+          <button type="button" class="btn btn-sm shrink-0 py-0 text-[10px] preset-tonal-error" onclick={editGoalBudget}>
+            Raise budget
+          </button>
+        {/if}
+        <TooltipButton
+          label={goal.tokenBudget ? "Change goal budget" : "Set goal budget"}
+          onclick={editGoalBudget}
+          aria-label={goal.tokenBudget ? "Change goal budget" : "Set goal budget"}
+          class="shrink-0 opacity-60 hover:opacity-100"
+        >
+          <Gauge size={12} />
+        </TooltipButton>
         <TooltipButton label="Edit goal" onclick={startGoalEdit} aria-label="Edit goal" class="shrink-0 opacity-60 hover:opacity-100">
           <Pencil size={12} />
         </TooltipButton>
@@ -1331,7 +1428,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
 
   <Composer
     bind:this={composer}
-    busy={activeTurn !== null || starting}
+    busy={activeTurn !== null || starting || compacting}
     disabled={loading || error !== null}
     hasQuestions={threadQuestions.length > 0}
     plan={pendingPlan}

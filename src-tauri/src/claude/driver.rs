@@ -41,21 +41,20 @@ struct Pending {
 type PendingMap = Arc<Mutex<HashMap<i64, Pending>>>;
 
 /// What a thread's process was started with; a change mid-session goes out
-/// as a control request.
-#[derive(Clone, Default, PartialEq)]
+/// as a control request. `mode` is `None` when the turn named no mode, which
+/// keeps whatever the process runs in — the same sticky semantics Codex
+/// gives a mode-less `turn/start`.
+#[derive(Clone, Default, PartialEq, Debug)]
 struct Settings {
     model: Option<String>,
     effort: Option<String>,
-    mode: String,
+    mode: Option<String>,
 }
 
 impl Settings {
     fn from_options(options: Option<&TurnOptions>) -> Self {
         let Some(options) = options else {
-            return Self {
-                mode: "default".into(),
-                ..Default::default()
-            };
+            return Self::default();
         };
         let plan = options
             .collaboration_mode
@@ -77,8 +76,13 @@ impl Settings {
         Self {
             model: options.model.clone().filter(|m| !m.is_empty()),
             effort: options.effort.clone().filter(|e| !e.is_empty()),
-            mode: mode.to_string(),
+            mode: Some(mode.to_string()),
         }
+    }
+
+    /// The permission mode a fresh process starts in.
+    fn mode_or_default(&self) -> &str {
+        self.mode.as_deref().unwrap_or("default")
     }
 }
 
@@ -593,7 +597,7 @@ impl ClaudeDriver {
         let args = turn_args(
             settings.model.as_deref(),
             settings.effort.as_deref(),
-            &settings.mode,
+            settings.mode_or_default(),
             resume,
             thread_id,
         );
@@ -625,7 +629,10 @@ impl ClaudeDriver {
         let process = Arc::new(ThreadProcess {
             child,
             sink,
-            settings: Mutex::new(settings.clone()),
+            settings: Mutex::new(Settings {
+                mode: Some(settings.mode_or_default().to_string()),
+                ..settings.clone()
+            }),
         });
         if let Ok(mut processes) = self.processes.lock() {
             processes.insert(thread_id.to_string(), process.clone());
@@ -653,14 +660,19 @@ impl ClaudeDriver {
                     .control(json!({"subtype": "set_model", "model": settings.model}))
                     .await?;
             }
-            if current.mode != settings.mode {
-                process
-                    .child
-                    .control(json!({"subtype": "set_permission_mode", "mode": settings.mode}))
-                    .await?;
+            if let Some(mode) = &settings.mode {
+                if current.mode.as_deref() != Some(mode.as_str()) {
+                    process
+                        .child
+                        .control(json!({"subtype": "set_permission_mode", "mode": mode}))
+                        .await?;
+                }
             }
             if let Ok(mut slot) = process.settings.lock() {
-                *slot = settings.clone();
+                *slot = Settings {
+                    mode: settings.mode.clone().or(current.mode),
+                    ..settings.clone()
+                };
             }
             return Ok(process);
         }
@@ -763,7 +775,42 @@ impl ClaudeDriver {
         pending.child.respond_control(
             &pending.request_id,
             permissions::permission_result(option_id, &pending.can_use_tool),
+        )?;
+        // Implementing a plan answers with `setMode`, which moves the CLI out
+        // of plan mode. Record it, or the next turn's diff would think the
+        // process is still planning; and say so, or the composer's pill would.
+        if let Some(mode) = permissions::mode_after(option_id) {
+            if let Some(process) = self.process(&pending.thread_id) {
+                if let Ok(mut slot) = process.settings.lock() {
+                    slot.mode = Some(mode.to_string());
+                }
+                process.sink.emit(HarnessEvent::ModeChanged {
+                    mode: "default".into(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Ask the CLI to compact the thread's context: `/compact` runs as a turn
+    /// and lands as a `compact_boundary`, which the projector turns into the
+    /// same `thread/compacted` Codex sends.
+    pub(crate) async fn compact(
+        &self,
+        app: &AppHandle,
+        thread_id: &str,
+        cwd: &str,
+        resume: bool,
+    ) -> Result<String, String> {
+        self.start_turn(
+            app,
+            thread_id,
+            cwd,
+            resume,
+            &[json!({"type": "text", "text": "/compact"})],
+            None,
         )
+        .await
     }
 
     /// Answer an `AskUserQuestion` with Codex-shaped answers.
@@ -914,18 +961,26 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            Settings::from_options(Some(&options("on-request", "read-only"))).mode,
-            "default"
+            Settings::from_options(Some(&options("on-request", "read-only")))
+                .mode
+                .as_deref(),
+            Some("default")
         );
         assert_eq!(
-            Settings::from_options(Some(&options("on-request", "workspace-write"))).mode,
-            "acceptEdits"
+            Settings::from_options(Some(&options("on-request", "workspace-write")))
+                .mode
+                .as_deref(),
+            Some("acceptEdits")
         );
         assert_eq!(
-            Settings::from_options(Some(&options("never", "danger-full-access"))).mode,
-            "bypassPermissions"
+            Settings::from_options(Some(&options("never", "danger-full-access")))
+                .mode
+                .as_deref(),
+            Some("bypassPermissions")
         );
-        assert_eq!(Settings::from_options(None).mode, "default");
+        // A mode-less turn keeps whatever the process runs in.
+        assert_eq!(Settings::from_options(None).mode, None);
+        assert_eq!(Settings::from_options(None).mode_or_default(), "default");
     }
 
     #[test]
@@ -935,7 +990,10 @@ mod tests {
             collaboration_mode: Some(crate::util::json::Json(json!({"mode": "plan"}))),
             ..Default::default()
         };
-        assert_eq!(Settings::from_options(Some(&options)).mode, "plan");
+        assert_eq!(
+            Settings::from_options(Some(&options)).mode.as_deref(),
+            Some("plan")
+        );
     }
 
     #[test]

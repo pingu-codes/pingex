@@ -542,7 +542,7 @@ export async function setThreadGoal(threadId: string, objective: string): Promis
   if (!isTauri()) {
     return { threadId, objective, status: "active", tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 0 };
   }
-  return commands.threadGoalSet(threadId, objective, null) as Promise<ThreadGoal>;
+  return commands.threadGoalSet(threadId, objective, null, null, null) as Promise<ThreadGoal>;
 }
 
 /** Pause or resume the thread's goal without changing its objective. */
@@ -550,7 +550,19 @@ export async function setThreadGoalStatus(threadId: string, status: "active" | "
   if (!isTauri()) {
     return { threadId, objective: "", status, tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 0 };
   }
-  return commands.threadGoalSet(threadId, null, status) as Promise<ThreadGoal>;
+  return commands.threadGoalSet(threadId, null, status, null, null) as Promise<ThreadGoal>;
+}
+
+/**
+ * Cap the goal's spend at `tokens`, or lift the cap with `null`. Codex stops
+ * driving the goal (`budgetLimited`) once `tokensUsed` reaches it; raising the
+ * cap lets it carry on. Codex may refuse a cap above its configured maximum.
+ */
+export async function setThreadGoalBudget(threadId: string, tokens: number | null): Promise<ThreadGoal> {
+  if (!isTauri()) {
+    return { threadId, objective: "", status: "active", tokenBudget: tokens, tokensUsed: 0, timeUsedSeconds: 0 };
+  }
+  return commands.threadGoalSet(threadId, null, null, tokens, tokens === null ? true : null) as Promise<ThreadGoal>;
 }
 
 /** The thread's goal, or null when none is set. */

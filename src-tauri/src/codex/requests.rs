@@ -71,14 +71,23 @@ pub fn thread_read(thread_id: &str) -> Request {
 }
 
 /// `thread/goal/set`: only the fields given change; the app-server keeps the
-/// rest of the goal.
-pub fn thread_goal_set(thread_id: &str, objective: Option<&str>, status: Option<&str>) -> Request {
+/// rest of the goal. `token_budget` is a double option: `None` leaves the cap
+/// alone, `Some(None)` clears it, `Some(Some(n))` caps the goal at `n` tokens.
+pub fn thread_goal_set(
+    thread_id: &str,
+    objective: Option<&str>,
+    status: Option<&str>,
+    token_budget: Option<Option<i64>>,
+) -> Request {
     let mut params = json!({"threadId": thread_id});
     if let Some(objective) = objective {
         params["objective"] = json!(objective);
     }
     if let Some(status) = status {
         params["status"] = json!(status);
+    }
+    if let Some(budget) = token_budget {
+        params["tokenBudget"] = json!(budget);
     }
     request("thread/goal/set", params)
 }
@@ -602,4 +611,30 @@ pub fn queue_start(thread_id: &str, queued_submission_id: Option<&str>) -> Reque
         "thread/queue/start",
         json!({"threadId": thread_id, "queuedSubmissionId": queued_submission_id}),
     )
+}
+
+#[cfg(test)]
+mod goal_tests {
+    use super::*;
+
+    #[test]
+    fn goal_set_leaves_the_budget_alone_when_not_given() {
+        let request = thread_goal_set("t", Some("ship it"), None, None);
+        assert_eq!(request.params["objective"], "ship it");
+        assert!(request.params.get("tokenBudget").is_none());
+        assert!(request.params.get("status").is_none());
+    }
+
+    #[test]
+    fn goal_set_caps_and_clears_the_budget() {
+        let capped = thread_goal_set("t", None, None, Some(Some(500_000)));
+        assert_eq!(capped.params["tokenBudget"], 500_000);
+        let cleared = thread_goal_set("t", None, None, Some(None));
+        assert!(cleared.params["tokenBudget"].is_null());
+        assert!(cleared
+            .params
+            .as_object()
+            .unwrap()
+            .contains_key("tokenBudget"));
+    }
 }

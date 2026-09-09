@@ -113,6 +113,13 @@ Session-level:
   Replaces Codex's four warning notifications, `model/rerouted`,
   `hook/completed` failures and Claude's `api_retry` and `permission_denied`.
 - `compaction { itemId, trigger: manual | auto, preTokens?, postTokens? }`.
+  Projected as a `contextCompaction` item plus `thread/compacted`, so the
+  context meter clears the same way on every harness. `/compact` on a Claude
+  thread is a turn whose text is `/compact`; the CLI runs the built-in
+  command and answers with a `compact_boundary` (trigger `manual`).
+- `mode_changed { mode: plan | default }` — the harness switched mode by
+  itself (Claude, on a plan approval). Projected as
+  `thread/collaborationMode/changed`.
 
 Requests from the harness travel on `harness:request` as `HarnessRequest`,
 answered by `requestId`:
@@ -262,6 +269,12 @@ is not set, returning the suggestions verbatim as `updatedPermissions`;
 `reject_once` "Decline" (`deny`, message "User declined"). `ExitPlanMode`
 offers "Implement" (`setMode default`), "Implement, auto-accept edits"
 (`setMode acceptEdits`) and "Keep planning" (deny, "Revise the plan").
+Either "Implement" answer moves the CLI out of plan mode on its own, so the
+driver records the new mode against the process (the next turn's mode diff
+must not think it is still planning) and emits `ModeChanged { mode: default }`,
+projected as `thread/collaborationMode/changed`; the composer's plan pill
+follows it. A turn that names no mode keeps whatever the process runs in,
+the same sticky rule Codex applies to a mode-less `turn/start`.
 `default_to_no` focuses Decline. `decision_reason` (ANSI stripped) and
 `blocked_path` show under the title.
 

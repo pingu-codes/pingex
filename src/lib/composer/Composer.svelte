@@ -1,5 +1,4 @@
 <script lang="ts">
-import { threadHomeLabel } from "$lib/services/homeRouting";
 import { ArrowUp, Map as MapIcon, Paperclip, Square, Target } from "@lucide/svelte";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -27,10 +26,10 @@ import {
   saveScopedPrefs,
   turnOptionsFrom,
 } from "$lib/composer/composerPrefs.svelte";
-import MentionPicker from "$lib/composer/MentionPicker.svelte";
+import { fastModeState, fastTier } from "$lib/composer/fastMode";
 import HarnessMenu from "$lib/composer/HarnessMenu.svelte";
+import MentionPicker from "$lib/composer/MentionPicker.svelte";
 import ModelPopover from "$lib/composer/ModelPopover.svelte";
-import { fastTier, fastModeState } from "$lib/composer/fastMode";
 import {
   claudeModels as claudeModelList,
   claudeModelsError as claudeModelListError,
@@ -57,6 +56,7 @@ import {
   stageBrowserFile,
   stageClipboardImage,
 } from "$lib/services/api";
+import { threadHomeLabel } from "$lib/services/homeRouting";
 import { openSettings, settingsNav } from "$lib/services/settingsNav.svelte";
 import type { ContextStats } from "$lib/thread/contextUsage";
 import { freshPlanPrompt } from "$lib/thread/planHandoff";
@@ -111,7 +111,9 @@ let {
   compacting?: boolean;
   subagentModelPolicy?: SubagentPolicy | null;
   subagentReasoningEffortPolicy?: SubagentPolicy | null;
-  onSend: (input: UserInputPart[], options?: TurnOptions) => void;
+  /** Resolving `false` means the message reached nothing — the harness
+   *  refused it — and the composer gives the text back. */
+  onSend: (input: UserInputPart[], options?: TurnOptions) => Promise<boolean> | boolean | undefined;
   onInterrupt: () => void;
   /** Thread-level slash commands (compact, new, fork, archive, rename). */
   /** `argument` is whatever followed the command name, e.g. `/undo 2`. `typed`
@@ -523,7 +525,11 @@ function chooseModel(model: Model) {
     prefs.effort = model.defaultReasoningEffort;
   }
   persist();
-  onLiveSettingsChange?.({ model: prefs.model ?? null, effort: prefs.effort ?? null, ...(keepFast ? { speedTier: prefs.speedTier! } : {}) });
+  onLiveSettingsChange?.({
+    model: prefs.model ?? null,
+    effort: prefs.effort ?? null,
+    ...(keepFast ? { speedTier: prefs.speedTier! } : {}),
+  });
 }
 
 function chooseEffort(effort: string) {
@@ -638,6 +644,18 @@ function leavePlanMode() {
   dismissedPlan = plan;
   prefs.planMode = false;
   persist();
+}
+
+/** The harness moved the thread between modes on its own: follow it, so the
+ *  pill says what the next turn will actually run as. */
+export function syncPlanMode(on: boolean) {
+  if (prefs.planMode === on) return;
+  if (on) {
+    prefs.planMode = true;
+    persist();
+  } else {
+    leavePlanMode();
+  }
 }
 
 function planTurnOptions() {
@@ -938,11 +956,12 @@ function submit() {
     return;
   }
   const sent = buildTurnInput(trimmedParts, cwd);
+  const snapshot = trimmedParts.map((part) => ({ ...part }));
   richEditor.clear();
   sources.clear();
   closePickers();
   persistDraft(null);
-  void dispatchSend(sent);
+  void dispatchSend(sent, snapshot);
 }
 
 /**
@@ -978,11 +997,18 @@ async function submitGoal(parts: ComposerPart[]) {
 /** Send once a model can back the collaboration settings: the first send after
  *  launch may beat the model list, and a mode-less turn is what leaves a thread
  *  stuck in plan mode. Bounded so a failing model fetch never blocks sending. */
-async function dispatchSend(sent: UserInputPart[]) {
+async function dispatchSend(sent: UserInputPart[], snapshot: ComposerPart[]) {
   if (!models && !prefs.model && !threadModel) {
     await Promise.race([ensureModels(), new Promise((resolve) => setTimeout(resolve, 3000))]);
   }
-  onSend(sent, sendOptions());
+  let outcome: boolean | undefined;
+  try {
+    outcome = await onSend(sent, sendOptions());
+  } catch {
+    outcome = false;
+  }
+  // The message reached nothing: give the text back rather than losing it.
+  if (outcome === false && isEmpty()) richEditor.setParts(snapshot);
 }
 
 function onPaste(event: ClipboardEvent) {
@@ -1157,7 +1183,7 @@ function onPaste(event: ClipboardEvent) {
         tabindex={-1}
         onchange={onFileInputChange}
       />
-      <div class="flex items-end gap-2">
+      <div class="flex min-w-0 items-end gap-2">
         <div
           bind:this={editor}
           contenteditable={!disabled}
@@ -1174,7 +1200,7 @@ function onPaste(event: ClipboardEvent) {
           onpaste={onPaste}
           oncompositionstart={richEditor.handleCompositionStart}
           oncompositionend={richEditor.handleCompositionEnd}
-          class="composer-editor flex-1 overflow-y-auto bg-transparent text-sm leading-6 outline-none empty:before:pointer-events-none empty:before:text-surface-500 empty:before:content-[attr(data-placeholder)] {disabled ? 'pointer-events-none opacity-50' : ''}"
+          class="composer-editor min-w-0 flex-1 overflow-y-auto bg-transparent text-sm leading-6 outline-none empty:before:pointer-events-none empty:before:text-surface-500 empty:before:content-[attr(data-placeholder)] {disabled ? 'pointer-events-none opacity-50' : ''}"
         >
         </div>
         {#if busy}

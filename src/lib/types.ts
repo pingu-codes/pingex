@@ -777,6 +777,8 @@ interface CodexEventOverrides {
   "thread/status/changed": { threadId: string };
   "thread/goal/updated": { threadId: string; goal: ThreadGoal | null };
   "thread/goal/cleared": { threadId: string };
+  /** The harness moved the thread between plan and default mode on its own. */
+  "thread/collaborationMode/changed": { threadId: string; mode: "plan" | "default" };
   "thread/archived": { threadId: string };
   "thread/unarchived": { threadId: string };
   "thread/deleted": { threadId: string };

@@ -96,6 +96,7 @@ fn goal_survives_restart_pause_and_clear() {
         &thread_id,
         Some(objective),
         Some("paused"),
+        None,
     ));
     assert_eq!(goal_objective(&set["goal"]), objective, "{set}");
     assert_eq!(goal_status(&set["goal"]), "paused", "{set}");
@@ -143,10 +144,20 @@ fn goal_survives_restart_pause_and_clear() {
     );
 
     // Only the given field changes: pausing/unpausing keeps the objective.
-    let resumed = server.call(requests::thread_goal_set(&thread_id, None, Some("active")));
+    let resumed = server.call(requests::thread_goal_set(
+        &thread_id,
+        None,
+        Some("active"),
+        None,
+    ));
     assert_eq!(goal_status(&resumed["goal"]), "active", "{resumed}");
     assert_eq!(goal_objective(&resumed["goal"]), objective, "{resumed}");
-    let paused = server.call(requests::thread_goal_set(&thread_id, None, Some("paused")));
+    let paused = server.call(requests::thread_goal_set(
+        &thread_id,
+        None,
+        Some("paused"),
+        None,
+    ));
     assert_eq!(goal_status(&paused["goal"]), "paused", "{paused}");
     server.drain_turns(from, GOAL_SETTLE);
 
@@ -179,7 +190,12 @@ fn start_with_goal_on_fresh_thread_then_pause_survives_restart() {
     let thread_id = server.start_thread();
     let objective = "E2E goal: when asked for the token reply GOAL-FRESH-OK; the goal is complete once you have replied";
 
-    let set = server.call(requests::thread_goal_set(&thread_id, Some(objective), None));
+    let set = server.call(requests::thread_goal_set(
+        &thread_id,
+        Some(objective),
+        None,
+        None,
+    ));
     assert_eq!(goal_status(&set["goal"]), "active", "{set}");
     // Goal set on a fresh thread must not have started a turn by itself.
     let from = server.cursor();
@@ -195,7 +211,12 @@ fn start_with_goal_on_fresh_thread_then_pause_survives_restart() {
         "first turn on a goal-first thread",
     );
     // Stop the goal before it can drive more turns; drain anything in flight.
-    server.call(requests::thread_goal_set(&thread_id, None, Some("paused")));
+    server.call(requests::thread_goal_set(
+        &thread_id,
+        None,
+        Some("paused"),
+        None,
+    ));
     let turn_ids = server.drain_turns(from, GOAL_SETTLE);
     assert!(
         turn_ids.contains(&outcome.turn_id),

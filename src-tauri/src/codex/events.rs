@@ -54,6 +54,10 @@ pub(crate) enum CodexNotification {
     ThreadReverted(ThreadParams),
     #[serde(rename = "thread/compacted")]
     ThreadCompacted(ThreadTurnParams),
+    /// App-emitted, never by Codex: a harness moved the thread between plan
+    /// and default mode on its own.
+    #[serde(rename = "thread/collaborationMode/changed")]
+    ThreadCollaborationModeChanged(ThreadModeChangedParams),
     #[serde(rename = "thread/archived")]
     ThreadArchived(ThreadParams),
     #[serde(rename = "thread/unarchived")]
@@ -183,6 +187,7 @@ const KNOWN_METHODS: &[&str] = &[
     "thread/queue/changed",
     "thread/reverted",
     "thread/compacted",
+    "thread/collaborationMode/changed",
     "thread/archived",
     "thread/unarchived",
     "thread/deleted",
@@ -249,6 +254,7 @@ params!(
     EmptyParams {}
 );
 params!(ThreadTurnParams { thread_id: Option<String>, turn_id: Option<String> });
+params!(ThreadModeChangedParams { thread_id: Option<String>, mode: Option<String> });
 params!(ThreadStartedParams { #[specta(type = Json)] thread: Option<Json> });
 params!(ThreadStatusChangedParams { thread_id: Option<String>, #[specta(type = Json)] status: Option<Json> });
 params!(ThreadNameUpdatedParams { thread_id: Option<String>, thread_name: Option<String> });

@@ -584,6 +584,27 @@ describe("Composer", () => {
     );
   });
 
+  it("gives the text back when the send reached nothing", async () => {
+    const user = userEvent.setup();
+    const { onSend, textarea } = setup();
+    onSend.mockResolvedValue(false);
+
+    await user.type(textarea, "hello again{Enter}");
+    await waitFor(() => expect(textarea).toHaveTextContent("hello again"));
+  });
+
+  it("follows the harness out of plan mode", async () => {
+    const user = userEvent.setup();
+    const { component } = setup({ plan: "1. do things" });
+    const toggle = screen.getByRole("button", { name: "Toggle plan mode" });
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+
+    component.syncPlanMode(false);
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "false"));
+    expect(screen.queryByRole("button", { name: "Implement the plan" })).not.toBeInTheDocument();
+  });
+
   it("offers plan actions once a plan exists in plan mode", async () => {
     const user = userEvent.setup();
     const { onSend } = setup({ plan: "1. do things" });

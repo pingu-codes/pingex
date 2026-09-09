@@ -499,8 +499,14 @@ impl Projector {
                 vec![
                     ("item/started", base(json!({"item": item}))),
                     ("item/completed", base(json!({"item": item}))),
+                    // What Codex sends once a compaction lands; the meter waits on it.
+                    ("thread/compacted", base(json!({}))),
                 ]
             }
+            HarnessEvent::ModeChanged { mode } => vec![(
+                "thread/collaborationMode/changed",
+                json!({"threadId": thread_id, "mode": mode}),
+            )],
             HarnessEvent::Notice { level, text } => {
                 if level == "error" {
                     vec![(
@@ -575,6 +581,40 @@ mod tests {
         assert!((usage["total"]["costUsd"].as_f64().unwrap() - 0.75).abs() < 1e-9);
         assert!((usage["last"]["costUsd"].as_f64().unwrap() - 0.25).abs() < 1e-9);
         assert_eq!(usage["modelContextWindow"], 200_000);
+    }
+
+    #[test]
+    fn a_compaction_lands_as_an_item_and_a_compacted_notice() {
+        let mut projector = Projector::default();
+        let out = projector.project(
+            "t",
+            "turn",
+            &HarnessEvent::Compaction {
+                item_id: "compact-1".into(),
+                trigger: "manual".into(),
+            },
+        );
+        let methods: Vec<&str> = out.iter().map(|(method, _)| *method).collect();
+        assert_eq!(
+            methods,
+            vec!["item/started", "item/completed", "thread/compacted"]
+        );
+        assert_eq!(out[2].1["threadId"], "t");
+        assert_eq!(out[2].1["turnId"], "turn");
+    }
+
+    #[test]
+    fn a_mode_change_is_a_thread_notice() {
+        let mut projector = Projector::default();
+        let out = projector.project(
+            "t",
+            "",
+            &HarnessEvent::ModeChanged {
+                mode: "default".into(),
+            },
+        );
+        assert_eq!(out[0].0, "thread/collaborationMode/changed");
+        assert_eq!(out[0].1, json!({"threadId": "t", "mode": "default"}));
     }
 
     #[test]

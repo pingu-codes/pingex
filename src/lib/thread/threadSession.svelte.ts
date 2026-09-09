@@ -53,6 +53,16 @@ export class ThreadSession {
    *  finish before another turn can start. Views toggle this around theirs. */
   starting = $state(false);
   compacting = $state(false);
+  /** The turn Codex runs the compaction under, once its `turn/started` lands. */
+  #compactionTurnId: string | null = null;
+  /** The mode the harness last said the thread is in, when it changed the
+   *  mode itself (`thread/collaborationMode/changed`); null until then. */
+  collaborationMode = $state<"plan" | "default" | null>(null);
+  /** What a send with no options of its own runs with — the composer's
+   *  current choices. Set by the view; without it a stranded answer, a steer
+   *  or a drain that lost its options would go out mode-less, and the harness
+   *  would keep (Codex) or drop (Claude) plan mode regardless of the pill. */
+  turnOptions: (() => TurnOptions | undefined) | null = null;
   /** An error that ended a turn or the stream. The view shows it as a toast and
    *  clears it; while it stands the session is retained as "working". */
   streamError = $state<string | null>(null);
@@ -104,7 +114,7 @@ export class ThreadSession {
       threadId: () => this.id,
       send: (input, options) => this.send(input, options),
       interrupt: () => this.interrupt(),
-      idle: () => !this.activeTurn && !this.starting && !this.loading,
+      idle: () => !this.activeTurn && !this.starting && !this.loading && !this.compacting,
       onNotice: (text) => {
         this.notice = text;
       },
@@ -121,6 +131,7 @@ export class ThreadSession {
     const id = this.id;
     return (
       this.starting ||
+      this.compacting ||
       this.pendingTurnStart !== null ||
       (id !== null && activeTurns.list.includes(id)) ||
       this.activeTurn !== null ||
@@ -196,7 +207,10 @@ export class ThreadSession {
   async send(input: UserInputPart[], options?: TurnOptions): Promise<boolean> {
     const thread = this.thread;
     if (!thread) return false;
-    if (this.activeTurn || this.starting) {
+    options ??= this.turnOptions?.();
+    // A compaction is a turn too, even before its `turn/started` arrives: a
+    // send now would race it, and its start would adopt the optimistic bubble.
+    if (this.activeTurn || this.starting || this.compacting) {
       // Codex is mid-turn: park the message and send it once the turn ends
       // (completed or interrupted via Stop/Esc).
       void this.queue.add(input, options);
@@ -328,9 +342,21 @@ export class ThreadSession {
     if (typeof next === "string") target.status = next;
   }
 
+  /** Begin a compaction: the session is busy until it lands or fails. */
+  beginCompaction(): void {
+    this.compacting = true;
+    this.#compactionTurnId = null;
+  }
+
+  endCompaction(): void {
+    this.compacting = false;
+    this.#compactionTurnId = null;
+  }
+
   /** The stream disconnected: nothing in flight can finish. */
   disconnected(): void {
     this.streamError = "Lost connection to Codex.";
+    this.endCompaction();
     finalizeRunningTurns(this.thread?.turns ?? [], "interrupted");
     this.revision++;
   }
@@ -355,7 +381,12 @@ export class ThreadSession {
       return;
     }
     if (method === "thread/compacted") {
-      this.compacting = false;
+      this.endCompaction();
+      this.queue.maybeDrain();
+      return;
+    }
+    if (method === "thread/collaborationMode/changed") {
+      this.collaborationMode = params.mode === "plan" ? "plan" : "default";
       return;
     }
     if (method === "thread/queue/changed") {
@@ -376,7 +407,11 @@ export class ThreadSession {
     }
     const thread = this.thread;
     if (!thread) return;
-    if (method === "turn/started") this.notice = null;
+    if (method === "turn/started") {
+      this.notice = null;
+      // The first turn to start while compacting is the compaction itself.
+      if (this.compacting && !this.#compactionTurnId) this.#compactionTurnId = turnIdOf(params);
+    }
     const outcome = applyThreadEvent(thread, event);
     if (outcome.streamError) this.streamError = outcome.streamError;
     if (outcome.notice) this.notice = outcome.notice;
@@ -384,8 +419,11 @@ export class ThreadSession {
     // the turn does — it would just read as a hang, so take it down.
     if ((outcome.bufferingEnded || outcome.turnCompleted) && this.notice === BUFFERING_NOTICE) this.notice = null;
     if (outcome.turnCompleted) {
-      // Compaction runs as a turn, so its end — however it ends — releases the meter.
-      this.compacting = false;
+      // Compaction runs as a turn, so its end — however it ends — releases the
+      // meter. Only its own end, though: a turn that raced it must not.
+      if (this.compacting && (!this.#compactionTurnId || this.#compactionTurnId === turnIdOf(params))) {
+        this.endCompaction();
+      }
       // The detail cache still holds the transcript from before this turn; drop
       // it so a later read of this thread does not serve it back.
       invalidateThreadCache(id).catch(() => {});
@@ -400,4 +438,10 @@ export class ThreadSession {
       if (this.mounted === 0 && !this.working()) this.onIdle?.();
     }
   }
+}
+
+/** The turn a `turn/started` or `turn/completed` names. */
+function turnIdOf(params: unknown): string | null {
+  const turn = (params as { turn?: { id?: unknown } }).turn;
+  return typeof turn?.id === "string" ? turn.id : null;
 }

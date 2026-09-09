@@ -355,3 +355,72 @@ describe("session turns", () => {
     expect(mocks.readThread).not.toHaveBeenCalled();
   });
 });
+
+describe("session compaction", () => {
+  it("queues a send while compacting and releases only when the compaction lands", async () => {
+    mocks.readThread.mockResolvedValueOnce(detail("thread-a"));
+    const session = openSession("thread-a");
+    await settle();
+    session.beginCompaction();
+
+    // Before Codex has even announced the compaction turn, a send must wait.
+    expect(await session.send([{ type: "text", text: "meanwhile" }])).toBe(true);
+    expect(mocks.startTurn).not.toHaveBeenCalled();
+    expect(session.queue.entries).toHaveLength(1);
+    expect(session.working()).toBe(true);
+
+    emit("turn/started", { threadId: "thread-a", turn: { id: "compact-turn", status: "inProgress" } });
+    // A different turn ending (a race) does not release the meter.
+    emit("turn/completed", { threadId: "thread-a", turn: { id: "other-turn", status: "completed" } });
+    await settle();
+    expect(session.compacting).toBe(true);
+    expect(mocks.startTurn).not.toHaveBeenCalled();
+
+    emit("thread/compacted", { threadId: "thread-a", turnId: "compact-turn" });
+    emit("turn/completed", { threadId: "thread-a", turn: { id: "compact-turn", status: "completed" } });
+    await settle();
+    expect(session.compacting).toBe(false);
+    expect(mocks.startTurn).toHaveBeenCalledWith("thread-a", [{ type: "text", text: "meanwhile" }], undefined);
+  });
+
+  it("releases the meter when the stream drops", async () => {
+    mocks.readThread.mockResolvedValueOnce(detail("thread-a"));
+    const session = openSession("thread-a");
+    await settle();
+    session.beginCompaction();
+    session.disconnected();
+    expect(session.compacting).toBe(false);
+  });
+});
+
+describe("session turn options", () => {
+  it("runs a send that has no options of its own with the composer's", async () => {
+    mocks.readThread.mockResolvedValueOnce(detail("thread-a"));
+    const session = openSession("thread-a");
+    await settle();
+    const options = { collaborationMode: { mode: "plan" } } as TurnOptions;
+    session.turnOptions = () => options;
+
+    expect(await session.send([{ type: "text", text: "Go" }])).toBe(true);
+    expect(mocks.startTurn).toHaveBeenCalledWith("thread-a", [{ type: "text", text: "Go" }], options);
+  });
+
+  it("keeps the options a send brings with it", async () => {
+    mocks.readThread.mockResolvedValueOnce(detail("thread-a"));
+    const session = openSession("thread-a");
+    await settle();
+    session.turnOptions = () => ({ model: "other" });
+    const own = { model: "mine" } as TurnOptions;
+
+    await session.send([{ type: "text", text: "Go" }], own);
+    expect(mocks.startTurn).toHaveBeenCalledWith("thread-a", expect.anything(), own);
+  });
+
+  it("notes a mode the harness changed by itself", async () => {
+    mocks.readThread.mockResolvedValueOnce(detail("thread-a"));
+    const session = openSession("thread-a");
+    await settle();
+    emit("thread/collaborationMode/changed", { threadId: "thread-a", mode: "default" });
+    expect(session.collaborationMode).toBe("default");
+  });
+});

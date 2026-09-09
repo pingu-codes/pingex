@@ -67,3 +67,34 @@ test("long labels and keyboard commands work with overflow", async ({ page }) =>
   await expect(page.getByRole("dialog", { name: "Permission options" })).toBeVisible();
   await page.screenshot({ path: test.info().outputPath("toolbar.png") });
 });
+
+test("long composer text stays inside the input row", async ({ page }) => {
+  await page.setViewportSize({ width: 820, height: 560 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "New thread", exact: true }).click();
+
+  const editor = page.getByRole("textbox", { name: /Message Codex/ });
+  await editor.fill(
+    "This is a long composer message that should wrap across several lines while keeping its left edge visible beside the composer controls.",
+  );
+
+  const layout = await editor.evaluate((element) => {
+    const row = element.parentElement!;
+    const editorRect = element.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    return {
+      editorLeft: editorRect.left,
+      editorRight: editorRect.right,
+      rowLeft: rowRect.left,
+      rowRight: rowRect.right,
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      scrollLeft: element.scrollLeft,
+    };
+  });
+
+  expect(layout.editorLeft).toBeGreaterThanOrEqual(layout.rowLeft - 1);
+  expect(layout.editorRight).toBeLessThanOrEqual(layout.rowRight + 1);
+  expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth + 1);
+  expect(layout.scrollLeft).toBe(0);
+});

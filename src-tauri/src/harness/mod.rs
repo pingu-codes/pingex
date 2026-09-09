@@ -169,6 +169,12 @@ pub(crate) enum HarnessEvent {
         item_id: String,
         trigger: String,
     },
+    /// The harness switched collaboration mode on its own (a Claude plan
+    /// approval moves the session out of plan mode). `mode` is `plan` or
+    /// `default`, the same vocabulary `TurnOptions::collaboration_mode` uses.
+    ModeChanged {
+        mode: String,
+    },
     Notice {
         level: String,
         text: String,

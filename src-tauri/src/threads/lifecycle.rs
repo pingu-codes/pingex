@@ -65,6 +65,15 @@ pub(crate) async fn compact_thread(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
+    if let Some(thread) = storage::thread_harness(&ctx.database(), &thread_id).await? {
+        let resume = !storage::read_complete_turns(&ctx.database(), &thread_id)
+            .await?
+            .is_empty();
+        ctx.claude
+            .compact(&app, &thread_id, &thread.cwd, resume)
+            .await?;
+        return Ok(());
+    }
     ctx.session.ensure_resumed(&app, &thread_id).await?;
     storage::invalidate_thread_detail(&ctx.database(), &thread_id).await?;
     ctx.session
@@ -117,19 +126,30 @@ pub(crate) async fn start_review(
 
 /// Set or update the goal for a long-running task (`/goal <objective>`).
 /// Only the fields given change; the app-server keeps the rest of the goal.
+/// `token_budget` caps the goal's spend; `clear_token_budget` lifts the cap.
+/// (Two flat parameters rather than a nested `Option` so the binding stays
+/// simple; both given means clear.)
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn thread_goal_set(
     thread_id: String,
     objective: Option<String>,
     status: Option<String>,
+    token_budget: Option<i64>,
+    clear_token_budget: Option<bool>,
     app: AppHandle,
     window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     ctx.session.ensure_resumed(&app, &thread_id).await?;
-    let request = requests::thread_goal_set(&thread_id, objective.as_deref(), status.as_deref());
+    let budget = if clear_token_budget.unwrap_or(false) {
+        Some(None)
+    } else {
+        token_budget.map(Some)
+    };
+    let request =
+        requests::thread_goal_set(&thread_id, objective.as_deref(), status.as_deref(), budget);
     let response = ctx
         .session
         .request(&app, request.method, request.params)

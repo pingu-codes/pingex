@@ -43,6 +43,19 @@ remembered. The UI hides what is absent. Feature is the probed half, kept
 under that name inside the Codex driver.
 _Avoid_: flag, feature flag, version gate, support level
 
+**Goal**:
+An objective a thread keeps working towards across turns (`/goal`). Codex
+owns it — the app sets, pauses, caps and clears it over `thread/goal/*` and
+shows what Codex reports back. Codex-only today.
+_Avoid_: task, mission, loop
+
+**Token budget**:
+The cap on a Goal's spend, in tokens. Codex counts every turn it drives
+against it and parks the goal as `budgetLimited` once reached; raising or
+lifting the cap lets it carry on. Set from the goal banner or
+`/goal budget <tokens>`.
+_Avoid_: quota, limit (that is the account's rate limit), cost cap
+
 **Usage row**:
 What one turn cost, as stored: the wire token figures, the harness's cost
 where it gives one, and the Attribution of those tokens. One per turn per

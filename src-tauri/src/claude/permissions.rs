@@ -241,6 +241,16 @@ pub fn permission_result(option_id: &str, can_use_tool: &Value) -> Value {
     }
 }
 
+/// The permission mode the CLI runs in after `option_id` is chosen, when the
+/// answer carries a `setMode`; `None` for every other answer.
+pub(crate) fn mode_after(option_id: &str) -> Option<&'static str> {
+    match normalise(option_id) {
+        PLAN_IMPLEMENT => Some("default"),
+        PLAN_IMPLEMENT_AUTO => Some("acceptEdits"),
+        _ => None,
+    }
+}
+
 /// The deny sent for every prompt still open when a turn is interrupted.
 pub(crate) fn interrupted_result(can_use_tool: &Value) -> Value {
     json!({
@@ -318,5 +328,18 @@ mod tests {
     #[test]
     fn decision_reasons_lose_their_ansi() {
         assert_eq!(strip_ansi("\u{1b}[31mno\u{1b}[0m"), "no");
+    }
+}
+
+#[cfg(test)]
+mod mode_after_tests {
+    use super::*;
+
+    #[test]
+    fn implementing_a_plan_names_the_mode_the_cli_moves_to() {
+        assert_eq!(mode_after(PLAN_IMPLEMENT), Some("default"));
+        assert_eq!(mode_after(PLAN_IMPLEMENT_AUTO), Some("acceptEdits"));
+        assert_eq!(mode_after(PLAN_REVISE), None);
+        assert_eq!(mode_after(ALLOW), None);
     }
 }
