@@ -27,6 +27,8 @@ let {
   costUsd = null,
   model = null,
   threadId = null,
+  showSystemPromptInThread = false,
+  onToggleSystemPromptInThread,
 }: {
   stats: ContextStats | null;
   /** Estimated spend for this thread, or null when the model has no pricing. */
@@ -34,6 +36,11 @@ let {
   model?: string | null;
   /** Thread to read the server-side usage estimate for. */
   threadId?: string | null;
+  /** Whether the system prompt's full text is currently shown inline in the thread. */
+  showSystemPromptInThread?: boolean;
+  /** Fetches (once) and toggles the full text in the thread. Omitted when
+   *  the thread's harness cannot supply it. */
+  onToggleSystemPromptInThread?: () => void;
 } = $props();
 
 const windows = $derived(usageWindows(accountUsage.snapshot));
@@ -152,7 +159,13 @@ const sessionRows = $derived(
           label="Context composition"
         />
         {#if composition.parts?.length}
-          <PromptPartsList parts={composition.parts} total={composition.totalTokens} scaled={composition.partsScaled} />
+          <PromptPartsList
+            parts={composition.parts}
+            total={composition.totalTokens}
+            scaled={composition.partsScaled}
+            showInThread={showSystemPromptInThread}
+            onToggleShowInThread={onToggleSystemPromptInThread}
+          />
         {/if}
       </section>
     {/if}

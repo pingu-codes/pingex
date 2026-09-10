@@ -812,6 +812,41 @@ export function deleteToWordEdge(
   return parts;
 }
 
+/**
+ * Deletes the single plain character beside the caret when removing it would
+ * put the caret at a chip's edge, against the parts model — or null when
+ * that's not the situation, leaving the keystroke to the browser.
+ *
+ * Deleting that one character natively is what strands the composer: WebKit
+ * parks the resulting caret inside the chip's own label rather than in the
+ * empty text node that pads it (see `chipBesideCaret` and `caretOffset`
+ * above), and can drop that padding node entirely — breaking the flat,
+ * padded-chip shape every caret helper here assumes, sometimes for good.
+ * Handling the deletion here, the same way `deleteLineBreak` and
+ * `deleteToWordEdge` handle their own browser-hostile cases, keeps the chip
+ * flat and padded and the caret exactly where the parts model puts it.
+ */
+export function deleteCharBesideChip(
+  root: HTMLElement,
+  direction: "back" | "forward",
+  handlers: AttachmentChipHandlers,
+): ComposerPart[] | null {
+  const caret = caretOffset(root);
+  if (caret === null) return null;
+  const units = toUnits(readParts(root));
+  const charIndex = direction === "back" ? caret - 1 : caret;
+  const chipIndex = direction === "back" ? caret - 2 : caret + 1;
+  const char = units[charIndex];
+  const chip = units[chipIndex];
+  if (typeof char !== "string" || char === "\n") return null;
+  if (chip === undefined || typeof chip === "string") return null;
+  units.splice(charIndex, 1);
+  const parts = fromUnits(units);
+  renderPartsWith(root, parts, handlers);
+  placeCaretAtOffset(root, charIndex);
+  return parts;
+}
+
 /** Whether a chip is missing the empty text node that pads it on either side. */
 const isUnpadded = (chip: Element): boolean =>
   !(chip.previousSibling && isEmptyText(chip.previousSibling)) || !(chip.nextSibling && isEmptyText(chip.nextSibling));

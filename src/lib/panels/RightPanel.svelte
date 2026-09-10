@@ -58,6 +58,8 @@ let {
   onImplementPlanFresh,
   implementDisabled = false,
   onStopProcessTurn,
+  showSystemPromptInThread = false,
+  onToggleSystemPromptInThread,
 }: {
   view: PanelView;
   parentThreadId: string | null;
@@ -81,6 +83,11 @@ let {
   /** Implement the plan in a fresh thread; absent when there is no live thread. */
   onImplementPlanFresh?: () => void;
   implementDisabled?: boolean;
+  /** Whether the system prompt's full text is currently shown inline in the thread. */
+  showSystemPromptInThread?: boolean;
+  /** Fetches (once) and toggles the full text in the thread. Omitted when
+   *  the thread's harness cannot supply it. */
+  onToggleSystemPromptInThread?: () => void;
 } = $props();
 
 let activeSideId = $state<string | null>(null);
@@ -221,7 +228,14 @@ function openProjectFile(relativePath: string) {
       {:else if view.kind === "messageLog"}
         <MessageLog />
       {:else if view.kind === "status"}
-        <ThreadStatus stats={contextStats} {costUsd} model={activeModel} threadId={parentThreadId} />
+        <ThreadStatus
+          stats={contextStats}
+          {costUsd}
+          model={activeModel}
+          threadId={parentThreadId}
+          {showSystemPromptInThread}
+          {onToggleSystemPromptInThread}
+        />
       {:else if view.kind === "process"}
         {@const process = processByKey(view.processKey)}
         <!-- Interrupting is only possible for the open thread's own turn. -->

@@ -20,8 +20,10 @@ import {
   gitRepoInfo,
   gitWorktreeAdd,
   interruptTurn,
+  isPromptPartsTextUnsupported,
   killAgentRun,
   openInZed,
+  readPromptPartsText,
   revealInFinder,
   reviewLocalDiff,
   setThreadBranchEditTurn,
@@ -53,6 +55,7 @@ import ReasoningBlock from "$lib/thread/ReasoningBlock.svelte";
 import ReplaceGoalDialog from "$lib/thread/ReplaceGoalDialog.svelte";
 import RewindThreadDialog from "$lib/thread/RewindThreadDialog.svelte";
 import { isAtBottom, isFarFromBottom, nextFollowing, recallScroll, rememberScroll } from "$lib/thread/scrollPositions";
+import SystemPromptSection from "$lib/thread/SystemPromptSection.svelte";
 import { attachSession, draftSession, openSession, releaseSession } from "$lib/thread/sessions.svelte";
 import TurnPlanCard from "$lib/thread/TurnPlanCard.svelte";
 import type { ThreadSession } from "$lib/thread/threadSession.svelte";
@@ -74,6 +77,7 @@ import type {
   ChangesSummary,
   FileUpdateChange,
   GitRepoInfo,
+  PromptPart,
   QueuedSubmission,
   ReviewTarget,
   SideQuestion,
@@ -214,6 +218,36 @@ let recentDownScroll = $state(false);
 const RECENT_DOWN_SCROLL_MS = 2000;
 let recentDownScrollTimer: ReturnType<typeof setTimeout> | null = null;
 let panelView = $state<PanelView | null>(null);
+/** Whether the system prompt's full text is shown inline at the top of the
+ *  scrollback. Toggled from the status panel; fetched once per thread and
+ *  cached here since it can only come from Codex's rollout file. */
+let showSystemPromptInThread = $state(false);
+let systemPromptParts = $state<PromptPart[] | null>(null);
+let systemPromptPartsFor: string | null = null;
+
+function toggleSystemPromptInThread() {
+  if (showSystemPromptInThread) {
+    showSystemPromptInThread = false;
+    return;
+  }
+  const id = liveThreadId;
+  if (!id) return;
+  showSystemPromptInThread = true;
+  if (systemPromptPartsFor === id && systemPromptParts) return;
+  systemPromptPartsFor = id;
+  readPromptPartsText(id)
+    .then((parts) => {
+      if (systemPromptPartsFor === id) systemPromptParts = parts;
+    })
+    .catch((cause) => {
+      if (systemPromptPartsFor !== id) return;
+      if (!isPromptPartsTextUnsupported(cause)) {
+        session.streamError = cause instanceof Error ? cause.message : String(cause);
+      }
+      showSystemPromptInThread = false;
+      systemPromptPartsFor = null;
+    });
+}
 let composer = $state<{
   implementPlan: () => void;
   implementPlanFresh: (plan?: string | null) => void;
@@ -1095,6 +1129,9 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
             <p class="mt-1 text-xs leading-5">{error}</p>
           </div>
         {:else if thread}
+          {#if showSystemPromptInThread && systemPromptParts?.length}
+            <SystemPromptSection parts={systemPromptParts} />
+          {/if}
           {#each thread.turns as turn, turnIndex (turn.id)}
             {@const parts = splitTurn(turn)}
             {@const collapseDiffs = turnDiffCount(turn) > 1}
@@ -1404,6 +1441,8 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
     onImplementPlan={implementPlan}
     onImplementPlanFresh={liveThreadId ? implementPlanFresh : undefined}
     implementDisabled={activeTurn !== null || starting}
+    {showSystemPromptInThread}
+    onToggleSystemPromptInThread={toggleSystemPromptInThread}
     onStopProcessTurn={(process) => {
       if (process.turnId && process.threadId) {
         interruptTurn(process.threadId, process.turnId).catch((cause) => {

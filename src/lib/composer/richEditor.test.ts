@@ -163,6 +163,34 @@ describe("RichEditor chips", () => {
     expect(deps.onChipRemoved).not.toHaveBeenCalled();
   });
 
+  it("Backspace on the character right after a chip removes it, not the chip, and leaves the chip navigable", () => {
+    // "see " = 0-4, chip = 4-5, "x now" = 5-10. Caret at 6, right after the "x".
+    const { editor, root, deps } = mount([text("see "), mention, text("x now")], 6);
+
+    const event = press(root, "Backspace");
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(deps.onChipRemoved).not.toHaveBeenCalled();
+    expect(editor.parts).toEqual([text("see "), mention, text(" now")]);
+    expect(editor.caretOffset()).toBe(5);
+    // The chip is still navigable/removable afterward, not stranded.
+    expect(press(root, "Backspace").defaultPrevented).toBe(true);
+    expect(deps.onChipRemoved).toHaveBeenCalledOnce();
+    expect(editor.parts).toEqual([text("see  now")]);
+  });
+
+  it("Delete on the character right before a chip removes it, not the chip", () => {
+    // "see x" = 0-5, chip = 5-6, " now" = 6-10. Caret at 4, right before the "x".
+    const { editor, root, deps } = mount([text("see x"), mention, text(" now")], 4);
+
+    const event = press(root, "Delete");
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(deps.onChipRemoved).not.toHaveBeenCalled();
+    expect(editor.parts).toEqual([text("see "), mention, text(" now")]);
+    expect(editor.caretOffset()).toBe(4);
+  });
+
   it("Option+Backspace deletes back through a chip as one word", () => {
     const { editor, root } = mount([text("see "), mention, text(" now")], 6);
 

@@ -17,6 +17,11 @@ use crate::AppState;
 /// estimate instead.
 pub(crate) const CONTEXT_BREAKDOWN_UNSUPPORTED: &str = "harness-unsupported:context_breakdown";
 
+/// Prefix on the error `read_prompt_parts_text` returns when the thread has
+/// no Codex rollout to read text from — a Claude thread, or a Codex thread
+/// with nothing on disk yet. The frontend treats the toggle as inert.
+pub(crate) const PROMPT_TEXT_UNSUPPORTED: &str = "harness-unsupported:prompt_parts_text";
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(
     tag = "kind",
@@ -279,6 +284,43 @@ pub(crate) async fn read_context_breakdown(
             .map_err(|error| format!("Could not read the rollout: {error}"))??
     };
     Ok(ContextComposition::from(snapshot).with_estimated_parts(parts))
+}
+
+/// The full text of a Codex thread's system-prompt parts, read on demand —
+/// never bundled into [`read_context_breakdown`] or [`read_usage_breakdown`],
+/// which are polled on every token update and would pay for text nobody
+/// asked to see. Fails with [`PROMPT_TEXT_UNSUPPORTED`] for a Claude thread
+/// or a Codex thread with no rollout on disk.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn read_prompt_parts_text(
+    thread_id: String,
+    app: AppHandle,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<Vec<PromptPart>, String> {
+    let ctx = state.ctx(&window);
+    let local_home = ctx.runtime().local_home();
+    let Some(path) = crate::codex::rollout::locate(&local_home, &thread_id) else {
+        return Err(format!(
+            "{PROMPT_TEXT_UNSUPPORTED}: no rollout on disk for this thread"
+        ));
+    };
+    let parts = {
+        let ctx = ctx.clone();
+        tauri::async_runtime::spawn_blocking(move || ctx.rollouts.prompt_parts_with_text(&path))
+            .await
+            .map_err(|error| format!("Could not read the rollout: {error}"))??
+    };
+    let system = ctx
+        .usage
+        .snapshot(&app, &ctx.home_key, &thread_id)
+        .await
+        .map(|snapshot| snapshot.categories.system);
+    Ok(match system {
+        Some(system) => fit_parts(parts, system).parts,
+        None => parts,
+    })
 }
 
 /// Map Claude's `get_context_usage` categories onto ours. Prompt-side

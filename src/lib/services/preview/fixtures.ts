@@ -22,6 +22,7 @@ import type {
   PrDetail,
   ProjectSource,
   ProviderStatus,
+  PromptPart,
   PrSummary,
   QueuedSubmission,
   RemoteConnection,
@@ -630,21 +631,47 @@ export function previewContextBreakdown(_threadId: string): Promise<ContextCompo
     contextWindow: 272_000,
     source: "estimate",
     parts: [
-      { kind: "baseInstructions", label: "Base instructions", tokens: 4_400, source: "estimated", detail: null },
-      { kind: "agentsMd", label: "AGENTS.md", tokens: 1_300, source: "estimated", detail: "/Users/demo/app" },
-      { kind: "skills", label: "Skills instructions", tokens: 900, source: "estimated", detail: null },
-      { kind: "permissions", label: "Permissions", tokens: 1_100, source: "estimated", detail: null },
-      { kind: "environment", label: "Environment context", tokens: 300, source: "estimated", detail: null },
+      {
+        kind: "baseInstructions",
+        label: "Base instructions",
+        tokens: 4_400,
+        source: "estimated",
+        detail: null,
+        text: null,
+      },
+      {
+        kind: "agentsMd",
+        label: "AGENTS.md",
+        tokens: 1_300,
+        source: "estimated",
+        detail: "/Users/demo/app",
+        text: null,
+      },
+      { kind: "skills", label: "Skills instructions", tokens: 900, source: "estimated", detail: null, text: null },
+      { kind: "permissions", label: "Permissions", tokens: 1_100, source: "estimated", detail: null, text: null },
+      { kind: "environment", label: "Environment context", tokens: 300, source: "estimated", detail: null, text: null },
       {
         kind: "tools",
         label: "Tool definitions and other",
         tokens: Math.max(categories.system - named, 0),
         source: "estimated",
         detail: null,
+        text: null,
       },
     ],
     partsScaled: false,
   });
+}
+
+/** The preview thread's system-prompt parts, with sample text for each —
+ *  stands in for `readPromptPartsText` in the browser preview. */
+export function previewPromptPartsText(_threadId: string): Promise<PromptPart[]> {
+  return previewContextBreakdown(_threadId).then((composition) =>
+    (composition.parts ?? []).map((part) => ({
+      ...part,
+      text: part.kind === "tools" ? null : `Preview text for ${part.label}.`,
+    })),
+  );
 }
 
 export const previewFiles: FileHit[] = [

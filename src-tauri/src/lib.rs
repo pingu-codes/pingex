@@ -518,6 +518,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             projects::commands::read_thread_usage,
             usage::commands::read_usage_breakdown,
             usage::commands::read_context_breakdown,
+            usage::commands::read_prompt_parts_text,
             // Workspaces
             workspaces::commands::create_workspace,
             workspaces::commands::update_workspace,

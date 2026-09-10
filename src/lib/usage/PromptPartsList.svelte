@@ -16,12 +16,19 @@ let {
   parts,
   total,
   scaled = false,
+  showInThread = false,
+  onToggleShowInThread,
 }: {
   parts: PromptPart[];
   /** Tokens in the whole context; the percentages are of this. */
   total: number;
   /** The estimated parts were scaled down to the measured system prompt. */
   scaled?: boolean;
+  /** Whether the full text is currently shown inline in the thread. */
+  showInThread?: boolean;
+  /** Fetches (once) and toggles the full text in the thread. Omitted when
+   *  the thread's harness cannot supply it. */
+  onToggleShowInThread?: () => void;
 } = $props();
 
 const rows = $derived(promptPartRows(parts, total));
@@ -41,10 +48,21 @@ const SHADES = [
 
 {#if rows.length > 0}
   <Collapsible class="mt-2 min-w-0 items-stretch" data-testid="prompt-parts">
-    <Collapsible.Trigger class="group flex items-center gap-1 text-xs text-surface-500 hover:text-surface-700-300">
-      <span>What is in the system prompt</span>
-      <ChevronRight size={12} class="transition group-data-[state=open]:rotate-90" />
-    </Collapsible.Trigger>
+    <div class="flex items-center justify-between gap-2">
+      <Collapsible.Trigger class="group flex items-center gap-1 text-xs text-surface-500 hover:text-surface-700-300">
+        <span>What is in the system prompt</span>
+        <ChevronRight size={12} class="transition group-data-[state=open]:rotate-90" />
+      </Collapsible.Trigger>
+      {#if onToggleShowInThread}
+        <button
+          type="button"
+          onclick={onToggleShowInThread}
+          class="shrink-0 text-[10px] text-surface-500 underline decoration-dotted hover:text-surface-700-300"
+        >
+          {showInThread ? "Hide text in thread" : "View text in thread"}
+        </button>
+      {/if}
+    </div>
     <Collapsible.Content>
       <div class="mt-2 border-l-2 border-surface-200-800 pl-3">
         <div class="flex h-1.5 w-full overflow-hidden rounded-full bg-surface-200-800" role="img" aria-label="System prompt parts">

@@ -22,6 +22,7 @@ import {
   caretOffset,
   chipAcrossLineBreak,
   chipBesideCaret,
+  deleteCharBesideChip,
   deleteLineBreak,
   deleteToLineEdge,
   deleteToWordEdge,
@@ -169,6 +170,19 @@ export class RichEditor {
         event.preventDefault();
         this.removeChip(chip);
         return;
+      }
+      // The plain character right next to a chip: deleting it natively is
+      // what strands the composer (see `deleteCharBesideChip`), so it's
+      // handled against the parts model like the chip-adjacent cases above.
+      // Alt/Ctrl (word-delete) and Meta (already handled above) have their
+      // own chip-aware paths and take priority over this single-character one.
+      if (!event.altKey && !event.ctrlKey) {
+        const afterChar = deleteCharBesideChip(root, direction, this.deps.chipHandlers);
+        if (afterChar) {
+          event.preventDefault();
+          this.adopt(afterChar);
+          return;
+        }
       }
       if (event.altKey || event.ctrlKey) {
         // Option+Backspace/Delete word-deletion through a chip: WebKit's

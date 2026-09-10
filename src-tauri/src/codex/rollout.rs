@@ -83,11 +83,19 @@ impl RolloutCache {
             }
         }
         let file = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let parts = prompt_parts_from_rollout(BufReader::new(file));
+        let parts = prompt_parts_from_rollout(BufReader::new(file), false);
         if let Ok(mut entries) = self.entries.lock() {
             entries.insert(path.to_path_buf(), (stamp.0, stamp.1, parts.clone()));
         }
         Ok(parts)
+    }
+
+    /// The same parts, with each one's full text — parsed fresh every call
+    /// since this only runs on an explicit user request, not on every token
+    /// update, so it is not worth caching text nobody has asked to see yet.
+    pub(crate) fn prompt_parts_with_text(&self, path: &Path) -> Result<Vec<PromptPart>, String> {
+        let file = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        Ok(prompt_parts_from_rollout(BufReader::new(file), true))
     }
 }
 
@@ -213,19 +221,31 @@ struct Collector {
     /// re-sends one when it changes and after a compaction. Blocks of one
     /// kind are summed when the parts are built.
     bytes: BTreeMap<Block, u64>,
+    /// A block's text, kept only when `with_text` is set — the sized-only
+    /// path (polled on every token update) never pays to hold it.
+    texts: BTreeMap<Block, String>,
+    with_text: bool,
     world_state: Value,
 }
 
 impl Collector {
+    fn new(with_text: bool) -> Self {
+        Self {
+            with_text,
+            ..Self::default()
+        }
+    }
+
     fn record(&mut self, kind: PromptPartKind, key: &str, detail: Option<String>, text: &str) {
-        self.bytes.insert(
-            Block {
-                kind,
-                key: key.to_string(),
-                detail,
-            },
-            text.len() as u64,
-        );
+        let block = Block {
+            kind,
+            key: key.to_string(),
+            detail,
+        };
+        self.bytes.insert(block.clone(), text.len() as u64);
+        if self.with_text {
+            self.texts.insert(block, text.to_string());
+        }
     }
 
     fn agents_directory(&self) -> Option<String> {
@@ -336,14 +356,30 @@ impl Collector {
 
     fn finish(self) -> Vec<PromptPart> {
         let mut by_part: BTreeMap<(PromptPartKind, Option<String>), u64> = BTreeMap::new();
-        for (block, bytes) in self.bytes {
+        for (block, bytes) in &self.bytes {
             // A compaction summary replaces the compacted record's message
             // rather than adding to it; everything else of a kind adds up.
-            let entry = by_part.entry((block.kind, block.detail)).or_insert(0);
+            let entry = by_part.entry((block.kind, block.detail.clone())).or_insert(0);
             if block.kind == PromptPartKind::Compaction {
-                *entry = bytes;
+                *entry = *bytes;
             } else {
                 *entry += bytes;
+            }
+        }
+        let mut by_text: BTreeMap<(PromptPartKind, Option<String>), String> = BTreeMap::new();
+        if self.with_text {
+            for (block, text) in &self.texts {
+                let entry = by_text
+                    .entry((block.kind, block.detail.clone()))
+                    .or_default();
+                if block.kind == PromptPartKind::Compaction {
+                    *entry = text.clone();
+                } else if entry.is_empty() {
+                    *entry = text.clone();
+                } else {
+                    entry.push_str("\n\n");
+                    entry.push_str(text);
+                }
             }
         }
         by_part
@@ -353,6 +389,7 @@ impl Collector {
                 label: label_for(kind).to_string(),
                 tokens: tokens_for_bytes(bytes),
                 source: crate::usage::prompt_parts::PartSource::Estimated,
+                text: by_text.get(&(kind, detail.clone())).cloned(),
                 detail,
             })
             .collect()
@@ -366,8 +403,8 @@ const INTERESTING: &[&str] = &["session_meta", "world_state", "response_item", "
 /// The Prompt parts a rollout describes, sized at Codex's own four bytes to
 /// a token. A line that does not parse — the one Codex is still writing —
 /// is skipped.
-pub(crate) fn prompt_parts_from_rollout(reader: impl BufRead) -> Vec<PromptPart> {
-    let mut collector = Collector::default();
+pub(crate) fn prompt_parts_from_rollout(reader: impl BufRead, with_text: bool) -> Vec<PromptPart> {
+    let mut collector = Collector::new(with_text);
     for line in reader.lines().map_while(Result::ok) {
         if !INTERESTING.iter().any(|kind| line.contains(kind)) {
             continue;
@@ -389,7 +426,23 @@ mod tests {
         include_str!("../../../tests/fixtures/protocol/codex/rollout-prompt-parts.jsonl");
 
     fn parts() -> Vec<PromptPart> {
-        prompt_parts_from_rollout(Cursor::new(FIXTURE))
+        prompt_parts_from_rollout(Cursor::new(FIXTURE), false)
+    }
+
+    fn parts_with_text() -> Vec<PromptPart> {
+        prompt_parts_from_rollout(Cursor::new(FIXTURE), true)
+    }
+
+    #[test]
+    fn with_text_keeps_each_parts_text() {
+        let base = parts_with_text()
+            .into_iter()
+            .find(|p| p.kind == PromptPartKind::BaseInstructions)
+            .expect("base instructions part");
+        assert_eq!(
+            base.text.as_deref(),
+            Some("You are Codex. Be concise and be careful")
+        );
     }
 
     fn tokens(kind: PromptPartKind) -> Vec<(Option<String>, u64)> {
@@ -484,7 +537,10 @@ mod tests {
     fn a_truncated_last_line_is_skipped() {
         let mut truncated = FIXTURE.to_string();
         truncated.push_str(r#"{"type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"<skills_instruc"#);
-        assert_eq!(prompt_parts_from_rollout(Cursor::new(truncated)), parts());
+        assert_eq!(
+            prompt_parts_from_rollout(Cursor::new(truncated), false),
+            parts()
+        );
     }
 
     /// Sizes a real rollout: `CODEX_ROLLOUT=~/.codex/sessions/.../rollout-….jsonl
@@ -494,7 +550,7 @@ mod tests {
     fn a_real_rollout_sizes_its_prompt_parts() {
         let path = std::env::var("CODEX_ROLLOUT").expect("CODEX_ROLLOUT");
         let file = File::open(&path).expect("open rollout");
-        let parts = prompt_parts_from_rollout(BufReader::new(file));
+        let parts = prompt_parts_from_rollout(BufReader::new(file), false);
         for part in &parts {
             eprintln!(
                 "{:>7} {:?} {} {:?}",

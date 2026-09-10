@@ -90,10 +90,17 @@ describe("ranges and labels", () => {
 
 describe("promptPartRows", () => {
   const parts: PromptPart[] = [
-    { kind: "tools", label: "Tool definitions and other", tokens: 2_000, source: "estimated", detail: null },
-    { kind: "agentsMd", label: "AGENTS.md", tokens: 1_000, source: "estimated", detail: "/repo" },
-    { kind: "baseInstructions", label: "Base instructions", tokens: 5_000, source: "estimated", detail: null },
-    { kind: "environment", label: "Environment context", tokens: 0, source: "estimated", detail: null },
+    { kind: "tools", label: "Tool definitions and other", tokens: 2_000, source: "estimated", detail: null, text: null },
+    { kind: "agentsMd", label: "AGENTS.md", tokens: 1_000, source: "estimated", detail: "/repo", text: null },
+    {
+      kind: "baseInstructions",
+      label: "Base instructions",
+      tokens: 5_000,
+      source: "estimated",
+      detail: null,
+      text: null,
+    },
+    { kind: "environment", label: "Environment context", tokens: 0, source: "estimated", detail: null, text: null },
   ];
 
   it("orders by size with the tool remainder last and drops empty parts", () => {
@@ -107,7 +114,7 @@ describe("promptPartRows", () => {
 
   it("hides a detail that only repeats the label and marks exact parts", () => {
     const rows = promptPartRows(
-      [{ kind: "tools", label: "System tools", tokens: 10, source: "exact", detail: "System tools" }],
+      [{ kind: "tools", label: "System tools", tokens: 10, source: "exact", detail: "System tools", text: null }],
       100,
     );
     expect(rows[0].detail).toBeNull();

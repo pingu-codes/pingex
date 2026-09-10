@@ -30,6 +30,7 @@ import {
   previewModels,
   previewPrDetail,
   previewProviderStatus,
+  previewPromptPartsText,
   previewPrs,
   previewQueue,
   previewQuickShortcut,
@@ -86,6 +87,7 @@ import type {
   PrFreshness,
   ProjectSource,
   ProviderStatus,
+  PromptPart,
   PrSummary,
   QueuedSubmission,
   RemoteConnection,
@@ -787,6 +789,26 @@ export function isContextBreakdownUnsupported(cause: unknown): boolean {
 export async function readContextBreakdown(threadId: string): Promise<ContextComposition> {
   if (!isTauri()) return previewContextBreakdown(threadId);
   return commands.readContextBreakdown(threadId);
+}
+
+/** Prefix the Rust side puts on `read_prompt_parts_text` when the thread has
+ *  no Codex rollout to read text from — a Claude thread, or a Codex thread
+ *  with nothing on disk yet. Kept in step with `PROMPT_TEXT_UNSUPPORTED` in
+ *  `src-tauri/src/usage/commands.rs`. */
+export const PROMPT_TEXT_UNSUPPORTED = "harness-unsupported:prompt_parts_text";
+
+export function isPromptPartsTextUnsupported(cause: unknown): boolean {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return message.startsWith(PROMPT_TEXT_UNSUPPORTED);
+}
+
+/** The full text of a Codex thread's system-prompt parts, fetched on demand
+ *  — never bundled into `readContextBreakdown`/`readUsageBreakdown`, which
+ *  are polled on every token update. Rejects with `PROMPT_TEXT_UNSUPPORTED`
+ *  for a Claude thread or one with no rollout on disk. */
+export async function readPromptPartsText(threadId: string): Promise<PromptPart[]> {
+  if (!isTauri()) return previewPromptPartsText(threadId);
+  return commands.readPromptPartsText(threadId);
 }
 
 /** Prefix the Rust side puts on a queue error when this Codex has no usable

@@ -57,6 +57,10 @@ pub(crate) struct PromptPart {
     /// Where it came from, when one kind has several: an AGENTS.md directory,
     /// the harness's own category name.
     pub detail: Option<String>,
+    /// The part's full text, when the harness kept it and it was asked for.
+    /// `None` for harnesses that only report sizes (Claude), and whenever
+    /// the caller didn't request text.
+    pub text: Option<String>,
 }
 
 impl PromptPart {
@@ -67,6 +71,7 @@ impl PromptPart {
             tokens,
             source: PartSource::Estimated,
             detail: None,
+            text: None,
         }
     }
 
@@ -77,6 +82,7 @@ impl PromptPart {
             tokens,
             source: PartSource::Exact,
             detail: Some(label.to_string()),
+            text: None,
         }
     }
 }

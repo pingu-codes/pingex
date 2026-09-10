@@ -108,8 +108,15 @@ describe("ThreadStatus", () => {
       contextWindow: 200_000,
       source: "harness",
       parts: [
-        { kind: "tools", label: "System tools", tokens: 9_000, source: "exact", detail: "System tools" },
-        { kind: "baseInstructions", label: "System prompt", tokens: 3_000, source: "exact", detail: "System prompt" },
+        { kind: "tools", label: "System tools", tokens: 9_000, source: "exact", detail: "System tools", text: null },
+        {
+          kind: "baseInstructions",
+          label: "System prompt",
+          tokens: 3_000,
+          source: "exact",
+          detail: "System prompt",
+          text: null,
+        },
       ],
       partsScaled: false,
     };
@@ -134,9 +141,23 @@ describe("ThreadStatus", () => {
       contextWindow: 200_000,
       source: "estimate",
       parts: [
-        { kind: "tools", label: "Tool definitions and other", tokens: 6_000, source: "estimated", detail: null },
-        { kind: "agentsMd", label: "AGENTS.md", tokens: 1_000, source: "estimated", detail: "/repo" },
-        { kind: "baseInstructions", label: "Base instructions", tokens: 5_000, source: "estimated", detail: null },
+        {
+          kind: "tools",
+          label: "Tool definitions and other",
+          tokens: 6_000,
+          source: "estimated",
+          detail: null,
+          text: null,
+        },
+        { kind: "agentsMd", label: "AGENTS.md", tokens: 1_000, source: "estimated", detail: "/repo", text: null },
+        {
+          kind: "baseInstructions",
+          label: "Base instructions",
+          tokens: 5_000,
+          source: "estimated",
+          detail: null,
+          text: null,
+        },
       ],
       partsScaled: true,
     };
