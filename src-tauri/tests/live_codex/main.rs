@@ -583,7 +583,7 @@ fn subagent_thread_turn_and_follow_up_are_accepted() {
 
 // ── version-dependent APIs ────────────────────────────────────────────────
 //
-// The app supports the last stable (0.152.1), the current stable (0.153.2)
+// The app supports the last stable (0.153.4), the current stable (0.154.0)
 // and the unreleased mirror HEAD — see `docs/SUPPORTED_VERSIONS.md`. Each of
 // these tests takes the modern branch
 // where the API exists and, where it does not, checks that the refusal is

@@ -5,9 +5,9 @@ tiers of the Codex CLI at any time:
 
 | Tier | What it is | Version | Tag / ref | Commit | Date |
 |---|---|---|---|---|---|
-| **Unstable** | Upstream `main`, as mirrored in `../codex-mirror` | `0.0.0` (source builds report the workspace version) | `main` | `b3f5e45cc1de8bcb09d320f3211378db285aa201` | 2026-09-04 |
-| **Stable** | The latest tagged release | `0.153.2` | `rust-v0.153.2` | `657a993cbee87acf52d14b758ce49dbd46d1b8eb` | 2026-09-03 |
-| **Last stable** | The release before it | `0.152.1` | `rust-v0.152.1` | `5adb68a49933ae446bf11935662c83dba55a0804` | 2026-09-01 |
+| **Unstable** | Upstream `main`, as mirrored in `../codex-mirror` | `0.0.0` (source builds report the workspace version) | `main` | `b348fc26674189f758d5941cdab3f78f258b2aa7` | 2026-09-10 |
+| **Stable** | The latest tagged release | `0.154.0` | `rust-v0.154.0` | `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` | 2026-09-09 |
+| **Last stable** | The release before it | `0.153.4` | `rust-v0.153.4` | `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a` | 2026-09-04 |
 
 Older releases are not tested. They mostly keep working because nothing in
 the app branches on the version (see below), but a release older than *last
@@ -47,7 +47,7 @@ version. `deno task versions:check` does not cover Claude yet.
 
 Gated APIs (one row per `Feature`):
 
-| Feature | API | Last stable 0.152.1 | Stable 0.153.2 | Unstable |
+| Feature | API | Last stable 0.153.4 | Stable 0.154.0 | Unstable |
 |---|---|---|---|---|
 | `REVERT` | `thread/revert` | ✓ | ✓ | ✓ |
 | `QUEUE` | `thread/queue/*` (needs the experimental capability and a queue database) | ✓ | ✓ | ✓ |
@@ -61,12 +61,12 @@ from thread start/resume/fork responses. Missing state displays as unknown. Fast
 sends `serviceTier: "default"`, rather than clearing the override. Speed choices
 stay per thread and are included in subsequent turn submissions. A refused live
 update leaves the running status unchanged and applies the choice next turn.
-| `INSTALLED_PLUGINS` | `plugin/installed` — installed-plugin inventory; unsupported responses are remembered | probed | probed | ✓ |
+| `INSTALLED_PLUGINS` | `plugin/installed` — installed-plugin inventory; unsupported responses are remembered | ✓ | ✓ | ✓ |
 
 Payload additions the app reads when present (no gating needed — the field is
 simply absent on older tiers):
 
-| Field / notification | Where it shows | 0.152.1 | 0.153.2 | Unstable | Live-tested |
+| Field / notification | Where it shows | 0.153.4 | 0.154.0 | Unstable | Live-tested |
 |---|---|---|---|---|---|
 | `item/commandExecution/requestApproval.kind` (`command` \| `writeStdin`) | approval card title | ✓ | ✓ | ✓ | `command` only |
 | `McpServerStatus.runtimeStatus` | Integrations row | ✓ | ✓ | ✓ | ✓ |
@@ -87,19 +87,34 @@ Deliberately not adopted yet (tracked on the roadmap): paginated history
 deprecates full hydration on resume/fork in their favour), `turn/steer`,
 `thread/search`, `experimentalFeature/list`, `permissionProfile/list`, the MCP
 event stream, realtime/voice, marketplace installation, `fs/*`, process/terminal,
-login/Bedrock flows, environments and the Windows sandbox, raw response events.
+login/Bedrock flows, environments and the Windows sandbox, raw response events,
+`userVerification/*` (and the `openai/userVerification` elicitation mode),
+`memory/status`, Daybreak preferences (`daybreakEnabled`).
 
-Protocol added since 0.152 that the app does not read yet:
+Protocol added since 0.153 that the app does not read yet:
 
-- 0.153.x: `Thread.model` / `Thread.reasoningEffort` (the app still derives
-  the thread's model from turn history, `ThreadView.lastTurnModel`),
-  `agentMessage.questions` (structured async user-input questions),
-  `turn/settings/update.approvalsReviewer`, `plugin/reconcile`, per-account
-  app link approvals (`AppConfig.links`).
-- Unstable only: `Thread.originator`, `Thread.environments`,
-  `McpServerStatus.toolsError`, `thread/list.originators` (hosted backends
-  only), `ResponseUsageMetadata.metadata`. Detached review delivery is
-  deprecated there; the app never sends `delivery`.
+- 0.153.x (both tagged tiers): `Thread.model` / `Thread.reasoningEffort` (the
+  app still derives the thread's model from turn history,
+  `ThreadView.lastTurnModel`), `agentMessage.questions` (structured async
+  user-input questions), `turn/settings/update.approvalsReviewer`,
+  `plugin/reconcile`, per-account app link approvals (`AppConfig.links`).
+- 0.154.0 (stable only): `Thread.originator`, `Thread.environments`
+  (`environmentId`, `cwd`, `runtimeWorkspaceRoots`), `Thread.daybreakEnabled`,
+  `thread/list.originators` and `thread/metadata/update.daybreakEnabled`
+  (hosted backends only); `McpServerStatus.toolsError` (set only when tool
+  discovery failed — a candidate for the Integrations row);
+  `account/rateLimits/read` now accepts optional params
+  (`supportsLunaReserve`, `excludeResetCreditDetails`) and answers with
+  `ordinaryUsageAllowed` and `RateLimitSnapshot.normalModelSlug`;
+  `ConfigRequirements.application` (network domain requirements) and
+  `BrowserUseRequirements.allowWebmcp`; experimental
+  `userVerification/{status,enroll,delete,verify}`. Guardian review actions and
+  `item/permissions/requestApproval.cwd` changed Rust path type but still
+  serialise as strings. Detached review delivery is deprecated; the app never
+  sends `delivery`.
+- Unstable only: `userVerification/cancel`, `memory/status`
+  (`v2ConsolidatedThreads`, `v2Ready`), `feedback/upload.promptHash`,
+  `imageGeneration.generationId`.
 
 ## Bumping a tier
 

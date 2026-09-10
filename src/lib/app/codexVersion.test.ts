@@ -16,7 +16,7 @@ describe("classifyVersion", () => {
     expect(classifyVersion(STABLE)).toBe("supported");
     expect(classifyVersion("0.146.0")).toBe("older");
     expect(classifyVersion("0.151.0")).toBe("older");
-    expect(classifyVersion("0.154.0-alpha.1")).toBe("newer");
+    expect(classifyVersion("0.155.0-alpha.1")).toBe("newer");
     // A source build of the mirror reports the workspace version.
     expect(classifyVersion("0.0.0")).toBe("unstable");
   });
