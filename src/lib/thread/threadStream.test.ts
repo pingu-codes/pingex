@@ -48,6 +48,20 @@ describe("upsertItem", () => {
 });
 
 describe("applyThreadEvent", () => {
+  it("retains async delivery and keeps accepting messages in the same turn", () => {
+    const thread = makeThread();
+    const item = { type: "agentMessage", id: "question", text: "A question", delivery: "async", phase: "final_answer" };
+    applyThreadEvent(thread, { method: "item/completed", params: { threadId: "t", turnId: "turn-1", item } });
+    applyThreadEvent(thread, {
+      method: "item/agentMessage/delta",
+      params: { threadId: "t", turnId: "turn-1", itemId: "next", delta: "Still working" },
+    });
+    expect(thread.turns).toHaveLength(1);
+    expect(thread.turns[0].status).toBe("inProgress");
+    expect(thread.turns[0].items[0]).toMatchObject(item);
+    expect(thread.turns[0].items[1].text).toBe("Still working");
+  });
+
   it("accumulates agent message deltas", () => {
     const thread = makeThread();
     applyThreadEvent(thread, {

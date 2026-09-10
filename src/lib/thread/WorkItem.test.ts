@@ -1,9 +1,9 @@
 import { render, screen } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { copyText } from "$lib/services/api";
 import WorkItem from "$lib/thread/WorkItem.svelte";
 import type { SubagentDetail, ThreadItem } from "$lib/types";
-import { copyText } from "$lib/services/api";
 
 const openSubagent = vi.fn();
 vi.mock("$lib/services/api", async (orig) => ({ ...(await orig<object>()), copyText: vi.fn(() => Promise.resolve()) }));
@@ -40,7 +40,13 @@ describe("WorkItem — Codex subagent activity", () => {
   });
 
   it("falls back to the agent path before the listing knows the agent", () => {
-    const item: ThreadItem = { type: "subAgentActivity", id: "a2", kind: "started", agentThreadId: "child-9", agentPath: "/root/x" };
+    const item: ThreadItem = {
+      type: "subAgentActivity",
+      id: "a2",
+      kind: "started",
+      agentThreadId: "child-9",
+      agentPath: "/root/x",
+    };
     render(WorkItem, { item, subagents: [agent] });
     expect(screen.getByText("Spawned agent")).toBeInTheDocument();
     expect(screen.getByText("/root/x")).toBeInTheDocument();
@@ -48,7 +54,13 @@ describe("WorkItem — Codex subagent activity", () => {
   });
 
   it("does not show a live status once the agent has finished", () => {
-    const item: ThreadItem = { type: "subAgentActivity", id: "a3", kind: "completed", agentThreadId: "child-1", agentPath: "/root/x" };
+    const item: ThreadItem = {
+      type: "subAgentActivity",
+      id: "a3",
+      kind: "completed",
+      agentThreadId: "child-1",
+      agentPath: "/root/x",
+    };
     render(WorkItem, { item, subagents: [agent] });
     expect(screen.getByText("Agent finished")).toBeInTheDocument();
     expect(screen.queryByText("running")).toBeNull();
@@ -103,5 +115,19 @@ describe("WorkItem — command execution", () => {
     render(WorkItem, { item });
     await user.click(screen.getByRole("button", { name: "Copy command" }));
     expect(copyText).toHaveBeenCalledWith(command);
+  });
+});
+
+describe("async messages", () => {
+  it("labels an async message and retains its copy controls", async () => {
+    render(WorkItem, { item: { type: "agentMessage", id: "async", delivery: "async", text: "A question" } });
+    expect(screen.getByText("Async")).toBeVisible();
+    expect(screen.getByText("A question")).toBeVisible();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Copy message" }));
+    expect(copyText).toHaveBeenCalledWith("A question");
+  });
+  it.each([undefined, null, "sync"])("does not label delivery %s as async", (delivery) => {
+    render(WorkItem, { item: { type: "agentMessage", id: "normal", delivery, text: "An update" } });
+    expect(screen.queryByText("Async")).toBeNull();
   });
 });

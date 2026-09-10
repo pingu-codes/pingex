@@ -311,6 +311,8 @@ export interface ThreadItem {
   content?: UserInputPart[] | string[];
   // agentMessage / plan
   text?: string;
+  /** Async delivery does not complete the enclosing turn. */
+  delivery?: string | null;
   // set while agentMessage deltas are still arriving; cleared when the item
   // completes, so the transcript knows when Codex went quiet to do tool work
   streaming?: boolean;

@@ -260,7 +260,14 @@ const commandStatusClass = (item: ThreadItem) =>
 <svelte:window onclick={onWindowClick} />
 
 {#if item.type === "agentMessage" || item.type === "plan"}
-  <div class="group/message min-w-0">
+  <div
+    class="group/message min-w-0 {item.type === 'agentMessage' && item.delivery === 'async'
+      ? 'rounded-lg border border-transparent p-3 transition-colors hover:border-surface-300-700 focus-within:border-surface-300-700'
+      : ''}"
+  >
+    {#if item.type === "agentMessage" && item.delivery === "async"}
+      <span class="badge preset-tonal-surface mb-2 text-[10px]">Async</span>
+    {/if}
     <div class="prose-thread min-w-0 text-sm leading-7" bind:this={messageEl} use:copyCode>
       {@html renderMarkdown(item.text ?? "")}
     </div>

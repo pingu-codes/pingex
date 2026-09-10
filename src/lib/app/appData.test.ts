@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { appData, applyData, nameNewThread, trackNewThread, UNTITLED_THREAD } from "$lib/app/appData.svelte";
+import {
+  appData,
+  applyData,
+  nameNewThread,
+  projectForCwd,
+  trackNewThread,
+  UNTITLED_THREAD,
+} from "$lib/app/appData.svelte";
 import type { BootstrapData, Project } from "$lib/types";
 
 const api: Project = {
@@ -92,5 +99,45 @@ describe("naming a freshly created thread", () => {
     nameNewThread("thread-e", "Fix the parser");
     expect(titleOf("thread-e")).toBe("Parser rewrite");
     expect(shown().filter((thread) => thread.id === "thread-e")).toHaveLength(1);
+  });
+});
+
+describe("project placement", () => {
+  it.each([
+    [["/projects/batgard", "/projects/batgard-oxc"], "/projects/batgard-oxc", "/projects/batgard-oxc"],
+    [["/projects/batgard-oxc", "/projects/batgard"], "/projects/batgard-oxc", "/projects/batgard-oxc"],
+    [["/projects", "/projects/api"], "/projects/api/src", "/projects/api"],
+    [["/projects/api"], "/projects/api-other", null],
+    [["/projects/api/"], "/projects/api", "/projects/api/"],
+    [["/", "/projects"], "/elsewhere", "/"],
+    [["C:\\", "C:\\Projects\\api"], "C:/Projects/api/src", "C:\\Projects\\api"],
+    [
+      ["\\\\wsl.localhost\\Ubuntu\\repo", "\\\\wsl.localhost\\Ubuntu\\repo-api"],
+      "\\\\wsl.localhost\\Ubuntu\\repo-api\\src",
+      "\\\\wsl.localhost\\Ubuntu\\repo-api",
+    ],
+  ])("places %s by directory boundaries", (paths, cwd, expected) => {
+    const snapshot = (): BootstrapData => ({
+      ...structuredClone(data),
+      projects: paths.map((path) => ({ ...structuredClone(api), path })),
+    });
+    appData.data = snapshot();
+    expect(projectForCwd(cwd)?.path ?? null).toBe(expected);
+    const id = `placement-${cwd}`;
+    trackNewThread(id, cwd);
+    nameNewThread(id, "Opening title");
+    for (let i = 0; i < 2; i++) {
+      const owners = appData.data!.projects.filter((project) => project.threads.some((thread) => thread.id === id));
+      expect(owners.map((project) => project.path)).toEqual(expected ? [expected] : []);
+      if (expected) expect(owners[0].threads.find((thread) => thread.id === id)?.title).toBe("Opening title");
+      applyData(snapshot());
+    }
+  });
+
+  it("uses an existing listing for a worktree outside the project", () => {
+    appData.data = structuredClone(data);
+    trackNewThread("worktree-fallback", api.path);
+    appData.data.projects[0].threads[0].cwd = "/tmp/worktree";
+    expect(projectForCwd("/tmp/worktree")?.path).toBe(api.path);
   });
 });

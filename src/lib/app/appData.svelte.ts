@@ -4,9 +4,9 @@
  * subagents visible until a bootstrap refresh catches up with them.
  */
 
+import { checkCodexVersion } from "$lib/app/codexVersion.svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
 import AddProjectDialog from "$lib/layout/AddProjectDialog.svelte";
-import { checkCodexVersion } from "$lib/app/codexVersion.svelte";
 import {
   bootstrap,
   isTauri,
@@ -46,6 +46,12 @@ export function projectByPath(path: string | null): Project | null {
   return projects().find((project) => project.path === path) ?? null;
 }
 
+// Compare path components without rewriting the paths used for IPC or display.
+// Keep case intact: native and WSL filesystems may be case-sensitive.
+function directoryKey(path: string): string {
+  return path.replaceAll("\\", "/").replace(/\/+$/, "") || "/";
+}
+
 /**
  * The project a directory belongs to (exact match, else nearest ancestor).
  *
@@ -53,14 +59,27 @@ export function projectByPath(path: string | null): Project | null {
  * is the last word: whichever project already holds a thread running there is
  * the project that thread belongs to.
  */
-export function projectForCwd(cwd: string | null): Project | null {
-  if (!cwd) return null;
+function projectForDirectory(candidates: Project[], cwd: string): Project | null {
+  const directory = directoryKey(cwd);
+  let nearest: Project | null = null;
+  let nearestLength = -1;
+  for (const project of candidates) {
+    const root = directoryKey(project.path);
+    if (directory === root) return project;
+    if (directory.startsWith(root.endsWith("/") ? root : `${root}/`) && root.length > nearestLength) {
+      nearest = project;
+      nearestLength = root.length;
+    }
+  }
   return (
-    projects().find((project) => project.path === cwd) ??
-    projects().find((project) => cwd.startsWith(project.path)) ??
-    projects().find((project) => project.threads.some((thread) => thread.cwd === cwd)) ??
+    nearest ??
+    candidates.find((project) => project.threads.some((thread) => directoryKey(thread.cwd) === directory)) ??
     null
   );
+}
+
+export function projectForCwd(cwd: string | null): Project | null {
+  return cwd ? projectForDirectory(projects(), cwd) : null;
 }
 
 export function fail(cause: unknown): void {
@@ -81,7 +100,7 @@ const optimisticThreads = new Map<string, ThreadSummary>();
 const optimisticSubagents = new Map<string, ThreadSummary>();
 
 function insertOptimisticThread(target: BootstrapData, summary: ThreadSummary) {
-  const project = target.projects.find((candidate) => summary.cwd.startsWith(candidate.path));
+  const project = projectForDirectory(target.projects, summary.cwd);
   if (!project || project.threads.some((thread) => thread.id === summary.id)) return;
   const index = project.threads.findIndex((thread) => !thread.pinned);
   project.threads.splice(index === -1 ? project.threads.length : index, 0, summary);
@@ -206,6 +225,8 @@ export async function quietRefresh(): Promise<void> {
 export async function addProject(): Promise<void> {
   if (!isTauri()) return;
   await openDialog<true, { submit: (path: string, host: Host | null) => Promise<void> }>(AddProjectDialog, {
-    submit: async (path, host) => { applyData(await saveProject(path, host)); },
+    submit: async (path, host) => {
+      applyData(await saveProject(path, host));
+    },
   });
 }
