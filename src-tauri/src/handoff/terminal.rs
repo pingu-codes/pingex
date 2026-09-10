@@ -26,8 +26,15 @@ pub(crate) fn applescript_quote(value: &str) -> String {
 
 /// Pipe `text` into a clipboard tool's stdin.
 fn pipe_to(program: &str, args: &[&str], text: &str) -> Result<(), String> {
+    pipe_to_with_env(program, args, &[], text)
+}
+
+/// Pipe `text` into a clipboard tool's stdin, with extra environment variables
+/// set on the child process.
+fn pipe_to_with_env(program: &str, args: &[&str], env: &[(&str, &str)], text: &str) -> Result<(), String> {
     let mut child = Command::new(program)
         .args(args)
+        .envs(env.iter().copied())
         .stdin(Stdio::piped())
         .spawn()
         .map_err(|error| format!("Could not copy to clipboard: {error}"))?;
@@ -49,7 +56,12 @@ fn pipe_to(program: &str, args: &[&str], text: &str) -> Result<(), String> {
 /// Copy text to the system clipboard.
 pub(crate) fn copy_to_clipboard(text: &str) -> Result<(), String> {
     if cfg!(target_os = "macos") {
-        return pipe_to("pbcopy", &[], text);
+        // A GUI-launched process has no shell profile, so `pbcopy` runs
+        // without a `LANG`/`LC_ALL` in its environment. Without one it can
+        // register the pasteboard content under a legacy non-UTF-8 string
+        // type, which other apps then read back mojibake'd. Force a UTF-8
+        // locale so it commits to a UTF-8 pasteboard representation.
+        return pipe_to_with_env("pbcopy", &[], &[("LANG", "en_US.UTF-8"), ("LC_ALL", "en_US.UTF-8")], text);
     }
     if cfg!(windows) {
         return pipe_to("clip.exe", &[], text);

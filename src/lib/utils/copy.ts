@@ -1,5 +1,10 @@
 import { copyText } from "$lib/services/api";
 
+/** Copies `plain` by default, or `markdown` when the click was Shift-held. */
+export function copyPlainOrMarkdown(event: MouseEvent, plain: string, markdown: string) {
+  copyText(event.shiftKey ? markdown : plain).catch(() => {});
+}
+
 /** Svelte action: delegated handler for the `.code-copy` buttons that
  *  `renderMarkdown` injects into code blocks. */
 export function copyCode(node: HTMLElement) {

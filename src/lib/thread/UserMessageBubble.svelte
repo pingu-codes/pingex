@@ -3,11 +3,12 @@ import { Check, ChevronLeft, ChevronRight, Copy, Pencil, Sparkles } from "@lucid
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { onDestroy, tick } from "svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
-import { copyText, isTauri, revealInFinder } from "$lib/services/api";
+import { isTauri, revealInFinder } from "$lib/services/api";
 import { messageText as joinMessageText, mergeTextParts, userMessageMarkdown } from "$lib/thread/messageText";
 import type { MessageVersions } from "$lib/thread/messageVersions";
 import { messageParts } from "$lib/thread/turnSegments";
 import type { ThreadItem, UserInputPart } from "$lib/types";
+import { copyPlainOrMarkdown } from "$lib/utils/copy";
 import { fileIconFor, iconForPath } from "$lib/utils/fileIcons";
 import { resolveMentionPath, splitMentions } from "$lib/utils/mentions";
 
@@ -46,8 +47,8 @@ let copied = $state(false);
 let copyTimer: ReturnType<typeof setTimeout> | undefined;
 onDestroy(() => clearTimeout(copyTimer));
 
-function copyMessage() {
-  copyText(userMessageMarkdown(messageParts(item), cwd)).catch(() => {});
+function copyMessage(event: MouseEvent) {
+  copyPlainOrMarkdown(event, messageText(), userMessageMarkdown(messageParts(item), cwd));
   copied = true;
   clearTimeout(copyTimer);
   copyTimer = setTimeout(() => (copied = false), 1500);
@@ -127,7 +128,7 @@ const localImageSrc = (part: UserInputPart) =>
 <div class="group/bubble flex items-start justify-end gap-1.5">
   {#if draft === null}
     <TooltipButton
-      label="Copy message"
+      label="Copy message (⇧ for Markdown)"
       aria-label="Copy message"
       onclick={copyMessage}
       class="mt-2 grid size-6 shrink-0 place-items-center rounded text-surface-500 transition hover:bg-surface-200-800 hover:text-surface-800-200 {copied
