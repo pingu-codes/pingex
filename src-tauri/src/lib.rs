@@ -146,6 +146,8 @@ pub(crate) struct HomeContext {
     /// The token-usage ledger: one consumer per home turning usage
     /// notifications into `turn_usage` rows.
     pub(crate) usage: usage::ledger::UsageLedger,
+    /// Prompt parts parsed from Codex rollout files, cached per file.
+    pub(crate) rollouts: codex::rollout::RolloutCache,
 }
 
 impl HomeContext {
@@ -176,6 +178,7 @@ impl HomeContext {
             claude,
             agents: agents::supervisor::AgentSupervisor::default(),
             usage: usage::ledger::UsageLedger::default(),
+            rollouts: codex::rollout::RolloutCache::default(),
             runtime,
             database: RwLock::new(database),
             home_key,

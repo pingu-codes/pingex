@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { CategoryTokens, ModelUsage } from "$lib/types";
-import { approx, costFor, costLabel, rangeSince, segmentsFor, USAGE_CATEGORIES } from "./usageBreakdown";
+import type { CategoryTokens, ModelUsage, PromptPart } from "$lib/types";
+import {
+  approx,
+  costFor,
+  costLabel,
+  promptPartRows,
+  rangeSince,
+  segmentsFor,
+  USAGE_CATEGORIES,
+} from "./usageBreakdown";
 
 const categories: CategoryTokens = {
   system: 500,
@@ -77,5 +85,33 @@ describe("ranges and labels", () => {
   it("prefixes estimates", () => {
     expect(approx("1,200", true)).toBe("≈ 1,200");
     expect(approx("1,200", false)).toBe("1,200");
+  });
+});
+
+describe("promptPartRows", () => {
+  const parts: PromptPart[] = [
+    { kind: "tools", label: "Tool definitions and other", tokens: 2_000, source: "estimated", detail: null },
+    { kind: "agentsMd", label: "AGENTS.md", tokens: 1_000, source: "estimated", detail: "/repo" },
+    { kind: "baseInstructions", label: "Base instructions", tokens: 5_000, source: "estimated", detail: null },
+    { kind: "environment", label: "Environment context", tokens: 0, source: "estimated", detail: null },
+  ];
+
+  it("orders by size with the tool remainder last and drops empty parts", () => {
+    const rows = promptPartRows(parts, 40_000);
+    expect(rows.map((row) => row.label)).toEqual(["Base instructions", "AGENTS.md", "Tool definitions and other"]);
+    expect(rows[0].percentOfContext).toBeCloseTo(12.5);
+    expect(rows[0].percentOfPrompt).toBeCloseTo(62.5);
+    expect(rows[1].detail).toBe("/repo");
+    expect(rows.every((row) => row.estimated)).toBe(true);
+  });
+
+  it("hides a detail that only repeats the label and marks exact parts", () => {
+    const rows = promptPartRows(
+      [{ kind: "tools", label: "System tools", tokens: 10, source: "exact", detail: "System tools" }],
+      100,
+    );
+    expect(rows[0].detail).toBeNull();
+    expect(rows[0].estimated).toBe(false);
+    expect(promptPartRows([], 0)).toEqual([]);
   });
 });

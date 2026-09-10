@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ThreadStatus from "$lib/panels/ThreadStatus.svelte";
 import type { ContextStats } from "$lib/thread/contextUsage";
@@ -67,7 +67,14 @@ const breakdown: UsageBreakdown = {
     },
   ],
   byThread: [],
-  context: { categories, totalTokens: 16_500, contextWindow: 200_000, source: "estimate" },
+  context: {
+    categories,
+    totalTokens: 16_500,
+    contextWindow: 200_000,
+    source: "estimate",
+    parts: null,
+    partsScaled: false,
+  },
 };
 
 beforeEach(() => {
@@ -100,6 +107,11 @@ describe("ThreadStatus", () => {
       totalTokens: 16_500,
       contextWindow: 200_000,
       source: "harness",
+      parts: [
+        { kind: "tools", label: "System tools", tokens: 9_000, source: "exact", detail: "System tools" },
+        { kind: "baseInstructions", label: "System prompt", tokens: 3_000, source: "exact", detail: "System prompt" },
+      ],
+      partsScaled: false,
     };
     readContextBreakdown.mockResolvedValue(reported);
     render(ThreadStatus, { stats, threadId: "t1" });
@@ -107,6 +119,47 @@ describe("ThreadStatus", () => {
     const composition = await screen.findByTestId("context-composition");
     expect(composition).toHaveTextContent("reported");
     expect(composition).not.toHaveTextContent("≈");
+
+    const parts = screen.getByTestId("prompt-parts");
+    await fireEvent.click(screen.getByRole("button", { name: /What is in the system prompt/ }));
+    await waitFor(() => expect(parts).toHaveTextContent("System tools"));
+    expect(parts).toHaveTextContent("9,000");
+    expect(parts).not.toHaveTextContent("≈");
+  });
+
+  it("lists the estimated parts of the system prompt with the tool remainder last", async () => {
+    const estimated: ContextComposition = {
+      categories,
+      totalTokens: 16_500,
+      contextWindow: 200_000,
+      source: "estimate",
+      parts: [
+        { kind: "tools", label: "Tool definitions and other", tokens: 6_000, source: "estimated", detail: null },
+        { kind: "agentsMd", label: "AGENTS.md", tokens: 1_000, source: "estimated", detail: "/repo" },
+        { kind: "baseInstructions", label: "Base instructions", tokens: 5_000, source: "estimated", detail: null },
+      ],
+      partsScaled: true,
+    };
+    readContextBreakdown.mockResolvedValue(estimated);
+    render(ThreadStatus, { stats, threadId: "t1" });
+
+    const parts = await screen.findByTestId("prompt-parts");
+    await fireEvent.click(screen.getByRole("button", { name: /What is in the system prompt/ }));
+    await waitFor(() => expect(parts).toHaveTextContent("Base instructions"));
+    const text = parts.textContent ?? "";
+    expect(text.indexOf("Base instructions")).toBeLessThan(text.indexOf("AGENTS.md"));
+    expect(text.indexOf("AGENTS.md")).toBeLessThan(text.indexOf("Tool definitions and other"));
+    expect(parts).toHaveTextContent("/repo");
+    expect(parts).toHaveTextContent("≈ 5,000");
+    expect(parts).toHaveTextContent("Scaled to fit");
+    expect(parts).toHaveTextContent("what remains");
+  });
+
+  it("shows no parts list when the harness cannot name them", async () => {
+    readContextBreakdown.mockRejectedValue(new Error("harness-unsupported:context_breakdown: Codex thread"));
+    render(ThreadStatus, { stats, threadId: "t1" });
+    await screen.findByTestId("context-composition");
+    expect(screen.queryByTestId("prompt-parts")).not.toBeInTheDocument();
   });
 
   it("leaves the composition out when a real error occurs", async () => {

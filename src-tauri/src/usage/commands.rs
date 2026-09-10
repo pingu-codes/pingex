@@ -8,6 +8,7 @@ use specta::Type;
 use tauri::{AppHandle, State};
 
 use super::ledger::ContextSnapshot;
+use super::prompt_parts::{fit_parts, PromptPart, PromptPartKind};
 use crate::storage::{self, CategoryTokens, UsageScope, UsageTokens};
 use crate::AppState;
 
@@ -105,6 +106,12 @@ pub(crate) struct ContextComposition {
     pub total_tokens: u64,
     pub context_window: Option<u64>,
     pub source: CompositionSource,
+    /// What the system prompt holds, when the harness can say; they add up
+    /// to `categories.system`. `None` when nothing can name the parts.
+    pub parts: Option<Vec<PromptPart>>,
+    /// The estimated parts outgrew the measured system prompt and were
+    /// scaled down to it.
+    pub parts_scaled: bool,
 }
 
 impl From<ContextSnapshot> for ContextComposition {
@@ -117,7 +124,19 @@ impl From<ContextSnapshot> for ContextComposition {
             categories: categories.into(),
             context_window: snapshot.context_window,
             source: CompositionSource::Estimate,
+            parts: None,
+            parts_scaled: false,
         }
+    }
+}
+
+impl ContextComposition {
+    /// Attach estimated parts, reconciled with this composition's `system`.
+    pub(crate) fn with_estimated_parts(mut self, parts: Vec<PromptPart>) -> Self {
+        let fitted = fit_parts(parts, self.categories.system);
+        self.parts = Some(fitted.parts);
+        self.parts_scaled = fitted.scaled;
+        self
     }
 }
 
@@ -215,9 +234,12 @@ pub(crate) async fn read_usage_breakdown(
     })
 }
 
-/// The exact composition of a live thread's context, from the harness.
-/// Fails with [`CONTEXT_BREAKDOWN_UNSUPPORTED`] when the thread's harness
-/// cannot say (Codex) or has no live process to ask.
+/// The composition of a thread's context with what its system prompt holds:
+/// exact from a live Claude process, or the ledger's estimate with the parts
+/// sized from the Codex rollout file. Fails with
+/// [`CONTEXT_BREAKDOWN_UNSUPPORTED`] when neither can say — a Claude thread
+/// between processes, or a Codex thread with no rollout on disk or no
+/// measured context yet.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn read_context_breakdown(
@@ -227,13 +249,36 @@ pub(crate) async fn read_context_breakdown(
     state: State<'_, AppState>,
 ) -> Result<ContextComposition, String> {
     let ctx = state.ctx(&window);
-    let Some(reported) = ctx.claude.context_usage(&thread_id).await? else {
+    if let Some(reported) = ctx.claude.context_usage(&thread_id).await? {
+        let estimate = ctx.usage.snapshot(&app, &ctx.home_key, &thread_id).await;
+        return Ok(harness_composition(&reported, estimate.as_ref()));
+    }
+    if storage::thread_harness(&ctx.database(), &thread_id)
+        .await?
+        .is_some()
+    {
         return Err(format!(
             "{CONTEXT_BREAKDOWN_UNSUPPORTED}: no live process can report this thread's context"
         ));
+    }
+    let local_home = ctx.runtime().local_home();
+    let Some(path) = crate::codex::rollout::locate(&local_home, &thread_id) else {
+        return Err(format!(
+            "{CONTEXT_BREAKDOWN_UNSUPPORTED}: no rollout on disk for this thread"
+        ));
     };
-    let estimate = ctx.usage.snapshot(&app, &ctx.home_key, &thread_id).await;
-    Ok(harness_composition(&reported, estimate.as_ref()))
+    let Some(snapshot) = ctx.usage.snapshot(&app, &ctx.home_key, &thread_id).await else {
+        return Err(format!(
+            "{CONTEXT_BREAKDOWN_UNSUPPORTED}: this thread's context has not been measured yet"
+        ));
+    };
+    let parts = {
+        let ctx = ctx.clone();
+        tauri::async_runtime::spawn_blocking(move || ctx.rollouts.prompt_parts(&path))
+            .await
+            .map_err(|error| format!("Could not read the rollout: {error}"))??
+    };
+    Ok(ContextComposition::from(snapshot).with_estimated_parts(parts))
 }
 
 /// Map Claude's `get_context_usage` categories onto ours. Prompt-side
@@ -246,14 +291,15 @@ pub(crate) fn harness_composition(
     estimate: Option<&ContextSnapshot>,
 ) -> ContextComposition {
     let mut categories = CategoryTokens::default();
+    let mut parts = Vec::new();
     let mut messages = 0;
     if let Some(list) = reported.get("categories").and_then(Value::as_array) {
         for category in list {
-            let name = category
+            let label = category
                 .get("name")
                 .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_ascii_lowercase();
+                .unwrap_or_default();
+            let name = label.to_ascii_lowercase();
             let tokens = category.get("tokens").and_then(Value::as_u64).unwrap_or(0);
             // Deferred tools are loaded on demand and not in the context;
             // free space and the autocompact buffer are what is left of it.
@@ -279,11 +325,23 @@ pub(crate) fn harness_composition(
                 || name.contains("prompt")
             {
                 categories.system += tokens;
+                let kind = if name.contains("tool") {
+                    PromptPartKind::Tools
+                } else if name.contains("memory") {
+                    PromptPartKind::Memory
+                } else if name.contains("prompt") {
+                    PromptPartKind::BaseInstructions
+                } else {
+                    PromptPartKind::Other
+                };
+                parts.push(PromptPart::exact(kind, label, tokens));
             } else {
                 categories.unattributed += tokens;
             }
         }
     }
+    parts.retain(|part| part.tokens > 0);
+    parts.sort_by_key(|part| std::cmp::Reverse(part.tokens));
     // The conversation, split the way the estimate says it is composed.
     let ratio = estimate.map(|snapshot| snapshot.categories);
     let (user, tool, output) = match ratio {
@@ -311,6 +369,8 @@ pub(crate) fn harness_composition(
         categories: categories.into(),
         context_window: reported.get("maxTokens").and_then(Value::as_u64),
         source: CompositionSource::Harness,
+        parts: Some(parts),
+        parts_scaled: false,
     }
 }
 
@@ -378,6 +438,31 @@ mod tests {
         assert_eq!(composition.categories.skills, 1605);
         assert_eq!(composition.categories.unattributed, 2747);
         assert_eq!(composition.context_window, Some(200_000));
+    }
+
+    #[test]
+    fn claude_prompt_parts_are_exact_and_add_up_to_the_system_prompt() {
+        let reported: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/protocol/claude/context-usage/response.json"
+        ))
+        .expect("fixture parses");
+        let composition = harness_composition(&reported, None);
+        let parts = composition.parts.expect("parts");
+        assert!(parts
+            .iter()
+            .all(|p| p.source == super::super::prompt_parts::PartSource::Exact));
+        assert_eq!(
+            parts.iter().map(|p| p.tokens).sum::<u64>(),
+            composition.categories.system
+        );
+        assert_eq!(parts[0].label, "System tools");
+        assert_eq!(parts[0].kind, PromptPartKind::Tools);
+        assert_eq!(parts[1].kind, PromptPartKind::BaseInstructions);
+        assert!(
+            !parts.iter().any(|p| p.label.contains("deferred")),
+            "deferred tools are not in context"
+        );
+        assert!(!composition.parts_scaled);
     }
 
     #[test]

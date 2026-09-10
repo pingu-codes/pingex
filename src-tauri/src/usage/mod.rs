@@ -4,3 +4,4 @@
 pub(crate) mod commands;
 pub(crate) mod estimate;
 pub(crate) mod ledger;
+pub(crate) mod prompt_parts;

@@ -42,6 +42,8 @@ export type {
   CompositionSource,
   ConfigSetting,
   ContextComposition,
+  PromptPart,
+  PromptPartKind,
   CreateWorkspaceInput,
   DiffHunk,
   DiffLine,

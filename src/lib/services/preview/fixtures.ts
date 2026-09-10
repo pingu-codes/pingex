@@ -611,14 +611,40 @@ export function previewUsageBreakdown(scope: UsageScope, since: number | null = 
             totalTokens: 72_000,
             contextWindow: 272_000,
             source: "estimate",
+            parts: null,
+            partsScaled: false,
           }
         : null,
   };
 }
 
 /** The preview thread runs on Codex, which cannot report its context. */
-export function previewContextBreakdown(threadId: string): Promise<ContextComposition> {
-  return Promise.reject(new Error(`harness-unsupported:context_breakdown: ${threadId} runs on Codex`));
+/** The preview thread runs on Codex: the composition is the ledger's
+ *  estimate, with the system prompt's parts sized from the rollout file. */
+export function previewContextBreakdown(_threadId: string): Promise<ContextComposition> {
+  const categories = { ...previewCategories(0.6), reasoning: 0 };
+  const named = 4_400 + 1_300 + 900 + 1_100 + 300;
+  return Promise.resolve({
+    categories,
+    totalTokens: 72_000,
+    contextWindow: 272_000,
+    source: "estimate",
+    parts: [
+      { kind: "baseInstructions", label: "Base instructions", tokens: 4_400, source: "estimated", detail: null },
+      { kind: "agentsMd", label: "AGENTS.md", tokens: 1_300, source: "estimated", detail: "/Users/demo/app" },
+      { kind: "skills", label: "Skills instructions", tokens: 900, source: "estimated", detail: null },
+      { kind: "permissions", label: "Permissions", tokens: 1_100, source: "estimated", detail: null },
+      { kind: "environment", label: "Environment context", tokens: 300, source: "estimated", detail: null },
+      {
+        kind: "tools",
+        label: "Tool definitions and other",
+        tokens: Math.max(categories.system - named, 0),
+        source: "estimated",
+        detail: null,
+      },
+    ],
+    partsScaled: false,
+  });
 }
 
 export const previewFiles: FileHit[] = [

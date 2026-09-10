@@ -9,6 +9,7 @@ pub(crate) mod events;
 pub(crate) mod journal;
 pub(crate) mod pairing;
 pub mod requests;
+pub(crate) mod rollout;
 pub(crate) mod session;
 pub(crate) mod wire;
 

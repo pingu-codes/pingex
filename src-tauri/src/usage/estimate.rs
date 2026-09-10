@@ -32,6 +32,11 @@ pub(crate) fn tokens_for_chars(chars: u64) -> u64 {
     chars.div_ceil(4)
 }
 
+/// Codex's own rule for text it has not tokenized: four bytes to a token.
+pub(crate) fn tokens_for_bytes(bytes: u64) -> u64 {
+    bytes.div_ceil(4)
+}
+
 fn chars_of(value: Option<&Value>) -> u64 {
     match value {
         None | Some(Value::Null) => 0,

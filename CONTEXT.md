@@ -76,6 +76,15 @@ the journaled items and the measured context size, or reported by the
 harness where it can say (Claude Code's `get_context_usage`).
 _Avoid_: context usage (the meter's single figure), context map
 
+**Prompt part**:
+One named contributor to the System prompt slice of a Context composition —
+the base instructions, an AGENTS.md file, skills instructions, permissions,
+environment, memory, the compaction summary, tool definitions. Exact where the
+harness reports it (Claude), ≈ estimated where the app sizes the harness's own
+record of the text (Codex's rollout file). The parts always add up to the slice.
+_Avoid_: section (Codex's world-state word), component, category (the slice
+it sits inside)
+
 **Opening row**:
 The one Usage row a thread gets for usage that happened before the ledger
 could see it: what a replayed running total exceeds the stored rows by,

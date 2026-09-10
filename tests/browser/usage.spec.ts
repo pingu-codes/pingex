@@ -30,6 +30,13 @@ test("the overview's usage row opens the status panel with both breakdowns", asy
   await expect(composition).toContainText("System prompt");
   await expect(composition).toContainText("Tool use");
 
+  // The system prompt opens into its parts, sized from the rollout file.
+  await composition.getByRole("button", { name: "What is in the system prompt" }).click();
+  const parts = composition.getByTestId("prompt-parts");
+  await expect(parts).toContainText("Base instructions");
+  await expect(parts).toContainText("AGENTS.md");
+  await expect(parts).toContainText("Tool definitions and other");
+
   const spend = panel.getByTestId("spend-by-category");
   await expect(spend).toContainText("Spend by category");
   await expect(spend).toContainText("Reasoning");

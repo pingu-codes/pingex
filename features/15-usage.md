@@ -16,7 +16,7 @@ The categories, in display order:
 
 | Category | Holds | Figure |
 | --- | --- | --- |
-| System prompt | the harness's own prompt, tool definitions, instructions, memory files | ≈ estimated |
+| System prompt | the harness's own prompt, tool definitions, instructions, memory files; split into Prompt parts below | ≈ estimated |
 | Skills | skill files the user invoked with `$` | ≈ estimated |
 | Your messages | text the user typed | ≈ estimated |
 | Tool use | commands, diffs, tool calls and their output | ≈ estimated |
@@ -94,9 +94,43 @@ ledger's estimated ratio; free space and the autocompact buffer are not
 tokens in use. The composition is then badged "reported" rather than
 "≈ estimated".
 
-Codex has no such API, and a Claude thread between processes has nothing to
-ask. Both fail with the `harness-unsupported:context_breakdown` prefix and
-the panel shows the estimate. The frontend never checks the harness kind.
+Codex has no such API; its composition is the estimate, with the prompt parts
+below attached. A Claude thread between processes has nothing to ask, and a
+Codex thread with no rollout on disk or no measured context has nothing to
+size; those fail with the `harness-unsupported:context_breakdown` prefix and
+the panel shows the bare estimate. The frontend never checks the harness kind.
+
+## What the system prompt holds
+
+The System prompt slice opens ("What is in the system prompt") into its
+**Prompt parts**: base instructions, AGENTS.md (one per directory), skills
+instructions, permissions, environment context, memory and developer
+instructions, apps, plugins, the compaction summary, and "Tool definitions
+and other". The list always adds up to the slice above it.
+
+- **Claude** reports the parts: `get_context_usage`'s prompt-side categories
+  (System prompt, System tools, MCP tools, Memory files, Agents) are shown as
+  they come, exact.
+- **Codex** never says, but it writes the text down. The thread's rollout file
+  (`<codex_home>/sessions/…/rollout-*-<thread_id>.jsonl`) holds the base
+  instructions in its meta line and every instruction block it placed in a
+  developer or user message, tagged by content kind since 0.150 and by
+  Codex's own markers (`<user_instructions>`, `<environment_context>`, …)
+  before that. `src-tauri/src/codex/rollout.rs` streams the file, keeps the
+  latest occurrence of each block (Codex re-sends a block when it changes and
+  after a compaction), and sizes it at Codex's own four bytes to a token.
+  Parsing is cached per file by size and mtime.
+- **Reconciling** (`src-tauri/src/usage/prompt_parts.rs`): what the named
+  parts do not explain of the `system` figure is "Tool definitions and
+  other" — Codex never writes its tool schemas anywhere, so the remainder is
+  the only honest place for them. When the parts outgrow the figure (the
+  lump was fitted down to a measurement) they are scaled pro rata and the
+  footnote says so.
+- "Skills instructions" is the index Codex injects, not the Skills category,
+  which is the `$`-invoked skill files the user put in the thread.
+
+No compat `Feature` gates this: every supported tier writes these records,
+and older files on disk degrade to marker-only classification.
 
 ## Limits
 
@@ -108,3 +142,5 @@ the panel shows the estimate. The frontend never checks the harness kind.
 - Usage that streamed while the app was closed is lost for Claude threads
   (nothing replays it) and lands in the opening row for Codex threads.
 - A Branch counts only its own turns; a whole-family total is not offered.
+- Codex never writes its tool definitions to disk; in the prompt parts they
+  are the remainder, and inherit any estimation error of the other parts.

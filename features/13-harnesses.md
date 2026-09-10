@@ -229,6 +229,12 @@ the Codex driver; Claude reads `system/init.capabilities[]` once per
 process). The bootstrap payload carries the declared set so the frontend hides
 controls before the first call.
 
+`ContextUsage` is what the harness can say about its live context. Codex has
+no such call; its driver answers the prompt-parts half of the question from
+the thread's rollout file on disk instead (`features/15-usage.md`, "What the
+system prompt holds"), so the usage view gets parts from both harnesses
+without knowing which one it asked.
+
 ### Processes
 
 - Codex: one child per Home, lazily spawned, as now. `CodexSession` becomes

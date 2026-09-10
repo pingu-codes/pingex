@@ -67,9 +67,12 @@ export const commands = {
 	/**  Token usage summed over `scope`, optionally since a unix time. */
 	readUsageBreakdown: (scope: UsageScopeArg, since: number | null, window: HomeRoute | null = null) => __TAURI_INVOKE<UsageBreakdown>("read_usage_breakdown", { scope, since, window }),
 	/**
-	 *  The exact composition of a live thread's context, from the harness.
-	 *  Fails with [`CONTEXT_BREAKDOWN_UNSUPPORTED`] when the thread's harness
-	 *  cannot say (Codex) or has no live process to ask.
+	 *  The composition of a thread's context with what its system prompt holds:
+	 *  exact from a live Claude process, or the ledger's estimate with the parts
+	 *  sized from the Codex rollout file. Fails with
+	 *  [`CONTEXT_BREAKDOWN_UNSUPPORTED`] when neither can say — a Claude thread
+	 *  between processes, or a Codex thread with no rollout on disk or no
+	 *  measured context yet.
 	 */
 	readContextBreakdown: (threadId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<ContextComposition>("read_context_breakdown", { threadId, window }),
 	createWorkspace: (input: CreateWorkspaceInput, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("create_workspace", { input, window }),
@@ -823,6 +826,16 @@ export type ContextComposition = {
 	totalTokens: number,
 	contextWindow: number | null,
 	source: CompositionSource,
+	/**
+	 *  What the system prompt holds, when the harness can say; they add up
+	 *  to `categories.system`. `None` when nothing can name the parts.
+	 */
+	parts: PromptPart[] | null,
+	/**
+	 *  The estimated parts outgrew the measured system prompt and were
+	 *  scaled down to it.
+	 */
+	partsScaled: boolean,
 };
 
 export type CreateWorkspaceInput = {
@@ -1233,6 +1246,9 @@ export type NoticeParams = {
 	additionalDetails?: string | null,
 };
 
+/**  Whether the harness reported a part's size or the app sized its text. */
+export type PartSource = "exact" | "estimated";
+
 export type PatchUpdatedParams = {
 	threadId?: string | null,
 	turnId?: string | null,
@@ -1410,6 +1426,44 @@ export type ProjectChangedParams = {
 	projectId?: string | null,
 	changeType?: string | null,
 };
+
+export type PromptPart = {
+	kind: PromptPartKind,
+	label: string,
+	tokens: number,
+	source: PartSource,
+	/**
+	 *  Where it came from, when one kind has several: an AGENTS.md directory,
+	 *  the harness's own category name.
+	 */
+	detail: string | null,
+};
+
+/**
+ *  What a Prompt part is. Harness-neutral: a driver maps its own vocabulary
+ *  onto these and the frontend never learns which harness answered.
+ */
+export type PromptPartKind = 
+/**  The harness's own prompt for the model. */
+"baseInstructions" | 
+/**  An AGENTS.md (or equivalent) file; `detail` names its directory. */
+"agentsMd" | 
+/**  The harness's skills index or instructions, not a skill the user invoked. */
+"skills" | 
+/**  Sandboxing and approval rules. */
+"permissions" | 
+/**  Working directory, shell, and the context-window figures. */
+"environment" | 
+/**  Memory files and developer instructions. */
+"memory" | 
+/**  App and connector instructions. */
+"apps" | 
+/**  Plugin instructions. */
+"plugins" | 
+/**  The summary a compaction left behind. */
+"compaction" | 
+/**  Tool definitions, and whatever else nothing names. */
+"tools" | "other";
 
 /**  Availability and auth state of the active review provider. */
 export type ProviderStatus = {

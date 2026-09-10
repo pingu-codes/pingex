@@ -5,7 +5,7 @@
  * here is plain data so it can be tested without them.
  */
 import { estimateGroupCost } from "$lib/thread/usageCost";
-import type { CategoryTokens, ModelUsage } from "$lib/types";
+import type { CategoryTokens, ModelUsage, PromptPart } from "$lib/types";
 
 export type UsageCategory = keyof CategoryTokens;
 
@@ -85,6 +85,39 @@ export function costLabel(cost: CostSummary | null): string | null {
   if (!cost) return null;
   const amount = cost.usd > 0 && cost.usd < 0.01 ? "<$0.01" : `$${cost.usd.toFixed(2)}`;
   return cost.estimated ? `≈ ${amount}` : amount;
+}
+
+export interface PromptPartRow {
+  key: string;
+  label: string;
+  /** Where the part came from when one kind has several (an AGENTS.md directory). */
+  detail: string | null;
+  tokens: number;
+  /** 0–100, of the whole context. */
+  percentOfContext: number;
+  /** 0–100, of the system prompt. */
+  percentOfPrompt: number;
+  estimated: boolean;
+}
+
+/** The Prompt parts of a composition as rows: by size, the remainder
+ *  ("tools" that nothing names) last. `contextTotal` is the whole context the
+ *  percentages are of; the prompt share is of the parts' own sum. */
+export function promptPartRows(parts: PromptPart[], contextTotal: number): PromptPartRow[] {
+  const live = parts.filter((part) => part.tokens > 0);
+  const promptTotal = live.reduce((sum, part) => sum + part.tokens, 0);
+  const share = (tokens: number, of: number) => (of > 0 ? (tokens / of) * 100 : 0);
+  const named = live.filter((part) => part.kind !== "tools").sort((a, b) => b.tokens - a.tokens);
+  const tools = live.filter((part) => part.kind === "tools").sort((a, b) => b.tokens - a.tokens);
+  return [...named, ...tools].map((part, index) => ({
+    key: `${part.kind}:${part.detail ?? index}`,
+    label: part.label,
+    detail: part.detail && part.detail !== part.label ? part.detail : null,
+    tokens: part.tokens,
+    percentOfContext: share(part.tokens, contextTotal),
+    percentOfPrompt: share(part.tokens, promptTotal),
+    estimated: part.source === "estimated",
+  }));
 }
 
 /** A token figure, prefixed when it is an estimate. */
