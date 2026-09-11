@@ -275,6 +275,10 @@ export const commands = {
 	searchThreads: (query: string, cursor: string | null, filter: {
 	archived?: boolean,
 	projectPath?: string | null,
+	/**  Also scan journaled assistant message bodies. Off by default. */
+	searchAgentMessages?: boolean,
+	/**  Also scan journaled user message bodies. Off by default. */
+	searchUserMessages?: boolean,
 } | null, generation: number, window: HomeRoute | null = null) => __TAURI_INVOKE<ThreadSearchPage>("search_threads", { query, cursor, filter, generation, window }),
 	/**
 	 *  Page through the app-server's thread listing, forwarding its opaque cursor.
@@ -1562,6 +1566,10 @@ export type SafetyBufferingUpdatedParams = {
 export type SearchFilter = {
 	archived?: boolean,
 	projectPath?: string | null,
+	/**  Also scan journaled assistant message bodies. Off by default. */
+	searchAgentMessages?: boolean,
+	/**  Also scan journaled user message bodies. Off by default. */
+	searchUserMessages?: boolean,
 };
 
 export type SearchGroup<T> = {

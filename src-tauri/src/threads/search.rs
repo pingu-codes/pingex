@@ -92,6 +92,19 @@ pub(crate) async fn list_threads_page(
 pub(crate) struct SearchFilter {
     archived: bool,
     project_path: Option<String>,
+    /// Also scan journaled assistant message bodies. Off by default.
+    search_agent_messages: bool,
+    /// Also scan journaled user message bodies. Off by default.
+    search_user_messages: bool,
+}
+
+impl SearchFilter {
+    fn message_scope(&self) -> storage::MessageScope {
+        storage::MessageScope {
+            agent: self.search_agent_messages,
+            user: self.search_user_messages,
+        }
+    }
 }
 
 #[derive(Serialize, specta::Type)]
@@ -154,7 +167,10 @@ pub(crate) async fn search_threads(
         .project_path
         .as_deref()
         .filter(|value| !value.is_empty());
+    let scope = filter.message_scope();
     if ctx.harness_kind == Some(crate::harness::HarnessKind::Claude) {
+        let body_matches =
+            storage::thread_ids_with_message_match(&ctx.database(), &query, scope).await?;
         let query = query.trim().to_lowercase();
         let matches: Vec<_> = storage::read_harness_threads(&ctx.database(), filter.archived)
             .await?
@@ -163,6 +179,7 @@ pub(crate) async fn search_threads(
             .filter(|thread| {
                 thread.title.to_lowercase().contains(&query)
                     || thread.cwd.to_lowercase().contains(&query)
+                    || body_matches.binary_search(&thread.thread_id).is_ok()
             })
             .collect();
         let total = matches.len() as i64;
@@ -192,6 +209,7 @@ pub(crate) async fn search_threads(
         &query,
         filter.archived,
         project_path,
+        scope,
         offset,
         SEARCH_PAGE,
     )

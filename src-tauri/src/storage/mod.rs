@@ -68,7 +68,7 @@ pub use questions::{add_side_question, delete_side_question, read_side_questions
 pub(crate) use review::{delete_review_draft, read_review_draft, write_review_draft, ReviewDraft};
 pub(crate) use search::{
     delete_thread_search, rename_thread_search, search_thread_index, set_thread_search_archived,
-    upsert_thread_search, StoredThreadSearch,
+    thread_ids_with_message_match, upsert_thread_search, MessageScope, StoredThreadSearch,
 };
 pub(crate) use sections::{
     read_thread_sections, replace_thread_sections, set_thread_section, thread_sections_supported,

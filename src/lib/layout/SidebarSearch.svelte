@@ -11,6 +11,7 @@ import {
   searchState,
 } from "$lib/layout/sidebarSearch";
 import { searchThreads } from "$lib/services/api";
+import { searchPrefs } from "$lib/layout/searchPrefs.svelte";
 import type { Project, ThreadSearchFilter, ThreadSearchItem } from "$lib/types";
 import { relativeTime } from "$lib/utils/time";
 
@@ -54,7 +55,12 @@ function projectNameFor(cwd: string): string {
 }
 
 function filterFor(isArchived: boolean): ThreadSearchFilter {
-  return { archived: isArchived, projectPath: filterProject };
+  return {
+    archived: isArchived,
+    projectPath: filterProject,
+    searchAgentMessages: searchPrefs.searchAgentMessages,
+    searchUserMessages: searchPrefs.searchUserMessages,
+  };
 }
 
 async function runInitial() {
@@ -119,11 +125,13 @@ function scheduleSearch() {
   debounce = setTimeout(runInitial, 150);
 }
 
-// Re-run whenever the query text or project scope changes.
+// Re-run whenever the query text, project scope or message scopes change.
 $effect(() => {
   // Touch the reactive dependencies so the effect tracks them.
   void query;
   void filterProject;
+  void searchPrefs.searchAgentMessages;
+  void searchPrefs.searchUserMessages;
   scheduleSearch();
 });
 
@@ -141,6 +149,12 @@ function onKeydown(event: KeyboardEvent) {
 function toggleScope() {
   scopeOverride = !scoped;
 }
+
+const BODY_SCOPE_NOTE = "Only threads run in this app have message bodies to search.";
+const chipClass = (on: boolean) =>
+  `inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition ${
+    on ? "preset-filled-primary-500" : "bg-surface-200-800 text-surface-600-400 hover:preset-tonal"
+  }`;
 
 function selectResult(item: ThreadSearchItem) {
   onOpenResult(item);
@@ -171,13 +185,11 @@ function selectResult(item: ThreadSearchItem) {
         <X size={14} />
       </TooltipButton>
     </div>
-    {#if currentProjectName}
-      <div class="mt-1.5 flex items-center gap-1.5 px-0.5">
+    <div class="mt-1.5 flex flex-wrap items-center gap-1.5 px-0.5">
+      {#if currentProjectName}
         <button
           onclick={toggleScope}
-          class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition {scoped
-            ? 'preset-filled-primary-500'
-            : 'bg-surface-200-800 text-surface-600-400 hover:preset-tonal'}"
+          class={chipClass(scoped)}
           title={scoped ? `Searching in ${chipLabel}` : "Search all projects"}
         >
           {#if scoped}
@@ -187,8 +199,24 @@ function selectResult(item: ThreadSearchItem) {
             All projects
           {/if}
         </button>
-      </div>
-    {/if}
+      {/if}
+      <button
+        onclick={() => searchPrefs.setSearchAgentMessages(!searchPrefs.searchAgentMessages)}
+        class={chipClass(searchPrefs.searchAgentMessages)}
+        aria-pressed={searchPrefs.searchAgentMessages}
+        title="Also match assistant message text. {BODY_SCOPE_NOTE}"
+      >
+        AI messages
+      </button>
+      <button
+        onclick={() => searchPrefs.setSearchUserMessages(!searchPrefs.searchUserMessages)}
+        class={chipClass(searchPrefs.searchUserMessages)}
+        aria-pressed={searchPrefs.searchUserMessages}
+        title="Also match your own message text. {BODY_SCOPE_NOTE}"
+      >
+        User messages
+      </button>
+    </div>
   </div>
 
   <div class="mt-2 min-h-0 flex-1 overflow-y-auto px-2 pb-3">
