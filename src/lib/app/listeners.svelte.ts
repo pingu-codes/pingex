@@ -6,6 +6,7 @@
 
 import { listen } from "@tauri-apps/api/event";
 import { quietRefresh } from "$lib/app/appData.svelte";
+import { openFilePreview } from "$lib/app/filePreview";
 import { applyHandoff } from "$lib/app/handoff.svelte";
 import { eventMatchesHome } from "$lib/app/launch.svelte";
 import { openThreadById, setView, view } from "$lib/app/navigation.svelte";
@@ -32,8 +33,9 @@ export function startApp(): void {
   setHomeSelection(() => view);
   startCodexListeners();
   // Open links (markdown output, etc.) in the default browser rather than
-  // navigating the app webview and stranding the user with no way back.
-  installExternalLinkHandler();
+  // navigating the app webview and stranding the user with no way back. A link
+  // that names a local file opens the preview modal instead of Finder.
+  installExternalLinkHandler({ onFilePath: (ref) => void openFilePreview(ref) });
   // Track paired remote devices so the sidebar can show a live connection
   // indicator and refresh it when the relay announces status changes.
   startConnectionsWatch();

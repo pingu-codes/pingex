@@ -80,6 +80,20 @@ fn context_key(profile: &HomeContext, home: &ProfileHome) -> String {
     }
 }
 
+/// The Claude runtime a Home implies. A Codex Home still carries one, so a
+/// window bound to it can start a Claude conversation under the defaults.
+fn claude_runtime_for(home: &ProfileHome) -> crate::claude::driver::ClaudeRuntime {
+    crate::claude::driver::ClaudeRuntime {
+        binary: PathBuf::from(if home.harness == HarnessKind::Claude {
+            &home.binary
+        } else {
+            "claude"
+        }),
+        config_dir: (home.harness == HarnessKind::Claude).then(|| PathBuf::from(&home.config_dir)),
+        host: home.host.clone(),
+    }
+}
+
 async fn context_for(
     state: &AppState,
     profile: &HomeContext,
@@ -89,12 +103,10 @@ async fn context_for(
     if let Some(context) = state.context_for_home(&key) {
         return Ok(context);
     }
-    let legacy_claude = profile.claude.runtime();
-    let database = if home.harness == HarnessKind::Claude
-        && home.host == legacy_claude.host
-        && home.config_dir == legacy_claude.config_dir().to_string_lossy()
-    {
+    let database = if home.shares_profile_db {
         // Existing Claude conversations retain their journal and native IDs.
+        // The flag is stored rather than derived from the current Settings
+        // default, so repointing that default cannot move a Home's history.
         profile.database()
     } else {
         let root = state.profile_root_path(&profile.host(), &profile.runtime().codex_home_str());
@@ -106,19 +118,7 @@ async fn context_for(
             .join("pingex.db");
         storage::open_profile_cache(&path).await?
     };
-    let claude = crate::claude::driver::ClaudeRuntime {
-        binary: PathBuf::from(if home.harness == HarnessKind::Claude {
-            &home.binary
-        } else {
-            "claude"
-        }),
-        config_dir: if home.harness == HarnessKind::Claude {
-            Some(PathBuf::from(&home.config_dir))
-        } else {
-            None
-        },
-        host: home.host.clone(),
-    };
+    let claude = claude_runtime_for(home);
     let context = HomeContext::in_profile(
         RuntimeConfig {
             host: home.host.clone(),
@@ -263,6 +263,130 @@ pub(crate) async fn set_profile_default_home(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     registry::set_default_home(&state.ctx(&window).database(), &id).await
+}
+
+/// The Home `legacy_homes` re-registers from the Settings override cannot be
+/// edited or removed here: it would come back on the next launch. Send the
+/// reader to the field that actually owns it.
+fn guard_settings_home(home: &ProfileHome) -> Result<(), String> {
+    if home.harness != HarnessKind::Claude {
+        return Ok(());
+    }
+    let runtime = crate::claude::driver::ClaudeRuntime::resolve(
+        &crate::settings::prefs::read_overrides(&crate::settings::prefs::settings_path()),
+    );
+    // `legacy_homes` also pins a `~/.claude` Home on the Codex Host when the
+    // two Hosts differ; that one can still reappear after a removal.
+    if home.host == runtime.host && home.config_dir == runtime.config_dir_str() {
+        return Err(format!(
+            "{} is the Claude configuration directory in Settings. Change it there first.",
+            home.config_dir
+        ));
+    }
+    Ok(())
+}
+
+/// The Home as the registry holds it, refusing one that is mid-conversation:
+/// repointing a Home tears its context down, and that kills a running turn.
+async fn settled_home(
+    state: &AppState,
+    profile: &HomeContext,
+    id: &str,
+) -> Result<ProfileHome, String> {
+    let home = registry::homes(&profile.database())
+        .await?
+        .into_iter()
+        .find(|home| home.id == id)
+        .ok_or("Home does not belong to this Profile")?;
+    guard_settings_home(&home)?;
+    if let Some(context) = state.context_for_home(&context_key(profile, &home)) {
+        if context.claude.is_busy() {
+            return Err("A conversation is running in this Home. Stop it first.".into());
+        }
+    }
+    Ok(home)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn update_profile_home(
+    id: String,
+    config_dir: String,
+    binary: String,
+    label: String,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<ProfileHome, String> {
+    let profile = state.ctx(&window);
+    let home = settled_home(&state, &profile, &id).await?;
+    let (_, config_dir) =
+        crate::settings::commands::settle_home(&config_dir, Some(home.host.clone()))?;
+    if config_dir.is_empty() || binary.trim().is_empty() {
+        return Err("Enter a Home directory and binary".into());
+    }
+    if home.host.resolve_binary(binary.trim()).is_none() {
+        return Err(crate::codex::binary::missing_message_on(
+            &home.host,
+            binary.trim(),
+        ));
+    }
+    let updated = registry::update_home(
+        &profile.database(),
+        &id,
+        &home.host.canonical(&config_dir),
+        binary.trim(),
+        label.trim(),
+    )
+    .await?;
+    // The cached context still holds the old runtime; the next use rebuilds it.
+    if let Some(stale) = state.forget_context(&context_key(&profile, &home)) {
+        stale.shutdown();
+    }
+    Ok(updated)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn remove_profile_home(
+    id: String,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let profile = state.ctx(&window);
+    let home = settled_home(&state, &profile, &id).await?;
+    registry::delete_home(&profile.database(), &id).await?;
+    // The Home's cache database stays on disk, so re-adding the directory
+    // brings its conversations back.
+    if let Some(stale) = state.forget_context(&context_key(&profile, &home)) {
+        stale.shutdown();
+    }
+    Ok(())
+}
+
+/// Whether one Home's Claude CLI is installed and logged in. Probed per Home
+/// rather than folded into the bootstrap snapshot: `status` shells out twice
+/// and a WSL Home's probe can hang, which is not worth putting on the launch
+/// path for something only the Settings list reads.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn read_home_claude_status(
+    id: String,
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<crate::claude::driver::ClaudeStatus, String> {
+    let profile = state.ctx(&window);
+    let home = registry::homes(&profile.database())
+        .await?
+        .into_iter()
+        .find(|home| home.id == id)
+        .ok_or("Home does not belong to this Profile")?;
+    if home.harness != HarnessKind::Claude {
+        return Err("This Home does not run Claude Code".into());
+    }
+    let runtime = claude_runtime_for(&home);
+    tauri::async_runtime::spawn_blocking(move || crate::claude::driver::status(&runtime))
+        .await
+        .map_err(|error| error.to_string())
 }
 
 /// A workspace's directories belong to its Host. Another harness on that

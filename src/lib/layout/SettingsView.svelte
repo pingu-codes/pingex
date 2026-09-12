@@ -42,6 +42,7 @@ import {
   writeAgentSettings,
   writeConfigSetting,
 } from "$lib/services/api";
+import { loadProfile } from "$lib/services/homeRouting";
 import type { Account, AgentSettings, CodexServerInfo, ConfigSetting, HomeOverview, RuntimeSettings } from "$lib/types";
 import { codexVersionFromUserAgent } from "$lib/types";
 import UsageSummary from "$lib/usage/UsageSummary.svelte";
@@ -110,6 +111,9 @@ let settingsClaudeHost = $state("native");
 let distros = $state<string[]>([]);
 let generalError = $state<string | null>(null);
 let generalSaved = $state(false);
+// The directory the form loaded with, so a save can say what changed.
+let loadedClaudeConfig = $state("");
+let claudeConfigMoved = $state(false);
 let serverInfo = $state<CodexServerInfo | null>(null);
 const serverVersion = $derived(codexVersionFromUserAgent(serverInfo?.userAgent));
 const serverTier = $derived(serverVersion ? classifyVersion(serverVersion) : null);
@@ -190,6 +194,7 @@ $effect(() => {
       settingsBinary = settings.overrideCodexBinary ?? "";
       settingsClaudeBinary = settings.overrideClaudeBinary ?? "";
       settingsClaudeConfig = settings.overrideClaudeConfigDir ?? "";
+      loadedClaudeConfig = settingsClaudeConfig;
       settingsCodexHost = hostToOption(settings.overrideCodexHost);
       settingsClaudeHost = hostToOption(settings.overrideClaudeHost);
     })
@@ -236,6 +241,11 @@ async function saveGeneral(event: SubmitEvent) {
       hostOverride(hostFromOption(settingsCodexHost)),
       hostOverride(hostFromOption(settingsClaudeHost)),
     );
+    claudeConfigMoved = settingsClaudeConfig.trim() !== loadedClaudeConfig.trim();
+    loadedClaudeConfig = settingsClaudeConfig.trim();
+    // A changed Claude directory registers a Home and makes it this Host's
+    // default; reload so the Homes list below and the routing agree.
+    if (claudeConfigMoved) await loadProfile(false);
     generalSaved = true;
   } catch (cause) {
     generalError = cause instanceof Error ? cause.message : String(cause);
@@ -442,7 +452,14 @@ async function reveal(path: string | null | undefined) {
                 <button type="submit" class="btn btn-sm preset-filled-primary-500">Save</button>
                 {#if generalSaved}
                   <span class="text-xs {runtimeSettings?.restartRequired ? 'text-warning-500' : 'text-success-500'}">
-                    {runtimeSettings?.restartRequired ? "Saved — restart Pingex to apply." : "Saved."}
+                    {#if runtimeSettings?.restartRequired}
+                      Saved — restart Pingex to apply.
+                    {:else if claudeConfigMoved}
+                      Saved — new Claude conversations use {loadedClaudeConfig || "~/.claude"}.
+                      Existing ones keep their Home.
+                    {:else}
+                      Saved.
+                    {/if}
                   </span>
                 {/if}
               </div>

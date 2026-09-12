@@ -391,6 +391,30 @@ impl Host {
                 .filter(|home| home.starts_with('/')),
         }
     }
+
+    /// Expand a leading `~` to this host's home directory. `~` alone and
+    /// `~/rest` expand; `~user` is left alone, since another user's home is
+    /// not ours to guess, and so is anything we cannot read a `$HOME` for.
+    pub fn expand_tilde(&self, path: &str) -> String {
+        let Some(rest) = path.strip_prefix('~') else {
+            return path.to_string();
+        };
+        if !(rest.is_empty() || rest.starts_with('/')) {
+            return path.to_string();
+        }
+        let Some(home) = self.home_dir() else {
+            return path.to_string();
+        };
+        // `join_str` goes through `Path::join` on a native host, and that
+        // *replaces* the base when the segment is absolute — so the separator
+        // has to go before the join, not after.
+        let rest = rest.trim_start_matches('/');
+        if rest.is_empty() {
+            home
+        } else {
+            self.join_str(&home, rest)
+        }
+    }
 }
 
 /// The installed WSL distributions, for the host pickers. Empty anywhere

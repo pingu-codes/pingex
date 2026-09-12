@@ -11,6 +11,7 @@ use crate::storage;
 use crate::AppState;
 
 pub(crate) mod fuzzy;
+pub(crate) mod preview;
 
 #[tauri::command]
 #[specta::specta]

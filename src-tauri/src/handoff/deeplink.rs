@@ -12,20 +12,6 @@ use super::url::{parse_deep_link, DeepLink, DeepLinkKind};
 use crate::util::host::Host;
 use crate::{home_key_for, AppState};
 
-/// Expand a leading `~` to the user's home directory on `host`.
-fn expand_tilde(host: &Host, path: &str) -> String {
-    let Some(rest) = path.strip_prefix('~') else {
-        return path.to_string();
-    };
-    if !(rest.is_empty() || rest.starts_with('/')) {
-        return path.to_string();
-    }
-    match host.home_dir() {
-        Some(home) => host.join_str(&home, rest),
-        None => path.to_string(),
-    }
-}
-
 /// The home a link asks for, settled onto its host: a `host=` spec names a
 /// distribution; a share path does too; anything else is native.
 fn requested_home(link: &DeepLink) -> Option<(Host, String)> {
@@ -34,7 +20,7 @@ fn requested_home(link: &DeepLink) -> Option<(Host, String)> {
         Some(host) => (host.clone(), host.to_host_path(raw)),
         None => Host::from_local(raw),
     };
-    let path = expand_tilde(&host, &path);
+    let path = host.expand_tilde(&path);
     Some((host, path))
 }
 

@@ -372,6 +372,25 @@ impl AppState {
             .clone()
     }
 
+    /// Drop one member context so the next use rebuilds it from the registry,
+    /// picking up an edited configuration directory or binary. Returns it for
+    /// the caller to shut down. A Profile's own context and any window-bound
+    /// context stay: those are repointed, never removed.
+    pub(crate) fn forget_context(&self, home_key: &str) -> Option<Arc<HomeContext>> {
+        if home_key == self.default_home() {
+            return None;
+        }
+        let bindings = self.bindings.read().expect("bindings lock poisoned");
+        if bindings.values().any(|key| key == home_key) {
+            return None;
+        }
+        drop(bindings);
+        self.contexts
+            .write()
+            .expect("contexts lock poisoned")
+            .remove(home_key)
+    }
+
     pub(crate) fn profile_root_path(&self, host: &Host, home: &str) -> PathBuf {
         storage::profile_root_path_in(&self.profile_cache_root, host, home)
     }
@@ -496,6 +515,9 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             profiles::add_profile_project,
             profiles::register_profile_home,
             profiles::set_profile_default_home,
+            profiles::update_profile_home,
+            profiles::remove_profile_home,
+            profiles::read_home_claude_status,
             profiles::prepare_profile_workspace,
             projects::commands::bootstrap,
             projects::commands::add_project,
@@ -575,6 +597,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             // Files and mentions
             files::search_project_files,
             files::list_project_files,
+            files::preview::read_file_preview,
             // Composer: drafts, attachments, quick chat
             composer::drafts::save_draft,
             composer::drafts::load_draft,
@@ -930,6 +953,39 @@ mod tests {
         assert!(state.context_for_route("main", Some("member")).is_err());
         assert_eq!(captured.host(), Host::wsl("Ubuntu"));
         assert_eq!(captured.profile_key, root.profile_key);
+    }
+
+    #[tokio::test]
+    async fn forgetting_a_member_context_spares_the_default_and_bound_ones() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = state_with_home(directory.path()).await;
+        let root = state.default_context();
+        let member = |key: &str| {
+            HomeContext::in_profile(
+                RuntimeConfig {
+                    host: Host::Native,
+                    codex_home: "/home/u/.codex".into(),
+                    codex_binary: "codex".into(),
+                },
+                root.database(),
+                key.into(),
+                root.profile_key.clone(),
+                root.claude.runtime(),
+                Some(harness::HarnessKind::Claude),
+            )
+        };
+        state.insert_context(member("editable"));
+        state.insert_context(member("bound"));
+        state.bind_window("main-2", "bound");
+
+        let dropped = state.forget_context("editable").expect("member forgotten");
+        assert_eq!(dropped.home_key, "editable");
+        assert!(state.context_for_home("editable").is_none());
+        // A window still works against these two, so they are repointed in
+        // place rather than dropped from under it.
+        assert!(state.forget_context("bound").is_none());
+        assert!(state.forget_context(&root.home_key).is_none());
+        assert!(state.context_for_home("bound").is_some());
     }
 
     #[tokio::test]

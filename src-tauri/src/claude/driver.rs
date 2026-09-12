@@ -858,6 +858,16 @@ impl ClaudeDriver {
         }
     }
 
+    /// Whether a conversation is live here. Editing or removing a Home tears
+    /// its context down, so the caller refuses rather than killing a turn
+    /// mid-stream.
+    pub(crate) fn is_busy(&self) -> bool {
+        self.processes
+            .lock()
+            .map(|processes| !processes.is_empty())
+            .unwrap_or(true)
+    }
+
     pub(crate) fn kill_all(&self) {
         let Ok(mut processes) = self.processes.lock() else {
             return;

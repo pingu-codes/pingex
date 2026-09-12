@@ -17,6 +17,7 @@ import {
   previewCreateSkill,
   previewData,
   previewDeleteSkill,
+  previewFilePreview,
   previewFiles,
   previewGitContext,
   previewGitRepoInfo,
@@ -29,8 +30,8 @@ import {
   previewMcpServerStatus,
   previewModels,
   previewPrDetail,
-  previewProviderStatus,
   previewPromptPartsText,
+  previewProviderStatus,
   previewPrs,
   previewQueue,
   previewQuickShortcut,
@@ -69,6 +70,7 @@ import type {
   CreateWorkspaceInput,
   FileDiff,
   FileHit,
+  FilePreview,
   GitBranch,
   GitCommit,
   GitContext,
@@ -86,8 +88,8 @@ import type {
   PrFile,
   PrFreshness,
   ProjectSource,
-  ProviderStatus,
   PromptPart,
+  ProviderStatus,
   PrSummary,
   QueuedSubmission,
   RemoteConnection,
@@ -421,6 +423,22 @@ export async function readClaudeStatus(): Promise<ClaudeStatus> {
     };
   }
   return commands.readClaudeStatus();
+}
+
+/** Whether one registered Home's `claude` binary is installed and logged in. */
+export async function readHomeClaudeStatus(id: string): Promise<ClaudeStatus> {
+  if (!isTauri()) {
+    return {
+      available: true,
+      path: "/usr/local/bin/claude",
+      version: "2.1.251",
+      configDir: "~/.claude",
+      loggedIn: true,
+      protocolFloor: "1.0.59",
+      message: null,
+    };
+  }
+  return commands.readHomeClaudeStatus(id);
 }
 
 export async function startTurn(threadId: string, input: UserInputPart[], options?: TurnOptions): Promise<Turn> {
@@ -1968,6 +1986,16 @@ export async function setSkillEnabled(name: string, enabled: boolean, path: stri
 export async function readSkill(path: string): Promise<string> {
   if (!isTauri()) return previewReadSkill(path);
   return commands.readSkill(path);
+}
+
+/**
+ * Read a file for the preview modal. `path` must already be stripped of any
+ * `:line` suffix (see `parseFileRef`). The everyday failures — a binary, a
+ * deleted path, a directory — come back as `problem`, not as a rejection.
+ */
+export async function readFilePreview(path: string, maxBytes?: number): Promise<FilePreview> {
+  if (!isTauri()) return previewFilePreview(path);
+  return commands.readFilePreview(path, maxBytes ?? null);
 }
 
 /**

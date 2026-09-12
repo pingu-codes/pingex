@@ -94,6 +94,18 @@ export async function chooseDefaultHome(id: string): Promise<void> {
   await loadProfile(false);
 }
 
+/** Repoint a Home. Reloading the Profile refreshes the list and the routing
+ *  that `homeForPath` does, so both see the new directory at once. */
+export async function updateHome(id: string, configDir: string, binary: string, label: string): Promise<void> {
+  await nativeCommands.updateProfileHome(id, configDir, binary, label);
+  await loadProfile(false);
+}
+
+export async function removeHome(id: string): Promise<void> {
+  await nativeCommands.removeProfileHome(id);
+  await loadProfile(false);
+}
+
 function selectedHome(harness?: string): HomeSnapshot | undefined {
   const current = selected();
   const thread = identity(current.threadId);

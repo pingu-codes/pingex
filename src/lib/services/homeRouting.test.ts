@@ -56,7 +56,16 @@ function home(key: string, host: Host, harness: "codex" | "claude", cwd: string)
   };
   return {
     homeKey: key,
-    home: { id: key, host, harness, configDir: "/config", binary: harness, label: key, isDefault: true },
+    home: {
+      id: key,
+      host,
+      harness,
+      configDir: "/config",
+      binary: harness,
+      label: key,
+      isDefault: true,
+      sharesProfileDb: false,
+    },
     data,
     error: null,
   };

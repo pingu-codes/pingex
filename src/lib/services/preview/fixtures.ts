@@ -8,6 +8,7 @@ import type {
   ConfigSetting,
   ContextComposition,
   FileHit,
+  FilePreview,
   GitBranch,
   GitCommit,
   GitContext,
@@ -20,9 +21,10 @@ import type {
   McpServerSummary,
   Model,
   PrDetail,
+  PreviewProblem,
   ProjectSource,
-  ProviderStatus,
   PromptPart,
+  ProviderStatus,
   PrSummary,
   QueuedSubmission,
   RemoteConnection,
@@ -1664,3 +1666,34 @@ export const previewWireLog: WireMessage[] = [
     truncated: false,
   },
 ];
+
+/**
+ * A stand-in for the file the preview modal would have read. Exercises both the
+ * happy path and the failure card in browser/Playwright runs, where there is no
+ * backend to read a real file.
+ */
+export function previewFilePreview(path: string): FilePreview {
+  const problem: PreviewProblem | null = path.includes("/missing/")
+    ? "missing"
+    : /\.(png|jpe?g|gif|webp|pdf|zip|woff2?)$/i.test(path)
+      ? "binary"
+      : null;
+  if (problem) {
+    return { path, text: "", bytes: 0, truncated: false, problem, detail: null };
+  }
+  const text = [
+    'import { describe, expect, it } from "vitest";',
+    "",
+    "/**",
+    " * A sample file, so the preview modal has something to render when the",
+    " * app runs without a backend.",
+    " */",
+    'describe("preview", () => {',
+    '  it("renders", () => {',
+    "    expect(true).toBe(true);",
+    "  });",
+    "});",
+    "",
+  ].join("\n");
+  return { path, text, bytes: text.length, truncated: false, problem: null, detail: null };
+}

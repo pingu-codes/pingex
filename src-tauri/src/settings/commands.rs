@@ -260,7 +260,7 @@ pub(crate) fn write_config_setting(
 #[tauri::command]
 #[specta::specta]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn update_runtime_settings(
+pub(crate) async fn update_runtime_settings(
     codex_home: Option<String>,
     codex_binary: Option<String>,
     claude_binary: Option<String>,
@@ -292,6 +292,7 @@ pub(crate) fn update_runtime_settings(
         }
     }
     let mut overrides = prefs::read_overrides(&prefs::settings_path());
+    let saved = overrides.clone();
     overrides.codex_home = normalize_override(codex_home);
     overrides.codex_binary = codex_binary;
     overrides.codex_host = codex_host;
@@ -299,11 +300,47 @@ pub(crate) fn update_runtime_settings(
     overrides.claude_config_dir = normalize_override(claude_config_dir);
     overrides.claude_host = claude_host;
     prefs::write_overrides(&prefs::settings_path(), &overrides)?;
-    // Update this Profile's legacy default. Registered Homes and processes
-    // already running retain their runtime.
-    let claude_runtime = crate::claude::driver::ClaudeRuntime::resolve(&overrides);
-    state.ctx(&window).claude.set_runtime(claude_runtime);
+    // Update this Profile's legacy default. Processes already running retain
+    // their runtime.
+    let previous = crate::claude::driver::ClaudeRuntime::resolve(&saved);
+    let next = crate::claude::driver::ClaudeRuntime::resolve(&overrides);
+    state.ctx(&window).claude.set_runtime(next.clone());
+    // Conversations run under a registered Home, so the field only takes
+    // effect once a Home exists for its directory. Register on every save so
+    // the Homes list shows it straight away, but move the default only when
+    // the directory actually moved: a "Make default" chosen there survives a
+    // save from this form. Compare resolved runtimes rather than the raw
+    // overrides — an unset override and an explicit `~/.claude` are the same
+    // directory. Existing conversations keep the Home they started in.
+    let database = state.ctx(&window).database();
+    crate::storage::profiles::initialize(&database).await?;
+    let home = crate::storage::profiles::register_home(
+        &database,
+        crate::harness::HarnessKind::Claude,
+        &next.host,
+        // The resolved path as `legacy_homes` and `guard_settings_home` spell
+        // it. Canonicalizing here would give a symlinked directory a second
+        // Home under its real name.
+        &next.config_dir_str(),
+        &next.binary_str(),
+        &claude_home_label(&next.config_dir_str()),
+    )
+    .await?;
+    if next.host != previous.host || next.config_dir_str() != previous.config_dir_str() {
+        crate::storage::profiles::set_default_home(&database, &home.id).await?;
+    }
     Ok(runtime_settings(&state.ctx(&window).runtime(), &overrides))
+}
+
+/// A name for a Claude Home the reader can tell apart in the Homes list. The
+/// default directory keeps the bare harness name; anything else is qualified
+/// by the folder it points at.
+fn claude_home_label(config_dir: &str) -> String {
+    let leaf = config_dir.rsplit(['/', '\\']).find(|part| !part.is_empty());
+    match leaf {
+        Some(leaf) if leaf != ".claude" => format!("Claude Code · {leaf}"),
+        _ => "Claude Code".to_string(),
+    }
 }
 
 /// How app-owned subagents are configured, as the settings form sees them.

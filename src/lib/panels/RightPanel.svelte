@@ -13,6 +13,7 @@ import {
   SquareTerminal,
   X,
 } from "@lucide/svelte";
+import { openFilePreview } from "$lib/app/filePreview";
 import DiffBlock from "$lib/components/DiffBlock.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import MessageLog from "$lib/layout/MessageLog.svelte";
@@ -21,11 +22,11 @@ import FileTree from "$lib/panels/FileTree.svelte";
 import ProcessDetail from "$lib/panels/ProcessDetail.svelte";
 import SideQuestions from "$lib/panels/SideQuestions.svelte";
 import ThreadStatus from "$lib/panels/ThreadStatus.svelte";
-import { revealInFinder } from "$lib/services/api";
 import { processByKey, type RunningProcess } from "$lib/services/processes.svelte";
 import type { ContextStats } from "$lib/thread/contextUsage";
 import type { BootstrapData, ChangesSummary, FileUpdateChange, SideQuestion } from "$lib/types";
 import { renderMarkdown } from "$lib/utils/markdown";
+import { resolveMentionPath } from "$lib/utils/mentions";
 import { loadSize, resizeHandle } from "$lib/utils/resize";
 
 export type PanelView =
@@ -104,8 +105,7 @@ $effect(() => {
 });
 
 function openProjectFile(relativePath: string) {
-  const absolute = `${cwd.replace(/\/$/, "")}/${relativePath}`;
-  revealInFinder(absolute).catch(() => {});
+  void openFilePreview({ path: resolveMentionPath(relativePath, cwd), line: null, column: null }, cwd);
 }
 </script>
 
