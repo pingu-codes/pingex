@@ -1,7 +1,7 @@
 <script lang="ts">
 import { positionComposerPopover } from "$lib/composer/positionComposerPopover";
 import { Check, ChevronDown, Shield } from "@lucide/svelte";
-import { type HarnessChoice, permissionPresetsFor } from "$lib/composer/composerPrefs.svelte";
+import { type HarnessChoice, permissionPresetsFor, presetFor } from "$lib/composer/composerPrefs.svelte";
 
 let {
   open,
@@ -18,7 +18,8 @@ let {
 } = $props();
 
 const presets = $derived(permissionPresetsFor(harness));
-const selectedLabel = $derived(presets.find((preset) => preset.id === selectedId)?.label ?? "Permissions");
+const selected = $derived(presetFor(harness, selectedId));
+const selectedLabel = $derived(selected?.label ?? "Permissions");
 </script>
 
 <div class="relative">
@@ -55,7 +56,7 @@ const selectedLabel = $derived(presets.find((preset) => preset.id === selectedId
               <span class="block">{preset.label}</span>
               <span class="block text-[10px] leading-4 text-surface-500">{preset.description}</span>
             </span>
-            {#if selectedId === preset.id}
+            {#if selected?.id === preset.id}
               <Check size={13} class="shrink-0 text-primary-500" />
             {/if}
           </button>

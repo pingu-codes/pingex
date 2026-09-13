@@ -104,6 +104,11 @@ export const commands = {
 	speedTier?: string | null,
 	approvalPolicy?: string | null,
 	sandboxMode?: string | null,
+	/**
+	 *  "auto" hands permission prompts to the harness's own reviewer instead
+	 *  of the user. Only the Claude driver honours it; never sent to Codex.
+	 */
+	approvalsReviewer?: string | null,
 	collaborationMode?: unknown | null,
 	subagentModelPolicy?: unknown | null,
 	subagentReasoningEffortPolicy?: unknown | null,
@@ -1974,6 +1979,11 @@ export type TurnOptions = {
 	speedTier?: string | null,
 	approvalPolicy?: string | null,
 	sandboxMode?: string | null,
+	/**
+	 *  "auto" hands permission prompts to the harness's own reviewer instead
+	 *  of the user. Only the Claude driver honours it; never sent to Codex.
+	 */
+	approvalsReviewer?: string | null,
 	collaborationMode?: unknown | null,
 	subagentModelPolicy?: unknown | null,
 	subagentReasoningEffortPolicy?: unknown | null,

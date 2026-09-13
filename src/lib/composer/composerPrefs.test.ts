@@ -4,6 +4,7 @@ import {
   loadPrefs,
   loadScopedPrefs,
   policyIsEmpty,
+  presetFor,
   resolveAppSubagents,
   savePrefs,
   saveScopedPrefs,
@@ -53,6 +54,20 @@ describe("turnOptionsFrom", () => {
 
   it("omits collaborationMode when no model is resolvable", () => {
     expect(turnOptionsFrom({ ...loadPrefs(), effort: "high" })).toEqual({ effort: "high" });
+  });
+
+  it("sends Claude's Auto preset with the auto reviewer, and falls back to Auto on Codex", () => {
+    const prefs = { ...loadPrefs(), permissionPreset: "auto-review" };
+    expect(turnOptionsFrom(prefs, undefined, undefined, null, null, "claude")).toEqual({
+      approvalPolicy: "on-request",
+      sandboxMode: "workspace-write",
+      approvalsReviewer: "auto",
+    });
+    expect(turnOptionsFrom(prefs, undefined, undefined, null, null, "codex")).toEqual({
+      approvalPolicy: "on-request",
+      sandboxMode: "workspace-write",
+    });
+    expect(presetFor("codex", "auto-review")?.id).toBe("auto");
   });
 
   it("serializes subagent policies independently from the parent model", () => {

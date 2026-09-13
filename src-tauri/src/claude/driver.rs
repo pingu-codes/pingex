@@ -64,11 +64,13 @@ impl Settings {
         let mode = if plan {
             "plan"
         } else {
+            let auto = options.approvals_reviewer.as_deref() == Some("auto");
             match (
                 options.approval_policy.as_deref(),
                 options.sandbox_mode.as_deref(),
             ) {
                 (Some("never"), _) | (_, Some("danger-full-access")) => "bypassPermissions",
+                _ if auto => "auto",
                 (_, Some("workspace-write")) => "acceptEdits",
                 _ => "default",
             }
@@ -901,9 +903,10 @@ pub fn turn_args(
         args.extend(["--effort".into(), effort.into()]);
     }
     args.extend(["--permission-mode".into(), mode.into()]);
-    if mode == "bypassPermissions" {
-        args.push("--allow-dangerously-skip-permissions".into());
-    }
+    // Always allowed, whatever the starting mode: the CLI refuses a later
+    // `set_permission_mode` to bypassPermissions on a process launched
+    // without it, so a thread started under Ask could never switch to Bypass.
+    args.push("--allow-dangerously-skip-permissions".into());
     args
 }
 
@@ -989,9 +992,29 @@ mod tests {
                 .as_deref(),
             Some("bypassPermissions")
         );
+        let auto = TurnOptions {
+            approvals_reviewer: Some("auto".into()),
+            ..options("on-request", "workspace-write")
+        };
+        assert_eq!(
+            Settings::from_options(Some(&auto)).mode.as_deref(),
+            Some("auto")
+        );
         // A mode-less turn keeps whatever the process runs in.
         assert_eq!(Settings::from_options(None).mode, None);
         assert_eq!(Settings::from_options(None).mode_or_default(), "default");
+    }
+
+    #[test]
+    fn every_process_can_switch_to_bypass_later() {
+        for mode in ["default", "acceptEdits", "plan", "bypassPermissions"] {
+            let args = turn_args(None, None, mode, false, "t");
+            assert!(
+                args.iter()
+                    .any(|arg| arg == "--allow-dangerously-skip-permissions"),
+                "{mode}"
+            );
+        }
     }
 
     #[test]

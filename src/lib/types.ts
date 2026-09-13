@@ -546,6 +546,8 @@ export interface TurnOptions {
   effort?: string;
   approvalPolicy?: string;
   sandboxMode?: string;
+  /** "auto" hands permission prompts to the harness's own reviewer. */
+  approvalsReviewer?: string;
   collaborationMode?: { mode: string; settings?: unknown };
   subagentModelPolicy?: SubagentPolicy | null;
   subagentReasoningEffortPolicy?: SubagentPolicy | null;

@@ -183,6 +183,9 @@ pub struct TurnOptions {
     pub speed_tier: Option<String>,
     pub approval_policy: Option<String>,
     pub sandbox_mode: Option<String>,
+    /// "auto" hands permission prompts to the harness's own reviewer instead
+    /// of the user. Only the Claude driver honours it; never sent to Codex.
+    pub approvals_reviewer: Option<String>,
     pub collaboration_mode: Option<Json>,
     pub subagent_model_policy: Option<Json>,
     pub subagent_reasoning_effort_policy: Option<Json>,

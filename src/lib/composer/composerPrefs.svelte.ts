@@ -40,6 +40,9 @@ export interface PermissionPreset {
   description: string;
   approvalPolicy: string;
   sandboxMode: string;
+  /** "auto" hands permission prompts to the harness's own reviewer instead
+   *  of the user. */
+  approvalsReviewer?: string;
 }
 
 export const PERMISSION_PRESETS: PermissionPreset[] = [
@@ -66,9 +69,9 @@ export const PERMISSION_PRESETS: PermissionPreset[] = [
   },
 ];
 
-/** The same three levels on Claude, in its own words. The ids match Codex's
- *  so a preset choice carries across harnesses; the driver maps each onto a
- *  Claude permission mode. */
+/** The same three levels on Claude, in its own words, plus Auto. The shared
+ *  ids match Codex's so a preset choice carries across harnesses; the driver
+ *  maps each onto a Claude permission mode. */
 export const CLAUDE_PERMISSION_PRESETS: PermissionPreset[] = [
   {
     id: "read-only",
@@ -85,6 +88,14 @@ export const CLAUDE_PERMISSION_PRESETS: PermissionPreset[] = [
     sandboxMode: "workspace-write",
   },
   {
+    id: "auto-review",
+    label: "Auto",
+    description: "A classifier reviews each action instead of asking you. Not available on Haiku",
+    approvalPolicy: "on-request",
+    sandboxMode: "workspace-write",
+    approvalsReviewer: "auto",
+  },
+  {
     id: "full-access",
     label: "Bypass permissions",
     description: "No prompts at all. Use with care",
@@ -95,6 +106,21 @@ export const CLAUDE_PERMISSION_PRESETS: PermissionPreset[] = [
 
 export function permissionPresetsFor(harness: HarnessChoice | null | undefined): PermissionPreset[] {
   return harness === "claude" ? CLAUDE_PERMISSION_PRESETS : PERMISSION_PRESETS;
+}
+
+/** The preset `id` names on `harness`. A preset only the other harness has
+ *  (Claude's Auto) resolves to this harness's preset with the same approval
+ *  and sandbox, so switching harness never leaves the picker unset. */
+export function presetFor(harness: HarnessChoice | null | undefined, id: string | null): PermissionPreset | null {
+  if (!id) return null;
+  const presets = permissionPresetsFor(harness);
+  const own = presets.find((preset) => preset.id === id);
+  if (own) return own;
+  const other = [...PERMISSION_PRESETS, ...CLAUDE_PERMISSION_PRESETS].find((preset) => preset.id === id);
+  return presets.find((preset) =>
+    !preset.approvalsReviewer && preset.approvalPolicy === other?.approvalPolicy &&
+    preset.sandboxMode === other?.sandboxMode
+  ) ?? null;
 }
 
 const STORAGE_KEY = "pingex-composer-prefs";
@@ -294,8 +320,9 @@ export function turnOptionsFrom(
   subagentReasoningEffortPolicy?: SubagentPolicy | null,
   defaultModel?: string | null,
   threadModel?: string | null,
+  harness?: HarnessChoice | null,
 ): TurnOptions | undefined {
-  const preset = PERMISSION_PRESETS.find((candidate) => candidate.id === prefs.permissionPreset);
+  const preset = presetFor(harness, prefs.permissionPreset);
   const options: TurnOptions = {};
   if (prefs.speedTier) options.speedTier = prefs.speedTier;
   if (prefs.model) options.model = prefs.model;
@@ -303,6 +330,7 @@ export function turnOptionsFrom(
   if (preset) {
     options.approvalPolicy = preset.approvalPolicy;
     options.sandboxMode = preset.sandboxMode;
+    if (preset.approvalsReviewer) options.approvalsReviewer = preset.approvalsReviewer;
   }
   if (subagentModelPolicy) options.subagentModelPolicy = subagentModelPolicy;
   if (subagentReasoningEffortPolicy) options.subagentReasoningEffortPolicy = subagentReasoningEffortPolicy;

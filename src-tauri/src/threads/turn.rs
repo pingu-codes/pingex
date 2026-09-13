@@ -737,6 +737,7 @@ mod tests {
                 speed_tier: Some("default".into()),
                 approval_policy: Some("on-request".into()),
                 sandbox_mode: Some("workspace-write".into()),
+                approvals_reviewer: Some("auto".into()),
                 collaboration_mode: Some(Json(json!({"mode": "plan"}))),
                 subagent_model_policy: Some(Json(json!({"mode": "allow"}))),
                 subagent_reasoning_effort_policy: Some(Json(json!({"mode": "inherit"}))),

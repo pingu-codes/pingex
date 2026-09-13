@@ -496,6 +496,7 @@ function sendOptions(): TurnOptions | undefined {
     subagentReasoningEffortPolicy,
     defaultModel?.id ?? null,
     threadModel,
+    harness,
   );
   if (options && !supportsSpeed) delete options.speedTier;
   if (!options?.collaborationMode) {
