@@ -450,6 +450,7 @@ fn side_question_link_survives_restart() {
     block_on(add_side_question(
         &db,
         &SideQuestion {
+            kind: Default::default(),
             side_thread_id: side.clone(),
             parent_thread_id: parent.clone(),
             title: title.clone(),
@@ -509,6 +510,7 @@ fn side_question_link_survives_restart() {
     block_on(add_side_question(
         &db,
         &SideQuestion {
+            kind: Default::default(),
             side_thread_id: side.clone(),
             parent_thread_id: parent.clone(),
             title: "Renamed".into(),

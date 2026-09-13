@@ -4,7 +4,7 @@
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::AppHandle;
 use tauri_specta::Event;
@@ -284,6 +284,7 @@ struct ThreadProcess {
     child: Arc<ClaudeChild>,
     sink: Arc<ThreadSink>,
     settings: Mutex<Settings>,
+    side_questions_unsupported: AtomicBool,
 }
 
 /// Where the driver finds its binary and config directory, and on which host
@@ -361,6 +362,8 @@ pub(crate) struct ClaudeDriver {
     processes: Mutex<HashMap<String, Arc<ThreadProcess>>>,
     pending: PendingMap,
     next_request: Arc<AtomicI64>,
+    pub(crate) side_questions: super::side_questions::SideRequests,
+    process_start: tokio::sync::Mutex<()>,
 }
 
 /// What the settings page and the harness picker need to know: whether a
@@ -506,6 +509,8 @@ impl ClaudeDriver {
             processes: Mutex::new(HashMap::new()),
             pending: Arc::new(Mutex::new(HashMap::new())),
             next_request: Arc::new(AtomicI64::new(REQUEST_ID_BASE)),
+            side_questions: Default::default(),
+            process_start: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -536,6 +541,16 @@ impl ClaudeDriver {
                 .lock()
                 .map(|pending| pending.contains_key(&request_id))
                 .unwrap_or(false)
+    }
+
+    pub(crate) fn permission_mode(&self, thread_id: &str) -> Option<String> {
+        self.process(thread_id).and_then(|process| {
+            process
+                .settings
+                .lock()
+                .ok()
+                .and_then(|settings| settings.mode.clone())
+        })
     }
 
     fn process(&self, thread_id: &str) -> Option<Arc<ThreadProcess>> {
@@ -632,6 +647,7 @@ impl ClaudeDriver {
         let process = Arc::new(ThreadProcess {
             child,
             sink,
+            side_questions_unsupported: AtomicBool::new(false),
             settings: Mutex::new(Settings {
                 mode: Some(settings.mode_or_default().to_string()),
                 ..settings.clone()
@@ -651,7 +667,9 @@ impl ClaudeDriver {
         resume: bool,
         settings: &Settings,
     ) -> Result<Arc<ThreadProcess>, String> {
+        let _starting = self.process_start.lock().await;
         if let Some(process) = self.process(thread_id) {
+            drop(_starting);
             let current = process
                 .settings
                 .lock()
@@ -680,6 +698,81 @@ impl ClaudeDriver {
             return Ok(process);
         }
         self.spawn(app, thread_id, cwd, resume, settings)
+    }
+
+    /// Native /btw uses the session's context without opening a chat turn.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn ask_side_question(
+        &self,
+        app: &AppHandle,
+        thread_id: &str,
+        cwd: &str,
+        resume: bool,
+        saved: Option<&crate::storage::TurnSettings>,
+        permission_mode: Option<&str>,
+        request_id: &str,
+        question: &str,
+        history: Vec<crate::storage::native_side_questions::SideExchange>,
+        mut cancellation: tokio::sync::watch::Receiver<bool>,
+    ) -> Result<crate::harness::SideAnswer, String> {
+        let wire_id = format!("btw-{request_id}");
+        let answer = async {
+            let (process, initialize) = {
+                let _starting = self.process_start.lock().await;
+                match self.process(thread_id) {
+                    Some(process) => (process, false),
+                    None => {
+                        let settings = Settings {
+                            model: saved.and_then(|s| s.model.clone()),
+                            effort: saved.and_then(|s| s.reasoning_effort.clone()),
+                            mode: permission_mode.map(str::to_string),
+                        };
+                        (self.spawn(app, thread_id, cwd, resume, &settings)?, true)
+                    }
+                }
+            };
+            if initialize {
+                process
+                    .child
+                    .control(json!({"subtype": "initialize"}))
+                    .await?;
+            }
+            if process.side_questions_unsupported.load(Ordering::SeqCst) {
+                return Err("This Claude CLI does not support side questions. Update Claude Code and reopen the thread.".into());
+            }
+            let result = process
+                .child
+                .control_identified(&wire_id, super::side_questions::request(question, &history))
+                .await;
+            if let Err(error) = &result {
+                let error = error.to_lowercase();
+                if error.contains("unknown control request")
+                    || error.contains("unsupported control request")
+                {
+                    process
+                        .side_questions_unsupported
+                        .store(true, Ordering::SeqCst);
+                    return Err("This Claude CLI does not support side questions. Update Claude Code and reopen the thread.".into());
+                }
+            }
+            result.and_then(super::side_questions::answer)
+        };
+        tokio::select! {
+            biased;
+            _ = super::side_questions::cancelled(&mut cancellation) => {
+                if let Some(process) = self.process(thread_id) { let _ = process.child.cancel_control(&wire_id); }
+                Err("Side question cancelled".into())
+            }
+            result = tokio::time::timeout(std::time::Duration::from_secs(600), answer) => {
+                match result {
+                    Ok(result) => result,
+                    Err(_) => {
+                        if let Some(process) = self.process(thread_id) { let _ = process.child.cancel_control(&wire_id); }
+                        Err("Side question timed out. Try again.".into())
+                    }
+                }
+            }
+        }
     }
 
     /// Send a prompt. `resume` says the thread has history on disk from an

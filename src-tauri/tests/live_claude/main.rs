@@ -5,6 +5,120 @@ mod harness;
 
 use serde_json::Value;
 
+fn side_reply(
+    claude: &harness::ClaudeProcess,
+    from: usize,
+    id: &str,
+    question: &str,
+    history: Value,
+) -> (usize, Value) {
+    claude.write_frame(&serde_json::json!({
+        "type": "control_request", "request_id": id,
+        "request": {"subtype": "side_question", "question": question, "history": history},
+    }));
+    claude
+        .wait_for(from, harness::TURN_TIMEOUT, |frame| {
+            frame["type"] == "control_response"
+                && frame["response"]["request_id"] == id
+                && matches!(
+                    frame["response"]["subtype"].as_str(),
+                    Some("success" | "error")
+                )
+        })
+        .expect("terminal side-question control response")
+}
+
+#[test]
+fn native_side_questions_recall_context_follow_up_and_resume() {
+    let setup = live!();
+    let claude = harness::spawn(setup, "default");
+    claude.send_prompt("Remember the project code CEDAR-481. Reply exactly OK.");
+    let (next, _) = claude.expect_success(0, "seed context");
+    let (next, first) = side_reply(
+        &claude,
+        next,
+        "btw-one",
+        "What is the project code? Reply with only the code.",
+        serde_json::json!([]),
+    );
+    assert_eq!(first["response"]["subtype"], "success", "{first}");
+    assert!(first["response"]["response"]["response"]
+        .as_str()
+        .unwrap()
+        .contains("CEDAR-481"));
+    let (_, follow) = side_reply(
+        &claude,
+        next,
+        "btw-two",
+        "What colour did I mention in the side conversation? Reply with only the colour.",
+        serde_json::json!([{"question": "The side-only colour is vermilion.", "response": "Noted."}]),
+    );
+    assert!(
+        follow["response"]["response"]["response"]
+            .as_str()
+            .unwrap()
+            .to_lowercase()
+            .contains("vermilion"),
+        "{follow}"
+    );
+    let session = claude.session_id.clone();
+    drop(claude);
+    let claude = harness::resume(setup, session);
+    claude.write_frame(&serde_json::json!({"type": "control_request", "request_id": "initialize", "request": {"subtype": "initialize"}}));
+    let (next, _) = claude
+        .wait_for(0, harness::TURN_TIMEOUT, |f| {
+            f["type"] == "control_response" && f["response"]["request_id"] == "initialize"
+        })
+        .expect("resumed session initializes without sending a main prompt");
+    let (_, resumed) = side_reply(
+        &claude,
+        next,
+        "btw-resume",
+        "What is the project code? Reply with only the code.",
+        serde_json::json!([]),
+    );
+    assert!(
+        resumed["response"]["response"]["response"]
+            .as_str()
+            .unwrap()
+            .contains("CEDAR-481"),
+        "{resumed}"
+    );
+}
+
+#[test]
+fn native_side_question_cancel_leaves_main_approval_alive() {
+    let setup = live!();
+    let claude = harness::spawn(setup, "default");
+    claude.send_prompt("Reply exactly OK.");
+    let (next, _) = claude.expect_success(0, "side-question authentication check");
+    claude.send_prompt("Use the Write tool to create side-test.txt containing CEDAR. Then stop.");
+    let (next, approval_id, permission) = claude.expect_can_use_tool(next);
+    claude.write_frame(&serde_json::json!({"type": "control_request", "request_id": "btw-cancel",
+        "request": {"subtype": "side_question", "question": "Explain the context in detail.", "history": []}}));
+    claude.write_frame(
+        &serde_json::json!({"type": "control_cancel_request", "request_id": "btw-cancel"}),
+    );
+    let (next, cancelled) = claude
+        .wait_for(next, harness::TURN_TIMEOUT, |f| {
+            f["type"] == "control_response"
+                && f["response"]["request_id"] == "btw-cancel"
+                && f["response"]["subtype"] == "error"
+        })
+        .expect("side question acknowledges cancellation");
+    assert!(cancelled["response"]["error"]
+        .as_str()
+        .unwrap()
+        .to_lowercase()
+        .contains("cancel"));
+    claude.respond_permission(&approval_id, "deny", &permission);
+    claude.expect_success(
+        next,
+        "main turn completes after its still-live approval is answered",
+    );
+    assert!(!setup.work.join("side-test.txt").exists());
+}
+
 /// The `system/init` frame reports a session we recognise and a real model —
 /// the auth canary: a logged-out config dir fails here with the CLI's
 /// "please run /login" result instead.

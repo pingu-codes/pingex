@@ -84,7 +84,7 @@ describe("SideQuestions", () => {
         item: { type: "commandExecution", id: "cmd-1", command: "deno task check", cwd: "/project" },
       },
     });
-    expect(await screen.findByText("deno task check")).toBeInTheDocument();
+    expect(await screen.findByText("deno task check", { selector: "code" })).toBeInTheDocument();
   });
 
   it("shows approvals raised by the side thread", async () => {

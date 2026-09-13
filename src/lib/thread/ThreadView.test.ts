@@ -43,6 +43,10 @@ const mocks = vi.hoisted(() => ({
   }),
   requestAutoName: vi.fn(),
   toastError: vi.fn(),
+  sideQuestionMode: vi.fn().mockResolvedValue("fork"),
+  addNativeSideQuestion: vi.fn(),
+  prepareNativeSideQuestion: vi.fn(),
+  answerNativeSideQuestion: vi.fn(),
   // The default is a live session that owns thread-1's turn; emptying it makes
   // a loaded in-progress turn look like one a dead session left behind.
   activeTurns: { list: ["thread-1"] },
@@ -60,6 +64,12 @@ vi.mock("$lib/toaster", () => ({
 }));
 
 vi.mock("$lib/services/api", () => ({
+  sideQuestionMode: mocks.sideQuestionMode,
+  addNativeSideQuestion: mocks.addNativeSideQuestion,
+  readNativeSideQuestion: vi.fn().mockResolvedValue([]),
+  prepareNativeSideQuestion: mocks.prepareNativeSideQuestion,
+  answerNativeSideQuestion: mocks.answerNativeSideQuestion,
+  cancelNativeSideQuestion: vi.fn(),
   addSideQuestion: vi.fn(),
   compactThread: mocks.compactThread,
   // The composer persists what is typed on a debounce; without these the timer
@@ -1119,6 +1129,32 @@ describe("ThreadView queueing when Codex cannot hold the queue", () => {
     render(ThreadView, { threadId: "thread-1", cwd: "/projects/example" });
     return screen.findByRole("button", { name: "Stop" });
   }
+
+  it("routes /btw into the native panel while the main turn keeps running", async () => {
+    mocks.sideQuestionMode.mockResolvedValueOnce("native");
+    mocks.addNativeSideQuestion.mockResolvedValueOnce({ sideQuestions: [] });
+    mocks.prepareNativeSideQuestion.mockResolvedValueOnce("side-request");
+    mocks.answerNativeSideQuestion.mockResolvedValueOnce([
+      {
+        id: "side-request",
+        question: "Why?",
+        response: "A side answer",
+        outcome: "completed",
+        synthetic: false,
+        refusal: null,
+        createdAt: 1,
+      },
+    ]);
+    await renderWorking();
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: composerLabel }), "/btw Why?{Enter}");
+    expect(await screen.findByText("A side answer")).toBeInTheDocument();
+    expect(mocks.sideQuestionMode).toHaveBeenCalledWith("thread-1");
+    expect(mocks.startTurn).not.toHaveBeenCalled();
+    expect(mocks.queueAdd).not.toHaveBeenCalled();
+    expect(mocks.interruptTurn).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
+  });
 
   it("keeps the message and says it is only held here", async () => {
     const user = userEvent.setup();

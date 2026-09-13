@@ -70,6 +70,33 @@ Ordering guarantees worth encoding in the Rust state machine **[SDK-D]**:
 
 ## 2. stdin frames (client → CLI)
 
+### Native side questions, added 2026-09-13
+
+Static inspection of the installed Claude Code **2.1.270** confirms that
+`/btw` is exposed through a control request on the existing session:
+
+```json
+{"type":"control_request","request_id":"btw-unique-id","request":{"subtype":"side_question","question":"Why?","history":[{"question":"Earlier question","response":"Earlier answer"}]}}
+```
+
+The terminal control response contains `response: string | null`,
+`synthetic: boolean`, and optional
+`refusal_fallback: {original_model, fallback_model, content}`. History entries
+can include `fallback_notice`. The caller owns this history; Pingex sends the
+latest 20 successful exchanges from the selected side conversation.
+
+Progress does not complete the control request. Cancellation uses
+`{"type":"control_cancel_request","request_id":"btw-unique-id"}` and must
+never send the session-wide `interrupt` control request. Side replies do not
+travel through the main turn's transcript or lifecycle reducer.
+
+Claude's [interactive-mode documentation](https://code.claude.com/docs/en/interactive-mode#side-questions-with-btw)
+describes these questions as using existing context without tool access or
+changes to the main conversation. The implementation and transport were
+checked statically; the focused live tests could not authenticate with the
+selected test Home. Cold-resume context recall and live cancellation remain
+unverified until `native_side_question` tests pass against a logged-in Home.
+
 ### 2.1 `user` — submit a prompt
 
 `SDKUserMessage` **[SDK-D]**. The official SDK writes exactly this for a string

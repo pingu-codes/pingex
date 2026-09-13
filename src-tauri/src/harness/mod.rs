@@ -23,6 +23,20 @@ pub(crate) enum HarnessKind {
     Claude,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SideRefusal {
+    pub original_model: String,
+    pub fallback_model: String,
+    pub content: String,
+}
+
+pub(crate) struct SideAnswer {
+    pub response: Option<String>,
+    pub synthetic: bool,
+    pub refusal: Option<SideRefusal>,
+}
+
 /// ACP's tool kinds, used to pick a card.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]

@@ -11,3 +11,4 @@ pub(crate) mod tools;
 pub(crate) mod translate;
 
 pub(crate) use driver::ClaudeDriver;
+pub(crate) mod side_questions;

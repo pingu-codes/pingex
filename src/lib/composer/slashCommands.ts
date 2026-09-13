@@ -2,6 +2,7 @@
 
 export type SlashCommandId =
   | "plan"
+  | "btw"
   | "model"
   | "permissions"
   | "compact"
@@ -36,6 +37,12 @@ export interface SlashCommand {
 }
 
 export const SLASH_COMMANDS: SlashCommand[] = [
+  {
+    id: "btw",
+    description: "Ask a side question without interrupting the main conversation",
+    scope: "thread",
+    argument: "question",
+  },
   { id: "plan", description: "Toggle plan mode for the next turns", scope: "composer" },
   { id: "model", description: "Choose the model and reasoning effort", scope: "composer" },
   { id: "permissions", description: "Set the approval and sandbox level", scope: "composer" },

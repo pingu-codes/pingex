@@ -968,6 +968,31 @@ export async function queueStart(threadId: string, queuedSubmissionId?: string):
   return response.turn;
 }
 
+export async function sideQuestionMode(parentThreadId: string): Promise<"fork" | "native"> {
+  if (!isTauri()) return "fork";
+  return commands.sideQuestionMode(parentThreadId);
+}
+
+export async function addNativeSideQuestion(parentThreadId: string, sideThreadId: string, title: string) {
+  return commands.addNativeSideQuestion(parentThreadId, sideThreadId, title);
+}
+
+export async function readNativeSideQuestion(parentThreadId: string, sideThreadId: string) {
+  return commands.readNativeSideQuestion(parentThreadId, sideThreadId);
+}
+
+export async function prepareNativeSideQuestion(parentThreadId: string, sideThreadId: string, question: string) {
+  return commands.prepareNativeSideQuestion(parentThreadId, sideThreadId, question);
+}
+
+export async function answerNativeSideQuestion(parentThreadId: string, sideThreadId: string, requestId: string) {
+  return commands.answerNativeSideQuestion(parentThreadId, sideThreadId, requestId);
+}
+
+export async function cancelNativeSideQuestion(parentThreadId: string, sideThreadId: string, requestId: string) {
+  return commands.cancelNativeSideQuestion(parentThreadId, sideThreadId, requestId);
+}
+
 export async function addSideQuestion(
   parentThreadId: string,
   sideThreadId: string,

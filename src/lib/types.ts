@@ -76,6 +76,7 @@ export type {
   SettingKind,
   SettingSource,
   SidebarLayout,
+  SideExchange,
   SideQuestion,
   SkillInfo,
   SkillSummary,

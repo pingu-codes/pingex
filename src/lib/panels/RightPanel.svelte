@@ -32,7 +32,7 @@ import { loadSize, resizeHandle } from "$lib/utils/resize";
 export type PanelView =
   | { kind: "plan"; text: string }
   | { kind: "sources"; queries: string[] }
-  | { kind: "side" }
+  | { kind: "side"; submission?: { id: number; text: string } }
   | { kind: "diffs"; focusPath?: string | null }
   | { kind: "changes"; focusPath?: string | null }
   | { kind: "files" }
@@ -182,7 +182,7 @@ function openProjectFile(relativePath: string) {
   </header>
 
   {#if view.kind === "side"}
-    <SideQuestions {parentThreadId} {sideQuestions} bind:activeSideId {onDataChanged} />
+    <SideQuestions {parentThreadId} {sideQuestions} bind:activeSideId {onDataChanged} submission={view.submission} />
   {:else}
     <div class="min-h-0 flex-1 overflow-y-auto p-3" bind:this={body}>
       {#if view.kind === "diffs"}

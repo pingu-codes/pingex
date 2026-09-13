@@ -66,6 +66,25 @@ const DDL: &str = "CREATE TABLE IF NOT EXISTS metadata (
  );
  CREATE INDEX IF NOT EXISTS side_questions_parent
      ON side_questions(parent_thread_id, created_at DESC);
+ CREATE TABLE IF NOT EXISTS native_side_conversations (
+     id TEXT PRIMARY KEY,
+     parent_thread_id TEXT NOT NULL,
+     title TEXT NOT NULL,
+     created_at INTEGER NOT NULL
+ );
+ CREATE TABLE IF NOT EXISTS native_side_exchanges (
+     id TEXT PRIMARY KEY,
+     conversation_id TEXT NOT NULL,
+     question TEXT NOT NULL,
+     response TEXT,
+     outcome TEXT NOT NULL,
+     synthetic INTEGER NOT NULL DEFAULT 0,
+     refusal TEXT,
+     created_at INTEGER NOT NULL
+ );
+ CREATE INDEX IF NOT EXISTS native_side_parent ON native_side_conversations(parent_thread_id);
+ CREATE INDEX IF NOT EXISTS native_side_history ON native_side_exchanges(conversation_id, created_at);
+ CREATE UNIQUE INDEX IF NOT EXISTS native_side_pending ON native_side_exchanges(conversation_id) WHERE outcome = 'pending';
  CREATE TABLE IF NOT EXISTS thread_branches (
      thread_id TEXT PRIMARY KEY,
      parent_thread_id TEXT NOT NULL,
@@ -276,7 +295,8 @@ const DDL: &str = "CREATE TABLE IF NOT EXISTS metadata (
 /// Columns added after their table shipped. Re-running these on an up-to-date
 /// database fails harmlessly ("duplicate column"), which is the only expected
 /// error, so the result is ignored.
-const ADDED_COLUMNS: [&str; 12] = [
+const ADDED_COLUMNS: [&str; 13] = [
+    "ALTER TABLE harness_threads ADD COLUMN permission_mode TEXT",
     "ALTER TABLE thread_summaries ADD COLUMN harness TEXT",
     "ALTER TABLE projects ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE thread_summaries ADD COLUMN project_id TEXT",
@@ -301,6 +321,13 @@ pub(super) async fn initialize(database: &Database, codex_home: &Path) -> Result
     for statement in ADDED_COLUMNS {
         let _ = connection.execute(statement, ()).await;
     }
+
+    db::exec(
+        &connection,
+        "UPDATE native_side_exchanges SET outcome = 'interrupted' WHERE outcome = 'pending'",
+        (),
+    )
+    .await?;
 
     // The table used to hold answered questions only, so every pre-existing row
     // is an answer. Backfill on the run that adds the column, otherwise they

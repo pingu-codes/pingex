@@ -47,7 +47,7 @@ pub(crate) async fn read_turn_settings(
     let connection = db::conn(database)?;
     db::rows(
         &connection,
-        "SELECT turn_id, model, reasoning_effort FROM turn_settings WHERE thread_id = ?",
+        "SELECT turn_id, model, reasoning_effort FROM turn_settings WHERE thread_id = ? ORDER BY rowid",
         (thread_id,),
         |row| {
             Ok(TurnSettings {

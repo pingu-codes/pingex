@@ -778,6 +778,7 @@ mod tests {
             ],
             None,
             vec![SideQuestion {
+                kind: crate::storage::SideQuestionKind::Fork,
                 side_thread_id: "side-thread".into(),
                 parent_thread_id: "main-thread".into(),
                 title: "What about tests?".into(),

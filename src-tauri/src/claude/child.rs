@@ -55,15 +55,31 @@ const ENV: [(&str, &str); 1] = [("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")];
 /// directory is what authenticates, not a stray key in the app's environment.
 pub const UNSET_ENV: [&str; 2] = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"];
 
+type ControlReplies = Mutex<HashMap<String, oneshot::Sender<Result<Value, String>>>>;
+
 pub(crate) struct ClaudeChild {
     stdin: Mutex<ChildStdin>,
     child: Mutex<Child>,
     next_id: AtomicU64,
-    pending: Mutex<HashMap<String, oneshot::Sender<Result<Value, String>>>>,
+    pending: ControlReplies,
     alive: AtomicBool,
     wire: Arc<WireLog>,
     stderr_tail: Arc<Mutex<VecDeque<String>>>,
     app: AppHandle,
+}
+
+/// Dropping a request future during cancellation or timeout releases its waiter.
+struct ControlWaiter<'a> {
+    pending: &'a ControlReplies,
+    id: &'a str,
+}
+
+impl Drop for ControlWaiter<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.remove(self.id);
+        }
+    }
 }
 
 impl Drop for ClaudeChild {
@@ -100,15 +116,27 @@ impl ClaudeChild {
     /// Send a control request (`{subtype: ..}`) and await the CLI's answer.
     pub(crate) async fn control(&self, request: Value) -> Result<Value, String> {
         let id = format!("pingex-{}", self.next_id.fetch_add(1, Ordering::SeqCst));
+        self.control_identified(&id, request).await
+    }
+
+    pub(crate) async fn control_identified(
+        &self,
+        id: &str,
+        request: Value,
+    ) -> Result<Value, String> {
         let (sender, receiver) = oneshot::channel();
         self.pending
             .lock()
             .map_err(|_| "Claude pending lock was poisoned".to_string())?
-            .insert(id.clone(), sender);
+            .insert(id.to_string(), sender);
+        let _waiter = ControlWaiter {
+            pending: &self.pending,
+            id,
+        };
         let frame = json!({"type": "control_request", "request_id": id, "request": request});
         if let Err(error) = self.write_frame(&frame) {
             if let Ok(mut pending) = self.pending.lock() {
-                pending.remove(&id);
+                pending.remove(id);
             }
             self.mark_dead();
             return Err(error);
@@ -116,6 +144,14 @@ impl ClaudeChild {
         receiver
             .await
             .map_err(|_| "Claude exited before responding".to_string())?
+    }
+
+    /// Cancel this control operation without interrupting the session's turn.
+    pub(crate) fn cancel_control(&self, id: &str) -> Result<(), String> {
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.remove(id);
+        }
+        self.write_frame(&json!({"type": "control_cancel_request", "request_id": id}))
     }
 
     /// Answer a CLI-originated control request.
@@ -161,33 +197,39 @@ impl ClaudeChild {
             let _ = sender.send(Err(reason.to_string()));
         }
     }
+}
 
-    fn resolve_control(&self, frame: &Value) -> bool {
-        let Some(response) = frame.get("response") else {
-            return false;
-        };
-        let Some(id) = response.get("request_id").and_then(Value::as_str) else {
-            return false;
-        };
-        let sender = self
-            .pending
-            .lock()
-            .ok()
-            .and_then(|mut pending| pending.remove(id));
-        let Some(sender) = sender else {
-            return false;
-        };
-        let result = match response.get("subtype").and_then(Value::as_str) {
-            Some("error") => Err(response
-                .get("error")
-                .and_then(Value::as_str)
-                .unwrap_or("Claude refused the request")
-                .to_string()),
-            _ => Ok(response.get("response").cloned().unwrap_or(Value::Null)),
-        };
-        let _ = sender.send(result);
-        true
+fn resolve_control(pending: &ControlReplies, frame: &Value) -> bool {
+    let Some(response) = frame.get("response") else {
+        return false;
+    };
+    // Progress is not a terminal reply and must retain the waiter.
+    if !matches!(
+        response.get("subtype").and_then(Value::as_str),
+        Some("success" | "error")
+    ) {
+        return false;
     }
+    let Some(id) = response.get("request_id").and_then(Value::as_str) else {
+        return false;
+    };
+    let sender = pending
+        .lock()
+        .ok()
+        .and_then(|mut pending| pending.remove(id));
+    let Some(sender) = sender else {
+        return false;
+    };
+    let result = match response.get("subtype").and_then(Value::as_str) {
+        Some("error") => Err(response
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("Claude refused the request")
+            .to_string()),
+        _ => Ok(response.get("response").cloned().unwrap_or(Value::Null)),
+    };
+    let _ = sender.send(result);
+    true
 }
 
 fn reader_loop(
@@ -207,7 +249,7 @@ fn reader_loop(
         child.wire.record(Some(&app), "in", &value);
         match value.get("type").and_then(Value::as_str) {
             Some("control_response") => {
-                child.resolve_control(&value);
+                resolve_control(&child.pending, &value);
             }
             Some("control_request") => {
                 let request_id = value
@@ -218,7 +260,7 @@ fn reader_loop(
                 let request = value.get("request").cloned().unwrap_or(Value::Null);
                 sink.on_control_request(&child, &request_id, &request);
             }
-            Some("keep_alive") => {}
+            Some("keep_alive" | "control_progress") => {}
             _ => sink.on_frame(&value),
         }
     }
@@ -288,4 +330,47 @@ pub(crate) fn spawn(
     let reader_child = child.clone();
     std::thread::spawn(move || reader_loop(reader_child, sink, app, stdout));
     Ok(child)
+}
+
+#[cfg(test)]
+mod control_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn progress_does_not_consume_a_reply_and_late_replies_are_ignored() {
+        let pending = ControlReplies::default();
+        let (sender, mut receiver) = oneshot::channel();
+        pending.lock().unwrap().insert("btw-one".into(), sender);
+        assert!(!resolve_control(
+            &pending,
+            &json!({"response": {"subtype": "progress", "request_id": "btw-one", "response": {"status": "started"}}})
+        ));
+        assert!(matches!(
+            receiver.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
+        let response = json!({"response": {"subtype": "success", "request_id": "btw-one", "response": {"response": "Answer"}}});
+        assert!(resolve_control(&pending, &response));
+        assert_eq!(receiver.await.unwrap().unwrap()["response"], "Answer");
+        assert!(!resolve_control(&pending, &response));
+    }
+
+    #[tokio::test]
+    async fn dropping_an_initialize_waiter_cleans_it_without_removing_other_requests() {
+        let pending = ControlReplies::default();
+        let (sender, receiver) = oneshot::channel();
+        pending.lock().unwrap().insert("initialize".into(), sender);
+        let (other, other_reply) = oneshot::channel();
+        pending.lock().unwrap().insert("other".into(), other);
+        drop(ControlWaiter {
+            pending: &pending,
+            id: "initialize",
+        });
+        assert!(receiver.await.is_err());
+        assert!(resolve_control(
+            &pending,
+            &json!({"response": {"subtype": "error", "request_id": "other", "error": "Disconnected"}})
+        ));
+        assert_eq!(other_reply.await.unwrap(), Err("Disconnected".into()));
+    }
 }

@@ -19,7 +19,7 @@ let {
 
 // The window keydown listener can fire once after the composer has cleared its
 // query but before this component is torn down, so `query` is briefly absent.
-const results = $derived(filterSlashCommands(query ?? ""));
+const results = $derived(query == null ? [] : filterSlashCommands(query));
 </script>
 
 <PickerList

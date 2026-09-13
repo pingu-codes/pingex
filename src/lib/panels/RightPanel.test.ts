@@ -46,7 +46,7 @@ describe("RightPanel", () => {
     };
     window.addEventListener("keydown", onWindowKeydown);
     try {
-      await user.click(screen.getByPlaceholderText("Ask a side question…"));
+      await user.click(await screen.findByPlaceholderText("Ask a side question…"));
       await user.keyboard("{Escape}");
     } finally {
       window.removeEventListener("keydown", onWindowKeydown);
@@ -121,10 +121,10 @@ describe("RightPanel", () => {
     expect(screen.getByText("api.ts")).toBeInTheDocument();
   });
 
-  it("lists only this thread's side questions", () => {
+  it("lists only this thread's side questions", async () => {
     setup({ kind: "side" });
 
-    expect(screen.getByText("Why trailing edge?")).toBeInTheDocument();
+    expect(await screen.findByText("Why trailing edge?")).toBeInTheDocument();
     expect(screen.queryByText("Unrelated")).not.toBeInTheDocument();
   });
 
@@ -142,7 +142,7 @@ describe("RightPanel", () => {
       onDataChanged: vi.fn(),
     });
 
-    await user.click(screen.getByText("Why trailing edge?"));
+    await user.click(await screen.findByText("Why trailing edge?"));
 
     expect(await screen.findByPlaceholderText("Follow up…")).toBeInTheDocument();
     expect(screen.queryByText(/Add a debounce helper/)).not.toBeInTheDocument();
@@ -152,7 +152,7 @@ describe("RightPanel", () => {
     const user = userEvent.setup();
     setup({ kind: "side" });
 
-    await user.click(screen.getByText("Why trailing edge?"));
+    await user.click(await screen.findByText("Why trailing edge?"));
 
     expect(await screen.findByText(/Add a debounce helper/)).toBeInTheDocument();
   });
@@ -161,7 +161,7 @@ describe("RightPanel", () => {
     const user = userEvent.setup();
     const { onDataChanged } = setup({ kind: "side" });
 
-    await user.type(screen.getByPlaceholderText("Ask a side question…"), "What about edge cases?{Enter}");
+    await user.type(await screen.findByPlaceholderText("Ask a side question…"), "What about edge cases?{Enter}");
 
     expect(onDataChanged).toHaveBeenCalled();
     expect(screen.getByText("What about edge cases?")).toBeInTheDocument();
@@ -171,7 +171,7 @@ describe("RightPanel", () => {
     const user = userEvent.setup();
     setup({ kind: "side" });
 
-    await user.type(screen.getByPlaceholderText("Ask a side question…"), "Stream please{Enter}");
+    await user.type(await screen.findByPlaceholderText("Ask a side question…"), "Stream please{Enter}");
 
     const stopButton = await screen.findByRole("button", { name: "Stop side question" });
     expect(screen.getByRole("button", { name: "Ask side question" })).toBeDisabled();
@@ -192,7 +192,7 @@ describe("RightPanel", () => {
       onDataChanged: vi.fn(),
     });
 
-    await user.type(screen.getByPlaceholderText("Ask a side question…"), "First question{Enter}");
+    await user.type(await screen.findByPlaceholderText("Ask a side question…"), "First question{Enter}");
     expect(screen.getByText("First question")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Follow up…")).toBeInTheDocument();
 
@@ -200,7 +200,7 @@ describe("RightPanel", () => {
 
     // Back to the new thread's list; the composer starts a fresh side question.
     expect(screen.queryByText("First question")).not.toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Ask a side question…")).toBeInTheDocument();
+    expect(await screen.findByPlaceholderText("Ask a side question…")).toBeInTheDocument();
     expect(screen.getByText("Unrelated")).toBeInTheDocument();
   });
 });

@@ -15,6 +15,7 @@ pub(crate) struct HarnessThread {
     pub(crate) created_at: i64,
     pub(crate) updated_at: i64,
     pub(crate) archived: bool,
+    pub(crate) permission_mode: Option<String>,
 }
 
 fn from_row(row: &turso::Row) -> Result<HarnessThread, String> {
@@ -26,10 +27,25 @@ fn from_row(row: &turso::Row) -> Result<HarnessThread, String> {
         created_at: db::int(row, 4)?,
         updated_at: db::int(row, 5)?,
         archived: db::int(row, 6)? != 0,
+        permission_mode: db::opt_text(row, 7)?,
     })
 }
 
-const COLUMNS: &str = "thread_id, harness, cwd, title, created_at, updated_at, archived";
+const COLUMNS: &str =
+    "thread_id, harness, cwd, title, created_at, updated_at, archived, permission_mode";
+
+pub(crate) async fn set_harness_permission_mode(
+    database: &Database,
+    thread: &str,
+    mode: &str,
+) -> Result<(), String> {
+    db::exec(
+        &db::conn(database)?,
+        "UPDATE harness_threads SET permission_mode = ? WHERE thread_id = ?",
+        params![mode, thread],
+    )
+    .await
+}
 
 pub(crate) async fn record_harness_thread(
     database: &Database,
@@ -149,6 +165,18 @@ mod tests {
             .unwrap();
         let found = thread_harness(&database, "t1").await.unwrap().unwrap();
         assert_eq!(found.harness, "claude");
+        set_harness_permission_mode(&database, "t1", "plan")
+            .await
+            .unwrap();
+        assert_eq!(
+            thread_harness(&database, "t1")
+                .await
+                .unwrap()
+                .unwrap()
+                .permission_mode
+                .as_deref(),
+            Some("plan")
+        );
         assert!(thread_harness(&database, "nope").await.unwrap().is_none());
         rename_harness_thread(&database, "t1", "Named")
             .await

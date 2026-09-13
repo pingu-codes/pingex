@@ -140,6 +140,34 @@ describe("Home routing", () => {
     expect(start).toHaveBeenCalledWith("C:\\repo", null, false, "codex", { homeKey: "replacement" });
   });
 
+  it("routes native side conversations and cancellation through the parent's Home", async () => {
+    const first = home("claude-one", nativeHost, "claude", "/repo");
+    const second = home("claude-two", nativeHost, "claude", "/repo");
+    first.data.sideQuestions = [
+      { kind: "native", sideThreadId: "side", parentThreadId: "same-thread-id", title: "Question", createdAt: 1 },
+    ];
+    second.data.sideQuestions = [...first.data.sideQuestions];
+    const data = acceptProfile({ profileKey: "claude-one", homes: [first, second] });
+    expect(data.sideQuestions.map((side) => side.sideThreadId)).toEqual([
+      scopedId("claude-one", "side"),
+      scopedId("claude-two", "side"),
+    ]);
+    const cancel = vi.spyOn(native, "cancelNativeSideQuestion").mockResolvedValue([]);
+    await commands.cancelNativeSideQuestion(
+      scopedId("claude-two", "same-thread-id"),
+      scopedId("claude-two", "side"),
+      "request",
+    );
+    expect(cancel).toHaveBeenCalledWith("same-thread-id", "side", "request", { homeKey: "claude-two" });
+    await expect(
+      commands.cancelNativeSideQuestion(
+        scopedId("claude-one", "same-thread-id"),
+        scopedId("claude-two", "side"),
+        "request",
+      ),
+    ).rejects.toThrow("multiple Homes");
+  });
+
   it("keeps shared sidebar Windows paths intact", async () => {
     const root = home("root", nativeHost, "codex", "C:\\repo");
     root.data.sidebarLayout.placements.push({ scope: "", itemKey: "C:\\repo", parentId: null, ordinal: 0 });

@@ -4,6 +4,7 @@ import { Collapsible } from "@skeletonlabs/skeleton-svelte";
 import { untrack } from "svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import TypingDots from "$lib/components/TypingDots.svelte";
+import NativeSideQuestions from "$lib/panels/NativeSideQuestions.svelte";
 import {
   addSideQuestion,
   forkThread,
@@ -11,6 +12,7 @@ import {
   invalidateThreadCache,
   readThread,
   removeSideQuestion,
+  sideQuestionMode,
   startTurn,
 } from "$lib/services/api";
 import {
@@ -44,11 +46,13 @@ let {
   sideQuestions,
   activeSideId = $bindable(null),
   onDataChanged,
+  submission = null,
 }: {
   parentThreadId: string | null;
   sideQuestions: SideQuestion[];
   activeSideId?: string | null;
   onDataChanged: (data: BootstrapData) => void;
+  submission?: { id: number; text: string } | null;
 } = $props();
 
 // How long Stop waits for Codex to confirm before the panel ends the turn on
@@ -67,6 +71,37 @@ let lastParentId: string | null | undefined;
 let askedId: string | null = null;
 let pendingTurnStart: Promise<Turn> | null = null;
 let stopTimer: ReturnType<typeof setTimeout> | undefined;
+let mode = $state<"fork" | "native" | null>(null);
+let modeError = $state<string | null>(null);
+let lastSubmission: number | undefined;
+
+$effect(() => {
+  const parent = parentThreadId;
+  mode = null;
+  modeError = null;
+  let current = true;
+  if (parent)
+    sideQuestionMode(parent)
+      .then((value) => {
+        if (current) mode = value;
+      })
+      .catch((cause) => {
+        if (current) modeError = String(cause);
+      });
+  return () => {
+    current = false;
+  };
+});
+
+$effect(() => {
+  if (mode !== "fork" || !submission || submission.id === lastSubmission) return;
+  lastSubmission = submission.id;
+  const text = submission.text;
+  untrack(() => {
+    question = text;
+    if (!busy) void ask();
+  });
+});
 
 const mine = $derived(sideQuestions.filter((entry) => entry.parentThreadId === parentThreadId));
 const active = $derived(mine.find((entry) => entry.sideThreadId === activeSideId) ?? null);
@@ -110,6 +145,7 @@ $effect(() => {
 });
 
 $effect(() => {
+  if (mode !== "fork") return;
   const id = activeSideId;
   if (!id) {
     sideThread = null;
@@ -258,6 +294,11 @@ function openSide(entry: SideQuestion) {
 }
 </script>
 
+{#if mode === "native" && parentThreadId}
+  {#key parentThreadId}
+    <NativeSideQuestions {parentThreadId} {sideQuestions} bind:activeSideId {onDataChanged} {submission} />
+  {/key}
+{:else if mode === "fork"}
 <div class="min-h-0 flex-1 overflow-y-auto p-3">
   {#if !activeSideId}
     {#if mine.length === 0}
@@ -406,6 +447,10 @@ function openSide(entry: SideQuestion) {
     </TooltipButton>
   </div>
 </div>
+
+{:else}
+  <p class="p-3 text-xs text-surface-500">{modeError ?? (parentThreadId ? "Loading side questions…" : "Open a conversation to ask a side question.")}</p>
+{/if}
 
 <style>
   /* WorkItem sizes itself for the main transcript; the panel is narrow. */

@@ -434,6 +434,7 @@ mod tests {
         crate::storage::add_side_question(
             &database,
             &crate::storage::SideQuestion {
+                kind: crate::storage::SideQuestionKind::Fork,
                 side_thread_id: "side-1".into(),
                 parent_thread_id: "parent-1".into(),
                 title: "Why?".into(),

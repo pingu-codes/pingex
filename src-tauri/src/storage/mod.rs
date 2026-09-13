@@ -18,12 +18,14 @@ mod account;
 mod agent_runs;
 mod branches;
 mod harness;
+pub(crate) use harness::set_harness_permission_mode;
 mod items;
 mod profile_import;
 pub(crate) mod profiles;
 mod project_expansion;
 mod projects;
 pub(crate) use profile_import::{open_profile_root, open_profile_root_at, profile_root_path_in};
+pub(crate) mod native_side_questions;
 mod questions;
 mod review;
 mod schema;
@@ -64,7 +66,9 @@ pub(crate) use questions::{
     add_pending_user_input, add_user_input_answer, list_threads_with_unanswered_user_inputs,
     read_user_input_answers, UserInputAnswer,
 };
-pub use questions::{add_side_question, delete_side_question, read_side_questions, SideQuestion};
+pub use questions::{
+    add_side_question, delete_side_question, read_side_questions, SideQuestion, SideQuestionKind,
+};
 pub(crate) use review::{delete_review_draft, read_review_draft, write_review_draft, ReviewDraft};
 pub(crate) use search::{
     delete_thread_search, rename_thread_search, search_thread_index, set_thread_search_archived,

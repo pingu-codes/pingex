@@ -148,7 +148,15 @@ impl Drop for ClaudeProcess {
 /// `CLAUDE_CONFIG_DIR`, API-key variables stripped, cwd in the scratch dir.
 pub fn spawn(setup: &Setup, mode: &str) -> ClaudeProcess {
     let session_id = uuid::Uuid::new_v4().to_string();
-    let args = claude_turn_args(Some(&setup.model), Some("low"), mode, false, &session_id);
+    spawn_session(setup, mode, session_id, false)
+}
+
+pub fn resume(setup: &Setup, session_id: String) -> ClaudeProcess {
+    spawn_session(setup, "default", session_id, true)
+}
+
+fn spawn_session(setup: &Setup, mode: &str, session_id: String, resume: bool) -> ClaudeProcess {
+    let args = claude_turn_args(Some(&setup.model), Some("low"), mode, resume, &session_id);
     // The same argv the driver builds, through the same `Host`.
     let mut argv: Vec<&str> = CLAUDE_BASE_ARGS.to_vec();
     argv.extend(args.iter().map(String::as_str));

@@ -256,6 +256,9 @@ async fn start_claude_turn(
         )
         .await?;
     let (model, effort) = &resolved;
+    if let Some(mode) = ctx.claude.permission_mode(thread_id) {
+        storage::set_harness_permission_mode(&ctx.database(), thread_id, &mode).await?;
+    }
     storage::record_turn_settings(
         &ctx.database(),
         thread_id,

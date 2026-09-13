@@ -54,8 +54,8 @@ import QueuedMessageRow from "$lib/thread/QueuedMessageRow.svelte";
 import ReasoningBlock from "$lib/thread/ReasoningBlock.svelte";
 import ReplaceGoalDialog from "$lib/thread/ReplaceGoalDialog.svelte";
 import RewindThreadDialog from "$lib/thread/RewindThreadDialog.svelte";
-import { isAtBottom, isFarFromBottom, nextFollowing, recallScroll, rememberScroll } from "$lib/thread/scrollPositions";
 import SystemPromptSection from "$lib/thread/SystemPromptSection.svelte";
+import { isAtBottom, isFarFromBottom, nextFollowing, recallScroll, rememberScroll } from "$lib/thread/scrollPositions";
 import { attachSession, draftSession, openSession, releaseSession } from "$lib/thread/sessions.svelte";
 import TurnPlanCard from "$lib/thread/TurnPlanCard.svelte";
 import type { ThreadSession } from "$lib/thread/threadSession.svelte";
@@ -763,6 +763,14 @@ function diffKind(status: string): string {
  * user so rather than silently doing nothing.
  */
 function runCommand(command: SlashCommandId, argument = "", typed = "") {
+  if (command === "btw") {
+    if (!liveThreadId) {
+      failCommand(command, typed);
+      return;
+    }
+    panelView = { kind: "side", ...(argument ? { submission: { id: Date.now(), text: argument } } : {}) };
+    return;
+  }
   // These read back the conversation, so they cannot be answered on a draft.
   // `/review` and `/goal` are absent deliberately: both start a thread of their
   // own rather than turning the user away.

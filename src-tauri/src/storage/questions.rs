@@ -111,9 +111,20 @@ pub(crate) async fn read_user_input_answers(
     .await
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "lowercase")]
+pub enum SideQuestionKind {
+    #[default]
+    Fork,
+    Native,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SideQuestion {
+    #[specta(optional)]
+    pub kind: SideQuestionKind,
+    /// Conversation identity. Only fork-backed entries name an actual thread.
     pub side_thread_id: String,
     pub parent_thread_id: String,
     pub title: String,
@@ -152,11 +163,18 @@ pub async fn read_side_questions(database: &Database) -> Result<Vec<SideQuestion
     let connection = db::conn(database)?;
     db::rows(
         &connection,
-        "SELECT side_thread_id, parent_thread_id, title, created_at, inherited_turns
-         FROM side_questions ORDER BY created_at DESC",
+        "SELECT side_thread_id, parent_thread_id, title, created_at, inherited_turns, 0
+         FROM side_questions UNION ALL
+         SELECT id, parent_thread_id, title, created_at, NULL, 1
+         FROM native_side_conversations ORDER BY created_at DESC",
         (),
         |row| {
             Ok(SideQuestion {
+                kind: if db::flag(row, 5)? {
+                    SideQuestionKind::Native
+                } else {
+                    SideQuestionKind::Fork
+                },
                 side_thread_id: db::text(row, 0)?,
                 parent_thread_id: db::text(row, 1)?,
                 title: db::text(row, 2)?,
@@ -189,6 +207,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let database = open(directory.path()).await.unwrap();
         let side_question = SideQuestion {
+            kind: crate::storage::SideQuestionKind::Fork,
             side_thread_id: "side-1".into(),
             parent_thread_id: "parent-1".into(),
             title: "What about tests?".into(),
@@ -199,6 +218,7 @@ mod tests {
         add_side_question(
             &database,
             &SideQuestion {
+                kind: crate::storage::SideQuestionKind::Fork,
                 side_thread_id: "side-2".into(),
                 parent_thread_id: "parent-1".into(),
                 title: "Second".into(),
