@@ -24,6 +24,31 @@ vi.mock("$lib/services/api", async (importOriginal) => ({
 
 const textInput = (text: string) => [{ type: "text", text }];
 
+describe("Claude native mode selector", () => {
+  it("uses a single selector and restores Bypass when implementing a plan", async () => {
+    const { component, onSend } = setup({
+      threadHarness: "claude",
+      threadId: "claude-plan",
+      plan: "Create a greeting",
+      prefs: { permissionPreset: "full-access" },
+    });
+    expect(screen.queryByRole("button", { name: "Toggle plan mode" })).not.toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Set Claude mode" }));
+    await user.click(screen.getByRole("button", { name: /^Plan Explore/ }));
+    expect(component.turnOptions()?.claudeMode).toEqual({ mode: "plan", exitPlanMode: "bypassPermissions" });
+    expect(loadScopedPrefs("", "claude-plan").claudeMode).toEqual({ mode: "plan", exitPlanMode: "bypassPermissions" });
+    await user.click(screen.getByRole("button", { name: "Implement with Bypass permissions" }));
+    expect(onSend).toHaveBeenCalledWith(
+      textInput("Implement the plan."),
+      expect.objectContaining({ claudeMode: { mode: "bypassPermissions", exitPlanMode: "bypassPermissions" } }),
+    );
+    expect(screen.getByRole("button", { name: "Set Claude mode" })).toHaveTextContent("Bypass permissions");
+    component.syncPermissionMode("auto");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Set Claude mode" })).toHaveTextContent("Auto"));
+  });
+});
+
 describe("fast mode", () => {
   it("shows inherited fast mode and explicitly disables it for the next send", async () => {
     const { onSend, textarea } = setup({ threadId: "fast-thread", threadSpeedTier: "priority" });

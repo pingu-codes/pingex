@@ -16,6 +16,7 @@ pub(crate) struct HarnessThread {
     pub(crate) updated_at: i64,
     pub(crate) archived: bool,
     pub(crate) permission_mode: Option<String>,
+    pub(crate) plan_exit_mode: Option<String>,
 }
 
 fn from_row(row: &turso::Row) -> Result<HarnessThread, String> {
@@ -28,21 +29,23 @@ fn from_row(row: &turso::Row) -> Result<HarnessThread, String> {
         updated_at: db::int(row, 5)?,
         archived: db::int(row, 6)? != 0,
         permission_mode: db::opt_text(row, 7)?,
+        plan_exit_mode: db::opt_text(row, 8)?,
     })
 }
 
 const COLUMNS: &str =
-    "thread_id, harness, cwd, title, created_at, updated_at, archived, permission_mode";
+    "thread_id, harness, cwd, title, created_at, updated_at, archived, permission_mode, plan_exit_mode";
 
 pub(crate) async fn set_harness_permission_mode(
     database: &Database,
     thread: &str,
     mode: &str,
+    exit_mode: Option<&str>,
 ) -> Result<(), String> {
     db::exec(
         &db::conn(database)?,
-        "UPDATE harness_threads SET permission_mode = ? WHERE thread_id = ?",
-        params![mode, thread],
+        "UPDATE harness_threads SET permission_mode = ?, plan_exit_mode = COALESCE(?, plan_exit_mode) WHERE thread_id = ?",
+        params![mode, exit_mode, thread],
     )
     .await
 }
@@ -165,7 +168,7 @@ mod tests {
             .unwrap();
         let found = thread_harness(&database, "t1").await.unwrap().unwrap();
         assert_eq!(found.harness, "claude");
-        set_harness_permission_mode(&database, "t1", "plan")
+        set_harness_permission_mode(&database, "t1", "plan", Some("bypassPermissions"))
             .await
             .unwrap();
         assert_eq!(
@@ -178,6 +181,14 @@ mod tests {
             Some("plan")
         );
         assert!(thread_harness(&database, "nope").await.unwrap().is_none());
+        let saved = thread_harness(&database, "t1").await.unwrap().unwrap();
+        let modes = crate::claude::modes::ClaudeModeSettings::restore(
+            saved.permission_mode.as_deref(),
+            saved.plan_exit_mode.as_deref(),
+        )
+        .unwrap();
+        assert_eq!(modes.mode.as_str(), "plan");
+        assert_eq!(modes.exit_plan_mode.as_str(), "bypassPermissions");
         rename_harness_thread(&database, "t1", "Named")
             .await
             .unwrap();

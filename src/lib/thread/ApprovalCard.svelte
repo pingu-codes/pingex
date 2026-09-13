@@ -8,6 +8,7 @@ import { permissionLines } from "$lib/thread/permissions";
 let { approval }: { approval: Approval } = $props();
 
 let submitting = $state(false);
+let error = $state<string | null>(null);
 
 const TITLES = {
   command: "Codex wants to run a command",
@@ -39,6 +40,7 @@ const title = $derived(
 async function decide(decision: string) {
   if (submitting) return;
   submitting = true;
+  error = null;
   try {
     if (approval.options) {
       // Another harness: the option id is the whole answer.
@@ -51,13 +53,17 @@ async function decide(decision: string) {
     } else {
       await respondApproval(approval.requestId, decision);
     }
-  } finally {
     removeApproval(approval.requestId);
+  } catch (cause) {
+    error = String(cause);
+  } finally {
+    submitting = false;
   }
 }
 </script>
 
 <div class="card preset-tonal-warning space-y-2.5 p-3 text-sm">
+  {#if error}<p role="alert" class="text-error-500">{error}</p>{/if}
   <div class="flex items-center gap-2 text-xs font-semibold">
     <ShieldQuestion size={14} />
     {title}

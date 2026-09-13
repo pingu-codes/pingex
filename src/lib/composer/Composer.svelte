@@ -1,4 +1,5 @@
 <script lang="ts">
+import { CLAUDE_MODES, claudeModeFromPrefs, isClaudeMode, selectClaudeMode } from "$lib/composer/claudeModes";
 import { ArrowUp, Map as MapIcon, Paperclip, Square, Target } from "@lucide/svelte";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -383,6 +384,8 @@ $effect(() => {
 /** Which harness this composer is talking to: the thread's own, else the
  *  draft's chosen one, else Codex. */
 const harness = $derived<HarnessChoice>(threadHarness ?? prefs.harness ?? "codex");
+const claudeMode = $derived(claudeModeFromPrefs(prefs));
+const planMode = $derived(harness === "claude" ? claudeMode?.mode === "plan" : prefs.planMode);
 const models = $derived(harness === "claude" ? claudeModelList() : modelList());
 const modelsError = $derived(harness === "claude" ? claudeModelListError() : modelListError());
 
@@ -444,7 +447,7 @@ const invalidReason = $derived.by(() => {
     return "Pick at least one subagent effort level";
   }
   if (!prefs.model) return "Choose a model";
-  if (!prefs.permissionPreset) return "Choose a permission mode";
+  if (harness === "claude" ? !isClaudeMode(claudeMode?.mode) : !prefs.permissionPreset) return "Choose a permission mode";
   return null;
 });
 
@@ -499,7 +502,7 @@ function sendOptions(): TurnOptions | undefined {
     harness,
   );
   if (options && !supportsSpeed) delete options.speedTier;
-  if (!options?.collaborationMode) {
+  if (harness !== "claude" && !options?.collaborationMode) {
     console.warn("composer: no model resolved; turn sent without an explicit collaboration mode");
   }
   if (!effectiveModel && !effectiveEffort) return options;
@@ -542,7 +545,10 @@ function chooseEffort(effort: string) {
 function choosePermission(id: string) {
   // No un-toggling back to "unset": a turn needs a preset, and sending is
   // blocked without one.
-  prefs.permissionPreset = id;
+  if (harness === "claude") {
+    if (!isClaudeMode(id)) return;
+    selectClaudeMode(prefs, id);
+  } else prefs.permissionPreset = id;
   persist();
   popover = null;
 }
@@ -582,7 +588,8 @@ function setAppSubagents(value: boolean | null) {
 }
 
 function togglePlanMode() {
-  prefs.planMode = !prefs.planMode;
+  if (harness === "claude") selectClaudeMode(prefs, planMode ? claudeMode?.exitPlanMode ?? "default" : "plan");
+  else prefs.planMode = !prefs.planMode;
   persist();
 }
 
@@ -630,7 +637,7 @@ export function cancelGoalEdit() {
 // plan"), so the action bar only reappears when a newer plan arrives.
 let dismissedPlan = $state<string | null>(null);
 const showPlanActions = $derived(
-  prefs.planMode &&
+  planMode &&
     plan !== null &&
     plan !== dismissedPlan &&
     !busy &&
@@ -643,20 +650,29 @@ const showPlanActions = $derived(
 /** Leaving plan mode to act on `plan`: the action bar only returns for a newer one. */
 function leavePlanMode() {
   dismissedPlan = plan;
-  prefs.planMode = false;
+  if (harness === "claude") selectClaudeMode(prefs, claudeMode?.exitPlanMode ?? "default");
+  else prefs.planMode = false;
   persist();
 }
 
 /** The harness moved the thread between modes on its own: follow it, so the
  *  pill says what the next turn will actually run as. */
 export function syncPlanMode(on: boolean) {
-  if (prefs.planMode === on) return;
+  if (planMode === on) return;
   if (on) {
-    prefs.planMode = true;
+    if (harness === "claude") selectClaudeMode(prefs, "plan");
+    else prefs.planMode = true;
     persist();
   } else {
     leavePlanMode();
   }
+}
+
+export function syncPermissionMode(mode: string) {
+  if (harness !== "claude" || !isClaudeMode(mode)) return;
+  selectClaudeMode(prefs, mode);
+  if (mode !== "plan") dismissedPlan = plan;
+  persist();
 }
 
 function planTurnOptions() {
@@ -1100,7 +1116,7 @@ function onPaste(event: ClipboardEvent) {
           onclick={implementPlan}
           class="shrink-0 rounded-full px-2.5 py-1 text-[11px] preset-filled-primary-500"
         >
-          Implement the plan
+          {harness === "claude" ? `Implement with ${CLAUDE_MODES.find((mode) => mode.id === claudeMode?.exitPlanMode)?.label ?? "Default"}` : "Implement the plan"}
         </button>
       </div>
     {/if}
@@ -1242,16 +1258,18 @@ function onPaste(event: ClipboardEvent) {
         </TooltipButton>
       {/snippet}
       {#snippet plan()}
-        <TooltipButton
-          label={prefs.planMode ? "Plan mode on" : "Toggle plan mode"}
-          onclick={togglePlanMode}
-          aria-label="Toggle plan mode"
-          aria-pressed={prefs.planMode}
-          class="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] transition {prefs.planMode ? 'preset-filled-primary-500' : 'text-surface-500 hover:bg-surface-200-800 hover:text-surface-800-200'}"
-        >
-          <MapIcon size={12} />
-          Plan
-        </TooltipButton>
+        {#if harness !== "claude"}
+          <TooltipButton
+            label={prefs.planMode ? "Plan mode on" : "Toggle plan mode"}
+            onclick={togglePlanMode}
+            aria-label="Toggle plan mode"
+            aria-pressed={prefs.planMode}
+            class="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] transition {prefs.planMode ? 'preset-filled-primary-500' : 'text-surface-500 hover:bg-surface-200-800 hover:text-surface-800-200'}"
+          >
+            <MapIcon size={12} />
+            Plan
+          </TooltipButton>
+        {/if}
       {/snippet}
       {#snippet goal()}
         {#if goalAvailable}
@@ -1315,7 +1333,7 @@ function onPaste(event: ClipboardEvent) {
       {#snippet permissions()}
         <PermissionsPopover
           open={popover === "permissions"}
-          selectedId={prefs.permissionPreset}
+          selectedId={harness === "claude" ? claudeMode?.mode ?? null : prefs.permissionPreset}
           onToggle={() => togglePopover("permissions")}
           harness={harness}
           onChoose={choosePermission}

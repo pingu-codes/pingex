@@ -542,6 +542,7 @@ export interface ModelUpgradeInfo {
 
 /** Per-turn overrides picked in the composer popovers. */
 export interface TurnOptions {
+  claudeMode?: import("$lib/bindings").ClaudeModeSettings;
   speedTier?: string;
   model?: string;
   effort?: string;

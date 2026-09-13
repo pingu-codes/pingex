@@ -3,6 +3,7 @@
 
 use serde_json::{json, Value};
 
+use super::modes::ClaudeExecutionMode;
 use super::tools;
 use crate::harness::{HarnessRequest, PermissionOption};
 use crate::util::host::Host;
@@ -64,7 +65,17 @@ fn describe_suggestion(suggestions: &[Value]) -> String {
 }
 
 /// The neutral request for one `can_use_tool`.
+#[cfg(test)]
 pub(crate) fn request_for(can_use_tool: &Value, cwd: &str, host: &Host) -> HarnessRequest {
+    request_for_mode(can_use_tool, cwd, host, ClaudeExecutionMode::Default)
+}
+
+pub(crate) fn request_for_mode(
+    can_use_tool: &Value,
+    cwd: &str,
+    host: &Host,
+    exit_mode: ClaudeExecutionMode,
+) -> HarnessRequest {
     let name = str_at(can_use_tool, "tool_name").unwrap_or("tool");
     let input = can_use_tool.get("input").cloned().unwrap_or(Value::Null);
     if name == "AskUserQuestion" {
@@ -78,23 +89,26 @@ pub(crate) fn request_for(can_use_tool: &Value, cwd: &str, host: &Host) -> Harne
         .and_then(Value::as_bool)
         == Some(true);
     let options = if name == "ExitPlanMode" {
-        vec![
-            PermissionOption {
-                option_id: PLAN_IMPLEMENT.into(),
-                name: "Implement".into(),
+        let mut modes = vec![exit_mode];
+        modes.extend(
+            ClaudeExecutionMode::ALL
+                .into_iter()
+                .filter(|mode| *mode != exit_mode),
+        );
+        let mut options: Vec<_> = modes
+            .into_iter()
+            .map(|mode| PermissionOption {
+                option_id: format!("plan_mode_{}", mode.as_str()),
+                name: format!("Implement with {}", mode.label()),
                 kind: "allow_once".into(),
-            },
-            PermissionOption {
-                option_id: PLAN_IMPLEMENT_AUTO.into(),
-                name: "Implement, auto-accept edits".into(),
-                kind: "allow_once".into(),
-            },
-            PermissionOption {
-                option_id: PLAN_REVISE.into(),
-                name: "Keep planning".into(),
-                kind: "reject_once".into(),
-            },
-        ]
+            })
+            .collect();
+        options.push(PermissionOption {
+            option_id: PLAN_REVISE.into(),
+            name: "Keep planning".into(),
+            kind: "reject_once".into(),
+        });
+        options
     } else {
         let mut options = vec![PermissionOption {
             option_id: ALLOW.into(),
@@ -222,19 +236,19 @@ pub fn permission_result(option_id: &str, can_use_tool: &Value) -> Value {
         }
         result
     };
+    if str_at(can_use_tool, "tool_name") == Some("ExitPlanMode") {
+        if let Some(mode) = mode_after(option_id) {
+            return allow(
+                Some(json!([{"type": "setMode", "mode": mode, "destination": "session"}])),
+                "user_temporary",
+            );
+        }
+    }
     match normalise(option_id) {
         ALLOW => allow(None, "user_temporary"),
         ALLOW_ALWAYS => allow(
             can_use_tool.get("permission_suggestions").cloned(),
             "user_permanent",
-        ),
-        PLAN_IMPLEMENT => allow(
-            Some(json!([{"type": "setMode", "mode": "default", "destination": "session"}])),
-            "user_temporary",
-        ),
-        PLAN_IMPLEMENT_AUTO => allow(
-            Some(json!([{"type": "setMode", "mode": "acceptEdits", "destination": "session"}])),
-            "user_temporary",
         ),
         PLAN_REVISE => deny("Revise the plan", "user_reject"),
         _ => deny("User declined", "user_reject"),
@@ -247,7 +261,10 @@ pub(crate) fn mode_after(option_id: &str) -> Option<&'static str> {
     match normalise(option_id) {
         PLAN_IMPLEMENT => Some("default"),
         PLAN_IMPLEMENT_AUTO => Some("acceptEdits"),
-        _ => None,
+        other => other
+            .strip_prefix("plan_mode_")
+            .and_then(ClaudeExecutionMode::from_mode)
+            .map(ClaudeExecutionMode::as_str),
     }
 }
 
@@ -334,6 +351,30 @@ mod tests {
 #[cfg(test)]
 mod mode_after_tests {
     use super::*;
+
+    #[test]
+    fn plan_approval_carries_the_selected_native_mode_before_work_continues() {
+        let request = json!({"tool_name":"ExitPlanMode", "tool_use_id":"plan", "input":{"plan":"Keep context"}});
+        for mode in ClaudeExecutionMode::ALL {
+            let HarnessRequest::Permission { options, .. } =
+                request_for_mode(&request, "/repo", &Host::Native, mode)
+            else {
+                panic!("expected permission")
+            };
+            assert_eq!(options[0].name, format!("Implement with {}", mode.label()));
+            let response = permission_result(&options[0].option_id, &request);
+            assert_eq!(response["behavior"], "allow");
+            assert_eq!(response["updatedPermissions"][0]["mode"], mode.as_str());
+            assert_eq!(response["updatedPermissions"][0]["destination"], "session");
+            assert_eq!(response["updatedInput"], request["input"]);
+            assert_eq!(mode_after(&options[0].option_id), Some(mode.as_str()));
+            assert_eq!(options.len(), 5);
+        }
+        assert_eq!(permission_result(PLAN_REVISE, &request)["behavior"], "deny");
+        assert!(permission_result(PLAN_REVISE, &request)
+            .get("updatedPermissions")
+            .is_none());
+    }
 
     #[test]
     fn implementing_a_plan_names_the_mode_the_cli_moves_to() {

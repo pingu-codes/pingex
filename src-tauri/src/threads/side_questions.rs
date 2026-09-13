@@ -171,6 +171,7 @@ pub(crate) async fn answer_native_side_question(
         return Ok(exchanges);
     }
     let result = async {
+        ctx.claude.flush_modes().await;
         let thread = parent(&ctx, &parent_thread_id).await?;
         let resume = !storage::read_thread_items(&database, &parent_thread_id)
             .await?
@@ -183,7 +184,10 @@ pub(crate) async fn answer_native_side_question(
                 &thread.cwd,
                 resume,
                 settings.last(),
-                thread.permission_mode.as_deref(),
+                &crate::claude::modes::ClaudeModeSettings::restore(
+                    thread.permission_mode.as_deref(),
+                    thread.plan_exit_mode.as_deref(),
+                )?,
                 &request_id,
                 &exchange.question,
                 native::history(&exchanges),

@@ -10,6 +10,7 @@ use tauri::AppHandle;
 use tauri_specta::Event;
 
 use super::child::{self, ClaudeChild, FrameSink};
+use super::modes::{ClaudeExecutionMode, ClaudeModeSettings, ModeStore};
 use super::permissions;
 use super::translate::Translator;
 use crate::codex::events::{CodexEvent, CodexNotification};
@@ -31,7 +32,9 @@ const REQUEST_ID_BASE: i64 = 1 << 40;
 pub(crate) const PROTOCOL_FLOOR: &str = "1.0.59";
 
 /// Everything a permission prompt needs to be answered later.
+#[derive(Clone)]
 struct Pending {
+    process_id: String,
     thread_id: String,
     request_id: String,
     can_use_tool: Value,
@@ -49,6 +52,7 @@ struct Settings {
     model: Option<String>,
     effort: Option<String>,
     mode: Option<String>,
+    exit_plan_mode: Option<ClaudeExecutionMode>,
 }
 
 impl Settings {
@@ -61,24 +65,40 @@ impl Settings {
             .as_ref()
             .and_then(|mode| str_at(&mode.0, "mode"))
             == Some("plan");
-        let mode = if plan {
-            "plan"
-        } else {
-            let auto = options.approvals_reviewer.as_deref() == Some("auto");
-            match (
-                options.approval_policy.as_deref(),
-                options.sandbox_mode.as_deref(),
-            ) {
-                (Some("never"), _) | (_, Some("danger-full-access")) => "bypassPermissions",
-                _ if auto => "auto",
-                (_, Some("workspace-write")) => "acceptEdits",
-                _ => "default",
+        let auto = options.approvals_reviewer.as_deref() == Some("auto");
+        let legacy_execution = match (
+            options.approval_policy.as_deref(),
+            options.sandbox_mode.as_deref(),
+        ) {
+            (Some("never"), _) | (_, Some("danger-full-access")) => {
+                ClaudeExecutionMode::BypassPermissions
             }
+            _ if auto => ClaudeExecutionMode::Auto,
+            (_, Some("workspace-write")) => ClaudeExecutionMode::AcceptEdits,
+            _ => ClaudeExecutionMode::Default,
+        };
+        let (mode, exit_plan_mode) = match &options.claude_mode {
+            Some(native) => {
+                let mode = native.mode.as_str();
+                (
+                    mode,
+                    ClaudeExecutionMode::from_mode(mode).unwrap_or(native.exit_plan_mode),
+                )
+            }
+            None => (
+                if plan {
+                    "plan"
+                } else {
+                    legacy_execution.as_str()
+                },
+                legacy_execution,
+            ),
         };
         Self {
             model: options.model.clone().filter(|m| !m.is_empty()),
             effort: options.effort.clone().filter(|e| !e.is_empty()),
             mode: Some(mode.to_string()),
+            exit_plan_mode: Some(exit_plan_mode),
         }
     }
 
@@ -89,6 +109,7 @@ impl Settings {
 }
 
 struct ThreadSink {
+    process_id: String,
     thread_id: String,
     home_key: String,
     app: AppHandle,
@@ -98,6 +119,9 @@ struct ThreadSink {
     journal: TurnJournal,
     pending: PendingMap,
     next_request: Arc<AtomicI64>,
+    settings: Arc<Mutex<Settings>>,
+    lifecycle: Mutex<()>,
+    mode_store: Arc<ModeStore>,
 }
 
 impl ThreadSink {
@@ -108,6 +132,9 @@ impl ThreadSink {
     /// Push one neutral event out: to `harness:event`, and projected onto the
     /// journal and `codex:event`.
     fn emit(&self, event: HarnessEvent) {
+        if let HarnessEvent::PermissionModeChanged { mode } = &event {
+            self.persist_mode(mode);
+        }
         let turn_id = self.turn_id();
         let seq = self.seq.fetch_add(1, Ordering::SeqCst);
         let _ = HarnessEventEnvelope {
@@ -134,6 +161,19 @@ impl ThreadSink {
         }
     }
 
+    fn persist_mode(&self, mode: &str) {
+        if let Some(database) = crate::database_for(&self.app, &self.home_key) {
+            let exit_mode = self
+                .settings
+                .lock()
+                .ok()
+                .and_then(|s| s.exit_plan_mode)
+                .map(ClaudeExecutionMode::as_str);
+            self.mode_store
+                .save(database, &self.thread_id, mode, exit_mode);
+        }
+    }
+
     fn emit_all(&self, events: Vec<HarnessEvent>) {
         for event in events {
             let ended = matches!(event, HarnessEvent::TurnEnded { .. });
@@ -144,6 +184,24 @@ impl ThreadSink {
         }
     }
 
+    fn fail_turn(&self, reason: &str) {
+        let turn_id = self
+            .translator
+            .lock()
+            .ok()
+            .and_then(|mut t| t.turn_id.take());
+        self.deny_pending("Claude exited");
+        if let Some(turn_id) = turn_id {
+            self.emit(HarnessEvent::TurnEnded {
+                turn_id,
+                stop_reason: crate::harness::StopReason::Error,
+                error: Some(reason.into()),
+                duration_ms: None,
+                usage: None,
+            });
+        }
+    }
+
     /// Answer every prompt still open on this thread with a deny, so nothing
     /// is left blocking the process.
     fn deny_pending(&self, _reason: &str) {
@@ -151,7 +209,7 @@ impl ThreadSink {
             Ok(mut pending) => {
                 let ids: Vec<i64> = pending
                     .iter()
-                    .filter(|(_, p)| p.thread_id == self.thread_id)
+                    .filter(|(_, p)| p.process_id == self.process_id)
                     .map(|(id, _)| *id)
                     .collect();
                 ids.into_iter()
@@ -172,6 +230,22 @@ impl ThreadSink {
 
 impl FrameSink for ThreadSink {
     fn on_frame(&self, frame: &Value) {
+        let _lifecycle = self.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        if str_at(frame, "type") == Some("system") {
+            if let Some(mode) = str_at(frame, "permissionMode")
+                .filter(|mode| *mode == "plan" || ClaudeExecutionMode::from_mode(mode).is_some())
+            {
+                if let Ok(mut settings) = self.settings.lock() {
+                    settings.mode = Some(mode.to_string());
+                    if let Some(execution) = ClaudeExecutionMode::from_mode(mode) {
+                        settings.exit_plan_mode = Some(execution);
+                    }
+                }
+                self.emit(HarnessEvent::PermissionModeChanged {
+                    mode: mode.to_string(),
+                });
+            }
+        }
         if str_at(frame, "type") == Some("control_cancel_request") {
             let Some(request_id) = str_at(frame, "request_id") else {
                 return;
@@ -179,7 +253,7 @@ impl FrameSink for ThreadSink {
             let cancelled = self.pending.lock().ok().and_then(|mut pending| {
                 let id = pending
                     .iter()
-                    .find(|(_, p)| p.request_id == request_id)
+                    .find(|(_, p)| p.process_id == self.process_id && p.request_id == request_id)
                     .map(|(id, _)| *id)?;
                 pending.remove(&id);
                 Some(id)
@@ -204,12 +278,20 @@ impl FrameSink for ThreadSink {
                     .lock()
                     .map(|t| (t.cwd.clone(), t.host.clone()))
                     .unwrap_or_default();
-                let harness_request = permissions::request_for(request, &cwd, &host);
+                let exit_mode = self
+                    .settings
+                    .lock()
+                    .ok()
+                    .and_then(|s| s.exit_plan_mode)
+                    .unwrap_or_default();
+                let harness_request =
+                    permissions::request_for_mode(request, &cwd, &host, exit_mode);
                 let id = self.next_request.fetch_add(1, Ordering::SeqCst);
                 if let Ok(mut pending) = self.pending.lock() {
                     pending.insert(
                         id,
                         Pending {
+                            process_id: self.process_id.clone(),
                             thread_id: self.thread_id.clone(),
                             request_id: request_id.to_string(),
                             can_use_tool: request.clone(),
@@ -261,29 +343,16 @@ impl FrameSink for ThreadSink {
         }
     }
 
-    fn on_closed(&self) {
-        // A turn cut off by the process dying never gets its `result`.
-        let open = self.turn_id();
-        if let Some(turn_id) = open {
-            if let Ok(mut translator) = self.translator.lock() {
-                translator.turn_id = None;
-            }
-            self.deny_pending("Claude exited");
-            self.emit(HarnessEvent::TurnEnded {
-                turn_id,
-                stop_reason: crate::harness::StopReason::Error,
-                error: Some("Claude exited before finishing the turn".into()),
-                duration_ms: None,
-                usage: None,
-            });
-        }
+    fn on_closed(&self, reason: &str) {
+        let _lifecycle = self.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        self.fail_turn(reason);
     }
 }
 
 struct ThreadProcess {
     child: Arc<ClaudeChild>,
     sink: Arc<ThreadSink>,
-    settings: Mutex<Settings>,
+    settings: Arc<Mutex<Settings>>,
     side_questions_unsupported: AtomicBool,
 }
 
@@ -364,6 +433,7 @@ pub(crate) struct ClaudeDriver {
     next_request: Arc<AtomicI64>,
     pub(crate) side_questions: super::side_questions::SideRequests,
     process_start: tokio::sync::Mutex<()>,
+    mode_store: Arc<ModeStore>,
 }
 
 /// What the settings page and the harness picker need to know: whether a
@@ -511,6 +581,7 @@ impl ClaudeDriver {
             next_request: Arc::new(AtomicI64::new(REQUEST_ID_BASE)),
             side_questions: Default::default(),
             process_start: tokio::sync::Mutex::new(()),
+            mode_store: Arc::new(ModeStore::new()),
         }
     }
 
@@ -543,14 +614,23 @@ impl ClaudeDriver {
                 .unwrap_or(false)
     }
 
-    pub(crate) fn permission_mode(&self, thread_id: &str) -> Option<String> {
-        self.process(thread_id).and_then(|process| {
-            process
-                .settings
-                .lock()
-                .ok()
-                .and_then(|settings| settings.mode.clone())
-        })
+    pub(crate) async fn flush_modes(&self) {
+        self.mode_store.flush().await;
+    }
+
+    async fn reusable_process(&self, thread_id: &str) -> Option<Arc<ThreadProcess>> {
+        let previous = self
+            .processes
+            .lock()
+            .ok()
+            .and_then(|p| p.get(thread_id).cloned());
+        if let Some(previous) = previous {
+            if previous.child.is_alive() {
+                return Some(previous);
+            }
+            previous.child.wait_closed().await;
+        }
+        None
     }
 
     fn process(&self, thread_id: &str) -> Option<Arc<ThreadProcess>> {
@@ -611,7 +691,8 @@ impl ClaudeDriver {
     ) -> Result<Arc<ThreadProcess>, String> {
         let runtime = self.runtime();
         let program = self.resolve_binary(&runtime)?;
-        let config_dir = runtime.config_dir_str();
+        let config_dir = super::sessions::config_path(&runtime.host, &runtime.config_dir_str())?;
+        let resume = super::sessions::should_resume(&runtime.host, &config_dir, thread_id, resume)?;
         let args = turn_args(
             settings.model.as_deref(),
             settings.effort.as_deref(),
@@ -619,7 +700,12 @@ impl ClaudeDriver {
             resume,
             thread_id,
         );
+        let settings = Arc::new(Mutex::new(Settings {
+            mode: Some(settings.mode_or_default().to_string()),
+            ..settings.clone()
+        }));
         let sink = Arc::new(ThreadSink {
+            process_id: uuid::Uuid::new_v4().to_string(),
             thread_id: thread_id.to_string(),
             home_key: self.home_key.clone(),
             app: app.clone(),
@@ -633,6 +719,9 @@ impl ClaudeDriver {
             journal: TurnJournal::new(app.clone(), self.home_key.clone(), HarnessKind::Claude),
             pending: self.pending.clone(),
             next_request: self.next_request.clone(),
+            settings: settings.clone(),
+            lifecycle: Mutex::new(()),
+            mode_store: self.mode_store.clone(),
         });
         let child = child::spawn(
             &runtime.host,
@@ -648,10 +737,7 @@ impl ClaudeDriver {
             child,
             sink,
             side_questions_unsupported: AtomicBool::new(false),
-            settings: Mutex::new(Settings {
-                mode: Some(settings.mode_or_default().to_string()),
-                ..settings.clone()
-            }),
+            settings,
         });
         if let Ok(mut processes) = self.processes.lock() {
             processes.insert(thread_id.to_string(), process.clone());
@@ -668,7 +754,7 @@ impl ClaudeDriver {
         settings: &Settings,
     ) -> Result<Arc<ThreadProcess>, String> {
         let _starting = self.process_start.lock().await;
-        if let Some(process) = self.process(thread_id) {
+        if let Some(process) = self.reusable_process(thread_id).await {
             drop(_starting);
             let current = process
                 .settings
@@ -692,6 +778,7 @@ impl ClaudeDriver {
             if let Ok(mut slot) = process.settings.lock() {
                 *slot = Settings {
                     mode: settings.mode.clone().or(current.mode),
+                    exit_plan_mode: settings.exit_plan_mode.or(current.exit_plan_mode),
                     ..settings.clone()
                 };
             }
@@ -709,7 +796,7 @@ impl ClaudeDriver {
         cwd: &str,
         resume: bool,
         saved: Option<&crate::storage::TurnSettings>,
-        permission_mode: Option<&str>,
+        saved_modes: &ClaudeModeSettings,
         request_id: &str,
         question: &str,
         history: Vec<crate::storage::native_side_questions::SideExchange>,
@@ -719,13 +806,14 @@ impl ClaudeDriver {
         let answer = async {
             let (process, initialize) = {
                 let _starting = self.process_start.lock().await;
-                match self.process(thread_id) {
+                match self.reusable_process(thread_id).await {
                     Some(process) => (process, false),
                     None => {
                         let settings = Settings {
                             model: saved.and_then(|s| s.model.clone()),
                             effort: saved.and_then(|s| s.reasoning_effort.clone()),
-                            mode: permission_mode.map(str::to_string),
+                            mode: Some(saved_modes.mode.as_str().to_string()),
+                            exit_plan_mode: Some(saved_modes.exit_plan_mode),
                         };
                         (self.spawn(app, thread_id, cwd, resume, &settings)?, true)
                     }
@@ -791,6 +879,14 @@ impl ClaudeDriver {
         let process = self
             .ensure_process(app, thread_id, cwd, resume, &settings)
             .await?;
+        let _lifecycle = process
+            .sink
+            .lifecycle
+            .lock()
+            .map_err(|_| "Claude lifecycle lock was poisoned")?;
+        if !process.child.is_alive() {
+            return Err(process.child.exit_reason());
+        }
         if process.sink.turn_id().is_some() {
             return Err("A turn is already running on this thread".into());
         }
@@ -822,6 +918,9 @@ impl ClaudeDriver {
         if let Ok(mut translator) = process.sink.translator.lock() {
             translator.turn_id = Some(turn_id.clone());
         }
+        if let Some(mode) = process.settings.lock().ok().and_then(|s| s.mode.clone()) {
+            process.sink.persist_mode(&mode);
+        }
         process.sink.emit(HarnessEvent::TurnStarted {
             turn_id: turn_id.clone(),
             model: settings.model.clone(),
@@ -831,15 +930,15 @@ impl ClaudeDriver {
             text,
         });
         if let Err(error) = process.child.write_frame(&frame) {
-            if let Ok(mut translator) = process.sink.translator.lock() {
-                translator.turn_id = None;
-            }
+            process.child.kill();
             let tail = process.child.stderr_tail();
-            return Err(if tail.is_empty() {
+            let error = if tail.is_empty() {
                 error
             } else {
                 format!("{error}\n{tail}")
-            });
+            };
+            process.sink.fail_turn(&error);
+            return Err(error);
         }
         Ok(turn_id)
     }
@@ -866,23 +965,50 @@ impl ClaudeDriver {
     /// decision word).
     pub(crate) fn respond_option(&self, request_id: i64, option_id: &str) -> Result<(), String> {
         let pending = self
-            .take_pending(request_id)
+            .pending
+            .lock()
+            .map_err(|_| "Claude pending lock was poisoned")?
+            .get(&request_id)
+            .cloned()
             .ok_or("That request is no longer waiting")?;
+        let process = self.process(&pending.thread_id);
+        let _lifecycle = process.as_ref().map(|process| {
+            process
+                .sink
+                .lifecycle
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+        });
+        // Older cards used a generic Implement decision. Resolve it against
+        // the same remembered mode as the explicitly labelled native choices.
+        let option = if option_id == permissions::PLAN_IMPLEMENT {
+            let mode = process
+                .as_ref()
+                .and_then(|p| p.settings.lock().ok().and_then(|s| s.exit_plan_mode))
+                .unwrap_or_default();
+            format!("plan_mode_{}", mode.as_str())
+        } else {
+            option_id.to_string()
+        };
         pending.child.respond_control(
             &pending.request_id,
-            permissions::permission_result(option_id, &pending.can_use_tool),
+            permissions::permission_result(&option, &pending.can_use_tool),
         )?;
+        self.take_pending(request_id);
         // Implementing a plan answers with `setMode`, which moves the CLI out
         // of plan mode. Record it, or the next turn's diff would think the
         // process is still planning; and say so, or the composer's pill would.
-        if let Some(mode) = permissions::mode_after(option_id) {
-            if let Some(process) = self.process(&pending.thread_id) {
+        if let Some(mode) = permissions::mode_after(&option)
+            .filter(|_| str_at(&pending.can_use_tool, "tool_name") == Some("ExitPlanMode"))
+        {
+            if let Some(process) = process.as_ref() {
                 if let Ok(mut slot) = process.settings.lock() {
                     slot.mode = Some(mode.to_string());
+                    slot.exit_plan_mode = ClaudeExecutionMode::from_mode(mode);
                 }
-                process.sink.emit(HarnessEvent::ModeChanged {
-                    mode: "default".into(),
-                });
+                process
+                    .sink
+                    .emit(HarnessEvent::PermissionModeChanged { mode: mode.into() });
             }
         }
         Ok(())
@@ -897,14 +1023,19 @@ impl ClaudeDriver {
         thread_id: &str,
         cwd: &str,
         resume: bool,
+        saved_modes: ClaudeModeSettings,
     ) -> Result<String, String> {
+        let options = Some(TurnOptions {
+            claude_mode: Some(saved_modes),
+            ..Default::default()
+        });
         self.start_turn(
             app,
             thread_id,
             cwd,
             resume,
             &[json!({"type": "text", "text": "/compact"})],
-            None,
+            options.as_ref(),
         )
         .await
     }
@@ -947,7 +1078,7 @@ impl ClaudeDriver {
             .processes
             .lock()
             .ok()
-            .and_then(|mut processes| processes.remove(thread_id));
+            .and_then(|processes| processes.get(thread_id).cloned());
         if let Some(process) = removed {
             process.sink.deny_pending("Closed");
             process.child.kill();
@@ -960,7 +1091,7 @@ impl ClaudeDriver {
     pub(crate) fn is_busy(&self) -> bool {
         self.processes
             .lock()
-            .map(|processes| !processes.is_empty())
+            .map(|processes| processes.values().any(|process| process.child.is_alive()))
             .unwrap_or(true)
     }
 
@@ -1059,6 +1190,36 @@ fn base64_encode(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_modes_override_legacy_presets_and_retain_the_plan_exit_mode() {
+        for mode in ClaudeExecutionMode::ALL {
+            let options: TurnOptions = serde_json::from_value(json!({
+                "claudeMode": {"mode":"plan", "exitPlanMode":mode.as_str()},
+                "approvalPolicy":"never", "sandboxMode":"danger-full-access"
+            }))
+            .unwrap();
+            let settings = Settings::from_options(Some(&options));
+            assert_eq!(settings.mode.as_deref(), Some("plan"));
+            assert_eq!(settings.exit_plan_mode, Some(mode));
+            let options: TurnOptions = serde_json::from_value(json!({
+                "claudeMode": {"mode":mode.as_str(), "exitPlanMode":"default"},
+                "collaborationMode": {"mode":"plan"}
+            }))
+            .unwrap();
+            let settings = Settings::from_options(Some(&options));
+            assert_eq!(settings.mode.as_deref(), Some(mode.as_str()));
+            assert_eq!(settings.exit_plan_mode, Some(mode));
+        }
+        assert!(serde_json::from_value::<TurnOptions>(
+            json!({"claudeMode":{"mode":"unknown", "exitPlanMode":"default"}})
+        )
+        .is_err());
+        assert!(serde_json::from_value::<TurnOptions>(
+            json!({"claudeMode":{"mode":"plan", "exitPlanMode":"plan"}})
+        )
+        .is_err());
+    }
 
     #[test]
     fn presets_map_onto_permission_modes() {

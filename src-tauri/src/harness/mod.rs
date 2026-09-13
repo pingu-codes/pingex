@@ -189,6 +189,9 @@ pub(crate) enum HarnessEvent {
     ModeChanged {
         mode: String,
     },
+    PermissionModeChanged {
+        mode: String,
+    },
     Notice {
         level: String,
         text: String,

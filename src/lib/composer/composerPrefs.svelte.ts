@@ -1,3 +1,4 @@
+import { claudeModeFromPrefs, isClaudeMode, selectClaudeMode } from "$lib/composer/claudeModes";
 import type { SubagentPolicy, TurnOptions } from "$lib/types";
 
 /**
@@ -32,6 +33,7 @@ export interface ComposerPrefs extends SubagentPrefs {
   effort: string | null;
   permissionPreset: string | null;
   planMode: boolean;
+  claudeMode: import("$lib/bindings").ClaudeModeSettings | null;
 }
 
 export interface PermissionPreset {
@@ -117,10 +119,14 @@ export function presetFor(harness: HarnessChoice | null | undefined, id: string 
   const own = presets.find((preset) => preset.id === id);
   if (own) return own;
   const other = [...PERMISSION_PRESETS, ...CLAUDE_PERMISSION_PRESETS].find((preset) => preset.id === id);
-  return presets.find((preset) =>
-    !preset.approvalsReviewer && preset.approvalPolicy === other?.approvalPolicy &&
-    preset.sandboxMode === other?.sandboxMode
-  ) ?? null;
+  return (
+    presets.find(
+      (preset) =>
+        !preset.approvalsReviewer &&
+        preset.approvalPolicy === other?.approvalPolicy &&
+        preset.sandboxMode === other?.sandboxMode,
+    ) ?? null
+  );
 }
 
 const STORAGE_KEY = "pingex-composer-prefs";
@@ -145,6 +151,10 @@ interface PrefsStore {
   subagentDefaults: SubagentPrefs | null;
   projects: Record<string, ComposerPrefs>;
   threads: Record<string, ComposerPrefs>;
+  threadModes: Record<
+    string,
+    { mode: import("$lib/bindings").ClaudePermissionMode; exitPlanMode?: import("$lib/bindings").ClaudeExecutionMode }
+  >;
 }
 
 const defaults = (): ComposerPrefs => ({
@@ -154,6 +164,7 @@ const defaults = (): ComposerPrefs => ({
   effort: null,
   permissionPreset: null,
   planMode: false,
+  claudeMode: null,
   appSubagents: null,
   subagentModelPolicy: null,
   subagentReasoningEffortPolicy: null,
@@ -193,6 +204,7 @@ const emptyStore = (): PrefsStore => ({
   subagentDefaults: null,
   projects: {},
   threads: {},
+  threadModes: {},
 });
 
 /** Drop unknown fields and fill in ones added since the entry was written. */
@@ -223,6 +235,11 @@ function readStore(): PrefsStore {
         subagentDefaults: coerceSubagent(parsed.subagentDefaults),
         projects: coerceScope(parsed.projects),
         threads: coerceScope(parsed.threads),
+        threadModes: Object.fromEntries(
+          Object.entries(parsed.threadModes ?? {}).filter(
+            ([, value]) => value && typeof value === "object" && "mode" in value && isClaudeMode(value.mode),
+          ),
+        ) as PrefsStore["threadModes"],
       };
     }
     // Pre-scoping: one flat blob of global choices. Keep it as the fallback so
@@ -265,6 +282,12 @@ export function loadScopedPrefs(project: string, threadId: string | null): Compo
   const prefs = scoped ? { ...scoped } : defaults();
   prefs.speedTier = threadId ? (store.threads[threadId]?.speedTier ?? null) : null;
   if (!own && store.subagentDefaults) Object.assign(prefs, store.subagentDefaults);
+  const mode = threadId ? store.threadModes[threadId] : null;
+  if (mode) {
+    selectClaudeMode(prefs, mode.mode);
+    if (mode.mode === "plan" && mode.exitPlanMode && prefs.claudeMode)
+      prefs.claudeMode.exitPlanMode = mode.exitPlanMode;
+  }
   return prefs;
 }
 
@@ -273,8 +296,27 @@ export function saveScopedPrefs(project: string, threadId: string | null, prefs:
   const store = readStore();
   const snapshot = { ...prefs };
   if (project) touch(store.projects, project, { ...snapshot, speedTier: null });
-  if (threadId) touch(store.threads, threadId, snapshot, MAX_THREADS);
+  if (threadId) {
+    touch(store.threads, threadId, snapshot, MAX_THREADS);
+    delete store.threadModes[threadId];
+  }
   store.subagentDefaults = pickSubagent(snapshot);
+  writeStore(store);
+}
+
+/** Persist events even when this conversation's composer is not mounted. */
+export function saveThreadClaudeMode(threadId: string, mode: string): void {
+  if (!isClaudeMode(mode)) return;
+  const store = readStore();
+  // A mode event must not turn inherited project/model settings into empty
+  // thread overrides. Apply it after inheritance when the composer loads.
+  const previousExitMode = store.threadModes[threadId]?.exitPlanMode;
+  delete store.threadModes[threadId];
+  store.threadModes[threadId] = {
+    mode,
+    ...(mode === "plan" ? (previousExitMode ? { exitPlanMode: previousExitMode } : {}) : { exitPlanMode: mode }),
+  };
+  for (const stale of Object.keys(store.threadModes).slice(0, -MAX_THREADS)) delete store.threadModes[stale];
   writeStore(store);
 }
 
@@ -327,7 +369,10 @@ export function turnOptionsFrom(
   if (prefs.speedTier) options.speedTier = prefs.speedTier;
   if (prefs.model) options.model = prefs.model;
   if (prefs.effort) options.effort = prefs.effort;
-  if (preset) {
+  if (harness === "claude") {
+    const mode = claudeModeFromPrefs(prefs);
+    if (mode) options.claudeMode = mode;
+  } else if (preset) {
     options.approvalPolicy = preset.approvalPolicy;
     options.sandboxMode = preset.sandboxMode;
     if (preset.approvalsReviewer) options.approvalsReviewer = preset.approvalsReviewer;
@@ -342,7 +387,7 @@ export function turnOptionsFrom(
   // a state where it never re-sends the "Default mode" instructions, so a
   // thread that was in plan mode looks stuck there to the model.
   const model = prefs.model ?? defaultModel ?? threadModel ?? null;
-  if (model) {
+  if (model && harness !== "claude") {
     options.collaborationMode = {
       mode: prefs.planMode ? "plan" : "default",
       settings: { model, reasoning_effort: prefs.effort ?? null, developer_instructions: null },

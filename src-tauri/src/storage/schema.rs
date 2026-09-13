@@ -295,7 +295,8 @@ const DDL: &str = "CREATE TABLE IF NOT EXISTS metadata (
 /// Columns added after their table shipped. Re-running these on an up-to-date
 /// database fails harmlessly ("duplicate column"), which is the only expected
 /// error, so the result is ignored.
-const ADDED_COLUMNS: [&str; 13] = [
+const ADDED_COLUMNS: [&str; 14] = [
+    "ALTER TABLE harness_threads ADD COLUMN plan_exit_mode TEXT",
     "ALTER TABLE harness_threads ADD COLUMN permission_mode TEXT",
     "ALTER TABLE thread_summaries ADD COLUMN harness TEXT",
     "ALTER TABLE projects ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",

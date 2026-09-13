@@ -221,8 +221,8 @@ async fn start_claude_thread(
     ))
 }
 
-/// Run a turn on a Claude thread. The process is resumed from disk when the
-/// thread already has journaled turns from an earlier process.
+/// The driver checks Claude's transcript before spawning. Journal history
+/// prevents silently replacing a conversation whose native session is missing.
 async fn start_claude_turn(
     ctx: &HomeContext,
     app: &AppHandle,
@@ -231,7 +231,7 @@ async fn start_claude_turn(
     options: Option<TurnOptions>,
 ) -> Result<Json, String> {
     let thread_id = &thread.thread_id;
-    let resume = !storage::read_complete_turns(&ctx.database(), thread_id)
+    let resume = !storage::read_thread_items(&ctx.database(), thread_id)
         .await?
         .is_empty();
     let resolved = options
@@ -256,9 +256,7 @@ async fn start_claude_turn(
         )
         .await?;
     let (model, effort) = &resolved;
-    if let Some(mode) = ctx.claude.permission_mode(thread_id) {
-        storage::set_harness_permission_mode(&ctx.database(), thread_id, &mode).await?;
-    }
+    ctx.claude.flush_modes().await;
     storage::record_turn_settings(
         &ctx.database(),
         thread_id,
@@ -459,7 +457,9 @@ pub(crate) async fn respond_approval(
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
     if ctx.claude.owns_request(request_id) {
-        return ctx.claude.respond_option(request_id, &decision);
+        ctx.claude.respond_option(request_id, &decision)?;
+        ctx.claude.flush_modes().await;
+        return Ok(());
     }
     ctx.session
         .respond(request_id, requests::approval_result(&decision))
@@ -735,6 +735,7 @@ mod tests {
         apply_turn_options(
             &mut params,
             TurnOptions {
+                claude_mode: None,
                 model: Some("gpt-5.6".into()),
                 effort: Some("high".into()),
                 speed_tier: Some("default".into()),

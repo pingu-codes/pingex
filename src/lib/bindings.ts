@@ -98,6 +98,8 @@ export const commands = {
 	readThread: (threadId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("read_thread", { threadId, window }),
 	startThread: (cwd: string | null, workspaceId: string | null, appSubagents: boolean | null, harness: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("start_thread", { cwd, workspaceId, appSubagents, harness, window }),
 	startTurn: (threadId: string, input: unknown[], options: {
+	/**  Native Claude settings, never forwarded to Codex. */
+	claudeMode?: ClaudeModeSettings | null,
 	model?: string | null,
 	effort?: string | null,
 	/**  An explicit speed selection; absent inherits the thread. "default" disables fast mode. */
@@ -706,6 +708,15 @@ export type ChecksSummary = {
 	pending: number,
 };
 
+export type ClaudeExecutionMode = "default" | "acceptEdits" | "auto" | "bypassPermissions";
+
+export type ClaudeModeSettings = {
+	mode: ClaudePermissionMode,
+	exitPlanMode: ClaudeExecutionMode,
+};
+
+export type ClaudePermissionMode = "default" | "acceptEdits" | "auto" | "plan" | "bypassPermissions";
+
 /**
  *  What the settings page and the harness picker need to know: whether a
  *  `claude` binary resolves, where, and what it reports as its version.
@@ -761,7 +772,7 @@ export type CodexNotification = { method: "thread/started"; params: ThreadStarte
  *  App-emitted, never by Codex: a harness moved the thread between plan
  *  and default mode on its own.
  */
-{ method: "thread/collaborationMode/changed"; params: ThreadModeChangedParams } | { method: "thread/archived"; params: ThreadParams } | { method: "thread/unarchived"; params: ThreadParams } | { method: "thread/deleted"; params: ThreadParams } | { method: "thread/closed"; params: ThreadParams } | { method: "thread/goal/cleared"; params: ThreadParams } | { method: "turn/started"; params: TurnParams } | { method: "turn/completed"; params: TurnParams } | { method: "turn/plan/updated"; params: TurnPlanUpdatedParams } | { method: "item/started"; params: ItemParams } | { method: "item/completed"; params: ItemParams } | { method: "item/agentMessage/delta"; params: DeltaParams } | { method: "item/plan/delta"; params: DeltaParams } | { method: "item/reasoning/summaryPartAdded"; params: SummaryPartAddedParams } | { method: "item/reasoning/summaryTextDelta"; params: SummaryTextDeltaParams } | { method: "item/reasoning/textDelta"; params: ReasoningTextDeltaParams } | { method: "item/commandExecution/outputDelta"; params: DeltaParams } | { method: "item/commandExecution/terminalInteraction"; params: TerminalInteractionParams } | { method: "item/fileChange/patchUpdated"; params: PatchUpdatedParams } | { method: "item/mcpToolCall/progress"; params: McpToolCallProgressParams } | { method: "item/autoApprovalReview/completed"; params: AutoApprovalReviewCompletedParams } | { method: "model/rerouted"; params: ModelReroutedParams } | { method: "model/safetyBuffering/updated"; params: SafetyBufferingUpdatedParams } | { method: "hook/completed"; params: HookCompletedParams } | 
+{ method: "thread/collaborationMode/changed"; params: ThreadModeChangedParams } | { method: "thread/permissionMode/changed"; params: ThreadModeChangedParams } | { method: "thread/archived"; params: ThreadParams } | { method: "thread/unarchived"; params: ThreadParams } | { method: "thread/deleted"; params: ThreadParams } | { method: "thread/closed"; params: ThreadParams } | { method: "thread/goal/cleared"; params: ThreadParams } | { method: "turn/started"; params: TurnParams } | { method: "turn/completed"; params: TurnParams } | { method: "turn/plan/updated"; params: TurnPlanUpdatedParams } | { method: "item/started"; params: ItemParams } | { method: "item/completed"; params: ItemParams } | { method: "item/agentMessage/delta"; params: DeltaParams } | { method: "item/plan/delta"; params: DeltaParams } | { method: "item/reasoning/summaryPartAdded"; params: SummaryPartAddedParams } | { method: "item/reasoning/summaryTextDelta"; params: SummaryTextDeltaParams } | { method: "item/reasoning/textDelta"; params: ReasoningTextDeltaParams } | { method: "item/commandExecution/outputDelta"; params: DeltaParams } | { method: "item/commandExecution/terminalInteraction"; params: TerminalInteractionParams } | { method: "item/fileChange/patchUpdated"; params: PatchUpdatedParams } | { method: "item/mcpToolCall/progress"; params: McpToolCallProgressParams } | { method: "item/autoApprovalReview/completed"; params: AutoApprovalReviewCompletedParams } | { method: "model/rerouted"; params: ModelReroutedParams } | { method: "model/safetyBuffering/updated"; params: SafetyBufferingUpdatedParams } | { method: "hook/completed"; params: HookCompletedParams } |
 /**
  *  Codex is re-authenticating with a model provider mid-turn (unreleased
  *  Codex); the turn resumes on its own once `Completed` arrives.
@@ -1069,7 +1080,7 @@ done: boolean } | { type: "agent_thought_chunk"; itemId: string; text: string; d
  *  approval moves the session out of plan mode). `mode` is `plan` or
  *  `default`, the same vocabulary `TurnOptions::collaboration_mode` uses.
  */
-{ type: "mode_changed"; mode: string } | { type: "notice"; level: string; text: string } | { type: "request_cancelled"; requestId: number };
+{ type: "mode_changed"; mode: string } | { type: "permission_mode_changed"; mode: string } | { type: "notice"; level: string; text: string } | { type: "request_cancelled"; requestId: number };
 
 /**  `harness:event` — one neutral event, tagged with the home and the thread. */
 export type HarnessEventEnvelope = {
@@ -2000,6 +2011,8 @@ export type ToolKind = "read" | "edit" | "delete" | "move" | "search" | "execute
  *  "keep whatever the thread already resolved to".
  */
 export type TurnOptions = {
+	/**  Native Claude settings, never forwarded to Codex. */
+	claudeMode?: ClaudeModeSettings | null,
 	model?: string | null,
 	effort?: string | null,
 	/**  An explicit speed selection; absent inherits the thread. "default" disables fast mode. */

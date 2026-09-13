@@ -35,6 +35,30 @@ describe("ApprovalCard", () => {
     mocks.removeApproval.mockReset();
   });
 
+  it("keeps a failed Claude plan approval available for retry with the same native mode", async () => {
+    mocks.respondApproval.mockRejectedValueOnce(new Error("Claude refused the mode"));
+    render(ApprovalCard, {
+      approval: {
+        ...approval,
+        harness: "claude",
+        kind: "permissions",
+        title: "ExitPlanMode",
+        options: [
+          { optionId: "plan_mode_bypassPermissions", name: "Implement with Bypass permissions", kind: "allow_once" },
+        ],
+      },
+    });
+    const user = userEvent.setup();
+    const button = screen.getByRole("button", { name: "Implement with Bypass permissions" });
+    await user.click(button);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Claude refused the mode");
+    expect(mocks.removeApproval).not.toHaveBeenCalled();
+    expect(button).toBeEnabled();
+    await user.click(button);
+    expect(mocks.respondApproval).toHaveBeenLastCalledWith(42, "plan_mode_bypassPermissions");
+    expect(mocks.removeApproval).toHaveBeenCalledOnce();
+  });
+
   it.each([
     ["Allow", "accept"],
     ["Allow for session", "acceptForSession"],

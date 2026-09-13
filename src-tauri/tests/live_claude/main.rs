@@ -5,6 +5,68 @@ mod harness;
 
 use serde_json::Value;
 
+#[test]
+fn resumes_an_unapproved_plan_and_implements_with_bypass() {
+    let setup = live!();
+    let claude = harness::spawn(setup, "plan");
+    claude.send_prompt("Plan to create restart-check.txt in the current directory containing exactly PERIWINKLE-384. Do not implement yet. Finish by calling ExitPlanMode to request approval.");
+    let (_, _, request) = expect_plan_request(&claude);
+    assert_eq!(request["tool_name"], "ExitPlanMode");
+    let session = claude.session_id.clone();
+    // Like closing Pingex while the plan is awaiting approval: no result and
+    // no permission answer, but Claude's transcript must remain resumable.
+    drop(claude);
+    let claude = harness::resume_in_mode(setup, session.clone(), "plan");
+    claude.send_prompt("Continue planning the same file and exact content from our previous conversation. Keep the plan minimal. Call ExitPlanMode again to request approval; do not implement before approval.");
+    let (_, init) = claude.expect_frame(0, "system", "resumed init");
+    assert_eq!(init["session_id"], session);
+    assert_eq!(init["permissionMode"], "plan");
+    let (next, request_id, request) = expect_plan_request(&claude);
+    assert_eq!(request["tool_name"], "ExitPlanMode");
+    claude.respond_permission(&request_id, "plan_mode_bypassPermissions", &request);
+    let (next, _) = claude.expect_success(next, "implementing the resumed plan");
+    assert_eq!(
+        std::fs::read_to_string(setup.work.join("restart-check.txt"))
+            .unwrap()
+            .trim(),
+        "PERIWINKLE-384"
+    );
+    // The CLI reports its effective mode at the start of the following turn.
+    claude.send_prompt("Reply with exactly OK, without using any tools.");
+    let (_, init) = claude
+        .wait_for(next, harness::TURN_TIMEOUT, |frame| {
+            frame["type"] == "system"
+                && frame["subtype"] == "init"
+                && frame["permissionMode"] == "bypassPermissions"
+        })
+        .expect("CLI must retain Bypass after plan approval");
+    assert_eq!(init["session_id"], session);
+    claude.expect_success(next, "the next turn after implementation");
+}
+
+fn expect_plan_request(claude: &harness::ClaudeProcess) -> (usize, String, Value) {
+    let (next, frame) = claude
+        .wait_for(0, harness::TURN_TIMEOUT, |frame| {
+            frame["type"] == "result"
+                || (frame["type"] == "control_request"
+                    && frame["request"]["subtype"] == "can_use_tool")
+        })
+        .expect("plan approval request");
+    assert_ne!(
+        frame["type"], "result",
+        "Claude ended before requesting plan approval: {}",
+        frame["result"]
+    );
+    (
+        next,
+        frame["request_id"]
+            .as_str()
+            .expect("request id")
+            .to_string(),
+        frame["request"].clone(),
+    )
+}
+
 fn side_reply(
     claude: &harness::ClaudeProcess,
     from: usize,

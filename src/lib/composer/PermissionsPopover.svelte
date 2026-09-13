@@ -2,6 +2,7 @@
 import { positionComposerPopover } from "$lib/composer/positionComposerPopover";
 import { Check, ChevronDown, Shield } from "@lucide/svelte";
 import { type HarnessChoice, permissionPresetsFor, presetFor } from "$lib/composer/composerPrefs.svelte";
+import { CLAUDE_MODES } from "$lib/composer/claudeModes";
 
 let {
   open,
@@ -17,8 +18,8 @@ let {
   onChoose: (id: string) => void;
 } = $props();
 
-const presets = $derived(permissionPresetsFor(harness));
-const selected = $derived(presetFor(harness, selectedId));
+const presets = $derived(harness === "claude" ? CLAUDE_MODES : permissionPresetsFor(harness));
+const selected = $derived(harness === "claude" ? CLAUDE_MODES.find((mode) => mode.id === selectedId) : presetFor(harness, selectedId));
 const selectedLabel = $derived(selected?.label ?? "Permissions");
 </script>
 
@@ -28,7 +29,7 @@ const selectedLabel = $derived(selected?.label ?? "Permissions");
       event.stopPropagation();
       onToggle();
     }}
-    aria-label="Set permissions level"
+    aria-label={harness === "claude" ? "Set Claude mode" : "Set permissions level"}
     class="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] transition hover:bg-surface-200-800
       {selectedId === null ? 'text-error-500' : 'text-surface-500 hover:text-surface-800-200'}"
   >

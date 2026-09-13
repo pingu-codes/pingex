@@ -177,6 +177,8 @@ pub fn model_list(limit: u32, include_hidden: bool) -> Request {
 #[derive(Default, Deserialize, Debug, Clone, specta::Type)]
 #[serde(rename_all = "camelCase", default)]
 pub struct TurnOptions {
+    /// Native Claude settings, never forwarded to Codex.
+    pub claude_mode: Option<crate::claude::modes::ClaudeModeSettings>,
     pub model: Option<String>,
     pub effort: Option<String>,
     /// An explicit speed selection; absent inherits the thread. "default" disables fast mode.

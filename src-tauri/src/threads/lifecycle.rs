@@ -65,12 +65,22 @@ pub(crate) async fn compact_thread(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
+    ctx.claude.flush_modes().await;
     if let Some(thread) = storage::thread_harness(&ctx.database(), &thread_id).await? {
-        let resume = !storage::read_complete_turns(&ctx.database(), &thread_id)
+        let resume = !storage::read_thread_items(&ctx.database(), &thread_id)
             .await?
             .is_empty();
         ctx.claude
-            .compact(&app, &thread_id, &thread.cwd, resume)
+            .compact(
+                &app,
+                &thread_id,
+                &thread.cwd,
+                resume,
+                crate::claude::modes::ClaudeModeSettings::restore(
+                    thread.permission_mode.as_deref(),
+                    thread.plan_exit_mode.as_deref(),
+                )?,
+            )
             .await?;
         return Ok(());
     }

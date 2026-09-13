@@ -1,5 +1,6 @@
 import { eventMatchesHome } from "$lib/app/launch.svelte";
 import { events, type HarnessRequestEnvelope } from "$lib/bindings";
+import { saveThreadClaudeMode } from "$lib/composer/composerPrefs.svelte";
 import { applyRateLimitUpdate } from "$lib/services/accountUsage.svelte";
 import { applyAgentActivity, applyAgentRunEvent } from "$lib/services/agentRuns.svelte";
 import { recordUserInputRequest } from "$lib/services/api";
@@ -217,6 +218,9 @@ function dispatch(event: CodexEvent, homeKey?: string) {
     delete authRecovery.byThread[end.threadId];
   }
   switch (event.method) {
+    case "thread/permissionMode/changed":
+      if (threadId && event.params.mode) saveThreadClaudeMode(threadId, event.params.mode);
+      break;
     case "disconnected": {
       const matches = (id: string) => !event.homeKey || threadBelongsToHome(id, event.homeKey);
       activeTurns.list = activeTurns.list.filter((id) => !matches(id));

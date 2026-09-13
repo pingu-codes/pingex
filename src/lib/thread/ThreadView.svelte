@@ -167,6 +167,12 @@ $effect(() => {
   session.collaborationMode = null;
   composer.syncPlanMode(mode === "plan");
 });
+$effect(() => {
+  const mode = session.permissionMode;
+  if (!mode || !composer) return;
+  session.permissionMode = null;
+  composer.syncPermissionMode(mode);
+});
 const thread = $derived(session.thread);
 const liveThreadId = $derived(session.id);
 const activeTurn = $derived(session.activeTurn);
@@ -256,6 +262,7 @@ let composer = $state<{
   openReviewPicker: () => void;
   startGoalEdit: (objective: string) => void;
   syncPlanMode: (on: boolean) => void;
+  syncPermissionMode: (mode: string) => void;
   restoreText: (text: string) => void;
   turnOptions: () => TurnOptions | undefined;
   isEmpty: () => boolean;

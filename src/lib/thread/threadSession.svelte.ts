@@ -65,6 +65,7 @@ export class ThreadSession {
   /** The mode the harness last said the thread is in, when it changed the
    *  mode itself (`thread/collaborationMode/changed`); null until then. */
   collaborationMode = $state<"plan" | "default" | null>(null);
+  permissionMode = $state<string | null>(null);
   /** What a send with no options of its own runs with — the composer's
    *  current choices. Set by the view; without it a stranded answer, a steer
    *  or a drain that lost its options would go out mode-less, and the harness
@@ -538,6 +539,10 @@ export class ThreadSession {
     }
     if (method === "thread/collaborationMode/changed") {
       this.collaborationMode = params.mode === "plan" ? "plan" : "default";
+      return;
+    }
+    if (method === "thread/permissionMode/changed") {
+      this.permissionMode = params.mode ?? null;
       return;
     }
     if (method === "thread/queue/changed") {

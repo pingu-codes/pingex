@@ -436,6 +436,8 @@ describe("session turn options", () => {
     await settle();
     emit("thread/collaborationMode/changed", { threadId: "thread-a", mode: "default" });
     expect(session.collaborationMode).toBe("default");
+    emit("thread/permissionMode/changed", { threadId: "thread-a", mode: "bypassPermissions" });
+    expect(session.permissionMode).toBe("bypassPermissions");
   });
 });
 

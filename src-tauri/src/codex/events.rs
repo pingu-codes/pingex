@@ -58,6 +58,8 @@ pub(crate) enum CodexNotification {
     /// and default mode on its own.
     #[serde(rename = "thread/collaborationMode/changed")]
     ThreadCollaborationModeChanged(ThreadModeChangedParams),
+    #[serde(rename = "thread/permissionMode/changed")]
+    ThreadPermissionModeChanged(ThreadModeChangedParams),
     #[serde(rename = "thread/archived")]
     ThreadArchived(ThreadParams),
     #[serde(rename = "thread/unarchived")]
@@ -188,6 +190,7 @@ const KNOWN_METHODS: &[&str] = &[
     "thread/reverted",
     "thread/compacted",
     "thread/collaborationMode/changed",
+    "thread/permissionMode/changed",
     "thread/archived",
     "thread/unarchived",
     "thread/deleted",

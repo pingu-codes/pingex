@@ -56,12 +56,10 @@ describe("turnOptionsFrom", () => {
     expect(turnOptionsFrom({ ...loadPrefs(), effort: "high" })).toEqual({ effort: "high" });
   });
 
-  it("sends Claude's Auto preset with the auto reviewer, and falls back to Auto on Codex", () => {
+  it("migrates Claude Auto to its native mode and keeps Codex presets", () => {
     const prefs = { ...loadPrefs(), permissionPreset: "auto-review" };
     expect(turnOptionsFrom(prefs, undefined, undefined, null, null, "claude")).toEqual({
-      approvalPolicy: "on-request",
-      sandboxMode: "workspace-write",
-      approvalsReviewer: "auto",
+      claudeMode: { mode: "auto", exitPlanMode: "auto" },
     });
     expect(turnOptionsFrom(prefs, undefined, undefined, null, null, "codex")).toEqual({
       approvalPolicy: "on-request",
@@ -111,6 +109,7 @@ describe("scoped prefs", () => {
       effort: null,
       permissionPreset: null,
       planMode: false,
+      claudeMode: null,
       appSubagents: null,
       subagentModelPolicy: null,
       subagentReasoningEffortPolicy: null,

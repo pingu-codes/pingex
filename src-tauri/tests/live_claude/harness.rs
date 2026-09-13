@@ -155,6 +155,10 @@ pub fn resume(setup: &Setup, session_id: String) -> ClaudeProcess {
     spawn_session(setup, "default", session_id, true)
 }
 
+pub fn resume_in_mode(setup: &Setup, session_id: String, mode: &str) -> ClaudeProcess {
+    spawn_session(setup, mode, session_id, true)
+}
+
 fn spawn_session(setup: &Setup, mode: &str, session_id: String, resume: bool) -> ClaudeProcess {
     let args = claude_turn_args(Some(&setup.model), Some("low"), mode, resume, &session_id);
     // The same argv the driver builds, through the same `Host`.

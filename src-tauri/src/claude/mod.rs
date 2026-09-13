@@ -6,7 +6,9 @@
 
 pub(crate) mod child;
 pub(crate) mod driver;
+pub(crate) mod modes;
 pub(crate) mod permissions;
+pub(crate) mod sessions;
 pub(crate) mod tools;
 pub(crate) mod translate;
 

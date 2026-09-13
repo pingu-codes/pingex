@@ -29,7 +29,7 @@ pub(crate) trait FrameSink: Send + Sync {
     fn on_control_request(&self, child: &Arc<ClaudeChild>, request_id: &str, request: &Value);
 
     /// stdout reached EOF.
-    fn on_closed(&self);
+    fn on_closed(&self, reason: &str);
 }
 
 const STDERR_TAIL_LINES: usize = 40;
@@ -63,9 +63,12 @@ pub(crate) struct ClaudeChild {
     next_id: AtomicU64,
     pending: ControlReplies,
     alive: AtomicBool,
+    closed: AtomicBool,
+    closed_notify: tokio::sync::Notify,
     wire: Arc<WireLog>,
     stderr_tail: Arc<Mutex<VecDeque<String>>>,
-    app: AppHandle,
+    app: Option<AppHandle>,
+    stderr_done: Mutex<std::sync::mpsc::Receiver<()>>,
 }
 
 /// Dropping a request future during cancellation or timeout releases its waiter.
@@ -96,17 +99,30 @@ impl ClaudeChild {
             .stdin
             .lock()
             .map_err(|_| "Claude stdin lock was poisoned".to_string())?;
+        if !self.is_alive() {
+            return Err(self.exit_reason());
+        }
         writeln!(stdin, "{frame}")
             .map_err(|error| format!("Could not write to Claude: {error}"))?;
         stdin
             .flush()
             .map_err(|error| format!("Could not flush to Claude: {error}"))?;
-        self.wire.record(Some(&self.app), "out", frame);
+        self.wire.record(self.app.as_ref(), "out", frame);
         Ok(())
     }
 
     pub(crate) fn is_alive(&self) -> bool {
         self.alive.load(Ordering::SeqCst)
+    }
+
+    pub(crate) async fn wait_closed(&self) {
+        loop {
+            let notified = self.closed_notify.notified();
+            if self.closed.load(Ordering::SeqCst) {
+                return;
+            }
+            notified.await;
+        }
     }
 
     fn mark_dead(&self) {
@@ -180,6 +196,23 @@ impl ClaudeChild {
             .unwrap_or_default()
     }
 
+    pub(crate) fn exit_reason(&self) -> String {
+        let status = self
+            .child
+            .lock()
+            .ok()
+            .and_then(|mut child| child.try_wait().ok().flatten());
+        let tail = self.stderr_tail();
+        let mut reason = "Claude exited before finishing the turn".to_string();
+        if let Some(status) = status {
+            reason.push_str(&format!(" ({status})"));
+        }
+        if !tail.is_empty() {
+            reason.push_str(&format!("\n{tail}"));
+        }
+        reason
+    }
+
     /// Close stdin so the CLI drains and exits on its own, then make sure.
     pub(crate) fn kill(&self) {
         self.mark_dead();
@@ -235,7 +268,6 @@ fn resolve_control(pending: &ControlReplies, frame: &Value) -> bool {
 fn reader_loop(
     child: Arc<ClaudeChild>,
     sink: Arc<dyn FrameSink>,
-    app: AppHandle,
     stdout: std::process::ChildStdout,
 ) {
     for line in BufReader::new(stdout).lines() {
@@ -246,7 +278,7 @@ fn reader_loop(
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
-        child.wire.record(Some(&app), "in", &value);
+        child.wire.record(child.app.as_ref(), "in", &value);
         match value.get("type").and_then(Value::as_str) {
             Some("control_response") => {
                 resolve_control(&child.pending, &value);
@@ -265,8 +297,16 @@ fn reader_loop(
         }
     }
     child.mark_dead();
-    child.fail_pending("Claude exited before responding");
-    sink.on_closed();
+    // EOF on stdout can race the stderr reader. Bound the drain so a child
+    // that merely closed stdout cannot keep a turn running forever.
+    if let Ok(done) = child.stderr_done.lock() {
+        let _ = done.recv_timeout(std::time::Duration::from_millis(200));
+    }
+    let reason = child.exit_reason();
+    child.fail_pending(&reason);
+    sink.on_closed(&reason);
+    child.closed.store(true, Ordering::SeqCst);
+    child.closed_notify.notify_waiters();
 }
 
 /// Spawn `claude -p` in `cwd` with the given extra arguments (session flags,
@@ -287,6 +327,20 @@ pub(crate) fn spawn(
     sink: Arc<dyn FrameSink>,
 ) -> Result<Arc<ClaudeChild>, String> {
     // Every path here is a host path; the host wraps the spawn.
+    spawn_with_app(host, program, cwd, config_dir, args, Some(app), wire, sink)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_with_app(
+    host: &Host,
+    program: &str,
+    cwd: &str,
+    config_dir: &str,
+    args: &[String],
+    app: Option<AppHandle>,
+    wire: Arc<WireLog>,
+    sink: Arc<dyn FrameSink>,
+) -> Result<Arc<ClaudeChild>, String> {
     let mut argv: Vec<&str> = BASE_ARGS.to_vec();
     argv.extend(args.iter().map(String::as_str));
     let mut env: Vec<(&str, &str)> = ENV.to_vec();
@@ -305,6 +359,7 @@ pub(crate) fn spawn(
         .take()
         .ok_or("Claude stdout was unavailable")?;
     let stderr_tail = Arc::new(Mutex::new(VecDeque::new()));
+    let (stderr_finished, stderr_done) = std::sync::mpsc::channel();
     if let Some(stderr) = process.stderr.take() {
         let tail = stderr_tail.clone();
         std::thread::spawn(move || {
@@ -313,8 +368,14 @@ pub(crate) fn spawn(
                 if tail.len() == STDERR_TAIL_LINES {
                     tail.pop_front();
                 }
-                tail.push_back(line);
+                // Bound each line as well as the count, including UTF-8.
+                let mut end = line.len().min(2048);
+                while !line.is_char_boundary(end) {
+                    end -= 1;
+                }
+                tail.push_back(line[..end].to_string());
             }
+            let _ = stderr_finished.send(());
         });
     }
     let child = Arc::new(ClaudeChild {
@@ -323,18 +384,94 @@ pub(crate) fn spawn(
         next_id: AtomicU64::new(1),
         pending: Mutex::new(HashMap::new()),
         alive: AtomicBool::new(true),
+        closed: AtomicBool::new(false),
+        closed_notify: tokio::sync::Notify::new(),
         wire,
         stderr_tail,
-        app: app.clone(),
+        app,
+        stderr_done: Mutex::new(stderr_done),
     });
     let reader_child = child.clone();
-    std::thread::spawn(move || reader_loop(reader_child, sink, app, stdout));
+    std::thread::spawn(move || reader_loop(reader_child, sink, stdout));
     Ok(child)
 }
 
 #[cfg(test)]
 mod control_tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn restarted_session_uses_resume_and_exit_details_survive_the_stdio_race() {
+        use std::os::unix::fs::PermissionsExt;
+        struct Sink {
+            closed: std::sync::mpsc::Sender<String>,
+            release: Mutex<std::sync::mpsc::Receiver<()>>,
+        }
+        impl FrameSink for Sink {
+            fn on_frame(&self, _: &Value) {}
+            fn on_control_request(&self, _: &Arc<ClaudeChild>, _: &str, _: &Value) {}
+            fn on_closed(&self, reason: &str) {
+                self.closed.send(reason.into()).unwrap();
+                self.release
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(std::time::Duration::from_secs(5))
+                    .unwrap();
+            }
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let project = temp.path().join("projects/previous-cwd");
+        std::fs::create_dir_all(&project).unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        std::fs::write(project.join(format!("{id}.jsonl")), "{}\n").unwrap();
+        let program = temp.path().join("fake-claude");
+        std::fs::write(&program, "#!/bin/sh\nfor arg in \"$@\"; do\nif [ \"$arg\" = --resume ]; then echo 'fixture resume failure' >&2; exit 23; fi\ndone\necho 'incorrect new session' >&2\nexit 24\n").unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        // Two fresh processes model repeated sends after an early exit.
+        for _ in 0..2 {
+            let resume = super::super::sessions::should_resume(
+                &Host::Native,
+                temp.path().to_str().unwrap(),
+                &id,
+                false,
+            )
+            .unwrap();
+            let args = super::super::driver::turn_args(None, None, "plan", resume, &id);
+            let (tx, rx) = std::sync::mpsc::channel();
+            let (release, released) = std::sync::mpsc::channel();
+            let child = spawn_with_app(
+                &Host::Native,
+                program.to_str().unwrap(),
+                temp.path().to_str().unwrap(),
+                temp.path().to_str().unwrap(),
+                &args,
+                None,
+                Arc::new(WireLog::default()),
+                Arc::new(Sink {
+                    closed: tx,
+                    release: Mutex::new(released),
+                }),
+            )
+            .unwrap();
+            let reason = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+            assert!(reason.contains("fixture resume failure"), "{reason}");
+            assert!(reason.contains("23"), "{reason}");
+            assert!(!child.is_alive());
+            assert!(
+                tokio::time::timeout(std::time::Duration::from_millis(20), child.wait_closed())
+                    .await
+                    .is_err(),
+                "replacement must wait for the old sink's terminal event"
+            );
+            release.send(()).unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(1), child.wait_closed())
+                .await
+                .unwrap();
+            assert!(child.write_frame(&json!({"type":"user"})).is_err());
+            assert!(rx.try_recv().is_err());
+        }
+    }
 
     #[tokio::test]
     async fn progress_does_not_consume_a_reply_and_late_replies_are_ignored() {

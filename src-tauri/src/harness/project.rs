@@ -507,6 +507,10 @@ impl Projector {
                 "thread/collaborationMode/changed",
                 json!({"threadId": thread_id, "mode": mode}),
             )],
+            HarnessEvent::PermissionModeChanged { mode } => vec![(
+                "thread/permissionMode/changed",
+                json!({"threadId": thread_id, "mode": mode}),
+            )],
             HarnessEvent::Notice { level, text } => {
                 if level == "error" {
                     vec![(
