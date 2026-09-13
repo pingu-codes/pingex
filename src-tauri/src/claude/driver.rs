@@ -488,7 +488,8 @@ pub(crate) fn models() -> Value {
     };
     json!({"data": [
         model("default", "Default", "Whatever the Claude CLI is configured to use", true),
-        model("opus", "Opus", "Most capable", false),
+        model("fable", "Fable", "Most capable", false),
+        model("opus", "Opus", "Highly capable", false),
         model("sonnet", "Sonnet", "Balanced", false),
         model("haiku", "Haiku", "Fastest and cheapest", false),
     ]})
