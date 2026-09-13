@@ -42,7 +42,9 @@ export function functionCallOutputText(item: ThreadItem): string {
 export const segmentKey = (segment: Segment) =>
   segment.kind === "item" ? segment.item.id : `reasoning-${segment.items[0]?.id}`;
 
-export type CompletedSegment = { kind: "message"; item: ThreadItem } | { kind: "work"; items: ThreadItem[] };
+export type CompletedSegment =
+  | { kind: "message"; item: ThreadItem }
+  | { kind: "work"; items: ThreadItem[]; collapsed?: boolean };
 
 /**
  * Whether `WorkItem.svelte` draws each known item type. Typed as a complete
@@ -114,7 +116,7 @@ export function messageParts(item: ThreadItem): UserInputPart[] {
 // into "Worked for Ns" sections, but agent messages, plans and compaction
 // markers stay visible — including preambles sent before tool calls, not just
 // the final answer.
-export function splitTurn(turn: Turn) {
+export function splitTurn(turn: Turn, harness?: string | null) {
   const users: ThreadItem[] = [];
   const body: CompletedSegment[] = [];
   let work: { kind: "work"; items: ThreadItem[] } | null = null;
@@ -135,6 +137,24 @@ export function splitTurn(turn: Turn) {
         body.push(work);
       }
       work.items.push(item);
+    }
+  }
+  // Other harnesses report tool completion while the enclosing turn continues.
+  // Fold the finished prefix of the live tail, preserving transcript order and
+  // leaving running tools (including parallel calls) on screen.
+  const tail = body.at(-1);
+  if (harness && harness !== "codex" && turn.status === "inProgress" && tail?.kind === "work") {
+    const firstLive = tail.items.findIndex((item, index) =>
+      item.type === "reasoning"
+        ? index === tail.items.length - 1
+        : !["completed", "failed", "declined", "cancelled", "interrupted"].includes(item.status ?? ""),
+    );
+    const completedCount = firstLive === -1 ? tail.items.length : firstLive;
+    if (completedCount > 0) {
+      body[body.length - 1] = { kind: "work", items: tail.items.slice(0, completedCount), collapsed: true };
+      if (completedCount < tail.items.length) {
+        body.push({ kind: "work", items: tail.items.slice(completedCount) });
+      }
     }
   }
   return { users, body };

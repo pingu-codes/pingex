@@ -296,7 +296,7 @@ function openSide(entry: SideQuestion) {
   {:else if sideThread}
     <div class="side-transcript space-y-3 text-xs">
       {#each visibleTurns as turn (turn.id)}
-        {@const parts = splitTurn(turn)}
+        {@const parts = splitTurn(turn, sideThread?.harness)}
         {@const collapseDiffs = turnDiffCount(turn) > 1}
         {@const liveSegment = turn.status === "inProgress" ? parts.body.at(-1) : undefined}
         {@const firstWork = parts.body.find((segment) => segment.kind === "work")}
@@ -310,7 +310,7 @@ function openSide(entry: SideQuestion) {
         {#each parts.body as segment (completedSegmentKey(segment))}
           {#if segment.kind === "message"}
             <WorkItem item={segment.item} model={turn.model} effort={turn.reasoningEffort} />
-          {:else if segment === liveSegment}
+          {:else if segment === liveSegment && !segment.collapsed}
             {@const liveSegments = turnSegments(segment.items)}
             {#each liveSegments as liveSeg, liveIndex (segmentKey(liveSeg))}
               {#if liveSeg.kind === "reasoning"}

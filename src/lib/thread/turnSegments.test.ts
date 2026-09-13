@@ -3,6 +3,40 @@ import { functionCallOutputText, rendersSomething, splitTurn, turnSegments } fro
 import type { Turn } from "$lib/types";
 
 describe("splitTurn", () => {
+  it("folds completed non-Codex tools while leaving running calls in order", () => {
+    const items = [
+      { type: "dynamicToolCall", id: "read", status: "completed" },
+      { type: "dynamicToolCall", id: "agent", status: "inProgress" },
+      { type: "dynamicToolCall", id: "parallel-read", status: "completed" },
+    ];
+    const turn = { id: "turn", status: "inProgress", items };
+    expect(splitTurn(turn, "claude").body).toEqual([
+      { kind: "work", items: items.slice(0, 1), collapsed: true },
+      { kind: "work", items: items.slice(1) },
+    ]);
+    expect(splitTurn(turn).body).toEqual([{ kind: "work", items }]);
+    expect(splitTurn(turn, "codex").body).toEqual([{ kind: "work", items }]);
+  });
+
+  it.each(["completed", "failed", "declined", "cancelled", "interrupted"])("folds a %s non-Codex tail", (status) => {
+    const items = [{ type: "dynamicToolCall", id: "agent", status }];
+    expect(splitTurn({ id: "turn", status: "inProgress", items }, "claude").body).toEqual([
+      { kind: "work", items, collapsed: true },
+    ]);
+  });
+
+  it("keeps current reasoning visible after finished tools", () => {
+    const items = [
+      { type: "reasoning", id: "thought", summary: ["Earlier thought"] },
+      { type: "dynamicToolCall", id: "read", status: "completed" },
+      { type: "reasoning", id: "latest", summary: ["Still thinking"] },
+    ];
+    expect(splitTurn({ id: "turn", status: "inProgress", items }, "claude").body).toEqual([
+      { kind: "work", items: items.slice(0, 2), collapsed: true },
+      { kind: "work", items: items.slice(2) },
+    ]);
+  });
+
   it("keeps answered questions visible as message segments", () => {
     const turn: Turn = {
       id: "turn-1",

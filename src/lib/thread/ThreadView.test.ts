@@ -260,6 +260,58 @@ describe("ThreadView in-progress work", () => {
     mocks.readThread.mockReset();
   });
 
+  it("folds Claude activity as tools finish and messages arrive", async () => {
+    const user = userEvent.setup();
+    const read = {
+      id: "read",
+      type: "dynamicToolCall",
+      tool: "Read",
+      title: "Read /repo/listing.rs",
+      status: "completed",
+    };
+    const agent = {
+      id: "agent",
+      type: "dynamicToolCall",
+      tool: "Agent",
+      title: "Inspect handlers",
+      status: "inProgress",
+    };
+    mocks.readThread.mockResolvedValueOnce({
+      ...detail({ id: "turn-1", status: "inProgress", items: [read, agent] }),
+      harness: "claude",
+    });
+    render(ThreadView, { threadId: "thread-1", cwd: "/projects/example" });
+    const trigger = await screen.findByRole("button", { name: "Worked" });
+    expect(screen.getByRole("button", { name: "Read /repo/listing.rs completed", hidden: true })).not.toBeVisible();
+    expect(screen.getByRole("button", { name: "Agent Inspect handlers Running" })).toBeVisible();
+
+    const emit = (method: string, params: Record<string, unknown>) => {
+      for (const handler of [...mocks.handlers])
+        handler({ method, params: { threadId: "thread-1", turnId: "turn-1", ...params } });
+    };
+    emit("item/completed", { item: { ...agent, status: "completed" } });
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Agent Inspect handlers/ })).toBeNull());
+    await user.click(trigger);
+    expect(screen.getByRole("button", { name: "Agent Inspect handlers completed" })).toBeVisible();
+    await user.click(trigger);
+
+    emit("item/started", {
+      item: { id: "bash", type: "commandExecution", command: "cargo test", status: "inProgress" },
+    });
+    expect(await screen.findByText("cargo test", { selector: "code" })).toBeVisible();
+    emit("item/completed", { item: { id: "message", type: "agentMessage", text: "Tests are running" } });
+    await waitFor(() => expect(screen.getByText("cargo test", { selector: "code" })).not.toBeVisible());
+    expect(screen.getByText("Tests are running")).toBeVisible();
+
+    emit("item/started", {
+      item: { id: "last", type: "dynamicToolCall", tool: "Grep", title: "Grep handlers", status: "inProgress" },
+    });
+    expect(await screen.findByRole("button", { name: "Grep handlers Running" })).toBeVisible();
+    emit("turn/completed", { turn: { id: "turn-1", status: "completed" } });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Grep handlers Running" })).toBeNull());
+    expect(screen.getByText("Tests are running")).toBeVisible();
+  });
+
   it("collapses work before the latest message while keeping the live tail visible", async () => {
     const trigger = await renderTurn({
       id: "turn-1",
@@ -275,9 +327,9 @@ describe("ThreadView in-progress work", () => {
 
     expect(trigger).toHaveAccessibleName("Worked");
     expect(screen.getByText("Earlier work summary")).not.toBeVisible();
-    expect(screen.getByText("cargo fmt")).not.toBeVisible();
+    expect(screen.getByText("cargo fmt", { selector: "code" })).not.toBeVisible();
     expect(screen.getByText("Now running tests")).toBeVisible();
-    expect(screen.getByText("cargo test")).toBeVisible();
+    expect(screen.getByText("cargo test", { selector: "code" })).toBeVisible();
   });
 
   it("auto-collapses diffs once a turn touches more than one file", async () => {

@@ -131,3 +131,27 @@ describe("async messages", () => {
     expect(screen.queryByText("Async")).toBeNull();
   });
 });
+
+describe("WorkItem harness tool details", () => {
+  it.each([
+    ["Read", "Read /repo/src/main.rs"],
+    ["Agent", "Inspect the listing renderer"],
+  ])("shows the description and expandable output for %s", async (tool, title) => {
+    render(WorkItem, {
+      item: {
+        id: "tool",
+        type: "dynamicToolCall",
+        tool,
+        title,
+        status: "completed",
+        output: "Tool result details",
+      },
+    });
+    const label = title.startsWith(`${tool} `) ? title : `${tool} ${title}`;
+    const trigger = screen.getByRole("button", { name: `${label} completed` });
+    expect(trigger).toBeVisible();
+    expect(screen.getByText("Tool result details")).not.toBeVisible();
+    await userEvent.setup().click(trigger);
+    expect(screen.getByText("Tool result details")).toBeVisible();
+  });
+});

@@ -572,16 +572,23 @@ const commandStatusClass = (item: ThreadItem) =>
     </Collapsible.Content>
   </Collapsible>
 {:else if item.type === "mcpToolCall" || item.type === "dynamicToolCall" || item.type === "webSearch"}
-  {#if item.query}
+  {@const description = item.title || item.query}
+  {@const preview = item.tool && description?.startsWith(`${item.tool} `) ? description.slice(item.tool.length + 1) : description}
+  {@const output = functionCallOutputText(item)}
+  {#if description || output}
     <Collapsible class="min-w-0 items-stretch">
       <Collapsible.Trigger class="group flex w-full items-center gap-2 text-left text-xs text-surface-500 hover:text-surface-700-300">
         <Wrench size={12} class="shrink-0" />
         <span class="shrink-0 font-mono">{item.server ? `${item.server}/` : ""}{item.tool ?? item.type}</span>
-        <span class="min-w-0 flex-1 truncate">— {item.query}</span>
+        <span class="min-w-0 flex-1 truncate" title={description}>{preview}</span>
+        {#if item.status}<span class="shrink-0 text-[10px]">{item.status === "inProgress" ? "Running" : item.status}</span>{/if}
         <ChevronDown size={12} class="shrink-0 transition group-data-[state=open]:rotate-180" />
       </Collapsible.Trigger>
       <Collapsible.Content>
-        <div class="mt-1.5 border-l-2 border-surface-200-800 pl-3 text-xs leading-5 text-surface-500 whitespace-pre-wrap break-words">{item.query}</div>
+        <div class="mt-1.5 space-y-2 border-l-2 border-surface-200-800 pl-3 text-xs leading-5 text-surface-500 whitespace-pre-wrap break-words">
+          {#if description}<div>{description}</div>{/if}
+          {#if output}<div>{output}</div>{/if}
+        </div>
       </Collapsible.Content>
     </Collapsible>
   {:else}

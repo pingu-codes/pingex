@@ -1133,7 +1133,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
             <SystemPromptSection parts={systemPromptParts} />
           {/if}
           {#each thread.turns as turn, turnIndex (turn.id)}
-            {@const parts = splitTurn(turn)}
+            {@const parts = splitTurn(turn, thread.harness)}
             {@const collapseDiffs = turnDiffCount(turn) > 1}
             {@const liveSegment = turn.status === "inProgress" ? parts.body.at(-1) : undefined}
             {#each parts.users as item (item.id)}
@@ -1160,7 +1160,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
                   effort={turn.reasoningEffort}
                   subagents={subagentDetails}
                 />
-              {:else if segment === liveSegment}
+              {:else if segment === liveSegment && !segment.collapsed}
                 {@const liveSegments = turnSegments(segment.items)}
                 {#each liveSegments as liveSeg, liveIndex (segmentKey(liveSeg))}
                   {#if liveSeg.kind === "reasoning"}
@@ -1453,4 +1453,3 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
   />
 {/if}
 </div>
-

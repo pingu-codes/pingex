@@ -344,6 +344,8 @@ export interface ThreadItem {
   // fileChange
   changes?: FileUpdateChange[];
   // mcpToolCall / dynamicToolCall
+  /** Descriptive tool title supplied by non-Codex harnesses. */
+  title?: string;
   server?: string;
   tool?: string;
   /** Latest progress line from a long-running MCP tool; gone once it finishes. */

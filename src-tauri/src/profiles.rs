@@ -145,8 +145,29 @@ async fn snapshot(
     refresh: bool,
 ) -> Result<ProfileBootstrap, String> {
     let mut snapshots = Vec::new();
-    for home in legacy_homes(profile).await? {
-        let context = context_for(state, profile, &home).await?;
+    let homes = legacy_homes(profile).await?;
+    for home in &homes {
+        let context = context_for(state, profile, home).await?;
+        // A Home with its own database lists a thread only under a project in
+        // that database, so a Home registered without a copy of the project
+        // list (legacy_homes never made one) would drop all its threads.
+        if !home.shares_profile_db && context.home_key != profile.home_key {
+            let codex = homes.iter().find(|candidate| {
+                candidate.harness == HarnessKind::Codex
+                    && candidate.host == home.host
+                    && candidate.is_default
+            });
+            let source = match codex {
+                Some(codex) if codex.id != home.id => {
+                    Some(context_for(state, profile, codex).await?.database())
+                }
+                _ => (home.host == profile.host()).then(|| profile.database()),
+            };
+            if let Some(source) = source {
+                seed_projects(&context.database(), &source).await?;
+            }
+        }
+        let home = home.clone();
         let (mut data, error) = if refresh && home.harness == HarnessKind::Codex {
             match crate::projects::bootstrap::bootstrap_inner(app, &context).await {
                 Ok(data) => (data, None),
@@ -231,28 +252,35 @@ pub(crate) async fn register_profile_home(
             })
     {
         let source = context_for(&state, &profile, source_home).await?;
-        let mut store = storage::read_store(&target.database()).await?;
-        for project in storage::read_store(&source.database()).await?.projects {
-            if !store
-                .projects
-                .iter()
-                .any(|existing| existing.path == project.path)
-            {
-                store.projects.push(project);
-            }
-        }
-        storage::write_store(&target.database(), &store).await?;
-        let existing = storage::read_all_project_instructions(&target.database()).await?;
-        for (path, instructions) in
-            storage::read_all_project_instructions(&source.database()).await?
-        {
-            if !existing.iter().any(|(key, _)| key == &path) {
-                storage::write_project_instructions(&target.database(), &path, &instructions)
-                    .await?;
-            }
-        }
+        seed_projects(&target.database(), &source.database()).await?;
     }
     Ok(home)
+}
+
+/// Copy the projects (and their instructions) `source` lists but `target`
+/// lacks. Threads are never copied. Idempotent.
+async fn seed_projects(target: &turso::Database, source: &turso::Database) -> Result<(), String> {
+    let mut store = storage::read_store(target).await?;
+    let before = store.projects.len();
+    for project in storage::read_store(source).await?.projects {
+        if !store
+            .projects
+            .iter()
+            .any(|existing| existing.path == project.path)
+        {
+            store.projects.push(project);
+        }
+    }
+    if store.projects.len() != before {
+        storage::write_store(target, &store).await?;
+    }
+    let existing = storage::read_all_project_instructions(target).await?;
+    for (path, instructions) in storage::read_all_project_instructions(source).await? {
+        if !existing.iter().any(|(key, _)| key == &path) {
+            storage::write_project_instructions(target, &path, &instructions).await?;
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -477,4 +505,58 @@ pub(crate) async fn add_profile_project(
         crate::projects::commands::add_project_in(&context, &path).await?;
     }
     snapshot(&app, &state, &profile, false).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::StoredProject;
+
+    fn project(path: &str) -> StoredProject {
+        StoredProject {
+            path: path.into(),
+            name: None,
+            pinned: false,
+            archived: false,
+            worktree: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn seeding_fills_a_home_database_that_has_no_projects() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = storage::open_profile_cache(&directory.path().join("a/pingex.db"))
+            .await
+            .unwrap();
+        let target = storage::open_profile_cache(&directory.path().join("b/pingex.db"))
+            .await
+            .unwrap();
+        let mut store = storage::read_store(&source).await.unwrap();
+        store.projects = vec![project("/work/one"), project("/work/two")];
+        storage::write_store(&source, &store).await.unwrap();
+        storage::write_project_instructions(&source, "/work/one", "be brief")
+            .await
+            .unwrap();
+        let mut existing = storage::read_store(&target).await.unwrap();
+        existing.projects = vec![project("/work/two")];
+        storage::write_store(&target, &existing).await.unwrap();
+
+        seed_projects(&target, &source).await.unwrap();
+        seed_projects(&target, &source).await.unwrap();
+
+        let paths: Vec<_> = storage::read_store(&target)
+            .await
+            .unwrap()
+            .projects
+            .into_iter()
+            .map(|project| project.path)
+            .collect();
+        assert_eq!(paths, ["/work/two", "/work/one"]);
+        assert_eq!(
+            storage::read_all_project_instructions(&target)
+                .await
+                .unwrap(),
+            [("/work/one".to_string(), "be brief".to_string())]
+        );
+    }
 }
