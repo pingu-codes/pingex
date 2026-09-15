@@ -2,6 +2,7 @@
 import { projectHostLabel } from "$lib/services/homeRouting";
 import {
   Bot,
+  Brain,
   ChevronDown,
   Ellipsis,
   EyeOff,
@@ -83,6 +84,8 @@ let {
   onNewThread,
   onGoHome,
   onOpenSettings,
+  onOpenMemories,
+  memoriesOpen = false,
   onMenuAction,
   onSelectArchived,
   onUnarchived,
@@ -110,6 +113,10 @@ let {
   onNewThread: (project?: Project) => void;
   onGoHome?: () => void;
   onOpenSettings: () => void;
+  /** Opens the Memories page; the button is hidden without it. */
+  onOpenMemories?: () => void;
+  /** Whether the Memories page is the one showing. */
+  memoriesOpen?: boolean;
   onMenuAction: (action: MenuAction, target: MenuTarget) => void;
   onSelectArchived?: (thread: ArchivedThread) => void;
   onUnarchived?: (data: BootstrapData) => void;
@@ -779,6 +786,17 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
             Device recently active
           {/if}
         </span>
+      </button>
+    {/if}
+    {#if onOpenMemories}
+      <button
+        onclick={onOpenMemories}
+        data-testid="sidebar-memories"
+        aria-current={memoriesOpen ? "page" : undefined}
+        class="mb-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition {memoriesOpen ? 'preset-tonal-primary' : 'text-surface-600-400 hover:preset-tonal'}"
+      >
+        <Brain size={14} />
+        Memories
       </button>
     {/if}
     <UsageMeter snapshot={accountUsage.snapshot} compact />

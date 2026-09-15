@@ -19,3 +19,4 @@ They target Codex desktop parity. Full ChatGPT conversation history, account bil
 - [Harnesses: Claude Code and ACP alongside Codex](13-harnesses.md)
 - [Message versions](14-message-versions.md)
 - [Usage](15-usage.md)
+- [Memories](16-memories.md)

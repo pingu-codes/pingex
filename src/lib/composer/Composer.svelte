@@ -5,6 +5,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { onDestroy, onMount, untrack } from "svelte";
+import { openMemories } from "$lib/app/navigation.svelte";
 import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import AdaptiveToolbar from "$lib/composer/AdaptiveToolbar.svelte";
@@ -761,6 +762,8 @@ function runCommand(command: SlashCommand, argument = "") {
     // `/init` is a prompt, not an action: put it in the composer so the user
     // can adjust the wording before sending.
     richEditor.setText(INIT_PROMPT);
+  } else if (command.id === "memories") {
+    openMemories();
   } else if (command.scope === "settings") {
     openSettings("integrations");
   } else {

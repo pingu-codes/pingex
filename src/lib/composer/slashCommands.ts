@@ -16,6 +16,7 @@ export type SlashCommandId =
   | "status"
   | "mcp"
   | "skills"
+  | "memories"
   | "undo"
   | "goal"
   | "copy"
@@ -67,6 +68,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { id: "status", description: "Show usage, limits, and context for this thread", scope: "thread" },
   { id: "mcp", description: "Manage MCP servers and their tools", scope: "settings" },
   { id: "skills", description: "Browse and enable skills", scope: "settings" },
+  { id: "memories", description: "View and edit what the harness remembers", scope: "composer" },
 ];
 
 /**

@@ -26,6 +26,8 @@ export type View = {
   detailPath: string | null;
   /** Which detail tab to land on; `null` means the overview. */
   detailTab: DetailTab | null;
+  /** The Memories page is open. */
+  memories: boolean;
 };
 
 const EMPTY: View = {
@@ -35,6 +37,7 @@ const EMPTY: View = {
   reviewPath: null,
   detailPath: null,
   detailTab: null,
+  memories: false,
 };
 
 export const view = $state<View & { epoch: number }>({
@@ -149,6 +152,11 @@ export function openGit(project: Project): void {
 
 export function openReview(project: Project): void {
   setView({ projectPath: project.path, reviewPath: project.path });
+}
+
+/** The Memories page, keeping the current project in the sidebar. */
+export function openMemories(): void {
+  setView({ projectPath: view.projectPath, memories: true });
 }
 
 /** "Open in app" from the Worktrees view: focus the matching project. */

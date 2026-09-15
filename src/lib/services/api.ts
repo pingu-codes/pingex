@@ -52,6 +52,13 @@ import {
   previewWireLog,
   previewWorktrees,
 } from "$lib/services/preview/fixtures";
+import {
+  previewDeleteMemory,
+  previewListMemories,
+  previewReadMemory,
+  previewSetMemoryToggle,
+  previewWriteMemory,
+} from "$lib/services/preview/memories";
 import { previewCompact, previewInterrupt, previewStreamTurn } from "$lib/services/preview/stream";
 import { isTauri } from "$lib/services/tauri";
 import type {
@@ -81,6 +88,7 @@ import type {
   IntegrationsList,
   LaunchState,
   McpServerStatus,
+  MemoryHome,
   Model,
   PairingInfo,
   PendingComment,
@@ -2040,6 +2048,44 @@ export async function createSkill(input: {
 export async function deleteSkill(path: string): Promise<IntegrationsList> {
   if (!isTauri()) return previewDeleteSkill(path);
   return commands.deleteSkill(path, null);
+}
+
+/** The memories of every Home in the Profile. `projects` name Claude's
+ *  per-project stores. */
+export async function listMemories(projects: string[]): Promise<MemoryHome[]> {
+  if (!isTauri()) return previewListMemories();
+  return commands.listMemories(projects);
+}
+
+export async function readMemory(homeId: string, path: string): Promise<string> {
+  if (!isTauri()) return previewReadMemory(path);
+  return commands.readMemory(homeId, path);
+}
+
+export async function writeMemory(
+  homeId: string,
+  path: string,
+  contents: string,
+  projects: string[],
+): Promise<MemoryHome[]> {
+  if (!isTauri()) return previewWriteMemory(path, contents);
+  return commands.writeMemory(homeId, path, contents, projects);
+}
+
+/** Delete a memory; a Claude memory's `MEMORY.md` line goes with it. */
+export async function deleteMemory(homeId: string, path: string, projects: string[]): Promise<MemoryHome[]> {
+  if (!isTauri()) return previewDeleteMemory(path);
+  return commands.deleteMemory(homeId, path, projects);
+}
+
+export async function setMemoryToggle(
+  homeId: string,
+  key: string,
+  value: boolean,
+  projects: string[],
+): Promise<MemoryHome[]> {
+  if (!isTauri()) return previewSetMemoryToggle(homeId, key, value);
+  return commands.setMemoryToggle(homeId, key, value, projects);
 }
 
 /**

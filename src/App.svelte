@@ -34,6 +34,7 @@ import {
   goHome,
   newThread,
   newThreadInDir,
+  openMemories,
   openParentThread,
   openProjectDetail,
   openReview,
@@ -53,6 +54,7 @@ import HomePage from "$lib/layout/HomePage.svelte";
 import HomePicker from "$lib/layout/HomePicker.svelte";
 import SettingsView from "$lib/layout/SettingsView.svelte";
 import Sidebar from "$lib/layout/Sidebar.svelte";
+import MemoriesView from "$lib/memories/MemoriesView.svelte";
 import ProjectDetail from "$lib/panels/ProjectDetail.svelte";
 import ReviewView from "$lib/review/ReviewView.svelte";
 import { openHomeWindow, revealInFinder } from "$lib/services/api";
@@ -120,6 +122,8 @@ init();
     onNewThread={newThread}
     onGoHome={goHome}
     onOpenSettings={() => openSettings("general")}
+    onOpenMemories={openMemories}
+    memoriesOpen={view.memories}
     onMenuAction={menuAction}
     sidebarLayout={appData.data?.sidebarLayout}
     onNewFolder={() => newFolder("", null)}
@@ -163,7 +167,7 @@ init();
           {#if thread?.parentThreadId}
             Subagent · {thread.agentNickname ?? thread.agentRole ?? thread.title}
           {:else}
-            {thread?.title ?? project?.name ?? "Home"}
+            {view.memories ? "Memories" : (thread?.title ?? project?.name ?? "Home")}
           {/if}
         </div>
         {#if project}<div class="truncate text-[10px] text-surface-500">{project.path}</div>{/if}
@@ -199,7 +203,13 @@ init();
       </div>
     {/if}
 
-    {#if review}
+    {#if view.memories}
+      <div class="min-h-0 flex-1">
+        {#key view.epoch}
+          <MemoriesView />
+        {/key}
+      </div>
+    {:else if review}
       <div class="min-h-0 flex-1">
         {#key review.path}
           <ReviewView repoDir={review.path} repoName={review.name} onBack={goHome} onAskCodex={askCodexReview} />

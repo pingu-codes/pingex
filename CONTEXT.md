@@ -85,6 +85,18 @@ record of the text (Codex's rollout file). The parts always add up to the slice.
 _Avoid_: section (Codex's world-state word), component, category (the slice
 it sits inside)
 
+**Memory store**:
+One directory of memories a harness keeps in a Home: Codex's
+`$CODEX_HOME/memories`, or one Claude Code project's `projects/<slug>/memory`.
+A store may have a `MEMORY.md` index that the harness loads first.
+_Avoid_: memory bank, memory folder
+
+**Memory entry**:
+One file in a Memory store, shown with the title and description its
+frontmatter or first line gives, and a kind (`index`, `summary`, `rollout`,
+`skill`, or the type a Claude memory declares).
+_Avoid_: note, memory (on its own, which means the feature)
+
 **Opening row**:
 The one Usage row a thread gets for usage that happened before the ledger
 could see it: what a replayed running total exceeds the stored rows by,

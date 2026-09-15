@@ -38,6 +38,7 @@ mod handoff;
 mod harness;
 mod home_window;
 mod integrations;
+mod memories;
 mod os;
 mod profiles;
 mod projects;
@@ -714,6 +715,12 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             integrations::skills_fs::read_skill,
             integrations::skills_fs::create_skill,
             integrations::skills_fs::delete_skill,
+            // Memory files each Home's harness keeps between conversations.
+            memories::commands::list_memories,
+            memories::commands::read_memory,
+            memories::commands::write_memory,
+            memories::commands::delete_memory,
+            memories::commands::set_memory_toggle,
             // Desktop integration
             os::reveal_in_finder,
             os::open_external_url,
