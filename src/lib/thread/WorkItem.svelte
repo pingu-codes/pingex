@@ -384,7 +384,7 @@ const commandStatusClass = (item: ThreadItem) =>
           {/if}
           <pre class="font-mono text-[11px] leading-5 break-all whitespace-pre-wrap text-surface-700-300">{item.command}</pre>
         </div>
-        <pre class="max-h-72 overflow-auto border-t border-surface-200-800 bg-surface-50-950 px-3 py-2.5 font-mono text-[11px] leading-5 text-surface-600-400">{item.aggregatedOutput?.trim() || "No output"}</pre>
+        <pre class="max-h-72 overflow-auto border-t border-surface-200-800 bg-surface-50-950 px-3 py-2.5 font-mono text-[11px] leading-5 break-all whitespace-pre-wrap text-surface-600-400">{item.aggregatedOutput?.trim() || "No output"}</pre>
       </Collapsible.Content>
     </div>
   </Collapsible>

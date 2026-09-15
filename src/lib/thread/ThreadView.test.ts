@@ -1396,7 +1396,10 @@ describe("ThreadView /goal", () => {
 
     expect(mocks.startThread).toHaveBeenCalledWith("/projects/example", null, null, null);
     expect(mocks.setThreadGoal).toHaveBeenCalledWith("thread-2", "ship the auth refactor");
-    expect(await screen.findByText("Goal set: ship the auth refactor")).toBeVisible();
+    expect(await screen.findByTestId("goal-banner")).toHaveTextContent("ship the auth refactor");
+    // The banner is the confirmation; a notice would flash and vanish when the
+    // goal's turn starts.
+    expect(screen.queryByText(/Goal set:/)).toBeNull();
     // No turn: the goal is the whole command, the composer stays free for the
     // opening message.
     expect(mocks.startTurn).not.toHaveBeenCalled();
@@ -1495,8 +1498,7 @@ describe("ThreadView /goal", () => {
     const user = userEvent.setup();
     await user.type(renderDraft(), "/goal ship the auth refactor{Enter}");
 
-    await screen.findByText("Goal set: ship the auth refactor");
-    expect(mocks.requestAutoName).toHaveBeenCalledWith("thread-2", "seed", "ship the auth refactor");
+    await waitFor(() => expect(mocks.requestAutoName).toHaveBeenCalledWith("thread-2", "seed", "ship the auth refactor"));
   });
 
   it("turns a bare /goal into goal mode without creating a thread", async () => {

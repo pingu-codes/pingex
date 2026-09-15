@@ -953,8 +953,9 @@ async function setGoal(objective: string, edit = false): Promise<boolean> {
   try {
     const id = await ensureLiveThread();
     const set = await setThreadGoal(id, objective);
+    // No notice: the goal banner confirms it, and the goal's first turn would
+    // clear a notice the moment it appeared.
     session.setGoal(set);
-    session.notice = `Goal set: ${set.objective}`;
     // A goal-only thread has no turn to name it from, so the objective titles
     // it: shown at once, then refined by the namer.
     if (fresh) {

@@ -42,6 +42,20 @@ export function finalizeRunningTurns(turns: Turn[], status: string) {
   }
 }
 
+/// Command output kept while it streams. Mirrors the journal's
+/// `MAX_OUTPUT_BYTES` (src-tauri/src/codex/journal.rs) so a thread looks the
+/// same live as it does reloaded, and so the webview is never asked to lay out
+/// a megabyte of ripgrep hits in one line.
+export const LIVE_OUTPUT_CAP = 16 * 1024;
+export const OUTPUT_TRUNCATED_MARKER = "[earlier output truncated]\n";
+
+/// Append a streamed chunk, keeping only the tail once the cap is exceeded.
+export function appendOutputTail(existing: string | null | undefined, delta: string): string {
+  const joined = (existing ?? "") + delta;
+  if (joined.length <= LIVE_OUTPUT_CAP) return joined;
+  return OUTPUT_TRUNCATED_MARKER + joined.slice(joined.length - LIVE_OUTPUT_CAP);
+}
+
 export function ensureItem(turns: Turn[], turnId: string, itemId: string, type: string): ThreadItem {
   const turn = ensureTurn(turns, turnId);
   let item = turn.items.find((candidate) => candidate.id === itemId);
@@ -261,7 +275,7 @@ export function applyThreadEvent(thread: ThreadDetail, event: CodexEvent): Apply
     }
     case "item/commandExecution/outputDelta": {
       const item = ensureItem(thread.turns, params.turnId, params.itemId, "commandExecution");
-      item.aggregatedOutput = (item.aggregatedOutput ?? "") + params.delta;
+      item.aggregatedOutput = appendOutputTail(item.aggregatedOutput, params.delta);
       break;
     }
     // What Codex typed into an interactive command. The command's own output
@@ -269,7 +283,7 @@ export function applyThreadEvent(thread: ThreadDetail, event: CodexEvent): Apply
     // then the result with no sign of the answer in between.
     case "item/commandExecution/terminalInteraction": {
       const item = ensureItem(thread.turns, params.turnId, params.itemId, "commandExecution");
-      item.aggregatedOutput = (item.aggregatedOutput ?? "") + params.stdin;
+      item.aggregatedOutput = appendOutputTail(item.aggregatedOutput, params.stdin);
       break;
     }
     // A long-running MCP tool reporting where it has got to. Replaces rather

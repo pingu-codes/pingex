@@ -514,6 +514,25 @@ impl TurnJournal {
     }
 }
 
+/// The live copy of an item notification, cut down the same way the journal
+/// cuts the stored copy. Without this a megabyte of command output reaches the
+/// webview untouched while a reload of the same thread only ever sees the
+/// 16 KB tail; the two paths should show the same thing, and the webview
+/// should never be asked to lay out a single half-megabyte line.
+pub(crate) fn trim_live_params(method: &str, params: &Value) -> Option<Value> {
+    if !matches!(method, "item/completed" | "item/started") {
+        return None;
+    }
+    let item = params.get("item")?;
+    let trimmed = trim_payload(item.clone());
+    if &trimmed == item {
+        return None;
+    }
+    let mut params = params.clone();
+    params.as_object_mut()?.insert("item".into(), trimmed);
+    Some(params)
+}
+
 /// Cut an item down to what is worth keeping on disk: the tail of an oversized
 /// command output, and the head of an oversized diff (a diff reads top-down,
 /// where output only ever shows its tail).
@@ -718,6 +737,22 @@ mod tests {
         let kept = stored["changes"][0]["diff"].as_str().unwrap();
         assert!(kept.starts_with("@@ start"));
         assert!(kept.ends_with("[rest of diff truncated]"));
+    }
+
+    #[test]
+    fn the_live_copy_of_a_completed_item_is_trimmed_like_the_stored_one() {
+        let output = "x".repeat(MAX_OUTPUT_BYTES * 4);
+        let params = completed(json!({"type": "commandExecution", "aggregatedOutput": output}));
+        let live =
+            trim_live_params("item/completed", &params).expect("oversized output is trimmed");
+        let kept = live["item"]["aggregatedOutput"].as_str().unwrap();
+        assert!(kept.starts_with("[earlier output truncated]\n"));
+        assert!(kept.len() < MAX_OUTPUT_BYTES + 64);
+        assert_eq!(live["turnId"], params["turnId"]);
+
+        let small = completed(json!({"type": "commandExecution", "aggregatedOutput": "ok"}));
+        assert!(trim_live_params("item/completed", &small).is_none());
+        assert!(trim_live_params("item/agentMessage/delta", &params).is_none());
     }
 
     #[test]

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { type FakeEvent, fakeEvent } from "$lib/testing/codexEvents";
-import { applyThreadEvent as applyTyped, ensureTurn, upsertItem } from "$lib/thread/threadStream";
+import {
+  applyThreadEvent as applyTyped,
+  ensureTurn,
+  LIVE_OUTPUT_CAP,
+  OUTPUT_TRUNCATED_MARKER,
+  upsertItem,
+} from "$lib/thread/threadStream";
 import type { ThreadDetail, Turn } from "$lib/types";
 
 const applyThreadEvent = (thread: ThreadDetail, event: FakeEvent) => applyTyped(thread, fakeEvent(event));
@@ -590,5 +596,32 @@ describe("applyThreadEvent — turn/started under a new id", () => {
     ]);
     applyThreadEvent(thread, { method: "turn/started", params: { threadId: "t", turn: { id: "turn-2" } } });
     expect(thread.turns.map((turn) => turn.id)).toEqual(["turn-1", "turn-2"]);
+  });
+});
+
+describe("streamed command output", () => {
+  it("keeps only the tail once the live cap is exceeded", () => {
+    const thread = makeThread();
+    const chunk = "x".repeat(8192);
+    for (let i = 0; i < 200; i++) {
+      applyThreadEvent(thread, {
+        method: "item/commandExecution/outputDelta",
+        params: { threadId: "t", turnId: "turn-1", itemId: "cmd-1", delta: i === 199 ? "END" : chunk },
+      });
+    }
+    const output = thread.turns[0].items[0].aggregatedOutput ?? "";
+    expect(output.startsWith(OUTPUT_TRUNCATED_MARKER)).toBe(true);
+    expect(output.endsWith("END")).toBe(true);
+    expect(output.length).toBe(OUTPUT_TRUNCATED_MARKER.length + LIVE_OUTPUT_CAP);
+
+    applyThreadEvent(thread, {
+      method: "item/completed",
+      params: {
+        threadId: "t",
+        turnId: "turn-1",
+        item: { id: "cmd-1", type: "commandExecution", aggregatedOutput: "final" },
+      },
+    });
+    expect(thread.turns[0].items[0].aggregatedOutput).toBe("final");
   });
 });

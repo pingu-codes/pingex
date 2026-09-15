@@ -108,6 +108,8 @@ impl ChildSink for MainSessionSink {
         if method == "thread/settings/updated" {
             self.cache_thread_settings(params);
         }
+        let trimmed = crate::codex::journal::trim_live_params(method, params);
+        let params = trimmed.as_ref().unwrap_or(params);
         let _ = CodexEvent {
             codex_home: self.home_key.clone(),
             event: CodexNotification::decode(method, params),
