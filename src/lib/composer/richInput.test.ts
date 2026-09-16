@@ -641,6 +641,29 @@ describe("detectQueries", () => {
     expect(mention?.mentionQuery).toBe("utils");
   });
 
+  it("includes the rest of the token after the caret in the query and range", () => {
+    // `@.rs` typed first, then `lib` typed right after the `@`.
+    const node = document.createTextNode("see @lib.rs now");
+    const editor = editorWith(node);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(caret(node, 8));
+    const detected = detectQueries(editor, "/proj");
+    expect(detected?.mentionQuery).toBe("lib.rs");
+    expect(detected?.mentionRange?.toString()).toBe("@lib.rs");
+  });
+
+  it("includes the rest of a skill name after the caret", () => {
+    const node = document.createTextNode("$browser-use:browser");
+    const editor = editorWith(node);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(caret(node, 4));
+    const detected = detectQueries(editor, "/proj");
+    expect(detected?.skillQuery).toBe("browser-use:browser");
+    expect(detected?.skillRange?.toString()).toBe("$browser-use:browser");
+  });
+
   it("still detects a slash command alongside", () => {
     expect(queriesAfter("/pla")?.slashQuery).toBe("pla");
   });

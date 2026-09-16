@@ -263,6 +263,27 @@ describe("RichEditor chips", () => {
   });
 });
 
+describe("RichEditor caret chip", () => {
+  it("marks the chip right before the caret, and unmarks it when the caret moves on", () => {
+    // "see " = 0-4, chip = 4-5, " now" = 5-9.
+    const { editor, root } = mount([text("see "), mention, text(" now")], 5);
+    const chip = root.querySelector("[data-mention-path]");
+    document.dispatchEvent(new Event("selectionchange"));
+    expect(chip?.hasAttribute("data-caret-adjacent")).toBe(true);
+
+    root.focus();
+    editor.setParts([text("see "), mention, text(" now")], 7);
+    document.dispatchEvent(new Event("selectionchange"));
+    expect(root.querySelector("[data-caret-adjacent]")).toBeNull();
+  });
+
+  it("does not mark the chip after the caret", () => {
+    mount([text("see "), mention, text(" now")], 4);
+    document.dispatchEvent(new Event("selectionchange"));
+    expect(document.querySelector("[data-caret-adjacent]")).toBeNull();
+  });
+});
+
 describe("RichEditor queries", () => {
   it("re-detects after an edit that bypassed the browser, so no picker goes stale", () => {
     const { editor, root } = mount([text("see @uti")]);

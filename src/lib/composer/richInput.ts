@@ -104,30 +104,40 @@ export function detectQueries(root: HTMLElement, cwd: string): DetectedQueries |
   const caretOffset =
     range.startContainer.nodeType === Node.TEXT_NODE ? range.startOffset : (textNode?.textContent?.length ?? 0);
   const before = textNode?.textContent?.slice(0, caretOffset) ?? "";
+  // The rest of the token after the caret belongs to the query too: arrowing
+  // back into `@.rs` and typing `lib` is asking for `lib.rs`.
+  const after = textNode?.textContent?.slice(caretOffset) ?? "";
   const slashQuery = detectSlashQuery(before);
   const empty = { slashQuery, mentionQuery: null, mentionRange: null, skillQuery: null, skillRange: null };
 
-  /** The range covering the trigger character and the query typed after it. */
-  const rangeFor = (query: string): Range | null => {
+  /** The range covering the trigger character, the query typed before the
+   *  caret and the rest of its token after it. */
+  const rangeFor = (head: string, tail: string): Range | null => {
     if (!textNode) return null;
     const range = document.createRange();
-    range.setStart(textNode, caretOffset - query.length - 1);
-    range.setEnd(textNode, caretOffset);
+    range.setStart(textNode, caretOffset - head.length - 1);
+    range.setEnd(textNode, caretOffset + tail.length);
     return range;
   };
 
   const mention = before.match(/(?:^|\s)@([\w./-]*)$/);
   if (mention && cwd && textNode) {
-    return { ...empty, mentionQuery: mention[1], mentionRange: rangeFor(mention[1]) };
+    const tail = after.match(/^[\w./-]*/)?.[0] ?? "";
+    return { ...empty, mentionQuery: mention[1] + tail, mentionRange: rangeFor(mention[1], tail) };
   }
   // Skill names are namespaced (`browser-use:browser`), so `:` is part of the
   // query rather than a terminator.
   const skill = before.match(/(?:^|\s)\$([\w:.-]*)$/);
   if (skill && textNode) {
-    return { ...empty, skillQuery: skill[1], skillRange: rangeFor(skill[1]) };
+    const tail = after.match(/^[\w:.-]*/)?.[0] ?? "";
+    return { ...empty, skillQuery: skill[1] + tail, skillRange: rangeFor(skill[1], tail) };
   }
   return empty;
 }
+
+/** The chip Backspace would take next (see `RichEditor`): a faint ring, so the
+ *  whole-chip delete is not a surprise. */
+const CHIP_CARET_ADJACENT = "data-[caret-adjacent]:ring-1 data-[caret-adjacent]:ring-primary-500/60";
 
 /**
  * Shared shape for every chip: a quiet inline tag on a neutral surface, with
@@ -139,8 +149,7 @@ export function detectQueries(root: HTMLElement, cwd: string): DetectedQueries |
  * reason: an `inline-flex` baseline-aligns on its *inner* first-line baseline,
  * which hangs the box below the surrounding text and grows the line.
  */
-const CHIP_SHAPE =
-  "mx-0.5 inline-flex h-5 max-w-[16rem] select-none items-center gap-1 rounded-md px-1.5 align-middle text-[0.8125rem] leading-none";
+const CHIP_SHAPE = `mx-0.5 inline-flex h-5 max-w-[16rem] select-none items-center gap-1 rounded-md px-1.5 align-middle text-[0.8125rem] leading-none transition-shadow ${CHIP_CARET_ADJACENT}`;
 const CHIP_CLASS = `${CHIP_SHAPE} bg-surface-200-800`;
 
 /** Chips have no remove control: Backspace/Delete beside one takes the lot. */

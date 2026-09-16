@@ -77,6 +77,7 @@ export class RichEditor {
 
   private root: HTMLElement | null = null;
   private composing = false;
+  private caretChip: HTMLElement | null = null;
   private readonly undoStack: UndoStack;
 
   constructor(private readonly deps: RichEditorDeps) {
@@ -89,7 +90,14 @@ export class RichEditor {
   /** Bind to the contenteditable. Returns the matching detach. */
   attach(root: HTMLElement): () => void {
     this.root = root;
+    // Caret moves (arrows, clicks, re-renders) fire no `input`: follow them to
+    // mark the chip Backspace would take and to re-read a query the caret
+    // moved within.
+    const onSelectionChange = () => this.syncCaret();
+    document.addEventListener("selectionchange", onSelectionChange);
     return () => {
+      document.removeEventListener("selectionchange", onSelectionChange);
+      this.markCaretChip(null);
       if (this.root === root) this.root = null;
     };
   }
@@ -446,6 +454,24 @@ export class RichEditor {
     if (this.deps.suppressQueries?.()) return;
     const detected = detectQueries(root, this.deps.cwd());
     if (detected) this.queries = detected;
+  }
+
+  /** The caret moved: re-mark the chip before it and re-detect the queries. */
+  private syncCaret(): void {
+    const root = this.root;
+    const range = liveRange();
+    const inside = !!root && !!range && range.collapsed && root.contains(range.startContainer);
+    this.markCaretChip(inside && range ? chipBesideCaret("back", range) : null);
+    // Only while a picker is open: a caret move must not open one on its own.
+    if (inside && this.deps.pickerOpen()) this.detect();
+  }
+
+  /** Flag `chip` as the next Backspace's target (styled by the chip classes). */
+  private markCaretChip(chip: HTMLElement | null): void {
+    if (chip === this.caretChip) return;
+    this.caretChip?.removeAttribute("data-caret-adjacent");
+    chip?.setAttribute("data-caret-adjacent", "");
+    this.caretChip = chip;
   }
 
   private afterChipInsert(): void {
