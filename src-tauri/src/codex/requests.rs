@@ -116,13 +116,13 @@ pub fn thread_compact(thread_id: &str) -> Request {
     request("thread/compact/start", json!({"threadId": thread_id}))
 }
 
-/// The refusal Codex 0.149 gives `thread/revert` on a thread whose history
-/// is not in paginated mode (the default): the method exists, the thread
-/// just cannot use it, so the caller falls back to `thread/rollback`.
+/// The refusal `thread/revert` gives a thread whose history is not in
+/// paginated mode (threads created before Codex 0.152). There is no other
+/// way to rewind such a thread: `thread/rollback` was removed in 0.156.
 pub const REVERT_NEEDS_PAGINATED: &str = "only supports paginated threads";
 
-/// `thread/revert`, the successor to `thread/rollback`. Absent from Codex
-/// 0.146.0 and earlier; callers go through `Feature::REVERT`.
+/// `thread/revert`. Absent from Codex 0.146.0 and earlier; callers go
+/// through `Feature::REVERT`.
 pub fn thread_revert(thread_id: &str, before_turn_id: &str) -> Request {
     request(
         "thread/revert",
@@ -137,13 +137,6 @@ pub fn thread_fork_before(thread_id: &str, before_turn_id: &str) -> Request {
     request(
         "thread/fork",
         json!({"threadId": thread_id, "beforeTurnId": before_turn_id}),
-    )
-}
-
-pub fn thread_rollback(thread_id: &str, num_turns: u32) -> Request {
-    request(
-        "thread/rollback",
-        json!({"threadId": thread_id, "numTurns": num_turns}),
     )
 }
 

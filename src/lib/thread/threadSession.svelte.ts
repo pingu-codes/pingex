@@ -20,7 +20,6 @@ import {
   listSubagents,
   readThread,
   revertThread,
-  rollbackThread,
   startReview,
   startTurn,
   updateTurnSettings,
@@ -45,6 +44,8 @@ import type {
 /** Notices for a model/effort change made mid-turn. */
 export const LIVE_SETTINGS_APPLIED = "Switched the running turn to the new settings.";
 export const LIVE_SETTINGS_NEXT_TURN = "New settings apply from the next turn.";
+/** Undo on a thread whose history Codex cannot rewind (created before 0.152). */
+const UNDO_UNAVAILABLE = "Codex can't rewind this thread's history, so undo isn't available here.";
 
 export class ThreadSession {
   /** Codex's id for the thread; `null` while it is an unsent draft. */
@@ -182,7 +183,7 @@ export class ThreadSession {
     }
   }
 
-  /** Rewind history in place, falling back only when revert is unsupported. */
+  /** Rewind history in place. A thread Codex cannot rewind keeps its history. */
   async undoTurns(count: number): Promise<void> {
     if (!this.available() || !this.id || !this.thread || !Number.isInteger(count) || count <= 0) return;
     const thread = this.thread;
@@ -195,24 +196,22 @@ export class ThreadSession {
     this.starting = true;
     this.streamError = null;
     try {
-      try {
-        await revertThread(
-          id,
-          thread.turns[kept.length].id,
-          kept.map((turn) => turn.id),
-        );
-      } catch (cause) {
-        if (this.operation !== operation || this.disposed) return;
-        if (!isRevertUnsupported(cause)) throw cause;
-        await rollbackThread(id, dropped);
-      }
+      await revertThread(
+        id,
+        thread.turns[kept.length].id,
+        kept.map((turn) => turn.id),
+      );
       if (this.operation !== operation || this.disposed) return;
       thread.turns = kept;
       this.revision++;
       await invalidateThreadCache(id).catch(() => {});
     } catch (cause) {
       if (this.operation === operation && !this.disposed) {
-        this.streamError = cause instanceof Error ? cause.message : String(cause);
+        this.streamError = isRevertUnsupported(cause)
+          ? UNDO_UNAVAILABLE
+          : cause instanceof Error
+            ? cause.message
+            : String(cause);
       }
     } finally {
       this.finishOperation(operation);

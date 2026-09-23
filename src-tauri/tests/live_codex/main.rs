@@ -583,7 +583,7 @@ fn subagent_thread_turn_and_follow_up_are_accepted() {
 
 // ── version-dependent APIs ────────────────────────────────────────────────
 //
-// The app supports the last stable (0.153.4), the current stable (0.154.0)
+// The app supports the last stable (0.155.1), the current stable (0.156.1)
 // and the unreleased mirror HEAD — see `docs/SUPPORTED_VERSIONS.md`. Each of
 // these tests takes the modern branch
 // where the API exists and, where it does not, checks that the refusal is
@@ -734,8 +734,8 @@ fn thread_fork_before_a_turn_keeps_the_prefix_under_its_ids() {
     server.call(requests::thread_delete(&thread_id));
 }
 
-/// `thread/revert` replaced `thread/rollback` in 0.149; the app tries revert
-/// first and falls back to rollback only on the classified refusal.
+/// `thread/revert` (0.149) is the only way to rewind a thread; new threads are
+/// paginated since 0.152, so it must succeed on every supported tier.
 #[test]
 fn thread_revert_or_its_classified_absence() {
     let server = live!();
@@ -762,23 +762,11 @@ fn thread_revert_or_its_classified_absence() {
                 .map(Vec::len);
             assert_eq!(turns, Some(1), "one turn left after revert: {read}");
         }
-        // 0.149 has the method but only serves threads in paginated history
-        // mode; a legacy-history thread (the default) is refused with a
-        // message the app also treats as "use rollback".
         Err(error) if error.message.contains(requests::REVERT_NEEDS_PAGINATED) => {
-            assert!(
-                server.at_least(0, 149),
-                "{} refused revert for history mode but should not have it at all: {error}",
-                server.user_agent
-            );
-            server.call(requests::thread_rollback(&thread_id, 1));
+            panic!("new threads are paginated since 0.152, yet revert refused: {error}")
         }
         Err(error) => match error.unsupported(Feature::REVERT) {
-            Some(reason) => {
-                server.expect_legacy(Feature::REVERT, &reason);
-                // The fallback the app takes on this Codex must still work.
-                server.call(requests::thread_rollback(&thread_id, 1));
-            }
+            Some(reason) => server.expect_legacy(Feature::REVERT, &reason),
             None => panic!("thread/revert rejected: {error}"),
         },
     }
@@ -935,7 +923,7 @@ fn thread_sections_create_move_update_delete() {
 }
 
 #[test]
-fn thread_lifecycle_archive_unarchive_compact_rollback_delete() {
+fn thread_lifecycle_archive_unarchive_compact_revert_delete() {
     let server = live!();
     let thread_id = server.start_thread();
     let outcome = server.run_turn(requests::turn_start(
@@ -951,22 +939,8 @@ fn thread_lifecycle_archive_unarchive_compact_rollback_delete() {
     ));
     assert_reply_contains(&outcome, "TWO", "second");
 
-    // What `/undo` sends: revert, and rollback only where revert is refused
-    // as unsupported (0.152 refuses rollback on its default paginated
-    // history, so the two never both work on one thread).
-    match server.request(requests::thread_revert(&thread_id, &outcome.turn_id)) {
-        Ok(_) => {}
-        Err(error) if error.message.contains(requests::REVERT_NEEDS_PAGINATED) => {
-            server.call(requests::thread_rollback(&thread_id, 1));
-        }
-        Err(error) => match error.unsupported(Feature::REVERT) {
-            Some(reason) => {
-                server.expect_legacy(Feature::REVERT, &reason);
-                server.call(requests::thread_rollback(&thread_id, 1));
-            }
-            None => panic!("thread/revert rejected: {error}"),
-        },
-    }
+    // What `/undo` sends.
+    server.call(requests::thread_revert(&thread_id, &outcome.turn_id));
     let read = server.call(requests::thread_read(&thread_id));
     let turns = read
         .pointer("/thread/turns")

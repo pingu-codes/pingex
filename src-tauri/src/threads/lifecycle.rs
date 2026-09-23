@@ -412,50 +412,9 @@ pub(crate) async fn read_claude_status(
     )
 }
 
-#[tauri::command]
-#[specta::specta]
-pub(crate) async fn rollback_thread(
-    thread_id: String,
-    num_turns: u32,
-    app: AppHandle,
-    window: crate::HomeWindow,
-    state: State<'_, AppState>,
-) -> Result<Json, String> {
-    let ctx = state.ctx(&window);
-    ctx.session.ensure_resumed(&app, &thread_id).await?;
-    let response = ctx
-        .session
-        .send(&app, requests::thread_rollback(&thread_id, num_turns))
-        .await?;
-    // After the rollback, so the truncated history can't be served from a
-    // detail row written before it.
-    storage::invalidate_thread_detail(&ctx.database(), &thread_id).await?;
-    let thread = response
-        .get("thread")
-        .cloned()
-        .ok_or_else(|| "Codex returned no thread after rollback".to_string())?;
-    // The journal is merged into every read, so it has to forget the turns the
-    // rollback dropped or they would reappear under the truncated history.
-    let kept = turn_ids(&thread);
-    storage::retain_thread_turns(&ctx.database(), &thread_id, &kept).await?;
-    storage::retain_turn_settings(&ctx.database(), &thread_id, &kept).await?;
-    storage::retain_agent_runs(&ctx.database(), &thread_id, &kept).await?;
-    // Spend stays booked, but the context composition is rebuilt from the
-    // turns that remain.
-    crate::usage::ledger::send(
-        &app,
-        &ctx.home_key,
-        crate::usage::ledger::LedgerEvent::Reset {
-            thread_id: thread_id.clone(),
-        },
-    );
-    Ok(Json(thread))
-}
-
 /// Replace the thread's durable history with the prefix before `before_turn_id`
-/// (`thread/revert`, the successor to the deprecated `thread/rollback`).
-/// The response carries no turns, so the caller supplies `kept_turn_ids` for
-/// the same journal pruning `rollback_thread` derives from its response.
+/// (`thread/revert`). The response carries no turns, so the caller supplies
+/// `kept_turn_ids` for journal pruning.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn revert_thread(
@@ -468,10 +427,11 @@ pub(crate) async fn revert_thread(
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
     ctx.session.ensure_resumed(&app, &thread_id).await?;
-    // Codex 0.146.0 has no `thread/revert`, and 0.149 refuses it for threads
-    // outside paginated history mode; either way the refusal comes back
-    // under `codex-revert-unsupported` so the frontend falls back to
-    // rollback. Only the first is cached: the second is per thread.
+    // Codex 0.146.0 has no `thread/revert`, and every version refuses it for
+    // threads outside paginated history mode (created before 0.152). Both
+    // come back under `codex-revert-unsupported`, which the frontend shows as
+    // "undo isn't available". Only the first is cached: the second is per
+    // thread.
     let response = if let Some(reason) = ctx.session.unsupported(&app, Feature::REVERT).await? {
         return Err(Feature::REVERT.error(&reason));
     } else {
@@ -482,7 +442,7 @@ pub(crate) async fn revert_thread(
         {
             Ok(response) => response,
             Err(error) if error.contains(requests::REVERT_NEEDS_PAGINATED) => {
-                return Err(Feature::REVERT.error("this thread's history mode has no revert"));
+                return Err(Feature::REVERT.error("this thread's history format cannot be rewound"));
             }
             Err(error) => match method_unsupported(&error, Feature::REVERT.method_prefix) {
                 Some(reason) => {
@@ -507,13 +467,6 @@ pub(crate) async fn revert_thread(
         },
     );
     Ok(Json(response))
-}
-
-fn turn_ids(thread: &Value) -> Vec<String> {
-    arr_or_empty(thread, "turns")
-        .iter()
-        .filter_map(|turn| crate::util::json::str_at(turn, "id").map(str::to_string))
-        .collect()
 }
 
 #[tauri::command]

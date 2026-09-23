@@ -58,7 +58,7 @@ Both harnesses report token usage as a running total per thread on
 - A total that goes backwards means the harness process restarted its count
   (the Claude projector counts per process); the turn then starts from zero.
 - Spend rows are never copied to a fork (the parent paid) and never deleted
-  with a thread (the Home's bill does not shrink). A rollback keeps them and
+  with a thread (the Home's bill does not shrink). An undo keeps them and
   resets the composition, which is rebuilt from the turns that remain.
 
 The ledger applies items, usage and turn completions through one consumer

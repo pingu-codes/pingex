@@ -339,7 +339,7 @@ function normalizeResult(name: string, entry: HomeSnapshot, result: any): any {
     entry.data = result;
     return merged();
   }
-  if (["startThread", "readThread", "forkThread", "rollbackThread", "revertThread"].includes(name) && result?.id)
+  if (["startThread", "readThread", "forkThread", "revertThread"].includes(name) && result?.id)
     return mapSummary(entry, result);
   if (name === "listSubagents" && Array.isArray(result)) return result.map((item) => mapSummary(entry, item));
   if (["threadsWithActiveTurns", "threadsWithUnansweredQuestions"].includes(name))

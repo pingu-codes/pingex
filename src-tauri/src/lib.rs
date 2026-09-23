@@ -571,7 +571,6 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             threads::lifecycle::list_harness_models,
             threads::lifecycle::read_claude_status,
             threads::lifecycle::fork_thread,
-            threads::lifecycle::rollback_thread,
             threads::lifecycle::revert_thread,
             threads::queue::queue_add,
             threads::queue::queue_list,

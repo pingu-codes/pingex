@@ -13,7 +13,6 @@ const mocks = vi.hoisted(() => ({
   startReview: vi.fn(),
   compactThread: vi.fn(),
   revertThread: vi.fn(),
-  rollbackThread: vi.fn(),
   updateTurnSettings: vi.fn().mockResolvedValue("applied"),
   interruptTurn: vi.fn().mockResolvedValue(undefined),
   queueAdd: vi.fn(),
@@ -35,7 +34,6 @@ vi.mock("$lib/services/api", () => ({
   startReview: mocks.startReview,
   compactThread: mocks.compactThread,
   revertThread: mocks.revertThread,
-  rollbackThread: mocks.rollbackThread,
   isRevertUnsupported: (cause: unknown) => String(cause).includes("unsupported"),
   updateTurnSettings: mocks.updateTurnSettings,
   isTurnSettingsUnsupported: (cause: unknown) => String(cause).includes("unsupported"),
@@ -104,7 +102,6 @@ beforeEach(() => {
   mocks.startReview.mockReset().mockResolvedValue({ id: "review", status: "inProgress", items: [] });
   mocks.compactThread.mockReset().mockResolvedValue(undefined);
   mocks.revertThread.mockReset().mockResolvedValue(undefined);
-  mocks.rollbackThread.mockReset().mockResolvedValue(undefined);
   mocks.interruptTurn.mockClear();
   mocks.startTurn.mockReset();
   mocks.updateTurnSettings.mockReset().mockResolvedValue("applied");
@@ -553,17 +550,21 @@ describe("session operation lifetime", () => {
     expect(mocks.invalidateThreadCache).toHaveBeenCalledWith("thread-a");
   });
 
-  it("uses rollback only for unsupported revert and preserves history on failure", async () => {
+  it("keeps history and explains when Codex cannot rewind the thread", async () => {
     const session = await idleSession();
-    mocks.revertThread.mockRejectedValueOnce(new Error("unsupported"));
-    mocks.rollbackThread.mockRejectedValueOnce(new Error("rollback failed"));
+    mocks.invalidateThreadCache.mockClear();
+    mocks.revertThread.mockRejectedValueOnce(
+      new Error("codex-revert-unsupported: this thread's history format cannot be rewound"),
+    );
     await session.undoTurns(1);
-    expect(mocks.rollbackThread).toHaveBeenCalledWith("thread-a", 1);
     expect(session.thread?.turns).toHaveLength(2);
-    expect(session.streamError).toBe("rollback failed");
+    expect(session.streamError).toBeTruthy();
+    expect(session.streamError).not.toContain("codex-revert-unsupported");
+    expect(mocks.invalidateThreadCache).not.toHaveBeenCalled();
     mocks.revertThread.mockRejectedValueOnce(new Error("ordinary failure"));
     await session.undoTurns(1);
-    expect(mocks.rollbackThread).toHaveBeenCalledTimes(1);
+    expect(session.streamError).toBe("ordinary failure");
+    expect(session.thread?.turns).toHaveLength(2);
   });
 
   it.each(["review", "compact", "undo"] as const)("ignores late %s responses after disconnect", async (kind) => {
@@ -646,12 +647,10 @@ describe("operation recovery", () => {
     expect(peekSession("resurrected")).toBeNull();
   });
 
-  it("applies successful rollback and ignores empty undo", async () => {
+  it("ignores empty undo", async () => {
     const session = await idleSession();
-    mocks.revertThread.mockRejectedValueOnce(new Error("unsupported"));
     await session.undoTurns(10);
     expect(session.thread?.turns).toEqual([]);
-    expect(mocks.rollbackThread).toHaveBeenCalledWith("thread-a", 2);
     await session.undoTurns(1);
     expect(mocks.revertThread).toHaveBeenCalledTimes(1);
   });

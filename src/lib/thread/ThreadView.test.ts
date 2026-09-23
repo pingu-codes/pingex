@@ -11,7 +11,6 @@ const mocks = vi.hoisted(() => ({
   readThread: vi.fn(),
   invalidateThreadCache: vi.fn().mockResolvedValue(undefined),
   listProjectFiles: vi.fn(),
-  rollbackThread: vi.fn(),
   revertThread: vi.fn(),
   forkThread: vi.fn(),
   addThreadBranch: vi.fn(),
@@ -120,7 +119,6 @@ vi.mock("$lib/services/api", () => ({
   respondUserInput: vi.fn(),
   revealInFinder: vi.fn(),
   revertThread: mocks.revertThread,
-  rollbackThread: mocks.rollbackThread,
   forkThread: mocks.forkThread,
   addThreadBranch: mocks.addThreadBranch,
   setThreadBranchEditTurn: mocks.setThreadBranchEditTurn,
@@ -545,7 +543,6 @@ describe("ThreadView inline message editing", () => {
     activeBefore = mocks.activeTurns.list;
     resetSessions();
     mocks.readThread.mockReset();
-    mocks.rollbackThread.mockReset();
     mocks.revertThread.mockReset();
     mocks.forkThread.mockReset();
     mocks.addThreadBranch.mockReset();
@@ -605,7 +602,6 @@ describe("ThreadView inline message editing", () => {
     );
     expect(mocks.setThreadBranchEditTurn).toHaveBeenCalledWith("fork-1", "turn-2");
     // Nothing was rewound: the original stays as it was.
-    expect(mocks.rollbackThread).not.toHaveBeenCalled();
     expect(mocks.revertThread).not.toHaveBeenCalled();
     expect(mocks.openDialog).not.toHaveBeenCalled();
     expect(screen.getByText("Final answer")).toBeVisible();

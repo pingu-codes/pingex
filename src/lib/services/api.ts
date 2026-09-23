@@ -761,12 +761,6 @@ export async function forkThread(
   return commands.forkThread(threadId, beforeTurnId ?? null, lastTurnId ?? null, cwd ?? null) as Promise<StartedThread>;
 }
 
-/** Truncate `threadId` by its last `numTurns` turns, keeping the thread id. */
-export async function rollbackThread(threadId: string, numTurns: number): Promise<StartedThread> {
-  if (!isTauri()) return { id: threadId };
-  return commands.rollbackThread(threadId, numTurns) as Promise<StartedThread>;
-}
-
 export interface RevertedThread {
   thread: ThreadDetail;
   turnsBackwardsCursor?: string | null;
@@ -775,7 +769,7 @@ export interface RevertedThread {
 
 /** Replace `threadId`'s durable history with the prefix before `beforeTurnId`.
  *  `keptTurnIds` are the surviving turns, used to prune the local journal
- *  (revert's response carries no turns, unlike rollback). */
+ *  (revert's response carries no turns). */
 export async function revertThread(
   threadId: string,
   beforeTurnId: string,

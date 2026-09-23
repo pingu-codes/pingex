@@ -5,9 +5,9 @@ tiers of the Codex CLI at any time:
 
 | Tier | What it is | Version | Tag / ref | Commit | Date |
 |---|---|---|---|---|---|
-| **Unstable** | Upstream `main`, as mirrored in `../codex-mirror` | `0.0.0` (source builds report the workspace version) | `main` | `b348fc26674189f758d5941cdab3f78f258b2aa7` | 2026-09-10 |
-| **Stable** | The latest tagged release | `0.154.0` | `rust-v0.154.0` | `6b9826e3aa83b1a5947db50f4332cb9c65f1b340` | 2026-09-09 |
-| **Last stable** | The release before it | `0.153.4` | `rust-v0.153.4` | `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a` | 2026-09-04 |
+| **Unstable** | Upstream `main`, as mirrored in `../codex-mirror` | `0.0.0` (source builds report the workspace version) | `main` | `30fc6864cc1318121eca1843c217fe00ce1212f1` | 2026-09-23 |
+| **Stable** | The latest tagged release | `0.156.1` | `rust-v0.156.1` | `b412ff32c417f855c2b2d1581b77058eed87c84b` | 2026-09-22 |
+| **Last stable** | The release before it | `0.155.1` | `rust-v0.155.1` | `be2951ea34f0d295ed0becf97079f92fa5f6950e` | 2026-09-18 |
 
 Older releases are not tested. They mostly keep working because nothing in
 the app branches on the version (see below), but a release older than *last
@@ -47,26 +47,26 @@ version. `deno task versions:check` does not cover Claude yet.
 
 Gated APIs (one row per `Feature`):
 
-| Feature | API | Last stable 0.153.4 | Stable 0.154.0 | Unstable |
+| Feature | API | Last stable 0.155.1 | Stable 0.156.1 | Unstable |
 |---|---|---|---|---|
-| `REVERT` | `thread/revert` | ✓ | ✓ | ✓ |
+| `REVERT` | `thread/revert` (paginated-history threads only; others are refused per thread) | ✓ | ✓ | ✓ |
 | `QUEUE` | `thread/queue/*` (needs the experimental capability and a queue database) | ✓ | ✓ | ✓ |
 | `PROJECTS` | `project/*` | ✓ | ✓ | ✓ |
 | `SECTIONS` | `threadSection/*` | ✓ | ✓ | ✓ |
 | `TURN_SETTINGS` | `turn/settings/update` — change model/effort mid-turn; needs the `step_model_switching` feature, which the app turns on with `-c` at spawn (`child::APP_SERVER_ARGS`) | ✓ | ✓ | ✓ |
 | `LIVE_SPEED` | `turn/settings/update.serviceTier` — change the running turn's speed; field refusals are cached separately from model/effort updates | ✓ | ✓ | ✓ |
+| `INSTALLED_PLUGINS` | `plugin/installed` — installed-plugin inventory; unsupported responses are remembered | ✓ | ✓ | ✓ |
 
 The composer reads speed availability from model catalog metadata and resolved speed
 from thread start/resume/fork responses. Missing state displays as unknown. Fast off
 sends `serviceTier: "default"`, rather than clearing the override. Speed choices
 stay per thread and are included in subsequent turn submissions. A refused live
 update leaves the running status unchanged and applies the choice next turn.
-| `INSTALLED_PLUGINS` | `plugin/installed` — installed-plugin inventory; unsupported responses are remembered | ✓ | ✓ | ✓ |
 
 Payload additions the app reads when present (no gating needed — the field is
 simply absent on older tiers):
 
-| Field / notification | Where it shows | 0.153.4 | 0.154.0 | Unstable | Live-tested |
+| Field / notification | Where it shows | 0.155.1 | 0.156.1 | Unstable | Live-tested |
 |---|---|---|---|---|---|
 | `item/commandExecution/requestApproval.kind` (`command` \| `writeStdin`) | approval card title | ✓ | ✓ | ✓ | `command` only |
 | `McpServerStatus.runtimeStatus` | Integrations row | ✓ | ✓ | ✓ | ✓ |
@@ -80,7 +80,8 @@ Behaviour changes the app had to follow:
 
 | Change | Since | What the app does |
 |---|---|---|
-| New threads default to paginated history, and `thread/rollback` refuses paginated threads | 0.152.0 | `/undo` sends `thread/revert` first and falls back to `thread/rollback` only on a classified "revert unsupported" refusal (`ThreadView.undoTurns`) |
+| New threads default to paginated history, and `thread/rollback` refuses paginated threads | 0.152.0 | `/undo` sends `thread/revert` (`ThreadSession.undoTurns`) |
+| `thread/rollback` removed; `thread/revert` still refuses legacy (non-paginated) threads | 0.156.0 | `/undo` on a legacy thread shows "undo isn't available" and leaves history unchanged (`ThreadSession.undoTurns`) |
 
 Deliberately not adopted yet (tracked on the roadmap): paginated history
 (`thread/turns/list`, `thread/items/list`, `thread/timeline/list` — upstream
@@ -89,40 +90,68 @@ deprecates full hydration on resume/fork in their favour), `turn/steer`,
 event stream, realtime/voice, marketplace installation, `fs/*`, process/terminal,
 login/Bedrock flows, environments and the Windows sandbox, raw response events,
 `userVerification/*` (and the `openai/userVerification` elicitation mode),
-`memory/status`, Daybreak preferences (`daybreakEnabled`).
+`memory/status`, Daybreak preferences (`daybreakEnabled`, now also on
+`thread/start`), `thread/attachment/*`, `rollout/compress`,
+`account/gatewayOAuth/*`, per-thread plugin denylists (`disabledPluginIds`),
+uploaded-file image inputs (`UserInput.image.fileId`; such a user image does
+not render).
 
 Protocol added since 0.153 that the app does not read yet:
 
-- 0.153.x (both tagged tiers): `Thread.model` / `Thread.reasoningEffort` (the
-  app still derives the thread's model from turn history,
+- Every tier (0.153–0.154 additions): `Thread.model` / `Thread.reasoningEffort`
+  (the app still derives the thread's model from turn history,
   `ThreadView.lastTurnModel`), `agentMessage.questions` (structured async
   user-input questions), `turn/settings/update.approvalsReviewer`,
-  `plugin/reconcile`, per-account app link approvals (`AppConfig.links`).
-- 0.154.0 (stable only): `Thread.originator`, `Thread.environments`
-  (`environmentId`, `cwd`, `runtimeWorkspaceRoots`), `Thread.daybreakEnabled`,
-  `thread/list.originators` and `thread/metadata/update.daybreakEnabled`
-  (hosted backends only); `McpServerStatus.toolsError` (set only when tool
-  discovery failed — a candidate for the Integrations row);
-  `account/rateLimits/read` now accepts optional params
-  (`supportsLunaReserve`, `excludeResetCreditDetails`) and answers with
-  `ordinaryUsageAllowed` and `RateLimitSnapshot.normalModelSlug`;
+  `plugin/reconcile`, per-account app link approvals (`AppConfig.links`);
+  `Thread.originator`, `Thread.environments` (`environmentId`, `cwd`,
+  `runtimeWorkspaceRoots`), `Thread.daybreakEnabled`, `thread/list.originators`
+  and `thread/metadata/update.daybreakEnabled` (hosted backends only);
+  `McpServerStatus.toolsError` (set only when tool discovery failed — a
+  candidate for the Integrations row); `account/rateLimits/read` now accepts
+  optional params (`supportsLunaReserve`, `excludeResetCreditDetails`) and
+  answers with `ordinaryUsageAllowed` and `RateLimitSnapshot.normalModelSlug`;
   `ConfigRequirements.application` (network domain requirements) and
   `BrowserUseRequirements.allowWebmcp`; experimental
   `userVerification/{status,enroll,delete,verify}`. Guardian review actions and
   `item/permissions/requestApproval.cwd` changed Rust path type but still
   serialise as strings. Detached review delivery is deprecated; the app never
   sends `delivery`.
-- Unstable only: `userVerification/cancel`, `memory/status`
-  (`v2ConsolidatedThreads`, `v2Ready`), `feedback/upload.promptHash`,
-  `imageGeneration.generationId`.
+- 0.155.x (every tier): `thread/attachment/{add,list,remove}` and
+  `thread/attachment/updated` (typed per-thread attachments);
+  `thread/resume.collaborationMode` (the effective plan/default mode on resume;
+  the app still learns plan mode only from `thread/collaborationMode/changed`);
+  the former unstable-only `userVerification/cancel` (`enroll` now returns
+  `algorithm` and `publicKey`), `memory/status`, `feedback/upload.promptHash`
+  and `imageGeneration.generationId` (`userVerification/*` and `memory/status`
+  are still experimental).
+- 0.156.x (stable and unstable): `thread/rollback` removed (see above);
+  `disabledPluginIds` on `thread/start`/`thread/resume`/`thread/fork`
+  responses, `thread/settings/update` and `turn/start`;
+  `thread/start.daybreakEnabled`; `UserInput.image.fileId` (an image by
+  uploaded file instead of `url`); `mcpToolCall.mcpAppUi` (`resourceUri`,
+  `preferredModelDisplayMode`); `McpServerStatus.serverCapabilities`;
+  `Model.availableAccessPrograms`; experimental `account/read.workspaceRouting`;
+  `ConfigRequirements.modelProvider`, `.modelProviders` and
+  `.allowedLoginMethods`; `ConfigRequirements.allowedWindowsSandboxImplementations`
+  is now `elevated`/`unelevated`/`mxc`; `ConfigRequirements.windowsSandboxPrivateDesktop`
+  removed; experimental `rollout/compress`; `PluginDetail.onboardingSkill`;
+  `AppConfig.omitToolsFrom`; `_meta` on the `openai/userVerification`
+  elicitation.
+- Unstable only: `account/gatewayOAuth/{read,login,cancel}` and
+  `account/gatewayOAuth/changed` (behind the `initialize` capability
+  `explicitGatewayOauth`), `PluginSummary.extensions`,
+  `McpServerStatus.httpOrigin`, `mcpServer/resource/read.target`,
+  `thread/items/list` entries gain `startedAtMs` / `completedAtMs`,
+  `thread/realtime/start.backendReasoningStatus`.
 
 ## Bumping a tier
 
 When a new Codex release ships:
 
 1. `git -C ../codex-mirror fetch --tags origin && git -C ../codex-mirror merge --ff-only origin/main`.
-   (`git describe` on the mirror needs `--match 'rust-v0.*'`; it carries
-   unrelated `rusty-v8-*` tags.)
+   Release tags sit on release branches, so a plain fetch or merge of `main`
+   does not bring them. (`git describe` on the mirror needs
+   `--match 'rust-v0.*'`; it carries unrelated `rusty-v8-*` tags.)
 2. Update the tier table above (tag, commit, date) and the same two versions
    in `src/lib/app/codexVersion.svelte.ts` (`LAST_STABLE`, `STABLE`) and the
    comment at the top of the version-dependent section of
