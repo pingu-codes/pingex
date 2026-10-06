@@ -188,7 +188,7 @@ fn goal_survives_restart_pause_and_clear() {
 fn start_with_goal_on_fresh_thread_then_pause_survives_restart() {
     let server = live!();
     let thread_id = server.start_thread();
-    let objective = "E2E goal: when asked for the token reply GOAL-FRESH-OK; the goal is complete once you have replied";
+    let objective = "E2E goal: reply GOAL-FRESH-OK whenever asked, nothing else";
 
     let set = server.call(requests::thread_goal_set(
         &thread_id,

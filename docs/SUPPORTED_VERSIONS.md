@@ -5,9 +5,9 @@ tiers of the Codex CLI at any time:
 
 | Tier | What it is | Version | Tag / ref | Commit | Date |
 |---|---|---|---|---|---|
-| **Unstable** | Upstream `main`, as mirrored in `../codex-mirror` | `0.0.0` (source builds report the workspace version) | `main` | `30fc6864cc1318121eca1843c217fe00ce1212f1` | 2026-09-23 |
-| **Stable** | The latest tagged release | `0.156.1` | `rust-v0.156.1` | `b412ff32c417f855c2b2d1581b77058eed87c84b` | 2026-09-22 |
-| **Last stable** | The release before it | `0.155.1` | `rust-v0.155.1` | `be2951ea34f0d295ed0becf97079f92fa5f6950e` | 2026-09-18 |
+| **Unstable** | Upstream `main`, as mirrored in `../codex-mirror` | `0.0.0` (source builds report the workspace version) | `main` | `c0c230e6730b3b3c9101b8aff4b9aea4027cea5b` | 2026-10-06 |
+| **Stable** | The latest tagged release | `0.160.1` | `rust-v0.160.1` | `d27764b82f7118f674371e6d6e76271d9d606edb` | 2026-10-05 |
+| **Last stable** | The release before it | `0.159.3` | `rust-v0.159.3` | `01fc69f4026735edfdf6789820549727a4867b11` | 2026-09-30 |
 
 Older releases are not tested. They mostly keep working because nothing in
 the app branches on the version (see below), but a release older than *last
@@ -47,7 +47,7 @@ version. `deno task versions:check` does not cover Claude yet.
 
 Gated APIs (one row per `Feature`):
 
-| Feature | API | Last stable 0.155.1 | Stable 0.156.1 | Unstable |
+| Feature | API | Last stable 0.159.3 | Stable 0.160.1 | Unstable |
 |---|---|---|---|---|
 | `REVERT` | `thread/revert` (paginated-history threads only; others are refused per thread) | ✓ | ✓ | ✓ |
 | `QUEUE` | `thread/queue/*` (needs the experimental capability and a queue database) | ✓ | ✓ | ✓ |
@@ -66,7 +66,7 @@ update leaves the running status unchanged and applies the choice next turn.
 Payload additions the app reads when present (no gating needed — the field is
 simply absent on older tiers):
 
-| Field / notification | Where it shows | 0.155.1 | 0.156.1 | Unstable | Live-tested |
+| Field / notification | Where it shows | 0.159.3 | 0.160.1 | Unstable | Live-tested |
 |---|---|---|---|---|---|
 | `item/commandExecution/requestApproval.kind` (`command` \| `writeStdin`) | approval card title | ✓ | ✓ | ✓ | `command` only |
 | `McpServerStatus.runtimeStatus` | Integrations row | ✓ | ✓ | ✓ | ✓ |
@@ -124,7 +124,7 @@ Protocol added since 0.153 that the app does not read yet:
   `algorithm` and `publicKey`), `memory/status`, `feedback/upload.promptHash`
   and `imageGeneration.generationId` (`userVerification/*` and `memory/status`
   are still experimental).
-- 0.156.x (stable and unstable): `thread/rollback` removed (see above);
+- 0.156.x (every tier): `thread/rollback` removed (see above);
   `disabledPluginIds` on `thread/start`/`thread/resume`/`thread/fork`
   responses, `thread/settings/update` and `turn/start`;
   `thread/start.daybreakEnabled`; `UserInput.image.fileId` (an image by
@@ -137,12 +137,26 @@ Protocol added since 0.153 that the app does not read yet:
   removed; experimental `rollout/compress`; `PluginDetail.onboardingSkill`;
   `AppConfig.omitToolsFrom`; `_meta` on the `openai/userVerification`
   elicitation.
-- Unstable only: `account/gatewayOAuth/{read,login,cancel}` and
+- 0.157–0.159.x (every tier): `account/gatewayOAuth/{read,login,cancel}` and
   `account/gatewayOAuth/changed` (behind the `initialize` capability
-  `explicitGatewayOauth`), `PluginSummary.extensions`,
-  `McpServerStatus.httpOrigin`, `mcpServer/resource/read.target`,
-  `thread/items/list` entries gain `startedAtMs` / `completedAtMs`,
-  `thread/realtime/start.backendReasoningStatus`.
+  `explicitGatewayOauth`); `CodexErrorInfo` `flexUnavailable` and
+  `tooManyDenials`; `thread/items/list` entries gain `startedAtMs` /
+  `completedAtMs` and the cursor may be an item anchor;
+  `mcpServerStatus/list.serverName` (one server) and
+  `McpServerStatus.httpOrigin`; `mcpServer/resource/read.target`;
+  `environment/add.authBearerToken`;
+  `thread/realtime/start.backendReasoningStatus`. `Turn.error` is now also
+  set on interrupted turns (e.g. a Guardian circuit-breaker stop); the app
+  shows it only on failed turns. 0.160.x changed no protocol.
+- Unstable only: experimental `thread/prediction/request` and
+  `thread/prediction/updated`; `thread/attachmentOwner/list`; experimental
+  `account/bedrock/checkGovCloudRequirements`; goal `origin`
+  (`user` / `automatic`); `MisalignmentErrorDetails.reviewTarget`; `loginId` on
+  the MCP OAuth login response and completion notification;
+  `environment/add.skills.required`;
+  `BrowserUseRequirements.extension.requestHeaders`;
+  `ConfigRequirements.supportsIndependentSpeedModes` (Fast and Ultra Fast gated
+  separately); `modelProvider/capabilities/read` drops `namespaceTools`.
 
 ## Bumping a tier
 

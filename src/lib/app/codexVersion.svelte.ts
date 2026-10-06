@@ -12,9 +12,9 @@ import { readCodexServerInfo } from "$lib/services/api";
 import { codexVersionFromUserAgent } from "$lib/types";
 
 /** The oldest release the app is tested against. */
-export const LAST_STABLE = "0.155.1";
+export const LAST_STABLE = "0.159.3";
 /** The release the app is written and tested against. */
-export const STABLE = "0.156.1";
+export const STABLE = "0.160.1";
 
 export type VersionTier = "supported" | "older" | "newer" | "unstable";
 
