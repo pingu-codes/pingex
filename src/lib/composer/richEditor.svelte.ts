@@ -20,6 +20,7 @@ import {
 } from "$lib/composer/composerParts";
 import {
   caretOffset,
+  caretOnVisualEdgeLine,
   chipAcrossLineBreak,
   chipBesideCaret,
   deleteCharBesideChip,
@@ -371,12 +372,14 @@ export class RichEditor {
     return this.root ? caretOffset(this.root) : null;
   }
 
-  /** Whether the caret sits on the first/last line of the content. */
+  /** Whether the caret sits on the first/last line of the content — both
+   *  logically (no line break past it) and visually (no soft wrap past it). */
   caretOnEdgeLine(edge: "first" | "last"): boolean {
     const offset = this.caretOffset();
-    if (offset === null) return false;
-    const text = this.parts.map((part) => (part.type === "text" ? part.text : " ")).join("");
-    return edge === "first" ? !text.slice(0, offset).includes("\n") : !text.slice(offset).includes("\n");
+    if (offset === null || !this.root) return false;
+    const text = this.parts.map((part) => (part.type === "text" ? part.text : "")).join("");
+    const logical = edge === "first" ? !text.slice(0, offset).includes("\n") : !text.slice(offset).includes("\n");
+    return logical && caretOnVisualEdgeLine(this.root, edge);
   }
 
   focus(): void {

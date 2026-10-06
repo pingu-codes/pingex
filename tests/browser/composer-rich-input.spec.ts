@@ -460,6 +460,36 @@ test("plan mode is restored after a reload", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Toggle plan mode" })).toHaveAttribute("aria-pressed", "true");
 });
 
+test("ArrowUp on a soft-wrapped second line moves the caret up instead of recalling history", async ({ page }) => {
+  await page.getByRole("button", { name: /Custom frontend skeleton/ }).click();
+  const composer = page.getByRole("textbox", { name: /Message Codex/ });
+  const draft = "wrapping words ".repeat(30).trim();
+  await composer.click();
+  await composer.pressSequentially(draft);
+  const caret = () =>
+    page.evaluate(() => {
+      const selection = window.getSelection()!;
+      return selection.focusOffset;
+    });
+  const atEnd = await caret();
+
+  await composer.press("ArrowUp");
+  await expect(composer).toHaveText(draft);
+  expect(await caret()).toBeLessThan(atEnd);
+
+  // Once on the top visual line, ArrowUp still walks into history.
+  await page.evaluate(() => {
+    const editor = document.querySelector<HTMLElement>(".composer-editor")!;
+    const range = document.createRange();
+    range.setStart(editor.firstChild!, 0);
+    range.collapse(true);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+  });
+  await composer.press("ArrowUp");
+  await expect(composer).not.toHaveText(draft);
+});
+
 test("goal mode toggles on the composer and turns itself off after a send", async ({ page }) => {
   const composer = await newComposer(page);
   // A send needs a model and permission preset picked; the preview seeds neither.

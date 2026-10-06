@@ -456,6 +456,32 @@ export function chipAcrossLineBreak(direction: "back" | "forward", range: Range)
 }
 
 /**
+ * Whether the caret sits on the first/last *visual* line of `root`, so a
+ * soft-wrapped paragraph is not mistaken for a single line. Compares the
+ * caret's rect with the line boxes of everything before (or after) it.
+ * Without layout (jsdom) or a caret rect it defers to the caller's logical
+ * line check by answering `true`.
+ */
+export function caretOnVisualEdgeLine(root: HTMLElement, edge: "first" | "last"): boolean {
+  const selection = window.getSelection();
+  if (!selection?.rangeCount) return true;
+  const caret = selection.getRangeAt(0);
+  if (typeof caret.getClientRects !== "function") return true;
+  const caretRect = caret.getClientRects()[0];
+  if (!caretRect || caretRect.height === 0) return true;
+  const span = document.createRange();
+  span.selectNodeContents(root);
+  if (edge === "first") span.setEnd(caret.startContainer, caret.startOffset);
+  else span.setStart(caret.startContainer, caret.startOffset);
+  const rects = [...span.getClientRects()].filter((rect) => rect.height > 0);
+  if (rects.length === 0) return true;
+  const tolerance = caretRect.height / 2;
+  return edge === "first"
+    ? caretRect.top - Math.min(...rects.map((rect) => rect.top)) < tolerance
+    : Math.max(...rects.map((rect) => rect.bottom)) - caretRect.bottom < tolerance;
+}
+
+/**
  * Moves the caret one visual line up or down (ArrowUp/ArrowDown), falling
  * back to the composer's own line model when WebKit's native line motion
  * refuses to move the caret at all — which it does whenever the line on the
