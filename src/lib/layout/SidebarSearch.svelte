@@ -1,5 +1,6 @@
 <script lang="ts">
 import { Archive, MessageSquare, Search, X } from "@lucide/svelte";
+import { projectForDirectory } from "$lib/app/appData.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import {
   countLabel,
@@ -50,8 +51,7 @@ const chipLabel = $derived(scoped ? filterChipLabel(currentProjectName) : null);
 const uiState = $derived(searchState({ query, active, archived, error, loading }));
 
 function projectNameFor(cwd: string): string {
-  const match = projects.find((project) => cwd.startsWith(project.path));
-  return match?.name ?? cwd.split("/").filter(Boolean).pop() ?? cwd;
+  return projectForDirectory(projects, cwd)?.name ?? cwd.split("/").filter(Boolean).pop() ?? cwd;
 }
 
 function filterFor(isArchived: boolean): ThreadSearchFilter {

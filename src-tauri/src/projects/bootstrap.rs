@@ -453,6 +453,21 @@ fn build_bootstrap(
     let assigned_key = |thread: &ThreadSummary| {
         super::server::assigned_key(thread.project_id.as_deref(), &server_projects, &known_keys)
     };
+    // Every other thread goes under the nearest project containing its cwd,
+    // so a project nested inside another keeps its threads to itself.
+    let nearest_key: HashMap<&str, String> = visible_threads
+        .iter()
+        .filter(|thread| {
+            assigned_key(thread).is_none() && !workspace_threads.contains_key(&thread.id)
+        })
+        .filter_map(|thread| {
+            super::server::key_for_cwd(
+                entries.iter().map(|entry| entry.path.as_str()),
+                home_path(&thread.cwd, &temp_worktree_parents),
+            )
+            .map(|key| (thread.id.as_str(), key))
+        })
+        .collect();
 
     let mut projects = Vec::new();
     for entry in entries {
@@ -471,11 +486,7 @@ fn build_bootstrap(
             .filter(|thread| thread.parent_thread_id.is_none())
             .filter(|thread| match assigned_key(thread) {
                 Some(key) => key == entry.path,
-                None => {
-                    !workspace_threads.contains_key(&thread.id)
-                        && Path::new(home_path(&thread.cwd, &temp_worktree_parents))
-                            .starts_with(Path::new(&entry.path))
-                }
+                None => nearest_key.get(thread.id.as_str()) == Some(&entry.path),
             })
             .cloned()
             .collect();
@@ -1070,6 +1081,82 @@ mod tests {
             ids("API"),
             vec!["orphaned".to_string(), "plain".to_string()]
         );
+    }
+
+    #[test]
+    fn a_thread_is_listed_only_under_its_nearest_project() {
+        let directory = tempfile::tempdir().unwrap();
+        let parent = directory.path().join("parent");
+        let child = parent.join("child");
+        std::fs::create_dir_all(child.join("src")).unwrap();
+        std::fs::create_dir_all(parent.join("other")).unwrap();
+        let parent_path = parent.display().to_string();
+        let child_path = child.display().to_string();
+        let project = |path: &str, name: &str| StoredProject {
+            path: path.to_string(),
+            name: Some(name.into()),
+            pinned: false,
+            archived: false,
+            worktree: false,
+        };
+        let store = Store {
+            projects: vec![
+                project(&parent_path, "Parent"),
+                project(&child_path, "Child"),
+            ],
+            pinned_threads: Vec::new(),
+            hidden_threads: Vec::new(),
+        };
+        // Codex filed this one under the parent; that outranks its cwd.
+        let mut assigned = thread("assigned", &child_path, 1);
+        assigned.project_id = Some("srv-parent".into());
+
+        let data = build_bootstrap(
+            &RuntimeConfig {
+                codex_home: directory.path().join("codex-home"),
+                codex_binary: PathBuf::from("codex"),
+                host: crate::util::host::Host::Native,
+            },
+            store,
+            vec![
+                thread("in_child", &child_path, 4),
+                thread("in_child_subdir", &format!("{child_path}/src"), 3),
+                thread("in_parent", &format!("{parent_path}/other"), 2),
+                assigned,
+            ],
+            None,
+            Vec::new(),
+            Vec::new(),
+            BootstrapExtras {
+                instructions: HashMap::new(),
+                sources_by_project: HashMap::new(),
+                project_expansion: HashMap::new(),
+                workspaces: Vec::new(),
+                workspace_members: Vec::new(),
+                workspace_threads: HashMap::new(),
+                agent_children: Vec::new(),
+                temp_worktree_parents: Vec::new(),
+                server_projects: HashMap::from([("srv-parent".to_string(), parent_path.clone())]),
+                sections: Vec::new(),
+                project_recency: HashMap::new(),
+                sections_supported: false,
+                sidebar_layout: Default::default(),
+            },
+        )
+        .unwrap();
+
+        let ids = |name: &str| -> Vec<String> {
+            data.projects
+                .iter()
+                .find(|project| project.name == name)
+                .unwrap()
+                .threads
+                .iter()
+                .map(|thread| thread.id.clone())
+                .collect()
+        };
+        assert_eq!(ids("Child"), vec!["in_child", "in_child_subdir"]);
+        assert_eq!(ids("Parent"), vec!["in_parent", "assigned"]);
     }
 
     #[test]

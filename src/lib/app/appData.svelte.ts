@@ -59,7 +59,7 @@ function directoryKey(path: string): string {
  * is the last word: whichever project already holds a thread running there is
  * the project that thread belongs to.
  */
-function projectForDirectory(candidates: Project[], cwd: string): Project | null {
+export function projectForDirectory(candidates: Project[], cwd: string): Project | null {
   const directory = directoryKey(cwd);
   let nearest: Project | null = null;
   let nearestLength = -1;
