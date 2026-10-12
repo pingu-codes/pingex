@@ -6,7 +6,11 @@ import WorkItem from "$lib/thread/WorkItem.svelte";
 import type { SubagentDetail, ThreadItem } from "$lib/types";
 
 const openSubagent = vi.fn();
-vi.mock("$lib/services/api", async (orig) => ({ ...(await orig<object>()), copyText: vi.fn(() => Promise.resolve()) }));
+vi.mock("$lib/services/api", async (orig) => ({
+  ...(await orig<object>()),
+  copyText: vi.fn(() => Promise.resolve()),
+  threadImageSrc: vi.fn((path: string) => Promise.resolve(path.endsWith(".png") ? `asset://localhost${path}` : null)),
+}));
 vi.mock("$lib/app/actions.svelte", () => ({ openSubagent: (agent: SubagentDetail) => openSubagent(agent) }));
 
 const agent: SubagentDetail = {
@@ -153,5 +157,25 @@ describe("WorkItem harness tool details", () => {
     expect(screen.getByText("Tool result details")).not.toBeVisible();
     await userEvent.setup().click(trigger);
     expect(screen.getByText("Tool result details")).toBeVisible();
+  });
+});
+
+describe("WorkItem — images", () => {
+  it("shows an image the agent viewed and expands it on click", async () => {
+    const user = userEvent.setup();
+    render(WorkItem, { item: { type: "imageView", id: "i1", path: "/tmp/diffs/shot.png" } });
+    expect(screen.getByText("/tmp/diffs/shot.png")).toBeInTheDocument();
+    const image = await screen.findByRole("img", { name: "shot.png" });
+    expect(image).toHaveAttribute("src", "asset://localhost/tmp/diffs/shot.png");
+    expect(image).toHaveClass("max-h-72");
+    await user.click(screen.getByRole("button", { name: "Expand image" }));
+    expect(image).not.toHaveClass("max-h-72");
+  });
+
+  it("keeps just the caption when the image cannot be loaded", async () => {
+    render(WorkItem, { item: { type: "imageGeneration", id: "i2", savedPath: "/tmp/out.jpg" } });
+    expect(screen.getByText("Generated an image · /tmp/out.jpg")).toBeInTheDocument();
+    await Promise.resolve();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 });

@@ -28,6 +28,7 @@ import { activityFor, agentClock, elapsedLabel, isRunning, runForToolCall } from
 import { copyText, killAgentRun } from "$lib/services/api";
 import { openSettings } from "$lib/services/settingsNav.svelte";
 import QuestionCard from "$lib/thread/QuestionCard.svelte";
+import ThreadImage from "$lib/thread/ThreadImage.svelte";
 import { functionCallOutputText, reasoningContent } from "$lib/thread/turnSegments";
 import { openSubagent } from "$lib/app/actions.svelte";
 import type { AgentRun, SubagentDetail, ThreadItem } from "$lib/types";
@@ -527,17 +528,23 @@ const commandStatusClass = (item: ThreadItem) =>
     <hr class="flex-1 border-surface-200-800" />
   </div>
 {:else if item.type === "imageView"}
-  <div class="flex items-center gap-2 text-xs text-surface-500">
-    <Image size={12} class="shrink-0" />
-    <span class="min-w-0 flex-1 truncate font-mono text-[11px]">{item.path ?? "an image"}</span>
-  </div>
+  {#if item.path}
+    <ThreadImage path={item.path} label={item.path} />
+  {:else}
+    <div class="flex items-center gap-2 text-xs text-surface-500">
+      <Image size={12} class="shrink-0" />
+      <span class="min-w-0 flex-1 truncate font-mono text-[11px]">an image</span>
+    </div>
+  {/if}
 {:else if item.type === "imageGeneration"}
-  <div class="flex items-center gap-2 text-xs text-surface-500">
-    <Image size={12} class="shrink-0" />
-    <span class="min-w-0 flex-1 truncate">
-      Generated an image{item.savedPath ? ` · ${item.savedPath}` : ""}
-    </span>
-  </div>
+  {#if item.savedPath}
+    <ThreadImage path={item.savedPath} label={`Generated an image · ${item.savedPath}`} />
+  {:else}
+    <div class="flex items-center gap-2 text-xs text-surface-500">
+      <Image size={12} class="shrink-0" />
+      <span class="min-w-0 flex-1 truncate">Generated an image</span>
+    </div>
+  {/if}
 {:else if item.type === "sleep"}
   <div class="flex items-center gap-2 text-xs text-surface-500">
     <Clock size={12} class="shrink-0" />

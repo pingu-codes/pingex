@@ -1,3 +1,4 @@
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { NATIVE_HOST, sameHost } from "$lib/app/host";
 import { deleteFromLayout, emptyLayout, nextOrdinal, placeInLayout, resetLayoutOrder } from "$lib/layout/sidebarTree";
 import { addProfileProject, commands } from "$lib/services/homeRouting";
@@ -324,6 +325,24 @@ export async function applySessionFocus(
 export async function revealInFinder(path: string): Promise<void> {
   if (!isTauri()) return;
   await commands.revealInFinder(path);
+}
+
+const threadImageSrcs = new Map<string, Promise<string | null>>();
+
+/**
+ * A URL the webview can load for an image the agent viewed or generated, or
+ * `null` when there is none (browser preview, or the backend refused it). The
+ * path may sit outside the static asset scope (`/tmp`, a WSL distro), so the
+ * backend opens it up first; that happens once per path.
+ */
+export function threadImageSrc(path: string): Promise<string | null> {
+  if (!isTauri()) return Promise.resolve(null);
+  let src = threadImageSrcs.get(path);
+  if (!src) {
+    src = commands.allowThreadImage(path).then((local) => convertFileSrc(local), () => null);
+    threadImageSrcs.set(path, src);
+  }
+  return src;
 }
 
 /** Open a URL in the user's default browser instead of the app webview. */

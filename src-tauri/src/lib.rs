@@ -604,6 +604,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             files::search_project_files,
             files::list_project_files,
             files::preview::read_file_preview,
+            files::preview::allow_thread_image,
             // Composer: drafts, attachments, quick chat
             composer::drafts::save_draft,
             composer::drafts::load_draft,
