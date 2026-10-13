@@ -4,7 +4,6 @@ import {
   ChevronDown,
   Code2,
   FileDiff,
-  FileText,
   Folder,
   FolderTree,
   Gauge,
@@ -16,11 +15,13 @@ import {
   ScrollText,
   SquareTerminal,
 } from "@lucide/svelte";
+import { Menu, Portal, ToggleGroup } from "@skeletonlabs/skeleton-svelte";
 import { messageLog } from "$lib/layout/messageLogPrefs.svelte";
 import UsageMeter from "$lib/layout/UsageMeter.svelte";
 import { accountUsage } from "$lib/services/accountUsage.svelte";
 import { elapsedLabel } from "$lib/services/agentRuns.svelte";
 import { processClock, type RunningProcess } from "$lib/services/processes.svelte";
+import { type StatusBucket, statusBucket, statusTone } from "$lib/thread/agentStatus";
 import type { ContextStats } from "$lib/thread/contextUsage";
 import { changeLabel } from "$lib/thread/fileChanges";
 import { formatCost } from "$lib/thread/usageCost";
@@ -86,7 +87,6 @@ let {
   onOpenProcess?: (process: RunningProcess) => void;
 } = $props();
 
-let openIn = $state(false);
 // Collapsed by default: git changes are secondary to the thread's own outputs
 // and can be long, so they only take space when asked for.
 let changesOpen = $state(false);
@@ -134,12 +134,6 @@ const subagentDepth = (agent: SubagentDetail) => {
   return depth;
 };
 const subagentLabel = (agent: SubagentDetail) => agent.agentNickname ?? agent.agentRole ?? agent.title;
-const subagentState = (status: string) => {
-  if (["active", "running", "pendingInit", "inProgress"].includes(status)) return "Active";
-  if (["errored", "failed", "systemError", "notFound"].includes(status)) return "Failed";
-  if (["killed", "orphaned"].includes(status)) return "Stopped";
-  return "Finished";
-};
 
 // Running first, then newest; the current thread's ahead of other threads'.
 const orderedProcesses = $derived(
@@ -151,92 +145,68 @@ const orderedProcesses = $derived(
     return b.startedAt - a.startedAt;
   }),
 );
-const processState = (status: RunningProcess["status"]) =>
-  status === "running" ? "Active" : status === "failed" ? "Failed" : status === "interrupted" ? "Stopped" : "Finished";
 
 // Chips filter the process list; only Active is on by default so a long
 // history of finished commands doesn't bury the ones still running.
-const processFilterOptions = ["Active", "Finished", "Failed"] as const;
-type ProcessFilter = (typeof processFilterOptions)[number];
-let processFilters = $state<Record<ProcessFilter, boolean>>({ Active: true, Finished: false, Failed: false });
+const processFilterOptions: StatusBucket[] = ["Active", "Finished", "Failed"];
+let processFilters = $state<string[]>(["Active"]);
 // Stopped (interrupted) commands are done running, so they live under Finished.
-const processFilterBucket = (state: string): ProcessFilter =>
-  state === "Active" ? "Active" : state === "Failed" ? "Failed" : "Finished";
+const processFilterBucket = (status: string): StatusBucket => {
+  const bucket = statusBucket(status);
+  return bucket === "Stopped" ? "Finished" : bucket;
+};
 const visibleProcesses = $derived(
-  orderedProcesses.filter((process) => processFilters[processFilterBucket(processState(process.status))]),
+  orderedProcesses.filter((process) => processFilters.includes(processFilterBucket(process.status))),
 );
-
-const stateClass = (state: string) =>
-  state === "Active" ? "text-success-500" : state === "Failed" ? "text-error-500" : "text-surface-500";
-
-function closeDropdown() {
-  openIn = false;
-}
 </script>
 
-<!-- Capture phase + preventDefault: the composer reads an unclaimed Escape as
-     "interrupt the running turn". -->
-<svelte:window
-  onclick={closeDropdown}
-  onkeydowncapture={(event) => {
-    if (event.key !== "Escape" || !openIn) return;
-    event.preventDefault();
-    closeDropdown();
-  }}
-/>
+{#snippet section(title: string, count = 0, first = false)}
+  <div
+    class="flex items-center px-1 pb-1 eyebrow text-[10px] {first ? '' : 'mt-2 border-t border-surface-200-800 pt-2'}"
+  >
+    <span class="flex-1">{title}</span>
+    {#if count > 0}<span class="tabular-nums">{count}</span>{/if}
+  </div>
+{/snippet}
 
-<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
+{#snippet empty(text: string)}
+  <p class="px-2 py-1 text-xs text-surface-500">{text}</p>
+{/snippet}
+
 <div class="pointer-events-none absolute inset-0 z-30 select-none">
-  <!-- backdrop-blur makes this a stacking context, so it needs its own z-index to
-       let the "Open in" dropdown paint above the overview panel below it. -->
+  <!-- backdrop-blur makes this a stacking context, so it needs its own z-index
+       to paint above the overview panel below it. -->
   <div
     class="pointer-events-auto absolute right-4 top-2 z-50 flex items-center gap-1 rounded-full border border-surface-200-800 bg-surface-50-950/95 p-1 shadow-md backdrop-blur"
-    onclick={(event) => event.stopPropagation()}
   >
-    <div class="relative">
-      <button
-        onclick={() => {
-          openIn = !openIn;
-        }}
-        class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium hover:preset-tonal"
-      >
+    <!-- The menu claims Escape while open, so the composer never reads it as
+         "interrupt the running turn". -->
+    <Menu
+      positioning={{ placement: "bottom-end" }}
+      onSelect={({ value }) => (value === "finder" ? onOpenFinder() : onOpenZed())}
+    >
+      <Menu.Trigger class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium hover:preset-tonal">
         Open in
         <ChevronDown size={12} class="text-surface-500" />
-      </button>
-      {#if openIn}
-        <!-- z-50 keeps this above the overview panel, which renders later in the DOM. -->
-        <div class="popover-card absolute right-0 top-8 z-50 w-[160px] p-1" role="menu">
-          <button
-            role="menuitem"
-            onclick={() => {
-              openIn = false;
-              onOpenFinder();
-            }}
-            class="menu-row"
-          >
-            <Folder size={13} class="text-surface-500" />
-            Finder
-          </button>
-          <button
-            role="menuitem"
-            onclick={() => {
-              openIn = false;
-              onOpenZed();
-            }}
-            class="menu-row"
-          >
-            <Code2 size={13} class="text-surface-500" />
-            Zed
-          </button>
-        </div>
-      {/if}
-    </div>
+      </Menu.Trigger>
+      <Portal>
+        <Menu.Positioner>
+          <Menu.Content class="popover-card z-50 w-[160px] min-w-0 gap-0 p-1">
+            <Menu.Item value="finder" class="menu-row">
+              <Folder size={13} class="text-surface-500" />
+              <Menu.ItemText class="flex-1">Finder</Menu.ItemText>
+            </Menu.Item>
+            <Menu.Item value="zed" class="menu-row">
+              <Code2 size={13} class="text-surface-500" />
+              <Menu.ItemText class="flex-1">Zed</Menu.ItemText>
+            </Menu.Item>
+          </Menu.Content>
+        </Menu.Positioner>
+      </Portal>
+    </Menu>
     <button
       aria-label="Thread overview"
-      onclick={() => {
-        panel = !panel;
-        openIn = false;
-      }}
+      onclick={() => (panel = !panel)}
       class="btn-icon btn-icon-sm hover:preset-tonal text-surface-600-400"
     >
       <ListTree size={14} />
@@ -250,11 +220,8 @@ function closeDropdown() {
       class="popover-card pointer-events-auto absolute right-4 top-[52px] bottom-4 z-40 w-[270px] overflow-y-auto p-2"
       role="menu"
       aria-label="Thread overview panel"
-      onclick={(event) => event.stopPropagation()}
     >
-      <div class="flex items-center px-1 pb-1 eyebrow text-[10px]">
-        <span class="flex-1">Usage</span>
-      </div>
+      {@render section("Usage", 0, true)}
       <!-- The figures themselves live in the status panel; this row is the way in. -->
       <button
         type="button"
@@ -283,7 +250,7 @@ function closeDropdown() {
         {/each}
       </div>
 
-      <div class="mt-2 border-t border-surface-200-800 px-1 pb-1 pt-2 eyebrow text-[10px]">Plan</div>
+      {@render section("Plan")}
       {#if plan}
         <button
           onclick={onShowPlan}
@@ -293,17 +260,12 @@ function closeDropdown() {
           <span class="min-w-0 flex-1 truncate">{plan.split("\n")[0].replace(/^#+\s*/, "")}</span>
         </button>
       {:else}
-        <p class="px-2 py-1 text-xs text-surface-500">No plan in this thread.</p>
+        {@render empty("No plan in this thread.")}
       {/if}
 
-      <div class="mt-2 flex items-center border-t border-surface-200-800 px-1 pb-1 pt-2 eyebrow text-[10px]">
-        <span class="flex-1">Outputs</span>
-        {#if outputs.length > 0}
-          <span class="tabular-nums">{outputs.length}</span>
-        {/if}
-      </div>
+      {@render section("Outputs", outputs.length)}
       {#if outputs.length === 0}
-        <p class="px-2 py-1 text-xs text-surface-500">No files changed yet.</p>
+        {@render empty("No files changed yet.")}
       {:else}
         <!-- Every touched file is listed, not just the first few: a file edited
              late in a long thread is exactly the one the user is looking for. -->
@@ -347,9 +309,9 @@ function closeDropdown() {
       </button>
       {#if changesOpen}
         {#if !gitChanges}
-          <p class="px-2 py-1 text-xs text-surface-500">Not a Git repository.</p>
+          {@render empty("Not a Git repository.")}
         {:else if changeRows.length === 0}
-          <p class="px-2 py-1 text-xs text-surface-500">No changes{gitChanges.baseBranch ? ` vs ${gitChanges.baseBranch}` : ""}.</p>
+          {@render empty(`No changes${gitChanges.baseBranch ? ` vs ${gitChanges.baseBranch}` : ""}.`)}
         {:else}
           <div class="max-h-56 overflow-y-auto">
             <!-- Only the first rows are listed here; the panel pages the rest. -->
@@ -377,9 +339,9 @@ function closeDropdown() {
         {/if}
       {/if}
 
-      <div class="mt-2 border-t border-surface-200-800 px-1 pb-1 pt-2 eyebrow text-[10px]">Sources</div>
+      {@render section("Sources")}
       {#if sources.length === 0}
-        <p class="px-2 py-1 text-xs text-surface-500">No web searches.</p>
+        {@render empty("No web searches.")}
       {:else}
         <button
           onclick={onShowSources}
@@ -391,16 +353,13 @@ function closeDropdown() {
         </button>
       {/if}
 
-      <div class="mt-2 flex items-center border-t border-surface-200-800 px-1 pb-1 pt-2 eyebrow text-[10px]">
-        <span class="flex-1">Subagents</span>
-        {#if subagents.length > 0}<span>{subagents.length}</span>{/if}
-      </div>
+      {@render section("Subagents", subagents.length)}
       {#if subagents.length === 0}
-        <p class="px-2 py-1 text-xs text-surface-500">No subagents in this thread.</p>
+        {@render empty("No subagents in this thread.")}
       {:else}
         <div class="max-h-52 overflow-y-auto">
           {#each orderedSubagents as agent (agent.id)}
-            {@const state = subagentState(agent.status)}
+            {@const state = statusBucket(agent.status)}
             <div class="flex w-full items-start rounded hover:preset-tonal">
               <button
                 onclick={() => onOpenSubagent(agent)}
@@ -408,11 +367,11 @@ function closeDropdown() {
                 class="flex min-w-0 flex-1 items-start gap-2 py-1.5 pr-2 text-left"
                 aria-label={`Open subagent ${subagentLabel(agent)}`}
               >
-                <Bot size={13} class="mt-0.5 shrink-0 {stateClass(state)}" />
+                <Bot size={13} class="mt-0.5 shrink-0 {statusTone(agent.status)}" />
                 <span class="min-w-0 flex-1">
                   <span class="flex items-center gap-1.5">
                     <span class="min-w-0 flex-1 truncate text-xs">{subagentLabel(agent)}</span>
-                    <span class="text-[9px] {stateClass(state)}">{state}</span>
+                    <span class="text-[9px] {statusTone(agent.status)}">{state}</span>
                   </span>
                   <span class="mt-0.5 flex flex-wrap gap-1 text-[9px] text-surface-500">
                     <span>{agent.model ?? "Default model"}</span>
@@ -436,44 +395,42 @@ function closeDropdown() {
         </div>
       {/if}
 
-      <div class="mt-2 flex items-center border-t border-surface-200-800 px-1 pb-1 pt-2 eyebrow text-[10px]">
-        <span class="flex-1">Processes</span>
-        {#if processes.length > 0}<span>{processes.length}</span>{/if}
-      </div>
+      {@render section("Processes", processes.length)}
       {#if processes.length === 0}
-        <p class="px-2 py-1 text-xs text-surface-500">No commands run yet.</p>
+        {@render empty("No commands run yet.")}
       {:else}
-        <div class="flex gap-1 px-1 pb-1.5">
+        <ToggleGroup
+          multiple
+          value={processFilters}
+          onValueChange={(details) => (processFilters = details.value)}
+          aria-label="Filter processes"
+          class="flex gap-1 overflow-visible rounded-none border-0 px-1 pb-1.5"
+        >
           {#each processFilterOptions as filter (filter)}
-            <button
-              onclick={() => {
-                processFilters[filter] = !processFilters[filter];
-              }}
-              aria-pressed={processFilters[filter]}
-              class="rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors {processFilters[filter]
-                ? 'border-primary-500/40 bg-primary-500/15 text-primary-500'
-                : 'border-surface-200-800 text-surface-500 hover:preset-tonal'}"
+            <ToggleGroup.Item
+              value={filter}
+              class="h-auto rounded-full border border-surface-200-800 px-2 py-0.5 text-[10px] leading-normal font-medium text-surface-500 transition-colors hover:preset-tonal data-[state=on]:border-primary-500/40 data-[state=on]:bg-primary-500/15 data-[state=on]:text-primary-500"
             >
               {filter}
-            </button>
+            </ToggleGroup.Item>
           {/each}
-        </div>
+        </ToggleGroup>
         {#if visibleProcesses.length === 0}
-          <p class="px-2 py-1 text-xs text-surface-500">No matching processes.</p>
+          {@render empty("No matching processes.")}
         {/if}
         <div class="max-h-52 overflow-y-auto">
           {#each visibleProcesses as process (process.key)}
-            {@const state = processState(process.status)}
+            {@const state = statusBucket(process.status)}
             <button
               onclick={() => onOpenProcess(process)}
               class="flex w-full items-start gap-2 rounded px-2 py-1.5 text-left hover:preset-tonal"
               aria-label={`Open process ${process.command}`}
             >
-              <SquareTerminal size={13} class="mt-0.5 shrink-0 {stateClass(state)}" />
+              <SquareTerminal size={13} class="mt-0.5 shrink-0 {statusTone(process.status)}" />
               <span class="min-w-0 flex-1">
                 <span class="flex items-center gap-1.5">
                   <span class="min-w-0 flex-1 truncate font-mono text-xs">{process.command || "(command)"}</span>
-                  <span class="text-[9px] {stateClass(state)}">{state}</span>
+                  <span class="text-[9px] {statusTone(process.status)}">{state}</span>
                 </span>
                 <span class="mt-0.5 flex flex-wrap gap-1 text-[9px] text-surface-500">
                   {#if process.status === "running"}

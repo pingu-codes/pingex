@@ -17,6 +17,7 @@ import {
   Wrench,
 } from "@lucide/svelte";
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
+import type { Snippet } from "svelte";
 import { openSubagent } from "$lib/app/actions.svelte";
 import { trackSubagent } from "$lib/app/appData.svelte";
 // Agent threads are hidden from the sidebar on purpose, and `openThreadById`
@@ -25,9 +26,17 @@ import { openThreadInCwd } from "$lib/app/navigation.svelte";
 import DiffBlock from "$lib/components/DiffBlock.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import { modelLabel } from "$lib/composer/models.svelte";
-import { activityFor, agentClock, elapsedLabel, isRunning, runForToolCall } from "$lib/services/agentRuns.svelte";
+import {
+  activityFor,
+  agentClock,
+  elapsedLabel,
+  isRunning,
+  runAsSubagent,
+  runForToolCall,
+} from "$lib/services/agentRuns.svelte";
 import { copyText, killAgentRun } from "$lib/services/api";
 import { openSettings } from "$lib/services/settingsNav.svelte";
+import { statusTone } from "$lib/thread/agentStatus";
 import QuestionCard from "$lib/thread/QuestionCard.svelte";
 import ThreadImage from "$lib/thread/ThreadImage.svelte";
 import { functionCallOutputText, reasoningContent } from "$lib/thread/turnSegments";
@@ -177,21 +186,10 @@ function agentInputText(item: ThreadItem): string {
  * back arrow to and no way to resolve the thread at all.
  */
 function openAgentRunThread(run: AgentRun) {
-  if (!run.childThreadId) return;
-  trackSubagent({
-    id: run.childThreadId,
-    parentThreadId: run.parentThreadId,
-    title: run.name,
-    cwd: run.cwd,
-    status: run.status,
-    agentNickname: run.name,
-    agentRole: null,
-    model: run.model,
-    reasoningEffort: run.reasoningEffort,
-    source: "app",
-    runId: run.runId,
-  });
-  openThreadInCwd(run.childThreadId, run.cwd);
+  const agent = runAsSubagent(run);
+  if (!agent) return;
+  trackSubagent(agent);
+  openThreadInCwd(agent.id, run.cwd);
 }
 
 const rawReasoning = (item: ThreadItem) => reasoningContent(item).filter(Boolean).join("\n\n");
@@ -219,12 +217,6 @@ const hookPromptText = (item: ThreadItem) =>
     .join("\n");
 
 const collabAgentCount = (item: ThreadItem) => item.receiverThreadIds?.length ?? 0;
-const collabStateClass = (status: string) =>
-  ["errored", "failed", "systemError", "notFound"].includes(status)
-    ? "text-error-500"
-    : ["completed", "finished", "done", "shutdown"].includes(status)
-      ? "text-surface-500"
-      : "text-success-500";
 
 const commandStatusClass = (item: ThreadItem) =>
   item.exitCode === 0 || item.status === "completed"
@@ -233,6 +225,35 @@ const commandStatusClass = (item: ThreadItem) =>
       ? "bg-warning-500"
       : "bg-error-500";
 </script>
+
+<!-- A one-line summary that unfolds into its detail, as tool calls, hook text
+     and agent calls all render. -->
+{#snippet expander(header: Snippet, body: Snippet, bodyClass = "")}
+  <Collapsible class="min-w-0 items-stretch">
+    <Collapsible.Trigger class="group flex w-full items-center gap-2 text-left text-xs text-surface-500 hover:text-surface-700-300">
+      {@render header()}
+      <ChevronDown size={12} class="shrink-0 transition group-data-[state=open]:rotate-180" />
+    </Collapsible.Trigger>
+    <Collapsible.Content>
+      <div class="mt-1.5 border-l-2 border-surface-200-800 pl-3 text-xs leading-5 {bodyClass}">{@render body()}</div>
+    </Collapsible.Content>
+  </Collapsible>
+{/snippet}
+
+<!-- What a running agent or tool call is doing right now. -->
+{#snippet liveLine(text: string, since: number | null = null)}
+  <p class="mt-1 flex items-center gap-2 pl-5 text-[11px] leading-4 text-surface-500">
+    <span class="shrink-0 animate-pulse text-primary-500" aria-hidden="true">▸</span>
+    <span class="min-w-0 flex-1 truncate">{text}</span>
+    {#if since !== null}<span class="shrink-0 tabular-nums">{elapsedLabel(since, agentClock.now)}</span>{/if}
+  </p>
+{/snippet}
+
+{#snippet openThreadButton(open: () => void)}
+  <button type="button" onclick={open} class="shrink-0 text-[10px] text-surface-500 hover:text-primary-500">
+    Open thread
+  </button>
+{/snippet}
 
 {#if item.type === "agentMessage" || item.type === "plan"}
   <div
@@ -354,7 +375,6 @@ const commandStatusClass = (item: ThreadItem) =>
         <TooltipButton
           label="Copy command"
           type="button"
-          aria-label="Copy command"
           onclick={copyCommand}
           class="grid size-6 shrink-0 place-items-center rounded-md text-surface-500 transition-opacity hover:bg-surface-200-800 hover:text-surface-800-200 {copiedCommand.on
             ? 'opacity-100'
@@ -404,32 +424,28 @@ const commandStatusClass = (item: ThreadItem) =>
     </div>
   {/if}
 {:else if item.type === "collabAgentToolCall"}
-  <Collapsible class="min-w-0 items-stretch">
-    <Collapsible.Trigger class="group flex w-full items-center gap-2 text-left text-xs text-surface-500 hover:text-surface-700-300">
-      <Bot size={12} class="shrink-0" />
-      <span class="shrink-0">{collabHeader(item)}</span>
-      <span class="min-w-0 flex-1 truncate font-mono text-[10px]">
-        {#if item.model || item.reasoningEffort}
-          {item.model ?? "default model"} · {item.reasoningEffort ?? "default effort"}
-        {/if}
-      </span>
-      <ChevronDown size={12} class="shrink-0 transition group-data-[state=open]:rotate-180" />
-    </Collapsible.Trigger>
-    <Collapsible.Content>
-      <div class="mt-1.5 space-y-1.5 border-l-2 border-surface-200-800 pl-3 text-xs leading-5">
-        {#each Object.entries(item.agentsStates ?? {}) as [agentId, agentState] (agentId)}
-          <div class="flex items-center gap-2">
-            <span class="font-mono text-[10px] text-surface-500">{agentId.slice(0, 8)}</span>
-            <span class={collabStateClass(agentState.status)}>{agentState.status}</span>
-            {#if agentState.message}<span class="min-w-0 flex-1 truncate text-surface-500">{agentState.message}</span>{/if}
-          </div>
-        {/each}
-        {#if item.prompt}
-          <div class="whitespace-pre-wrap break-words text-surface-500">{item.prompt}</div>
-        {/if}
+  {#snippet collabSummary()}
+    <Bot size={12} class="shrink-0" />
+    <span class="shrink-0">{collabHeader(item)}</span>
+    <span class="min-w-0 flex-1 truncate font-mono text-[10px]">
+      {#if item.model || item.reasoningEffort}
+        {item.model ?? "default model"} · {item.reasoningEffort ?? "default effort"}
+      {/if}
+    </span>
+  {/snippet}
+  {#snippet collabDetail()}
+    {#each Object.entries(item.agentsStates ?? {}) as [agentId, agentState] (agentId)}
+      <div class="flex items-center gap-2">
+        <span class="font-mono text-[10px] text-surface-500">{agentId.slice(0, 8)}</span>
+        <span class={statusTone(agentState.status)}>{agentState.status}</span>
+        {#if agentState.message}<span class="min-w-0 flex-1 truncate text-surface-500">{agentState.message}</span>{/if}
       </div>
-    </Collapsible.Content>
-  </Collapsible>
+    {/each}
+    {#if item.prompt}
+      <div class="whitespace-pre-wrap break-words text-surface-500">{item.prompt}</div>
+    {/if}
+  {/snippet}
+  {@render expander(collabSummary, collabDetail, "space-y-1.5")}
 {:else if item.type === "dynamicToolCall" && isAgentTool(item.tool)}
   {@const run = runForToolCall(item)}
   {@const label = agentLabel(item, run?.name)}
@@ -442,15 +458,9 @@ const commandStatusClass = (item: ThreadItem) =>
       {#if label}<span class="text-surface-700-300">{label}</span>{/if}
     </span>
     {#if run}
-      <span class={`shrink-0 ${collabStateClass(run.status)}`}>{run.status}</span>
+      <span class={`shrink-0 ${statusTone(run.status)}`}>{run.status}</span>
       {#if run.childThreadId}
-        <button
-          type="button"
-          onclick={() => run.childThreadId && openAgentRunThread(run)}
-          class="shrink-0 text-[10px] text-surface-500 hover:text-primary-500"
-        >
-          Open thread
-        </button>
+        {@render openThreadButton(() => openAgentRunThread(run))}
       {/if}
       {#if isRunning(run)}
         <button
@@ -469,11 +479,7 @@ const commandStatusClass = (item: ThreadItem) =>
     </p>
   {/if}
   {#if activity}
-    <div class="mt-1 flex items-center gap-2 pl-5 text-[11px] leading-4 text-surface-500">
-      <span class="shrink-0 animate-pulse text-primary-500" aria-hidden="true">▸</span>
-      <span class="min-w-0 flex-1 truncate">{activity.label}</span>
-      <span class="shrink-0 tabular-nums">{elapsedLabel(activity.since, agentClock.now)}</span>
-    </div>
+    {@render liveLine(activity.label, activity.since)}
   {/if}
   {#if run && !isRunning(run) && run.result}
     <p class="mt-1 whitespace-pre-wrap break-words pl-5 text-[11px] leading-4 text-surface-600-400">
@@ -497,15 +503,9 @@ const commandStatusClass = (item: ThreadItem) =>
     </span>
     {#if agent}
       {#if activityShowsStatus(item) && agent.status}
-        <span class={`shrink-0 ${collabStateClass(agent.status)}`}>{agent.status}</span>
+        <span class={`shrink-0 ${statusTone(agent.status)}`}>{agent.status}</span>
       {/if}
-      <button
-        type="button"
-        onclick={() => openSubagent(agent)}
-        class="shrink-0 text-[10px] text-surface-500 hover:text-primary-500"
-      >
-        Open thread
-      </button>
+      {@render openThreadButton(() => openSubagent(agent))}
     {/if}
   </div>
 {:else if item.type === "enteredReviewMode" || item.type === "exitedReviewMode"}
@@ -545,50 +545,38 @@ const commandStatusClass = (item: ThreadItem) =>
   <!-- Text one of the user's hooks pushed into the conversation. Codex reads it
        as if it came from the user, so it is shown rather than hidden — collapsed,
        because a hook can inject a lot of it. -->
-  <Collapsible class="min-w-0 items-stretch">
-    <Collapsible.Trigger class="group flex w-full items-center gap-2 text-left text-xs text-surface-500 hover:text-surface-700-300">
-      <Webhook size={12} class="shrink-0" />
-      <span class="shrink-0">Hook added context</span>
-      <span class="min-w-0 flex-1 truncate">{hookPromptText(item)}</span>
-      <ChevronDown size={12} class="shrink-0 transition group-data-[state=open]:rotate-180" />
-    </Collapsible.Trigger>
-    <Collapsible.Content>
-      <div class="mt-1.5 whitespace-pre-wrap break-words border-l-2 border-surface-200-800 pl-3 text-xs leading-5 text-surface-500">{hookPromptText(item)}</div>
-    </Collapsible.Content>
-  </Collapsible>
+  {#snippet hookSummary()}
+    <Webhook size={12} class="shrink-0" />
+    <span class="shrink-0">Hook added context</span>
+    <span class="min-w-0 flex-1 truncate">{hookPromptText(item)}</span>
+  {/snippet}
+  {#snippet hookText()}{hookPromptText(item)}{/snippet}
+  {@render expander(hookSummary, hookText, "whitespace-pre-wrap break-words text-surface-500")}
 {:else if item.type === "functionCallOutput"}
   <!-- The raw result of a tool the model called (Codex ≥0.151). Text output
        is shown behind an expander; image parts are just counted. -->
-  <Collapsible class="min-w-0 items-stretch">
-    <Collapsible.Trigger class="group flex w-full items-center gap-2 text-left text-xs text-surface-500 hover:text-surface-700-300">
-      <Wrench size={12} class="shrink-0" />
-      <span class="shrink-0 font-mono">{item.namespace ? `${item.namespace}/` : ""}{item.name ?? "tool"} output</span>
-      <ChevronDown size={12} class="shrink-0 transition group-data-[state=open]:rotate-180" />
-    </Collapsible.Trigger>
-    <Collapsible.Content>
-      <div class="mt-1.5 border-l-2 border-surface-200-800 pl-3 text-xs leading-5 text-surface-500 whitespace-pre-wrap break-words">{functionCallOutputText(item)}</div>
-    </Collapsible.Content>
-  </Collapsible>
+  {#snippet outputSummary()}
+    <Wrench size={12} class="shrink-0" />
+    <span class="shrink-0 font-mono">{item.namespace ? `${item.namespace}/` : ""}{item.name ?? "tool"} output</span>
+  {/snippet}
+  {#snippet outputText()}{functionCallOutputText(item)}{/snippet}
+  {@render expander(outputSummary, outputText, "whitespace-pre-wrap break-words text-surface-500")}
 {:else if item.type === "mcpToolCall" || item.type === "dynamicToolCall" || item.type === "webSearch"}
   {@const description = item.title || item.query}
   {@const preview = item.tool && description?.startsWith(`${item.tool} `) ? description.slice(item.tool.length + 1) : description}
   {@const output = functionCallOutputText(item)}
   {#if description || output}
-    <Collapsible class="min-w-0 items-stretch">
-      <Collapsible.Trigger class="group flex w-full items-center gap-2 text-left text-xs text-surface-500 hover:text-surface-700-300">
-        <Wrench size={12} class="shrink-0" />
-        <span class="shrink-0 font-mono">{item.server ? `${item.server}/` : ""}{item.tool ?? item.type}</span>
-        <span class="min-w-0 flex-1 truncate" title={description}>{preview}</span>
-        {#if item.status}<span class="shrink-0 text-[10px]">{item.status === "inProgress" ? "Running" : item.status}</span>{/if}
-        <ChevronDown size={12} class="shrink-0 transition group-data-[state=open]:rotate-180" />
-      </Collapsible.Trigger>
-      <Collapsible.Content>
-        <div class="mt-1.5 space-y-2 border-l-2 border-surface-200-800 pl-3 text-xs leading-5 text-surface-500 whitespace-pre-wrap break-words">
-          {#if description}<div>{description}</div>{/if}
-          {#if output}<div>{output}</div>{/if}
-        </div>
-      </Collapsible.Content>
-    </Collapsible>
+    {#snippet toolSummary()}
+      <Wrench size={12} class="shrink-0" />
+      <span class="shrink-0 font-mono">{item.server ? `${item.server}/` : ""}{item.tool ?? item.type}</span>
+      <span class="min-w-0 flex-1 truncate" title={description}>{preview}</span>
+      {#if item.status}<span class="shrink-0 text-[10px]">{item.status === "inProgress" ? "Running" : item.status}</span>{/if}
+    {/snippet}
+    {#snippet toolDetail()}
+      {#if description}<div>{description}</div>{/if}
+      {#if output}<div>{output}</div>{/if}
+    {/snippet}
+    {@render expander(toolSummary, toolDetail, "space-y-2 whitespace-pre-wrap break-words text-surface-500")}
   {:else}
     <div class="flex items-center gap-2 text-xs text-surface-500">
       <Wrench size={12} />
@@ -598,10 +586,7 @@ const commandStatusClass = (item: ThreadItem) =>
   {#if item.progress}
     <!-- A long MCP call reporting in. Gone once the call completes, since the
          completed item carries no progress. -->
-    <p class="mt-1 flex items-center gap-2 pl-5 text-[11px] leading-4 text-surface-500">
-      <span class="shrink-0 animate-pulse text-primary-500" aria-hidden="true">▸</span>
-      <span class="min-w-0 flex-1 truncate">{item.progress}</span>
-    </p>
+    {@render liveLine(item.progress)}
   {/if}
   {#if item.type === "mcpToolCall" && item.server}
     <button

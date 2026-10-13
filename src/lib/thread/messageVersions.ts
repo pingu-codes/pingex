@@ -73,12 +73,6 @@ export function isPendingEditTurn(threadId: string | null, turnIndex: number, br
   return !!branch && branch.editTurnId === null && branch.inheritedTurns === turnIndex;
 }
 
-/** The group a new edit of `turnId` joins: the original's when `turnId` is
- *  itself an edit, otherwise `turnId` starts one. */
-export function groupForTurn(turnId: string, branches: ThreadBranch[]): string {
-  return branches.find((branch) => branch.editTurnId === turnId)?.groupTurnId ?? turnId;
-}
-
 /** The thread at the top of `threadId`'s family — the one in the sidebar. */
 export function rootThreadId(threadId: string | null, branches: ThreadBranch[]): string | null {
   let current = threadId;
@@ -121,11 +115,6 @@ export function newestLeaf(
     }
   }
   return best;
-}
-
-/** Whether `threadId` is a version branch rather than a sidebar thread. */
-export function isBranch(threadId: string | null, branches: ThreadBranch[]): boolean {
-  return branches.some((branch) => branch.threadId === threadId);
 }
 
 function sorted(branches: ThreadBranch[]): ThreadBranch[] {

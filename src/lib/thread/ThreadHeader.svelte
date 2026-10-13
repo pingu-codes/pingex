@@ -1,5 +1,6 @@
 <script lang="ts">
 import { ArrowLeftRight, ChevronDown, Copy, GitBranch, Home, Link2, Send, TerminalSquare } from "@lucide/svelte";
+import { Menu, Portal } from "@skeletonlabs/skeleton-svelte";
 import { projects } from "$lib/app/appData.svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
 import {
@@ -40,7 +41,6 @@ let {
   onError: (message: string) => void;
 } = $props();
 
-let menuOpen = $state(false);
 const linkCopied = flashFlag();
 
 $effect(() => {
@@ -59,12 +59,7 @@ const disabledHint = $derived(
       : "",
 );
 
-function closeMenu() {
-  menuOpen = false;
-}
-
 async function openContinueInTerminal() {
-  closeMenu();
   if (!threadId) return;
   try {
     const command = await handoffCommand(threadId, cwd);
@@ -82,7 +77,6 @@ async function openContinueInTerminal() {
 }
 
 async function copyThreadLink() {
-  closeMenu();
   if (!threadId) return;
   try {
     const link = await handoffThreadLink(threadId, cwd);
@@ -97,7 +91,6 @@ const inTempWorktree = $derived(isTempWorktreePath(cwd));
 
 /** Check the temporary worktree's branch out locally and continue the thread there. */
 function openHandoffToLocal() {
-  closeMenu();
   const thread = threadId;
   if (!thread) return;
   const targets = projects()
@@ -117,7 +110,6 @@ function openHandoffToLocal() {
 }
 
 function openMoveToWorktree() {
-  closeMenu();
   const thread = threadId;
   if (!thread) return;
   openDialog(MoveToWorktreeDialog, {
@@ -129,18 +121,14 @@ function openMoveToWorktree() {
     },
   });
 }
-</script>
 
-<!-- Capture phase + preventDefault: the composer reads an unclaimed Escape as
-     "interrupt the running turn". -->
-<svelte:window
-  onclick={closeMenu}
-  onkeydowncapture={(event) => {
-    if (event.key !== "Escape" || !menuOpen) return;
-    event.preventDefault();
-    closeMenu();
-  }}
-/>
+const handoffActions: Record<string, () => void> = {
+  terminal: openContinueInTerminal,
+  local: openHandoffToLocal,
+  worktree: openMoveToWorktree,
+  link: copyThreadLink,
+};
+</script>
 
 <div class="flex items-center gap-2">
   <!-- home › repository › branch/worktree -->
@@ -160,48 +148,41 @@ function openMoveToWorktree() {
     {/if}
   </nav>
 
-  <div class="relative">
-    <button
-      type="button"
+  <!-- The menu claims Escape while open, so the composer never reads it as
+       "interrupt the running turn". -->
+  <Menu positioning={{ placement: "bottom-end" }} onSelect={({ value }) => handoffActions[value]?.()}>
+    <Menu.Trigger
       disabled={!enabled}
       title={enabled ? "Handoff options" : disabledHint}
-      onclick={(event) => {
-        event.stopPropagation();
-        if (enabled) menuOpen = !menuOpen;
-      }}
       class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium text-surface-600-400 transition hover:bg-surface-200-800 hover:text-surface-800-200 disabled:cursor-not-allowed disabled:opacity-40"
     >
       <Send size={12} />
       Handoff
       <ChevronDown size={11} />
-    </button>
-    {#if menuOpen && enabled}
-      <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
-      <div
-        class="popover-card absolute right-0 top-9 z-50 w-60 select-none p-1.5"
-        onclick={(event) => event.stopPropagation()}
-        role="menu"
-        aria-label="Handoff options"
-      >
-        <button onclick={openContinueInTerminal} class="menu-row" role="menuitem">
-          <TerminalSquare size={14} class="shrink-0 text-surface-500" />
-          <span class="min-w-0 flex-1">Continue in terminal</span>
-        </button>
-        {#if inTempWorktree}
-          <button onclick={openHandoffToLocal} class="menu-row" role="menuitem">
-            <ArrowLeftRight size={14} class="shrink-0 text-surface-500" />
-            <span class="min-w-0 flex-1">Hand off to local</span>
-          </button>
-        {/if}
-        <button onclick={openMoveToWorktree} class="menu-row" role="menuitem">
-          <GitBranch size={14} class="shrink-0 text-surface-500" />
-          <span class="min-w-0 flex-1">Move to worktree</span>
-        </button>
-        <button onclick={copyThreadLink} class="menu-row" role="menuitem">
-          {#if linkCopied.on}<Copy size={14} class="shrink-0 text-primary-500" />{:else}<Link2 size={14} class="shrink-0 text-surface-500" />{/if}
-          <span class="min-w-0 flex-1">{linkCopied.on ? "Link copied" : "Copy thread link"}</span>
-        </button>
-      </div>
-    {/if}
-  </div>
+    </Menu.Trigger>
+    <Portal>
+      <Menu.Positioner>
+        <Menu.Content class="popover-card z-50 w-60 select-none gap-0 p-1.5" aria-label="Handoff options">
+          <Menu.Item value="terminal" class="menu-row">
+            <TerminalSquare size={14} class="shrink-0 text-surface-500" />
+            <Menu.ItemText class="min-w-0 flex-1">Continue in terminal</Menu.ItemText>
+          </Menu.Item>
+          {#if inTempWorktree}
+            <Menu.Item value="local" class="menu-row">
+              <ArrowLeftRight size={14} class="shrink-0 text-surface-500" />
+              <Menu.ItemText class="min-w-0 flex-1">Hand off to local</Menu.ItemText>
+            </Menu.Item>
+          {/if}
+          <Menu.Item value="worktree" class="menu-row">
+            <GitBranch size={14} class="shrink-0 text-surface-500" />
+            <Menu.ItemText class="min-w-0 flex-1">Move to worktree</Menu.ItemText>
+          </Menu.Item>
+          <Menu.Item value="link" class="menu-row">
+            {#if linkCopied.on}<Copy size={14} class="shrink-0 text-primary-500" />{:else}<Link2 size={14} class="shrink-0 text-surface-500" />{/if}
+            <Menu.ItemText class="min-w-0 flex-1">{linkCopied.on ? "Link copied" : "Copy thread link"}</Menu.ItemText>
+          </Menu.Item>
+        </Menu.Content>
+      </Menu.Positioner>
+    </Portal>
+  </Menu>
 </div>

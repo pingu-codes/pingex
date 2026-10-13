@@ -1,7 +1,7 @@
 import type { CodexEvent } from "$lib/services/codexEvents.svelte";
 import { isRetryableError, reviewTransition } from "$lib/services/turnLifecycle";
 import { mergeFileChanges } from "$lib/thread/fileChanges";
-import type { HookRunSummary, MisalignmentErrorDetails, ThreadDetail, ThreadItem, Turn } from "$lib/types";
+import type { HookRunSummary, ThreadDetail, ThreadItem, Turn } from "$lib/types";
 
 export function ensureTurn(turns: Turn[], turnId: string): Turn {
   const turn = turns.find((candidate) => candidate.id === turnId);
@@ -149,20 +149,10 @@ export interface ApplyOutcome {
   bufferingEnded?: boolean;
   /** A turn finished; the caller should invalidate the thread cache. */
   turnCompleted?: boolean;
-  /** A collab tool call landed; the caller should refresh subagents. */
   /** A Codex subagent was spawned, messaged, stopped or finished: relist them. */
   subagentsChanged?: boolean;
-  /** The event targeted this thread (caller should keep the view scrolled). */
-  changed: boolean;
-  /** Codex stopped the turn for an alignment reason; drawn in the transcript
-   *  instead of `streamError`. */
-  misalignment?: MisalignmentErrorDetails;
 }
 
-/**
- * Applies a streaming Codex event to the thread's turns in place. The thread
- * may be a $state proxy; mutations flow through Svelte reactivity.
- */
 /**
  * Whether an item means the thread's subagent listing is out of date. V1
  * collab calls carry their own states; V2 only reports path-based activity, and
@@ -174,9 +164,13 @@ function subagentsChanged(item: { type?: string; kind?: string } | undefined): b
   return item.type === "subAgentActivity" && ["started", "interrupted", "completed"].includes(item.kind ?? "");
 }
 
+/**
+ * Applies a streaming Codex event to the thread's turns in place. The thread
+ * may be a $state proxy; mutations flow through Svelte reactivity.
+ */
 export function applyThreadEvent(thread: ThreadDetail, event: CodexEvent): ApplyOutcome {
   const { method, params } = event;
-  const outcome: ApplyOutcome = { changed: true };
+  const outcome: ApplyOutcome = {};
   switch (method) {
     case "turn/started":
       // Mid-review, Codex announces a turn of its own under an id no item ever
@@ -231,32 +225,22 @@ export function applyThreadEvent(thread: ThreadDetail, event: CodexEvent): Apply
         outcome.turnCompleted = true;
       }
       break;
-    case "item/agentMessage/delta": {
-      const item = ensureItem(thread.turns, params.turnId, params.itemId, "agentMessage");
+    // Plans stream exactly like agent messages; without this the whole plan
+    // appears at once when the item completes.
+    case "item/agentMessage/delta":
+    case "item/plan/delta": {
+      const type = method === "item/plan/delta" ? "plan" : "agentMessage";
+      const item = ensureItem(thread.turns, params.turnId, params.itemId, type);
       item.text = (item.text ?? "") + params.delta;
       // `item/completed` replaces the item wholesale, which clears this again.
       item.streaming = true;
       break;
     }
-    // Plans stream exactly like agent messages; without this the whole plan
-    // appears at once when the item completes.
-    case "item/plan/delta": {
-      const item = ensureItem(thread.turns, params.turnId, params.itemId, "plan");
-      item.text = (item.text ?? "") + params.delta;
-      item.streaming = true;
-      break;
-    }
-    case "item/reasoning/summaryPartAdded": {
-      const item = ensureItem(thread.turns, params.turnId, params.itemId, "reasoning");
-      item.summary = item.summary ?? [];
-      while (item.summary.length <= params.summaryIndex) item.summary.push("");
-      break;
-    }
+    case "item/reasoning/summaryPartAdded":
     case "item/reasoning/summaryTextDelta": {
       const item = ensureItem(thread.turns, params.turnId, params.itemId, "reasoning");
-      item.summary = item.summary ?? [];
-      while (item.summary.length <= params.summaryIndex) item.summary.push("");
-      item.summary[params.summaryIndex] += params.delta;
+      item.summary = padTo(item.summary ?? [], params.summaryIndex);
+      if (method === "item/reasoning/summaryTextDelta") item.summary[params.summaryIndex] += params.delta;
       break;
     }
     // The model's unsummarised reasoning, indexed separately from the summary
@@ -267,23 +251,19 @@ export function applyThreadEvent(thread: ThreadDetail, event: CodexEvent): Apply
       const item = ensureItem(thread.turns, params.turnId, params.itemId, "reasoning");
       // `content` is `UserInputPart[]` on a user message and `string[]` here;
       // on a reasoning item only the latter ever occurs.
-      const content = (item.content ?? []) as string[];
-      while (content.length <= params.contentIndex) content.push("");
+      const content = padTo((item.content ?? []) as string[], params.contentIndex);
       content[params.contentIndex] += params.delta;
       item.content = content;
       break;
     }
-    case "item/commandExecution/outputDelta": {
-      const item = ensureItem(thread.turns, params.turnId, params.itemId, "commandExecution");
-      item.aggregatedOutput = appendOutputTail(item.aggregatedOutput, params.delta);
-      break;
-    }
-    // What Codex typed into an interactive command. The command's own output
-    // echoes nothing back, so without this the transcript shows the prompt and
-    // then the result with no sign of the answer in between.
+    // A terminal interaction is what Codex typed into an interactive command.
+    // The command's own output echoes nothing back, so without it the transcript
+    // shows the prompt and then the result with no sign of the answer between.
+    case "item/commandExecution/outputDelta":
     case "item/commandExecution/terminalInteraction": {
       const item = ensureItem(thread.turns, params.turnId, params.itemId, "commandExecution");
-      item.aggregatedOutput = appendOutputTail(item.aggregatedOutput, params.stdin);
+      const text = method === "item/commandExecution/outputDelta" ? params.delta : params.stdin;
+      item.aggregatedOutput = appendOutputTail(item.aggregatedOutput, text);
       break;
     }
     // A long-running MCP tool reporting where it has got to. Replaces rather
@@ -344,8 +324,7 @@ export function applyThreadEvent(thread: ThreadDetail, event: CodexEvent): Apply
         const misalignment = params.error?.misalignment ?? null;
         // A misalignment stop (Codex ≥0.151) carries its own explanation and
         // a suggested way on; the transcript card shows that, so no toast.
-        if (misalignment?.detailedExplanation) outcome.misalignment = misalignment;
-        else outcome.streamError = message;
+        if (!misalignment?.detailedExplanation) outcome.streamError = message;
         // The turn is over even if no `turn/completed` follows, and the session
         // store already stops counting the thread as working — without this the
         // transcript alone would go on claiming it still is. A `turn/completed`
@@ -365,6 +344,12 @@ export function applyThreadEvent(thread: ThreadDetail, event: CodexEvent): Apply
       break;
   }
   return outcome;
+}
+
+/** `list` grown with empty strings until `index` is in range. */
+function padTo(list: string[], index: number): string[] {
+  while (list.length <= index) list.push("");
+  return list;
 }
 
 /** The first thing a failing hook actually said, when it set no status message. */

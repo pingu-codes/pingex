@@ -509,7 +509,6 @@ describe("applyThreadEvent — reviews", () => {
       params: { threadId: "t", willRetry: false, error: { message: "Stopped.", misalignment } },
     });
     expect(outcome.streamError).toBeUndefined();
-    expect(outcome.misalignment).toEqual(misalignment);
     expect(thread.turns[0].status).toBe("failed");
     expect(thread.turns[0].error).toEqual({ message: "Stopped.", misalignment });
 

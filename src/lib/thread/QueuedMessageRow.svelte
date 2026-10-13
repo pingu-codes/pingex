@@ -1,8 +1,9 @@
 <script lang="ts">
 import { Pencil, Send, X } from "@lucide/svelte";
-import { tick } from "svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
-import { isLocalOnly } from "$lib/thread/queueEntries";
+import { InlineEdit } from "$lib/thread/inlineEdit.svelte";
+import { editedParts, messageText } from "$lib/thread/messageText";
+import { isLocalOnly, queuedText } from "$lib/thread/queueEntries";
 import type { QueuedSubmission, UserInputPart } from "$lib/types";
 
 let {
@@ -20,40 +21,11 @@ let {
   onCancel: () => void;
 } = $props();
 
-/** The message's prose — chips flatten to their `@name` so an edit keeps them. */
-export function queuedText(input: UserInputPart[]): string {
-  return input
-    .map((part) => (part.type === "text" ? (part.text ?? "") : `@${part.name}`))
-    .join("")
-    .trim();
-}
-
-let draft = $state<string | null>(null);
-let textarea = $state<HTMLTextAreaElement | null>(null);
-
-async function startEdit() {
-  draft = queuedText(entry.input);
-  await tick();
-  textarea?.focus();
-  textarea?.setSelectionRange(draft.length, draft.length);
-}
-
-function saveEdit() {
-  const text = draft?.trim() ?? "";
-  draft = null;
-  if (!text || text === queuedText(entry.input)) return;
-  onEdit([{ type: "text", text }]);
-}
-
-function onKeydown(event: KeyboardEvent) {
-  if (event.key === "Escape") {
-    event.preventDefault();
-    draft = null;
-  } else if (event.key === "Enter" && !event.shiftKey) {
-    event.preventDefault();
-    saveEdit();
-  }
-}
+// Only the prose is edited; chips keep their place, as in a sent message's edit.
+const edit = new InlineEdit(
+  () => messageText(entry.input),
+  (text) => onEdit(editedParts(entry.input, text)),
+);
 </script>
 
 <div
@@ -65,12 +37,12 @@ function onKeydown(event: KeyboardEvent) {
   >
     {isLocalOnly(entry) ? "Queued locally" : "Queued"}
   </span>
-  {#if draft !== null}
+  {#if edit.editing}
     <textarea
-      bind:this={textarea}
-      bind:value={draft}
-      onkeydown={onKeydown}
-      onblur={saveEdit}
+      bind:this={edit.textarea}
+      bind:value={edit.draft}
+      onkeydown={edit.onkeydown}
+      onblur={edit.submit}
       aria-label="Edit queued message"
       rows="2"
       class="min-w-0 flex-1 resize-none bg-transparent text-surface-800-200 outline-none"
@@ -90,15 +62,13 @@ function onKeydown(event: KeyboardEvent) {
       {/if}
       <TooltipButton
         label="Edit queued message"
-        aria-label="Edit queued message"
-        onclick={startEdit}
+        onclick={edit.start}
         class="btn-icon btn-icon-sm rounded-md text-surface-600-400 transition hover:preset-tonal"
       >
         <Pencil size={14} />
       </TooltipButton>
       <TooltipButton
         label="Remove queued message"
-        aria-label="Remove queued message"
         onclick={onCancel}
         class="btn-icon btn-icon-sm rounded-md text-surface-600-400 transition hover:text-error-500 hover:preset-tonal"
       >
