@@ -486,7 +486,7 @@ async function reveal(path: string | null | undefined) {
                 <span class="font-mono">{runtimeSettings?.settingsPath ?? "settings.json"}</span>.
               </p>
               {#if generalError}
-                <div class="card preset-tonal-error px-3 py-2 text-xs">{generalError}</div>
+                <div class="error-note">{generalError}</div>
               {/if}
             </form>
           </section>
@@ -568,7 +568,7 @@ async function reveal(path: string | null | undefined) {
                 Stored by Pingex, not <span class="font-mono">config.toml</span>. Applies to new threads.
               </p>
               {#if agentError}
-                <div class="card preset-tonal-error mt-3 px-3 py-2 text-xs">{agentError}</div>
+                <div class="error-note mt-3">{agentError}</div>
               {/if}
               <div class="mt-4 divide-y divide-surface-200-800">
                 <div class="flex items-center justify-between gap-3 py-3">
@@ -658,7 +658,7 @@ async function reveal(path: string | null | undefined) {
               Stored in <span class="font-mono">config.toml</span>. Changes apply to the next thread.
             </p>
             {#if configError}
-              <div class="card preset-tonal-error mt-3 px-3 py-2 text-xs">{configError}</div>
+              <div class="error-note mt-3">{configError}</div>
             {/if}
             <div class="mt-4 divide-y divide-surface-200-800">
               {#each settingsForSection(currentSection) as setting (setting.key)}
@@ -711,7 +711,7 @@ async function reveal(path: string | null | undefined) {
               </div>
             </div>
             {#if shortcutError}
-              <div class="card preset-tonal-error mt-3 px-3 py-2 text-xs">{shortcutError}</div>
+              <div class="error-note mt-3">{shortcutError}</div>
             {/if}
             <div class="mt-4 divide-y divide-surface-200-800 text-sm">
               {#each KEYBOARD_SHORTCUTS as shortcut (shortcut.action)}

@@ -75,7 +75,7 @@ function submitReview() {
     <!-- Pending (unsubmitted) inline comments -->
     {#if pending.length > 0}
       <section>
-        <h3 class="text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">
+        <h3 class="eyebrow">
           Pending comments
           <span class="ml-1 rounded-full bg-primary-500/15 px-1.5 py-0.5 text-[10px] text-primary-500">{pending.length}</span>
         </h3>
@@ -97,9 +97,9 @@ function submitReview() {
 
     <!-- Existing inline comment threads -->
     <section>
-      <h3 class="text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Comment threads</h3>
+      <h3 class="eyebrow">Comment threads</h3>
       {#if threads.length === 0}
-        <p class="mt-2 rounded-lg border border-dashed border-surface-300-700 px-3 py-4 text-center text-xs text-surface-500">
+        <p class="mt-2 empty-state rounded-lg px-3 py-4">
           No inline comments yet.
         </p>
       {:else}
@@ -159,7 +159,7 @@ function submitReview() {
     <!-- Conversation comments -->
     {#if conversation.length > 0}
       <section>
-        <h3 class="text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Conversation</h3>
+        <h3 class="eyebrow">Conversation</h3>
         <ul class="mt-2 space-y-2">
           {#each conversation as comment (comment.id + comment.createdAt)}
             <li class="rounded-lg border border-surface-200-800 bg-surface-100-900 p-2.5 text-xs">

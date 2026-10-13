@@ -308,7 +308,7 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
       </Tabs.Content>
       <Tabs.Content value="usage">
         {#if tab === "usage"}
-          <section class="mt-5 rounded-xl border border-surface-200-800 bg-surface-100-900 p-4">
+          <section class="mt-5 panel-card p-4">
             <h2 class="text-sm font-semibold">Token usage</h2>
             <p class="mt-1 text-xs text-surface-500">Every thread in this project, summed by category.</p>
             <div class="mt-4"><UsageSummary scope={{ kind: "project", path: project.path }} /></div>
@@ -318,7 +318,7 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
 
       <Tabs.Content value="overview">
         {#if hasGit}
-          <section class="rounded-xl border border-surface-200-800 bg-surface-100-900 p-4">
+          <section class="panel-card p-4">
             <div class="flex items-center gap-2">
               <GitBranch size={15} class="text-primary-500" />
               {#if status}
@@ -342,7 +342,7 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
         {/if}
 
         {#if isMultiProject}
-          <section class="mt-5 rounded-xl border border-surface-200-800 bg-surface-100-900 p-4">
+          <section class="mt-5 panel-card p-4">
             <div class="flex items-center justify-between gap-3"><h2 class="text-sm font-medium">Workspace members</h2>{#if onManageWorkspace}<button class="btn btn-sm preset-tonal" onclick={() => onManageWorkspace?.(project)}>Edit members</button>{/if}</div>
             <p class="mt-1 text-xs text-surface-500">The hub is writable for notes and plans. Member aliases are the directories the agent edits.</p>
             <div class="mt-3 space-y-2">
@@ -361,7 +361,7 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
         <!-- Instructions -->
         <div class="mt-6">
           <div class="mb-1.5 flex items-center gap-2">
-            <h2 class="text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Instructions</h2>
+            <h2 class="eyebrow">Instructions</h2>
             {#if savingInstructions}<span class="text-[10px] text-surface-500">Saving…</span>
             {:else if instructionsError}<span class="text-[10px] text-error-500" role="alert">{instructionsError}</span>{/if}
           </div>
@@ -412,7 +412,7 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
 
       <Tabs.Content value="sources">
         <div class="flex items-center gap-2">
-          <div class="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-surface-200-800 bg-surface-100-900 px-3 py-2">
+          <div class="flex min-w-0 flex-1 items-center gap-2 panel-card px-3 py-2">
             <Search size={15} class="shrink-0 text-surface-500" />
             <input
               value={query}
@@ -435,14 +435,14 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
         </div>
       {#if query.trim() && results}
         {#if isEmptyResults(results)}
-          <div class="mt-3 rounded-xl border border-dashed border-surface-300-700 px-4 py-8 text-center text-sm text-surface-500">
+          <div class="mt-3 empty-state py-8 text-sm">
             {emptyStateLabel(query)}
           </div>
         {:else}
           <div class="mt-3 space-y-4">
             {#if results.projectFiles.items.length > 0}
               <div>
-                <h3 class="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Project files</h3>
+                <h3 class="mb-1.5 eyebrow">Project files</h3>
                 <div class="space-y-1">
                   {#each results.projectFiles.items as match (match.path + ":" + (match.lineNumber ?? "name"))}
                     <button
@@ -468,7 +468,7 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
 
             {#if results.threads.items.length > 0}
               <div>
-                <h3 class="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Local chats</h3>
+                <h3 class="mb-1.5 eyebrow">Local chats</h3>
                 <div class="space-y-1">
                   {#each results.threads.items as match (match.threadId)}
                     <button
@@ -485,7 +485,7 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
 
             {#if results.messages.items.length > 0}
               <div>
-                <h3 class="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Thread messages</h3>
+                <h3 class="mb-1.5 eyebrow">Thread messages</h3>
                 <div class="space-y-1">
                   {#each results.messages.items as match (match.threadId)}
                     <button
@@ -505,9 +505,9 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
 
     <!-- Sources -->
     <div class="mt-6">
-      <h2 class="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Sources</h2>
+      <h2 class="mb-1.5 eyebrow">Sources</h2>
       {#if sourceError}
-        <div class="mb-2 flex items-center gap-2 rounded-lg preset-tonal-error px-3 py-2 text-xs">
+        <div class="mb-2 flex items-center gap-2 error-note">
           <span class="min-w-0 flex-1">{sourceError}</span>
           <TooltipButton label="Dismiss" onclick={() => (sourceError = null)} aria-label="Dismiss" class="btn-icon btn-icon-sm"><X size={12} /></TooltipButton>
         </div>
@@ -515,14 +515,14 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
       {#if sources.length === 0}
         <button
           onclick={addFolder}
-          class="w-full rounded-xl border border-dashed border-surface-300-700 px-4 py-6 text-left text-xs leading-5 text-surface-600-400 hover:border-surface-400-600 hover:text-surface-800-200"
+          class="w-full empty-cta"
         >
           Attach folders or files to make their contents searchable in this project.
         </button>
       {:else}
         <div class="space-y-1.5">
           {#each sources as source (source.id)}
-            <div class="group/src flex items-center gap-3 rounded-xl border border-surface-200-800 bg-surface-100-900 px-3 py-2.5">
+            <div class="group/src flex items-center gap-3 panel-card px-3 py-2.5">
               {#if source.kind === "folder"}
                 <FolderOpen size={16} strokeWidth={1.7} class="shrink-0 text-surface-500" />
               {:else}

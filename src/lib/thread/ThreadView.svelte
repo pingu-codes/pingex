@@ -5,6 +5,7 @@ import { onDestroy, tick, untrack } from "svelte";
 import { SvelteSet } from "svelte/reactivity";
 import { nameNewThread } from "$lib/app/appData.svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
+import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import TypingDots from "$lib/components/TypingDots.svelte";
 import Composer from "$lib/composer/Composer.svelte";
@@ -40,7 +41,6 @@ import { processes } from "$lib/services/processes.svelte";
 import ApprovalCard from "$lib/thread/ApprovalCard.svelte";
 import { requestAutoName } from "$lib/thread/autoName";
 import { contextStats as deriveContextStats } from "$lib/thread/contextUsage";
-import DiscardQueuedDialog from "$lib/thread/DiscardQueuedDialog.svelte";
 import ElicitationCard from "$lib/thread/ElicitationCard.svelte";
 import FloatingMenu from "$lib/thread/FloatingMenu.svelte";
 import { collectFileChanges } from "$lib/thread/fileChanges";
@@ -53,8 +53,6 @@ import { planText } from "$lib/thread/planText";
 import QuestionCard from "$lib/thread/QuestionCard.svelte";
 import QueuedMessageRow from "$lib/thread/QueuedMessageRow.svelte";
 import ReasoningBlock from "$lib/thread/ReasoningBlock.svelte";
-import ReplaceGoalDialog from "$lib/thread/ReplaceGoalDialog.svelte";
-import RewindThreadDialog from "$lib/thread/RewindThreadDialog.svelte";
 import SystemPromptSection from "$lib/thread/SystemPromptSection.svelte";
 import { isAtBottom, isFarFromBottom, nextFollowing, recallScroll, rememberScroll } from "$lib/thread/scrollPositions";
 import { attachSession, draftSession, openSession, releaseSession } from "$lib/thread/sessions.svelte";
@@ -582,7 +580,14 @@ async function cancelQueued(entry: QueuedSubmission) {
     composer.restoreText(text);
     return;
   }
-  if (!(await openDialog(DiscardQueuedDialog, { preview: text }))) return;
+  const confirmed = await openDialog(ConfirmDialog, {
+    title: "Discard queued message",
+    body: "The composer already has text, so this message can't be moved back into it. Removing it from the queue discards it for good.",
+    detail: text,
+    confirmLabel: "Discard",
+    cancelLabel: "Keep",
+  });
+  if (!confirmed) return;
   await session.queue.remove(entry);
 }
 
@@ -957,7 +962,12 @@ async function setGoal(objective: string, edit = false): Promise<boolean> {
     // looks like a draft because adopting the thread does not remount.)
     const existing = session.goal ?? (await getThreadGoal(current).catch(() => null));
     if (existing && existing.objective !== objective) {
-      const ok = await openDialog(ReplaceGoalDialog, { current: existing.objective, next: objective });
+      const ok = await openDialog(ConfirmDialog, {
+        title: "Replace goal",
+        body: [`This thread already has a goal: “${existing.objective}”`, `Replace it with “${objective}”?`],
+        confirmLabel: "Replace goal",
+        tone: "warning" as const,
+      });
       if (!ok) return false;
     }
   }
@@ -1229,7 +1239,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
             {/each}
             {#if turn.status === "failed" && turn.error}
               {@const steer = turn.error.misalignment?.steer?.message}
-              <div class="card preset-tonal-error space-y-2 p-3 text-xs">
+              <div class="error-note p-3 space-y-2">
                 <div>{turn.error.message}</div>
                 {#if turn.error.misalignment?.detailedExplanation}
                   <p class="whitespace-pre-wrap opacity-90">{turn.error.misalignment.detailedExplanation}</p>

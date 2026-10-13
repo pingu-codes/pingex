@@ -31,7 +31,7 @@ async function chooseHome(id: string, next: HarnessChoice) {
   <Menu.Trigger
     aria-label="Choose harness"
     title="Harness new threads run on"
-    class="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] text-surface-500 transition hover:bg-surface-200-800 hover:text-surface-800-200"
+    class="pill"
   >
     <Bot size={12} />
     {label}
@@ -40,7 +40,7 @@ async function chooseHome(id: string, next: HarnessChoice) {
   <Portal>
     <Menu.Positioner>
       <Menu.Content
-        class="card z-50 w-44 select-none border border-surface-200-800 bg-surface-50-950 p-1 shadow-xl"
+        class="popover-card z-50 w-44 select-none p-1"
       >
         {#if homes.length}
           {#each homes as entry (entry.home.id)}

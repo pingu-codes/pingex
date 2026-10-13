@@ -15,6 +15,7 @@ import HandoffToLocalDialog from "$lib/thread/HandoffToLocalDialog.svelte";
 import { canHandoff, dirName, shortHomeName } from "$lib/thread/handoff";
 import MoveToWorktreeDialog from "$lib/thread/MoveToWorktreeDialog.svelte";
 import { errorMessage } from "$lib/utils/errors";
+import { flashFlag } from "$lib/utils/flash.svelte";
 import { ensureGitStatus, gitStatusCache, refreshGitStatus } from "$lib/worktrees/gitStatus.svelte";
 import { isTempWorktreePath } from "$lib/worktrees/worktrees";
 
@@ -40,7 +41,7 @@ let {
 } = $props();
 
 let menuOpen = $state(false);
-let linkCopied = $state(false);
+const linkCopied = flashFlag();
 
 $effect(() => {
   if (cwd) ensureGitStatus(cwd);
@@ -86,8 +87,7 @@ async function copyThreadLink() {
   try {
     const link = await handoffThreadLink(threadId, cwd);
     await handoffCopy(link);
-    linkCopied = true;
-    setTimeout(() => (linkCopied = false), 1500);
+    linkCopied.trigger();
   } catch (cause) {
     onError(errorMessage(cause));
   }
@@ -178,28 +178,28 @@ function openMoveToWorktree() {
     {#if menuOpen && enabled}
       <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
       <div
-        class="card absolute right-0 top-9 z-50 w-60 select-none border border-surface-200-800 bg-surface-50-950 p-1.5 shadow-xl"
+        class="popover-card absolute right-0 top-9 z-50 w-60 select-none p-1.5"
         onclick={(event) => event.stopPropagation()}
         role="menu"
         aria-label="Handoff options"
       >
-        <button onclick={openContinueInTerminal} class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal" role="menuitem">
+        <button onclick={openContinueInTerminal} class="menu-row" role="menuitem">
           <TerminalSquare size={14} class="shrink-0 text-surface-500" />
           <span class="min-w-0 flex-1">Continue in terminal</span>
         </button>
         {#if inTempWorktree}
-          <button onclick={openHandoffToLocal} class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal" role="menuitem">
+          <button onclick={openHandoffToLocal} class="menu-row" role="menuitem">
             <ArrowLeftRight size={14} class="shrink-0 text-surface-500" />
             <span class="min-w-0 flex-1">Hand off to local</span>
           </button>
         {/if}
-        <button onclick={openMoveToWorktree} class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal" role="menuitem">
+        <button onclick={openMoveToWorktree} class="menu-row" role="menuitem">
           <GitBranch size={14} class="shrink-0 text-surface-500" />
           <span class="min-w-0 flex-1">Move to worktree</span>
         </button>
-        <button onclick={copyThreadLink} class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal" role="menuitem">
-          {#if linkCopied}<Copy size={14} class="shrink-0 text-primary-500" />{:else}<Link2 size={14} class="shrink-0 text-surface-500" />{/if}
-          <span class="min-w-0 flex-1">{linkCopied ? "Link copied" : "Copy thread link"}</span>
+        <button onclick={copyThreadLink} class="menu-row" role="menuitem">
+          {#if linkCopied.on}<Copy size={14} class="shrink-0 text-primary-500" />{:else}<Link2 size={14} class="shrink-0 text-surface-500" />{/if}
+          <span class="min-w-0 flex-1">{linkCopied.on ? "Link copied" : "Copy thread link"}</span>
         </button>
       </div>
     {/if}

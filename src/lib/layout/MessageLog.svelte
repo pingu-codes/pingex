@@ -80,7 +80,7 @@ const kindClass: Record<string, string> = {
   </div>
 
   {#if messageLog.error}
-    <div class="card preset-tonal-error mt-3 px-3 py-2 text-xs">{messageLog.error}</div>
+    <div class="error-note mt-3">{messageLog.error}</div>
   {/if}
 
   <div class="mt-3 max-h-[420px] overflow-y-auto rounded-lg border border-surface-200-800">

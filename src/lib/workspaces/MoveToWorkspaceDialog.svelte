@@ -34,7 +34,7 @@ const choices = $derived(workspaces.filter((project) => project.kind === "multiP
         <span class="min-w-0 flex-1"><span class="block truncate font-medium">{workspace.name}</span><span class="block truncate text-[10px] text-surface-500">{workspace.members?.map((member) => member.alias).join(" · ")}</span></span>
       </button>
     {:else}
-      <p class="rounded-lg border border-dashed border-surface-300-700 p-4 text-xs text-surface-500">Create a workspace before moving this thread.</p>
+      <p class="empty-state rounded-lg p-4 text-left">Create a workspace before moving this thread.</p>
     {/each}
   </div>
 </DialogShell>

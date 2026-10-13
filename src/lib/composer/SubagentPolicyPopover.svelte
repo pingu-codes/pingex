@@ -59,8 +59,7 @@ const noEfforts = $derived(policyIsEmpty(effortPolicy, efforts));
       onToggle();
     }}
     aria-label="Set subagent models and effort"
-    class="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] transition hover:bg-surface-200-800
-      {noModels || noEfforts ? 'text-error-500' : 'text-surface-500 hover:text-surface-800-200'}"
+    class="pill {noModels || noEfforts ? 'text-error-500 hover:text-error-500' : ''}"
   >
     <Bot size={12} />
     Subagents
@@ -69,13 +68,13 @@ const noEfforts = $derived(policyIsEmpty(effortPolicy, efforts));
   {#if open}
     <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
     <div
-      class="card absolute bottom-8 left-0 z-50 w-[300px] select-none border border-surface-200-800 bg-surface-50-950 p-2 shadow-xl"
+      class="popover-card absolute bottom-8 left-0 z-50 w-[300px] select-none p-2"
       onclick={(event) => event.stopPropagation()}
       use:positionComposerPopover
       role="dialog"
       aria-label="Subagent options"
     >
-      <div class="px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-surface-500">Included models</div>
+      <div class="px-1 eyebrow text-[10px]">Included models</div>
       {#if modelsError}
         <p class="px-1 py-2 text-xs text-error-500">{modelsError}</p>
       {:else if models === null}
@@ -99,7 +98,7 @@ const noEfforts = $derived(policyIsEmpty(effortPolicy, efforts));
           <p class="px-1 pt-1 text-[10px] leading-4 text-error-500">Keep at least one model checked.</p>
         {/if}
         <div class="mt-2 border-t border-surface-200-800 pt-1.5">
-          <span class="px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-surface-500">Included effort levels</span>
+          <span class="px-1 eyebrow text-[10px]">Included effort levels</span>
           <div class="mt-1 grid grid-cols-2 gap-0.5">
             {#each efforts as effort (effort)}
               <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs capitalize hover:preset-tonal">
@@ -124,7 +123,7 @@ const noEfforts = $derived(policyIsEmpty(effortPolicy, efforts));
       </p>
       <div class="mt-2 border-t border-surface-200-800 pt-2">
         <div class="flex items-center justify-between gap-2 px-1">
-          <span class="text-[10px] font-semibold uppercase tracking-[0.08em] text-surface-500">
+          <span class="eyebrow text-[10px]">
             Run in separate processes
           </span>
           <div class="flex shrink-0 gap-0.5">

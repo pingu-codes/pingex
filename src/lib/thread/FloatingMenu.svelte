@@ -205,14 +205,14 @@ function closeDropdown() {
       </button>
       {#if openIn}
         <!-- z-50 keeps this above the overview panel, which renders later in the DOM. -->
-        <div class="card absolute right-0 top-8 z-50 w-[160px] border border-surface-200-800 bg-surface-50-950 p-1 shadow-xl" role="menu">
+        <div class="popover-card absolute right-0 top-8 z-50 w-[160px] p-1" role="menu">
           <button
             role="menuitem"
             onclick={() => {
               openIn = false;
               onOpenFinder();
             }}
-            class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal"
+            class="menu-row"
           >
             <Folder size={13} class="text-surface-500" />
             Finder
@@ -223,7 +223,7 @@ function closeDropdown() {
               openIn = false;
               onOpenZed();
             }}
-            class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal"
+            class="menu-row"
           >
             <Code2 size={13} class="text-surface-500" />
             Zed
@@ -247,19 +247,19 @@ function closeDropdown() {
     <!-- The full-height overlay makes this panel's bottom inset relative to the
          thread view, so long content scrolls inside the visible viewport. -->
     <div
-      class="card pointer-events-auto absolute right-4 top-[52px] bottom-4 z-40 w-[270px] overflow-y-auto border border-surface-200-800 bg-surface-50-950 p-2 shadow-xl"
+      class="popover-card pointer-events-auto absolute right-4 top-[52px] bottom-4 z-40 w-[270px] overflow-y-auto p-2"
       role="menu"
       aria-label="Thread overview panel"
       onclick={(event) => event.stopPropagation()}
     >
-      <div class="flex items-center px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-surface-500">
+      <div class="flex items-center px-1 pb-1 eyebrow text-[10px]">
         <span class="flex-1">Usage</span>
       </div>
       <!-- The figures themselves live in the status panel; this row is the way in. -->
       <button
         type="button"
         onclick={onShowStatus}
-        class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal"
+        class="menu-row"
         aria-label="Show usage"
       >
         <Gauge size={13} class="shrink-0 text-surface-500" />
@@ -283,11 +283,11 @@ function closeDropdown() {
         {/each}
       </div>
 
-      <div class="mt-2 border-t border-surface-200-800 px-1 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-surface-500">Plan</div>
+      <div class="mt-2 border-t border-surface-200-800 px-1 pb-1 pt-2 eyebrow text-[10px]">Plan</div>
       {#if plan}
         <button
           onclick={onShowPlan}
-          class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal"
+          class="menu-row"
         >
           <Lightbulb size={13} class="shrink-0 text-warning-500" />
           <span class="min-w-0 flex-1 truncate">{plan.split("\n")[0].replace(/^#+\s*/, "")}</span>
@@ -296,7 +296,7 @@ function closeDropdown() {
         <p class="px-2 py-1 text-xs text-surface-500">No plan in this thread.</p>
       {/if}
 
-      <div class="mt-2 flex items-center border-t border-surface-200-800 px-1 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-surface-500">
+      <div class="mt-2 flex items-center border-t border-surface-200-800 px-1 pb-1 pt-2 eyebrow text-[10px]">
         <span class="flex-1">Outputs</span>
         {#if outputs.length > 0}
           <span class="tabular-nums">{outputs.length}</span>
@@ -313,7 +313,7 @@ function closeDropdown() {
             <button
               onclick={() => onShowDiff(change.path)}
               title={`View diff for ${change.path}`}
-              class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal"
+              class="menu-row"
             >
               <icon.icon size={13} class="shrink-0 {icon.class}" />
               <span class="min-w-0 flex-1 truncate">{basename(change.path)}</span>
@@ -325,7 +325,7 @@ function closeDropdown() {
         </div>
         <button
           onclick={() => onShowDiff(null)}
-          class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-surface-500 hover:preset-tonal"
+          class="menu-row text-surface-500"
         >
           <FileDiff size={13} class="shrink-0" />
           <span class="min-w-0 flex-1 truncate">All {outputs.length} changed files</span>
@@ -335,7 +335,7 @@ function closeDropdown() {
       <button
         onclick={() => (changesOpen = !changesOpen)}
         aria-expanded={changesOpen}
-        class="mt-2 flex w-full items-center gap-1 border-t border-surface-200-800 px-1 pb-1 pt-2 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-surface-500"
+        class="mt-2 flex w-full items-center gap-1 border-t border-surface-200-800 px-1 pb-1 pt-2 text-left eyebrow text-[10px]"
       >
         <span class="flex-1">Changes</span>
         {#if gitChanges && gitChanges.totalFiles > 0}
@@ -358,7 +358,7 @@ function closeDropdown() {
               <button
                 onclick={() => onShowChanges(file.path)}
                 title={file.path}
-                class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal"
+                class="menu-row"
               >
                 <icon.icon size={13} class="shrink-0 {icon.class}" />
                 <span class="min-w-0 flex-1 truncate">{basename(file.path)}</span>
@@ -369,7 +369,7 @@ function closeDropdown() {
           </div>
           <button
             onclick={() => onShowChanges(null)}
-            class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-surface-500 hover:preset-tonal"
+            class="menu-row text-surface-500"
           >
             <FileDiff size={13} class="shrink-0" />
             <span class="min-w-0 flex-1 truncate">All {gitChanges.totalFiles} changed files</span>
@@ -377,13 +377,13 @@ function closeDropdown() {
         {/if}
       {/if}
 
-      <div class="mt-2 border-t border-surface-200-800 px-1 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-surface-500">Sources</div>
+      <div class="mt-2 border-t border-surface-200-800 px-1 pb-1 pt-2 eyebrow text-[10px]">Sources</div>
       {#if sources.length === 0}
         <p class="px-2 py-1 text-xs text-surface-500">No web searches.</p>
       {:else}
         <button
           onclick={onShowSources}
-          class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal"
+          class="menu-row"
         >
           <Globe size={13} class="shrink-0 text-surface-500" />
           <span class="min-w-0 flex-1 truncate">Web search</span>
@@ -391,7 +391,7 @@ function closeDropdown() {
         </button>
       {/if}
 
-      <div class="mt-2 flex items-center border-t border-surface-200-800 px-1 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-surface-500">
+      <div class="mt-2 flex items-center border-t border-surface-200-800 px-1 pb-1 pt-2 eyebrow text-[10px]">
         <span class="flex-1">Subagents</span>
         {#if subagents.length > 0}<span>{subagents.length}</span>{/if}
       </div>
@@ -436,7 +436,7 @@ function closeDropdown() {
         </div>
       {/if}
 
-      <div class="mt-2 flex items-center border-t border-surface-200-800 px-1 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-surface-500">
+      <div class="mt-2 flex items-center border-t border-surface-200-800 px-1 pb-1 pt-2 eyebrow text-[10px]">
         <span class="flex-1">Processes</span>
         {#if processes.length > 0}<span>{processes.length}</span>{/if}
       </div>
@@ -495,7 +495,7 @@ function closeDropdown() {
       <div class="mt-2 border-t border-surface-200-800 pt-1.5">
         <button
           onclick={onShowSideQuestions}
-          class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal"
+          class="menu-row"
         >
           <MessageCircleQuestion size={13} class="shrink-0 text-primary-500" />
           <span class="flex-1">Side questions</span>
@@ -507,7 +507,7 @@ function closeDropdown() {
         </button>
         <button
           onclick={onShowFiles}
-          class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal"
+          class="menu-row"
         >
           <FolderTree size={13} class="shrink-0 text-surface-500" />
           <span class="flex-1">Files</span>
@@ -515,7 +515,7 @@ function closeDropdown() {
         {#if messageLog.enabled}
           <button
             onclick={onShowMessageLog}
-            class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal"
+            class="menu-row"
           >
             <ScrollText size={13} class="shrink-0 text-surface-500" />
             <span class="flex-1">Message log</span>

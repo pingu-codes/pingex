@@ -396,7 +396,7 @@ function openSide(entry: SideQuestion) {
           {/if}
         {/each}
         {#if turn.status === "failed" && turn.error}
-          <div class="card preset-tonal-error space-y-2 p-3 text-xs">
+          <div class="error-note p-3 space-y-2">
             <div>{turn.error.message}</div>
             {#if turn.error.misalignment?.detailedExplanation}
               <p class="whitespace-pre-wrap opacity-90">{turn.error.misalignment.detailedExplanation}</p>
@@ -421,7 +421,7 @@ function openSide(entry: SideQuestion) {
     </div>
   {/if}
   {#if sideError}
-    <div class="card preset-tonal-error mt-3 px-3 py-2 text-xs">{sideError}</div>
+    <div class="error-note mt-3">{sideError}</div>
   {/if}
 </div>
 

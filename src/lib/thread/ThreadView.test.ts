@@ -139,7 +139,7 @@ vi.mock("$lib/services/api", () => ({
 }));
 
 // Only `openDialog` is stubbed: other consumers in this tree (worktree dialogs)
-// use the real `submitState`.
+// use the real dialog machinery.
 vi.mock("$lib/app/dialogs.svelte", async (importOriginal) => ({
   ...(await importOriginal<typeof import("$lib/app/dialogs.svelte")>()),
   openDialog: mocks.openDialog,
@@ -1563,10 +1563,13 @@ describe("ThreadView /goal", () => {
     await user.type(editor, "/goal rewrite the parser{Enter}");
 
     await waitFor(() => expect(mocks.openDialog).toHaveBeenCalledTimes(1));
-    expect(mocks.openDialog).toHaveBeenCalledWith(expect.anything(), {
-      current: "ship the auth refactor",
-      next: "rewrite the parser",
-    });
+    expect(mocks.openDialog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        title: "Replace goal",
+        body: [expect.stringContaining("ship the auth refactor"), expect.stringContaining("rewrite the parser")],
+      }),
+    );
     await waitFor(() => expect(mocks.setThreadGoal).toHaveBeenCalledWith("thread-2", "rewrite the parser"));
     // Replacing never starts a second thread.
     expect(mocks.startThread).toHaveBeenCalledTimes(1);

@@ -12,6 +12,7 @@ use std::path::Path;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
+use crate::util::media::is_image_path;
 use crate::AppState;
 
 /// Most of a file the modal will render. Beyond this the viewer's gutter costs
@@ -158,19 +159,6 @@ fn read_preview_at(local: &Path, host_path: &str, cap: usize) -> FilePreview {
     }
 }
 
-/// What an image in a thread may be, by extension. The asset protocol only
-/// opens up for these, so a transcript cannot turn it into a general reader.
-const IMAGE_EXTENSIONS: &[&str] = &[
-    "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "avif", "ico", "tif", "tiff",
-];
-
-fn is_image_path(path: &str) -> bool {
-    Path::new(path)
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| IMAGE_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()))
-}
-
 /// Let the webview load one image the agent viewed or generated, and return
 /// the local path to hand to `convertFileSrc`. The static asset scope only
 /// covers `$HOME`, while agents often write screenshots to `/tmp`, and a WSL
@@ -204,14 +192,6 @@ mod tests {
         let path = dir.path().join(name);
         File::create(&path).unwrap().write_all(bytes).unwrap();
         path
-    }
-
-    #[test]
-    fn only_image_extensions_are_images() {
-        assert!(is_image_path("/tmp/shot.PNG"));
-        assert!(is_image_path("~/a b/diff.webp"));
-        assert!(!is_image_path("/home/me/.ssh/id_ed25519"));
-        assert!(!is_image_path("/tmp/png"));
     }
 
     #[test]

@@ -179,7 +179,7 @@ const isCurrent = (option: HomeOption) =>
             onclick={() => onSelect(option.path, option.host)}
             disabled={locked}
             data-testid="home-option"
-            class="flex w-full items-center gap-3 rounded-xl border border-surface-200-800 bg-surface-100-900 px-3 py-2.5 text-left transition hover:preset-tonal disabled:pointer-events-none disabled:opacity-60 {option.exists ? '' : 'opacity-60'} {option.removable ? 'pr-14' : 'pr-9'}"
+            class="flex w-full items-center gap-3 panel-card px-3 py-2.5 text-left transition hover:preset-tonal disabled:pointer-events-none disabled:opacity-60 {option.exists ? '' : 'opacity-60'} {option.removable ? 'pr-14' : 'pr-9'}"
           >
             <House size={17} strokeWidth={1.7} class="shrink-0 text-surface-500" />
             <div class="min-w-0 flex-1">
@@ -322,7 +322,7 @@ const isCurrent = (option: HomeOption) =>
     {/if}
 
     {#if error}
-      <div class="card preset-tonal-error mt-4 px-3 py-2 text-xs">{error}</div>
+      <div class="error-note mt-4">{error}</div>
     {/if}
 
     <!-- The CLI the app spawns. A bundled app launched from Finder inherits a
@@ -386,7 +386,7 @@ const isCurrent = (option: HomeOption) =>
           {/if}
         </form>
         {#if binaryError}
-          <div class="card preset-tonal-error mt-2 px-3 py-2 text-xs" data-testid="binary-error">{binaryError}</div>
+          <div class="error-note mt-2" data-testid="binary-error">{binaryError}</div>
         {/if}
       {/if}
     </div>

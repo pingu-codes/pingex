@@ -7,6 +7,7 @@ pub(crate) mod fs;
 pub(crate) mod host;
 pub(crate) mod id;
 pub(crate) mod json;
+pub(crate) mod media;
 pub(crate) mod migration;
 pub(crate) mod process;
 pub(crate) mod time;

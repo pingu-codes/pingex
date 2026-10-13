@@ -10,6 +10,7 @@ import { messageParts } from "$lib/thread/turnSegments";
 import type { ThreadItem, UserInputPart } from "$lib/types";
 import { copyPlainOrMarkdown } from "$lib/utils/copy";
 import { fileIconFor, iconForPath } from "$lib/utils/fileIcons";
+import { flashFlag } from "$lib/utils/flash.svelte";
 import { resolveMentionPath, splitMentions } from "$lib/utils/mentions";
 import { basename } from "$lib/utils/path";
 
@@ -44,15 +45,12 @@ const parts = $derived(mergeTextParts(messageParts(item)));
 
 const messageText = () => joinMessageText(messageParts(item));
 
-let copied = $state(false);
-let copyTimer: ReturnType<typeof setTimeout> | undefined;
-onDestroy(() => clearTimeout(copyTimer));
+const copied = flashFlag();
+onDestroy(copied.clear);
 
 function copyMessage(event: MouseEvent) {
   copyPlainOrMarkdown(event, messageText(), userMessageMarkdown(messageParts(item), cwd));
-  copied = true;
-  clearTimeout(copyTimer);
-  copyTimer = setTimeout(() => (copied = false), 1500);
+  copied.trigger();
 }
 
 async function startEdit() {
@@ -130,11 +128,11 @@ const localImageSrc = (part: UserInputPart) =>
       label="Copy message (⇧ for Markdown)"
       aria-label="Copy message"
       onclick={copyMessage}
-      class="mt-2 grid size-6 shrink-0 place-items-center rounded text-surface-500 transition hover:bg-surface-200-800 hover:text-surface-800-200 {copied
+      class="mt-2 grid size-6 shrink-0 place-items-center rounded text-surface-500 transition hover:bg-surface-200-800 hover:text-surface-800-200 {copied.on
         ? 'opacity-100'
         : 'opacity-0 group-hover/bubble:opacity-100'}"
     >
-      {#if copied}
+      {#if copied.on}
         <Check size={12} class="text-success-500" />
       {:else}
         <Copy size={12} />

@@ -62,7 +62,7 @@ async function unarchive(thread: ThreadSummary) {
 <div class="border-t border-surface-200-800 px-2 py-1.5">
   <button
     onclick={toggleArchived}
-    class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500 hover:preset-tonal"
+    class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left eyebrow hover:preset-tonal"
   >
     <Archive size={12} />
     <span class="flex-1">Archived</span>

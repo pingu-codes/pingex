@@ -223,18 +223,18 @@ function platformIcon(platform: string | null) {
         </div>
       {/if}
       {#if pairingError}
-        <div class="card preset-tonal-error mt-3 px-3 py-2 text-xs">{pairingError}</div>
+        <div class="error-note mt-3">{pairingError}</div>
       {/if}
     </div>
   {/if}
 
   {#if actionError}
-    <div class="card preset-tonal-error mt-3 px-3 py-2 text-xs">{actionError}</div>
+    <div class="error-note mt-3">{actionError}</div>
   {/if}
 
   <div class="mt-4 space-y-2">
     {#if connections.length === 0}
-      <div class="rounded-lg border border-dashed border-surface-300-700 px-3 py-6 text-center text-xs text-surface-500">
+      <div class="empty-state rounded-lg px-3">
         No devices paired yet. Use <span class="font-medium">Connect device</span> to add one.
       </div>
     {:else}

@@ -76,7 +76,7 @@ function onWindowKeydown(event: KeyboardEvent) {
 <svelte:window onkeydown={onWindowKeydown} />
 
 <div
-  class="card absolute bottom-full left-0 z-50 mb-2 max-h-[min(320px,50vh)] w-[min(420px,100%)] select-none overflow-y-auto border border-surface-200-800 bg-surface-50-950 p-1 shadow-xl"
+  class="popover-card absolute bottom-full left-0 z-50 mb-2 max-h-[min(320px,50vh)] w-[min(420px,100%)] select-none overflow-y-auto p-1"
   role="listbox"
   aria-label={label}
 >

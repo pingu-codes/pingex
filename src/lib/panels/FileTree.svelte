@@ -99,7 +99,7 @@ const tree = $derived.by(() => {
 {/snippet}
 
 {#if error}
-  <div class="card preset-tonal-error px-3 py-2 text-xs">{error}</div>
+  <div class="error-note">{error}</div>
 {:else if paths === null}
   <div class="space-y-2" aria-label="Loading files">
     <div class="placeholder h-6 animate-pulse rounded-lg"></div>

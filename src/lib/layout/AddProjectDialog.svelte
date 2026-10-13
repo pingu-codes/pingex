@@ -1,11 +1,12 @@
 <script lang="ts">
 import { open } from "@tauri-apps/plugin-dialog";
 import { onMount } from "svelte";
-import { type DialogClose, submitState } from "$lib/app/dialogs.svelte";
+import type { DialogClose } from "$lib/app/dialogs.svelte";
 import { hostFromOption } from "$lib/app/host";
 import DialogShell from "$lib/components/DialogShell.svelte";
 import { listWslDistros } from "$lib/services/api";
 import type { Host } from "$lib/types";
+import { submitState } from "$lib/utils/actionState.svelte";
 
 let { submit, close }: { submit: (path: string, host: Host | null) => Promise<void>; close: DialogClose<true> } =
   $props();

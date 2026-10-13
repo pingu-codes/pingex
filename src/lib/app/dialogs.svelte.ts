@@ -7,7 +7,6 @@
  */
 
 import type { Component } from "svelte";
-import { errorMessage } from "$lib/utils/errors";
 
 /** Every dialog receives this; calling it dismisses the dialog and resolves
  *  the promise `openDialog` returned. No argument means "dismissed". */
@@ -57,39 +56,4 @@ export function closeDialog(id: number, result: unknown): void {
 /** Dismiss everything — used when the app switches Codex home under a dialog. */
 export function closeAllDialogs(): void {
   for (const entry of dialogStack.splice(0)) entry.resolve(null);
-}
-
-/**
- * Busy/error state for a dialog that performs the work itself and stays open
- * when it fails (rather than resolving and letting the caller report the
- * error out of context). `run` returns whether the action succeeded.
- */
-export function submitState() {
-  let busy = $state(false);
-  let error = $state<string | null>(null);
-  return {
-    get busy() {
-      return busy;
-    },
-    get error() {
-      return error;
-    },
-    set error(value: string | null) {
-      error = value;
-    },
-    async run(action: () => Promise<void>): Promise<boolean> {
-      if (busy) return false;
-      busy = true;
-      error = null;
-      try {
-        await action();
-        return true;
-      } catch (cause) {
-        error = errorMessage(cause);
-        return false;
-      } finally {
-        busy = false;
-      }
-    },
-  };
 }

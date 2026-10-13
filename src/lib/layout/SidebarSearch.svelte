@@ -237,7 +237,7 @@ function selectResult(item: ThreadSearchItem) {
       {#if active.total > 0}
         <div class="mb-2">
           <div class="flex items-center justify-between px-2 py-1">
-            <span class="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">
+            <span class="inline-flex items-center gap-1.5 eyebrow">
               <MessageSquare size={11} /> Active
             </span>
             <span class="text-[10px] text-surface-500">{countLabel(active.items.length, active.total)}</span>
@@ -269,7 +269,7 @@ function selectResult(item: ThreadSearchItem) {
       {#if archived.total > 0}
         <div>
           <div class="flex items-center justify-between px-2 py-1">
-            <span class="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">
+            <span class="inline-flex items-center gap-1.5 eyebrow">
               <Archive size={11} /> Archived
             </span>
             <span class="text-[10px] text-surface-500">{countLabel(archived.items.length, archived.total)}</span>

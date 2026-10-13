@@ -65,7 +65,7 @@ function confirm() {
         bind:value={typed}
         placeholder={name}
         aria-label="Type the worktree folder name to confirm"
-        class="mt-2 w-full rounded-md border border-surface-300-700 bg-surface-50-950 px-2.5 py-1.5 font-mono text-sm outline-none focus:border-primary-500"
+        class="mt-2 w-full field font-mono text-sm"
       />
     </div>
   {/if}

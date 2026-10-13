@@ -42,8 +42,7 @@ function retirementLabel(model: Model): string | null {
       onToggle();
     }}
     aria-label="Select model and effort"
-    class="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] transition hover:bg-surface-200-800
-      {modelId === null ? 'text-error-500' : 'text-surface-500 hover:text-surface-800-200'}"
+    class="pill {modelId === null ? 'text-error-500 hover:text-error-500' : ''}"
   >
     <Cpu size={12} />
     <span class="min-w-0 truncate" title={label}>{label}</span>
@@ -52,13 +51,13 @@ function retirementLabel(model: Model): string | null {
   {#if open}
     <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
     <div
-      class="card absolute bottom-8 left-0 z-50 w-[290px] select-none border border-surface-200-800 bg-surface-50-950 p-2 shadow-xl"
+      class="popover-card absolute bottom-8 left-0 z-50 w-[290px] select-none p-2"
       onclick={(event) => event.stopPropagation()}
       use:positionComposerPopover
       role="dialog"
       aria-label="Model options"
     >
-      <div class="mb-1 px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-surface-500">Model</div>
+      <div class="mb-1 px-1 eyebrow text-[10px]">Model</div>
       {#if modelsError}
         <p class="px-1 py-2 text-xs text-error-500">{modelsError}</p>
       {:else if models === null}
@@ -68,7 +67,7 @@ function retirementLabel(model: Model): string | null {
           {#each models as model (model.id)}
             <button
               onclick={() => onChooseModel(model)}
-              class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal"
+              class="menu-row"
             >
               <span class="min-w-0 flex-1">
                 <span class="flex items-center gap-1.5">
@@ -92,7 +91,7 @@ function retirementLabel(model: Model): string | null {
         </div>
         {#if effortOptions.length > 0}
           <div class="mt-2 border-t border-surface-200-800 pt-1.5">
-            <span class="px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-surface-500">Effort</span>
+            <span class="px-1 eyebrow text-[10px]">Effort</span>
             <div class="mt-1 flex flex-wrap gap-1 px-1">
               {#each effortOptions as option (option.reasoningEffort)}
                 <button

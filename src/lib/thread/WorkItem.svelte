@@ -33,6 +33,7 @@ import ThreadImage from "$lib/thread/ThreadImage.svelte";
 import { functionCallOutputText, reasoningContent } from "$lib/thread/turnSegments";
 import type { AgentRun, SubagentDetail, ThreadItem } from "$lib/types";
 import { copyCode, copyPlainOrMarkdown } from "$lib/utils/copy";
+import { flashFlag } from "$lib/utils/flash.svelte";
 import { renderMarkdown } from "$lib/utils/markdown";
 
 let {
@@ -63,29 +64,19 @@ let {
 } = $props();
 
 let messageEl = $state<HTMLElement | null>(null);
-let copied = $state(false);
-let copyTimer: ReturnType<typeof setTimeout> | undefined;
-let copiedCommand = $state(false);
-let commandCopyTimer: ReturnType<typeof setTimeout> | undefined;
+const copied = flashFlag();
+const copiedCommand = flashFlag();
 
 /** Copies the command as the harness ran it, so it can be re-run verbatim. */
 function copyCommand() {
   copyText(item.command ?? "").catch(() => {});
-  copiedCommand = true;
-  clearTimeout(commandCopyTimer);
-  commandCopyTimer = setTimeout(() => (copiedCommand = false), 1500);
-}
-
-function flashCopied() {
-  copied = true;
-  clearTimeout(copyTimer);
-  copyTimer = setTimeout(() => (copied = false), 1500);
+  copiedCommand.trigger();
 }
 
 /** Copies the rendered message by default, or its markdown source on Shift+click. */
 function copyMessage(event: MouseEvent) {
   copyPlainOrMarkdown(event, messageEl?.innerText ?? item.text ?? "", item.text ?? "");
-  flashCopied();
+  copied.trigger();
 }
 
 /**
@@ -252,11 +243,11 @@ const commandStatusClass = (item: ThreadItem) =>
     {#if item.type === "agentMessage" && item.delivery === "async"}
       <span class="badge preset-tonal-surface mb-2 text-[10px]">Async</span>
     {/if}
-    <div class="prose-thread min-w-0 text-sm leading-7" bind:this={messageEl} use:copyCode>
+    <div class="prose-md text-sm leading-7" bind:this={messageEl} use:copyCode>
       {@html renderMarkdown(item.text ?? "")}
     </div>
     <div
-      class="mt-1 flex items-center gap-0.5 text-surface-500 transition-opacity {copied
+      class="mt-1 flex items-center gap-0.5 text-surface-500 transition-opacity {copied.on
         ? 'opacity-100'
         : 'opacity-0 group-hover/message:opacity-100'}"
     >
@@ -267,7 +258,7 @@ const commandStatusClass = (item: ThreadItem) =>
         onclick={copyMessage}
         class="grid size-6 place-items-center rounded-md hover:bg-surface-200-800 hover:text-surface-800-200"
       >
-        {#if copied}
+        {#if copied.on}
           <Check size={13} class="text-success-500" />
         {:else}
           <Copy size={13} />
@@ -329,7 +320,7 @@ const commandStatusClass = (item: ThreadItem) =>
     {/if}
   </div>
 {:else if item.type === "reasoning"}
-  <div class="prose-reasoning text-xs leading-5 text-surface-500" use:copyCode>
+  <div class="prose-md prose-md-compact text-xs leading-5 text-surface-500" use:copyCode>
     {@html renderMarkdown((item.summary ?? []).filter(Boolean).join("\n\n"))}
   </div>
   {#if rawReasoning(item)}
@@ -341,7 +332,7 @@ const commandStatusClass = (item: ThreadItem) =>
         Show full reasoning
       </Collapsible.Trigger>
       <Collapsible.Content>
-        <div class="prose-reasoning mt-1 border-l-2 border-surface-200-800 pl-3 text-xs leading-5 text-surface-500" use:copyCode>
+        <div class="prose-md prose-md-compact mt-1 border-l-2 border-surface-200-800 pl-3 text-xs leading-5 text-surface-500" use:copyCode>
           {@html renderMarkdown(rawReasoning(item))}
         </div>
       </Collapsible.Content>
@@ -349,7 +340,7 @@ const commandStatusClass = (item: ThreadItem) =>
   {/if}
 {:else if item.type === "commandExecution"}
   <Collapsible class="min-w-0 items-stretch">
-    <div class="group/command overflow-hidden rounded-xl border border-surface-200-800 bg-surface-100-900">
+    <div class="group/command overflow-hidden panel-card">
       <div class="flex items-center pr-2">
         <Collapsible.Trigger class="group flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-left">
           <span class="size-1.5 shrink-0 rounded-full {commandStatusClass(item)}"></span>
@@ -365,11 +356,11 @@ const commandStatusClass = (item: ThreadItem) =>
           type="button"
           aria-label="Copy command"
           onclick={copyCommand}
-          class="grid size-6 shrink-0 place-items-center rounded-md text-surface-500 transition-opacity hover:bg-surface-200-800 hover:text-surface-800-200 {copiedCommand
+          class="grid size-6 shrink-0 place-items-center rounded-md text-surface-500 transition-opacity hover:bg-surface-200-800 hover:text-surface-800-200 {copiedCommand.on
             ? 'opacity-100'
             : 'opacity-0 group-hover/command:opacity-100 focus-visible:opacity-100'}"
         >
-          {#if copiedCommand}
+          {#if copiedCommand.on}
             <Check size={13} class="text-success-500" />
           {:else}
             <Copy size={13} />
@@ -622,97 +613,3 @@ const commandStatusClass = (item: ThreadItem) =>
     </button>
   {/if}
 {/if}
-
-<style>
-  .prose-reasoning :global(p) {
-    margin: 0.25rem 0;
-  }
-  .prose-thread :global(p) {
-    margin: 0.5rem 0;
-  }
-  .prose-thread :global(ul),
-  .prose-thread :global(ol) {
-    margin: 0.5rem 0;
-    padding-left: 1.25rem;
-  }
-  .prose-thread :global(ul) {
-    list-style: disc;
-  }
-  .prose-thread :global(ol) {
-    list-style: decimal;
-  }
-  .prose-thread :global(h1),
-  .prose-thread :global(h2),
-  .prose-thread :global(h3) {
-    margin: 1rem 0 0.5rem;
-    font-weight: 600;
-  }
-  .prose-thread {
-    overflow-wrap: anywhere;
-    min-width: 0;
-  }
-  .prose-thread :global(a) {
-    text-decoration: underline;
-    text-underline-offset: 2px;
-  }
-  .prose-thread :global(code:not(.hljs)) {
-    border-radius: 0.3rem;
-    background: color-mix(in oklab, currentColor 10%, transparent);
-    padding: 0.1rem 0.35rem;
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.85em;
-  }
-  .prose-thread :global(blockquote) {
-    margin: 0.5rem 0;
-    border-left: 3px solid color-mix(in oklab, currentColor 25%, transparent);
-    padding-left: 0.75rem;
-    opacity: 0.85;
-  }
-  .prose-thread :global(.table-wrap) {
-    margin: 0.75rem 0;
-    overflow-x: auto;
-  }
-  .prose-thread :global(table) {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.9em;
-    line-height: 1.5;
-  }
-  .prose-thread :global(th),
-  .prose-thread :global(td) {
-    border: 1px solid color-mix(in oklab, currentColor 18%, transparent);
-    padding: 0.35rem 0.75rem;
-    text-align: left;
-    vertical-align: top;
-  }
-  .prose-thread :global(th) {
-    background: color-mix(in oklab, currentColor 6%, transparent);
-    font-weight: 600;
-  }
-  .prose-thread :global(.code-block) {
-    margin: 0.75rem 0;
-    overflow: hidden;
-    border-radius: 0.75rem;
-    background: #0d1117;
-  }
-  .prose-thread :global(.code-lang) {
-    padding: 0.4rem 0.9rem 0;
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #7d8590;
-  }
-  .prose-thread :global(pre) {
-    overflow-x: auto;
-    padding: 0.65rem 0.9rem;
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 12px;
-    line-height: 1.6;
-  }
-  .prose-thread :global(pre code.hljs) {
-    display: block;
-    background: transparent;
-    padding: 0;
-  }
-</style>

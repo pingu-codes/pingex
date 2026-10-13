@@ -18,7 +18,7 @@
  * short lines is 20k+ lines, and that many elements is slow to build and slow
  * to scroll for something that is only ever read.
  */
-import { highlightAs } from "$lib/utils/markdown";
+import { escapeHtml, highlightAs } from "$lib/utils/markdown";
 
 let {
   text,
@@ -64,13 +64,9 @@ $effect(() => {
   scrolled = true;
   bandEl.scrollIntoView({ block: "center" });
 });
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>]/g, (char) => (char === "&" ? "&amp;" : char === "<" ? "&lt;" : "&gt;"));
-}
 </script>
 
-<div class="code-view max-h-[70vh] overflow-auto rounded-xl border border-surface-200-800">
+<div class="code-view code-dark max-h-[70vh] overflow-auto rounded-xl border border-surface-200-800">
   <!--
     The band sits inside this `min-w-max` row, not the scroll container: an
     `inset-x-0` band on the container would be viewport-wide and would clip as
@@ -111,11 +107,5 @@ function escapeHtml(value: string): string {
 <style>
   .code-view {
     --code-line: 18px;
-    background: #0d1117;
-    color: #e6edf3;
-  }
-  .code-view :global(.hljs) {
-    background: transparent;
-    padding: 0;
   }
 </style>

@@ -3,6 +3,7 @@ import { Check, MessageCircleQuestion, TriangleAlert } from "@lucide/svelte";
 import { respondUserInput } from "$lib/services/api";
 import { clearUnanswered, removeUserInputRequest, type UserInputRequest } from "$lib/services/codexEvents.svelte";
 import type { ThreadItem } from "$lib/types";
+import { submitState } from "$lib/utils/actionState.svelte";
 import { errorMessage } from "$lib/utils/errors";
 
 let {
@@ -21,8 +22,8 @@ let {
 
 const stranded = $derived(request.requestId === null);
 
-let submitting = $state(false);
-let submitError = $state<string | null>(null);
+// Kept on screen with the answers intact, so Send can simply be retried.
+const action = submitState({ describe: (cause) => `Could not send the answer: ${errorMessage(cause)}` });
 /** A stranded answer already went to Codex as a message; a retry after the
  *  record failed must not send it a second time. */
 let resumeSent = false;
@@ -43,10 +44,8 @@ function toggle(questionId: string, label: string) {
 }
 
 async function submit() {
-  if (submitting || !submittable) return;
-  submitting = true;
-  submitError = null;
-  try {
+  if (!submittable) return;
+  await action.run(async () => {
     const steerText = steer.trim();
     const answers: Record<string, { answers: string[] }> = {};
     // Secret answers never leave the live request: they are masked before
@@ -89,12 +88,7 @@ async function submit() {
     onAnswered?.(item);
     clearUnanswered(request.threadId);
     if (request.requestId !== null) removeUserInputRequest(request.requestId);
-  } catch (cause) {
-    // Kept on screen with the answers intact, so Send can simply be retried.
-    submitError = `Could not send the answer: ${errorMessage(cause)}`;
-  } finally {
-    submitting = false;
-  }
+  });
 }
 
 /**
@@ -109,9 +103,7 @@ function resumeMessage(answers: Record<string, { answers: string[] }>): string {
 
 /** Give up on a stranded question so it stops being flagged as needing an answer. */
 async function dismiss() {
-  if (submitting) return;
-  submitting = true;
-  try {
+  await action.run(async () => {
     const item: ThreadItem = {
       type: "userInputAnswered",
       id: request.itemId,
@@ -131,9 +123,7 @@ async function dismiss() {
     );
     onAnswered?.(item);
     clearUnanswered(request.threadId);
-  } finally {
-    submitting = false;
-  }
+  });
 }
 </script>
 
@@ -164,7 +154,7 @@ async function dismiss() {
             {@const selected = selections[question.id] === option.label}
             <button
               onclick={() => toggle(question.id, option.label)}
-              disabled={submitting}
+              disabled={action.busy}
               class="flex w-full items-start gap-2 rounded-lg border px-2.5 py-1.5 text-left text-xs transition {selected
                 ? 'border-primary-500 bg-primary-500/10'
                 : 'border-surface-200-800 hover:preset-tonal'}"
@@ -186,14 +176,14 @@ async function dismiss() {
         <input
           type="password"
           bind:value={notes[question.id]}
-          disabled={submitting}
+          disabled={action.busy}
           placeholder="Enter value…"
           class="w-full rounded-lg border border-surface-200-800 bg-surface-50-950 px-2.5 py-1.5 text-xs outline-none focus:border-surface-400-600"
         />
       {:else}
         <textarea
           bind:value={notes[question.id]}
-          disabled={submitting}
+          disabled={action.busy}
           onkeydown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
@@ -213,7 +203,7 @@ async function dismiss() {
     </div>
     <textarea
       bind:value={steer}
-      disabled={submitting}
+      disabled={action.busy}
       onkeydown={(event) => {
         if (event.key === "Enter" && !event.shiftKey) {
           event.preventDefault();
@@ -225,19 +215,19 @@ async function dismiss() {
       class="max-h-28 min-h-[1.75rem] w-full resize-none rounded-lg border border-surface-200-800 bg-surface-50-950 px-2.5 py-1.5 text-xs leading-5 outline-none placeholder:text-surface-500 focus:border-surface-400-600"
     ></textarea>
   </div>
-  {#if submitError}
-    <p class="text-[11px] text-error-500" role="alert">{submitError}</p>
+  {#if action.error}
+    <p class="text-[11px] text-error-500" role="alert">{action.error}</p>
   {/if}
   <div class="flex items-center justify-end gap-2 pt-0.5">
     {#if steering}
       <span class="mr-auto text-[11px] text-surface-500">Questions will be skipped.</span>
     {/if}
     {#if stranded}
-      <button onclick={dismiss} disabled={submitting} class="btn btn-sm preset-tonal {steering ? '' : 'mr-auto'}">
+      <button onclick={dismiss} disabled={action.busy} class="btn btn-sm preset-tonal {steering ? '' : 'mr-auto'}">
         Dismiss
       </button>
     {/if}
-    <button onclick={submit} disabled={submitting || !submittable} class="btn btn-sm preset-filled-primary-500">
+    <button onclick={submit} disabled={action.busy || !submittable} class="btn btn-sm preset-filled-primary-500">
       {#if stranded}
         Send as new message
       {:else}

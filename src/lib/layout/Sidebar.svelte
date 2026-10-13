@@ -700,7 +700,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
 
   <div class="group/projects min-h-0 flex-1 select-none overflow-y-auto px-2 pb-3 pt-3">
     <div class="projects-heading mb-1 flex h-8 items-center justify-between px-2">
-      <span class="text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Projects</span>
+      <span class="eyebrow">Projects</span>
       <div class="flex items-center gap-0.5">
         {#if onSessionFocus}
           <TooltipButton
@@ -755,7 +755,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
         <div class="placeholder h-8 animate-pulse rounded-md opacity-70"></div>
       </div>
     {:else if visibleProjects.length === 0}
-      <button onclick={onAddProject} class="mx-2 mt-2 rounded-lg border border-dashed border-surface-300-700 px-3 py-4 text-left text-xs leading-5 text-surface-600-400 hover:border-surface-400-600 hover:text-surface-800-200">
+      <button onclick={onAddProject} class="mx-2 mt-2 empty-cta rounded-lg px-3 py-4">
         Add a folder to see its Codex threads here.
       </button>
     {:else}

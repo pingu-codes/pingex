@@ -2,13 +2,14 @@
 import { FolderGit2, FolderOpen, GitBranch } from "@lucide/svelte";
 import { open as openPicker } from "@tauri-apps/plugin-dialog";
 import { onMount } from "svelte";
-import { type DialogClose, submitState } from "$lib/app/dialogs.svelte";
+import type { DialogClose } from "$lib/app/dialogs.svelte";
 import DialogShell from "$lib/components/DialogShell.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import { gitWorktrees, isTauri } from "$lib/services/api";
 import type { Project, WorktreeEntry } from "$lib/types";
-import { errorMessage } from "$lib/utils/errors";
+import { submitState } from "$lib/utils/actionState.svelte";
 import { basename } from "$lib/utils/path";
+import { resource } from "$lib/utils/resource.svelte";
 import { adoptableWorktrees } from "$lib/worktrees/worktrees";
 
 let {
@@ -24,27 +25,14 @@ let {
   close: DialogClose<true>;
 } = $props();
 
-let entries = $state<WorktreeEntry[]>([]);
-let loaded = $state(false);
-let loadError = $state<string | null>(null);
+const worktrees = resource(() => gitWorktrees(repoDir));
 /** Chosen from the list, or browsed to by hand. */
 let selectedPath = $state("");
 const action = submitState();
 
-onMount(() => {
-  gitWorktrees(repoDir)
-    .then((list) => {
-      entries = list;
-    })
-    .catch((cause) => {
-      loadError = errorMessage(cause);
-    })
-    .finally(() => {
-      loaded = true;
-    });
-});
+onMount(() => void worktrees.reload());
 
-const candidates = $derived(adoptableWorktrees(entries, projects));
+const candidates = $derived(adoptableWorktrees(worktrees.value ?? [], projects));
 const canAdd = $derived(!action.busy && selectedPath.trim().length > 0);
 
 function branchLabel(entry: WorktreeEntry): string {
@@ -79,9 +67,9 @@ async function add() {
       aria-label="Existing worktrees"
       class="mt-1 max-h-56 select-none overflow-y-auto rounded-md border border-surface-200-800 bg-surface-50-950 p-1"
     >
-      {#if loadError}
-        <p class="px-2 py-2 text-xs text-error-500">{loadError}</p>
-      {:else if !loaded}
+      {#if worktrees.error}
+        <p class="px-2 py-2 text-xs text-error-500">{worktrees.error}</p>
+      {:else if !worktrees.value}
         <div class="placeholder m-1 h-8 animate-pulse rounded"></div>
       {:else if candidates.length === 0}
         <p class="px-2 py-2 text-xs text-surface-500">No other worktrees to add. Browse to one below, or create a new one.</p>
@@ -115,7 +103,7 @@ async function add() {
         value={selectedPath}
         oninput={(event) => (selectedPath = event.currentTarget.value)}
         placeholder="/path/to/worktree"
-        class="min-w-0 flex-1 rounded-md border border-surface-300-700 bg-surface-50-950 px-2.5 py-1.5 font-mono text-[13px] outline-none focus:border-primary-500"
+        class="min-w-0 flex-1 field font-mono text-[13px]"
       />
       {#if isTauri()}
         <TooltipButton label="Browse for worktree" type="button" onclick={browse} class="btn btn-sm preset-tonal shrink-0" aria-label="Browse for worktree">
@@ -127,7 +115,7 @@ async function add() {
   </label>
 
   {#if action.error}
-    <p class="mt-3 rounded-md preset-tonal-error px-3 py-2 text-xs">{action.error}</p>
+    <p class="mt-3 error-note">{action.error}</p>
   {/if}
 
   {#snippet footer()}

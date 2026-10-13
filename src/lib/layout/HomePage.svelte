@@ -140,7 +140,7 @@ const target = (project: Project): MenuTarget => ({ kind: "project", project });
 {/snippet}
 
 {#snippet projectRow(project: Project, hideLabel: string)}
-  <div class="group/row flex items-center gap-3 rounded-xl border border-surface-200-800 bg-surface-100-900 px-3 py-2.5">
+  <div class="group/row flex items-center gap-3 panel-card px-3 py-2.5">
     {#if project.kind === "multiProject"}
       <Layers3 size={17} strokeWidth={1.7} class="shrink-0 text-primary-500" />
     {:else if project.kind === "worktree"}
@@ -196,13 +196,13 @@ const target = (project: Project): MenuTarget => ({ kind: "project", project });
       </div>
     </div>
 
-    <div class="mt-6 rounded-xl border border-surface-200-800 bg-surface-100-900 p-4">
+    <div class="mt-6 panel-card p-4">
       <div class="flex items-start gap-3">
         <div class="grid size-9 shrink-0 place-items-center rounded-lg preset-tonal-primary">
           <House size={18} strokeWidth={1.8} />
         </div>
         <div class="min-w-0 flex-1">
-          <div class="text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Codex home</div>
+          <div class="eyebrow">Codex home</div>
           <div class="mt-0.5 truncate font-mono text-sm" title={overview?.codexHome ?? codexHome ?? undefined}>
             {overview?.codexHome ?? codexHome ?? "~/.codex"}
           </div>
@@ -254,8 +254,8 @@ const target = (project: Project): MenuTarget => ({ kind: "project", project });
       </div>
     </div>
 
-    <div class="mt-4 rounded-xl border border-surface-200-800 bg-surface-100-900 p-4" data-testid="home-usage-card">
-      <div class="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">
+    <div class="mt-4 panel-card p-4" data-testid="home-usage-card">
+      <div class="flex items-center gap-1.5 eyebrow">
         <Gauge size={13} />
         Usage · last 30 days
         <button type="button" class="ml-auto btn btn-sm preset-tonal normal-case tracking-normal" onclick={() => openSettings("usage")}>
@@ -287,8 +287,8 @@ const target = (project: Project): MenuTarget => ({ kind: "project", project });
     </div>
 
     <div class="mt-4 grid gap-3 sm:grid-cols-2">
-      <div class="rounded-xl border border-surface-200-800 bg-surface-100-900 p-4">
-        <div class="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">
+      <div class="panel-card p-4">
+        <div class="flex items-center gap-1.5 eyebrow">
           <Sparkles size={13} />
           Skills
           <span class="rounded-full bg-surface-200-800 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal">
@@ -306,8 +306,8 @@ const target = (project: Project): MenuTarget => ({ kind: "project", project });
         {/if}
       </div>
 
-      <div class="rounded-xl border border-surface-200-800 bg-surface-100-900 p-4">
-        <div class="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">
+      <div class="panel-card p-4">
+        <div class="flex items-center gap-1.5 eyebrow">
           <Server size={13} />
           MCP servers
           <span class="rounded-full bg-surface-200-800 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal">
@@ -333,12 +333,12 @@ const target = (project: Project): MenuTarget => ({ kind: "project", project });
     </div>
 
     {#if pinnedThreads.length > 0}
-      <h2 class="mt-8 text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Pinned threads</h2>
+      <h2 class="mt-8 eyebrow">Pinned threads</h2>
       <div class="mt-2 space-y-1.5">
         {#each pinnedThreads as entry (entry.thread.id)}
           <button
             onclick={() => onSelectThread(entry.project, entry.thread.id)}
-            class="flex w-full items-center gap-2.5 rounded-xl border border-surface-200-800 bg-surface-100-900 px-3 py-2 text-left hover:preset-tonal"
+            class="flex w-full items-center gap-2.5 panel-card px-3 py-2 text-left hover:preset-tonal"
           >
             <Star size={13} class="shrink-0 fill-warning-500 text-warning-500" />
             <span class="min-w-0 flex-1 truncate text-sm">{entry.thread.title}</span>
@@ -349,11 +349,11 @@ const target = (project: Project): MenuTarget => ({ kind: "project", project });
       </div>
     {/if}
 
-    <h2 class="mt-8 text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Projects</h2>
+    <h2 class="mt-8 eyebrow">Projects</h2>
     {#if folders.length === 0}
       <button
         onclick={onAddProject}
-        class="mt-2 w-full rounded-xl border border-dashed border-surface-300-700 px-4 py-6 text-left text-xs leading-5 text-surface-600-400 hover:border-surface-400-600 hover:text-surface-800-200"
+        class="mt-2 w-full empty-cta"
       >
         Add a folder to see its Codex threads here.
       </button>
@@ -366,7 +366,7 @@ const target = (project: Project): MenuTarget => ({ kind: "project", project });
     {/if}
 
     {#if worktrees.length > 0}
-      <h2 class="mt-8 text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Imported from Codex</h2>
+      <h2 class="mt-8 eyebrow">Imported from Codex</h2>
       <p class="mt-1 text-xs text-surface-500">
         Permanent worktrees discovered in your Codex home. Hide the ones you don't need.
       </p>
@@ -378,7 +378,7 @@ const target = (project: Project): MenuTarget => ({ kind: "project", project });
     {/if}
 
     {#if workspaces.length > 0}
-      <h2 class="mt-8 text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Workspaces</h2>
+      <h2 class="mt-8 eyebrow">Workspaces</h2>
       <p class="mt-1 text-xs text-surface-500">Writable shared hubs with isolated project members.</p>
       <div class="mt-2 space-y-1.5">
         {#each workspaces as project (project.path)}
@@ -390,7 +390,7 @@ const target = (project: Project): MenuTarget => ({ kind: "project", project });
     {#if hidden.length > 0}
       <button
         onclick={() => (hiddenOpen = !hiddenOpen)}
-        class="mt-8 flex w-full items-center gap-2 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500 hover:text-surface-700-300"
+        class="mt-8 flex w-full items-center gap-2 text-left eyebrow hover:text-surface-700-300"
       >
         <span>Archived &amp; hidden</span>
         <span class="rounded-full bg-surface-200-800 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal">{hidden.length}</span>

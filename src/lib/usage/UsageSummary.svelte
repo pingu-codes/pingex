@@ -12,8 +12,8 @@ import { usageStatus } from "$lib/services/codexEvents.svelte";
 import type { UsageBreakdown, UsageScope } from "$lib/types";
 import UsageBreakdownBar from "$lib/usage/UsageBreakdownBar.svelte";
 import { costFor, costLabel, rangeSince, USAGE_RANGES, type UsageRange } from "$lib/usage/usageBreakdown";
-import { errorMessage } from "$lib/utils/errors";
 import { formatTokens, formatTokensShort, relativeTime } from "$lib/utils/format";
+import { resource } from "$lib/utils/resource.svelte";
 
 let {
   scope,
@@ -25,29 +25,14 @@ let {
 } = $props();
 
 let range = $state<UsageRange>("all");
-let breakdown = $state<UsageBreakdown | null>(null);
-let error = $state<string | null>(null);
-let loading = $state(true);
+// Only the newest read lands: a slow one for the previous range must not
+// overwrite the current range's figures.
+const usage = resource(() => readUsageBreakdown(scope, rangeSince(range)));
+const breakdown = $derived<UsageBreakdown | null>(usage.value ?? null);
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-let generation = 0;
-
-async function load() {
-  const mine = ++generation;
-  try {
-    const next = await readUsageBreakdown(scope, rangeSince(range));
-    if (mine !== generation) return;
-    breakdown = next;
-    error = null;
-  } catch (cause) {
-    if (mine !== generation) return;
-    error = errorMessage(cause);
-  } finally {
-    if (mine === generation) loading = false;
-  }
-}
 
 onMount(() => {
-  void load();
+  void usage.reload();
   return () => {
     if (refreshTimer) clearTimeout(refreshTimer);
   };
@@ -59,14 +44,13 @@ $effect(() => {
   usageStatus.nonce;
   if (usageStatus.nonce === 0) return;
   if (refreshTimer) clearTimeout(refreshTimer);
-  refreshTimer = setTimeout(() => void load(), 1000);
+  refreshTimer = setTimeout(() => void usage.reload(), 1000);
 });
 
 function selectRange(next: UsageRange) {
   if (next === range) return;
   range = next;
-  loading = true;
-  void load();
+  void usage.reload();
 }
 
 const cost = $derived(breakdown ? costFor(breakdown.byModel, breakdown.reportedCostUsd) : null);
@@ -110,10 +94,10 @@ function groupCost(group: UsageBreakdown["byModel"][number]): string | null {
     </div>
   {/if}
 
-  {#if loading && !breakdown}
+  {#if !breakdown && !usage.error}
     <p class="text-surface-500">Reading usage…</p>
-  {:else if error}
-    <p class="text-error-500">Could not read usage: {error}</p>
+  {:else if usage.error}
+    <p class="text-error-500">Could not read usage: {usage.error}</p>
   {:else if breakdown && breakdown.turns === 0}
     <p class="text-surface-500">
       No usage recorded yet. Turns are recorded from the moment they run; older threads count from their next

@@ -1,10 +1,11 @@
 <script lang="ts">
 import { ArrowLeftRight, ChevronDown, RefreshCw } from "@lucide/svelte";
-import { type DialogClose, submitState } from "$lib/app/dialogs.svelte";
+import type { DialogClose } from "$lib/app/dialogs.svelte";
 import DialogShell from "$lib/components/DialogShell.svelte";
 import { gitWorktreeHandoffPreflight } from "$lib/services/api";
 import { dirName } from "$lib/thread/handoff";
 import type { WorktreeHandoffPreflight } from "$lib/types";
+import { submitState } from "$lib/utils/actionState.svelte";
 import { errorMessage } from "$lib/utils/errors";
 
 let {
@@ -137,7 +138,7 @@ async function handoff() {
   {/if}
 
   {#if action.error}
-    <div class="card preset-tonal-error mt-3 p-3 text-xs">{action.error}</div>
+    <div class="error-note p-3 mt-3">{action.error}</div>
   {/if}
 
   {#snippet footer()}

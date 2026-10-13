@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use crate::util::host::Host;
 use crate::util::id::unique_suffix;
+use crate::util::media::image_mime;
 use tauri::State;
 
 use crate::AppState;
@@ -111,17 +112,11 @@ fn extension_of(filename: &str) -> String {
 /// Returns `(kind, mime)` for a supported extension, or `None` for anything the
 /// staging directory refuses to hold.
 fn classify(extension: &str) -> Option<(&'static str, &'static str)> {
-    let image = |mime| Some(("image", mime));
+    if let Some(mime) = image_mime(extension) {
+        return Some(("image", mime));
+    }
     let file = |mime| Some(("file", mime));
     match extension {
-        "png" => image("image/png"),
-        "jpg" | "jpeg" => image("image/jpeg"),
-        "gif" => image("image/gif"),
-        "webp" => image("image/webp"),
-        "bmp" => image("image/bmp"),
-        "tif" | "tiff" => image("image/tiff"),
-        "heic" => image("image/heic"),
-        "svg" => image("image/svg+xml"),
         "txt" | "text" | "log" => file("text/plain"),
         "md" | "markdown" => file("text/markdown"),
         "json" => file("application/json"),
@@ -162,8 +157,8 @@ fn looks_like_image(extension: &str, bytes: &[u8]) -> bool {
         "gif" => starts(b"GIF87a") || starts(b"GIF89a"),
         "bmp" => starts(b"BM"),
         "webp" => bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP",
-        // No cheap, reliable signature: trust the extension (still size-capped).
-        "tif" | "tiff" | "heic" | "svg" => true,
+        // tif, heic, avif, ico, svg: no cheap, reliable signature, so trust the
+        // extension (still size-capped).
         _ => true,
     }
 }

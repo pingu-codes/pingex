@@ -4,12 +4,12 @@ import DiffBlock from "$lib/components/DiffBlock.svelte";
 import { respondApproval, respondServerRequest } from "$lib/services/api";
 import { type Approval, removeApproval } from "$lib/services/codexEvents.svelte";
 import { permissionLines } from "$lib/thread/permissions";
+import { submitState } from "$lib/utils/actionState.svelte";
 import { harnessName } from "$lib/utils/capabilities";
 
 let { approval }: { approval: Approval } = $props();
 
-let submitting = $state(false);
-let error = $state<string | null>(null);
+const action = submitState();
 
 const TITLES = {
   command: "Codex wants to run a command",
@@ -40,10 +40,7 @@ const title = $derived(
  * empty profile. Everything else takes the plain `{decision}` shape.
  */
 async function decide(decision: string) {
-  if (submitting) return;
-  submitting = true;
-  error = null;
-  try {
+  await action.run(async () => {
     if (approval.options) {
       // Another harness: the option id is the whole answer.
       await respondApproval(approval.requestId, decision);
@@ -56,16 +53,12 @@ async function decide(decision: string) {
       await respondApproval(approval.requestId, decision);
     }
     removeApproval(approval.requestId);
-  } catch (cause) {
-    error = String(cause);
-  } finally {
-    submitting = false;
-  }
+  });
 }
 </script>
 
 <div class="card preset-tonal-warning space-y-2.5 p-3 text-sm">
-  {#if error}<p role="alert" class="text-error-500">{error}</p>{/if}
+  {#if action.error}<p role="alert" class="text-error-500">{action.error}</p>{/if}
   <div class="flex items-center gap-2 text-xs font-semibold">
     <ShieldQuestion size={14} />
     {title}
@@ -103,16 +96,16 @@ async function decide(decision: string) {
       {#each approval.options as option, index (option.optionId)}
         <button
           onclick={() => decide(option.optionId)}
-          disabled={submitting}
+          disabled={action.busy}
           class="btn btn-sm {index === 0 && !approval.defaultToReject ? 'preset-filled-primary-500' : 'preset-tonal'}"
         >
           {option.name}
         </button>
       {/each}
     {:else}
-      <button onclick={() => decide("accept")} disabled={submitting} class="btn btn-sm preset-filled-primary-500">Allow</button>
-      <button onclick={() => decide("acceptForSession")} disabled={submitting} class="btn btn-sm preset-tonal">Allow for session</button>
-      <button onclick={() => decide("decline")} disabled={submitting} class="btn btn-sm preset-tonal">Decline</button>
+      <button onclick={() => decide("accept")} disabled={action.busy} class="btn btn-sm preset-filled-primary-500">Allow</button>
+      <button onclick={() => decide("acceptForSession")} disabled={action.busy} class="btn btn-sm preset-tonal">Allow for session</button>
+      <button onclick={() => decide("decline")} disabled={action.busy} class="btn btn-sm preset-tonal">Decline</button>
     {/if}
   </div>
 </div>

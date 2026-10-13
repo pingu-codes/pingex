@@ -175,7 +175,7 @@ void load();
       {#each filtered as home (home.homeId)}
         <section class="mb-4">
           <div class="px-2 pb-1 pt-1">
-            <div class="text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">{home.label}</div>
+            <div class="eyebrow">{home.label}</div>
             <div class="truncate text-[10px] text-surface-500" title={home.configDir}>{home.configDir}</div>
           </div>
 
@@ -261,7 +261,7 @@ void load();
 
   <section class="flex min-w-0 flex-1 flex-col">
     {#if error}
-      <div class="mx-5 mt-3 flex items-start gap-2 rounded-lg preset-tonal-error px-3 py-2 text-xs">
+      <div class="mx-5 mt-3 flex items-start gap-2 error-note">
         <TriangleAlert size={13} class="mt-0.5 shrink-0" />
         <span class="min-w-0 flex-1">{error}</span>
         <button type="button" class="text-[11px] underline" onclick={() => (error = null)}>Dismiss</button>
@@ -311,7 +311,7 @@ void load();
         {:else if text === undefined}
           <div class="grid h-full place-items-center"><RefreshCw size={16} class="animate-spin text-surface-500" /></div>
         {:else if isMarkdown(entry.path)}
-          <div class="prose-thread mx-auto max-w-3xl px-5 py-4 text-sm leading-7" use:copyCode>
+          <div class="prose-md mx-auto max-w-3xl px-5 py-4 text-sm leading-7" use:copyCode>
             {@html renderMarkdown(stripFrontmatter(text))}
           </div>
         {:else}

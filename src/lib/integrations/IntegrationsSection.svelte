@@ -53,8 +53,10 @@ import {
 } from "$lib/services/api";
 import { mcpStatus as mcpStatusEvents, skillsStatus } from "$lib/services/codexEvents.svelte";
 import type { IntegrationsList, McpServerStatus, McpServerSummary, SkillSummary } from "$lib/types";
+import { submitState } from "$lib/utils/actionState.svelte";
 import { errorMessage } from "$lib/utils/errors";
 import { renderMarkdown } from "$lib/utils/markdown";
+import { type Resource, resource } from "$lib/utils/resource.svelte";
 
 let {
   projectPath = null,
@@ -71,14 +73,23 @@ let {
   onGoToConnections?: () => void;
 } = $props();
 
-let data = $state<IntegrationsList | null>(null);
-let loadError = $state<string | null>(null);
-let actionError = $state<string | null>(null);
+// Only the newest read lands, and a mutation's own result (`apply`)
+// supersedes any read still in flight.
+const inventory: Resource<IntegrationsList | undefined, [forceReload?: boolean]> = resource(
+  async (forceReload = false) => {
+    const next = await listIntegrations(projectPath ? [projectPath] : [], forceReload);
+    return retainFailedInventory(inventory.value ?? null, next);
+  },
+);
+const data = $derived(inventory.value ?? null);
+const loadError = $derived(inventory.error);
+const loading = $derived(inventory.loading);
+/** Mutations from the rows; they may overlap, and share one error banner. */
+const actions = submitState({ exclusive: false });
 let actionNotice = $state<string | null>(null);
 let filter = $state<IntegrationFilter>("all");
 let query = $state("");
-let updating = $state(false);
-let loading = $state(false);
+const updating = $derived(actions.busy);
 
 /**
  * Live state from Codex, keyed by server name and joined onto `data.mcpServers`
@@ -86,8 +97,10 @@ let loading = $state(false);
  * the other: configured but not started, or provided by a plugin and never
  * written to `config.toml` at all.
  */
-let statuses = $state<Record<string, McpServerStatus>>({});
-let checking = $state(false);
+const liveStatus = resource(() => listMcpServerStatus(), { initial: {} as Record<string, McpServerStatus> });
+const statuses = $derived(liveStatus.value);
+const checking = $derived(liveStatus.loading);
+const actionError = $derived(actions.error ?? liveStatus.error);
 /** Servers whose tool list is expanded. */
 let expanded = $state<Record<string, boolean>>({});
 /** Servers with an OAuth sign-in in flight, cleared by the completion event. */
@@ -103,8 +116,7 @@ let addingSkill = $state(false);
 let skillFormName = $state("");
 let skillFormDescription = $state("");
 let skillFormBody = $state("");
-let skillFormError = $state<string | null>(null);
-let skillSaving = $state(false);
+const skillForm = submitState();
 
 // The server whose edit form is open ("" means the Add form; null means none).
 let editing = $state<string | null>(null);
@@ -119,23 +131,9 @@ let formArgs = $state("");
 let formEnv = $state<{ key: string; value: string }[]>([]);
 let formUrl = $state("");
 let formBearerEnv = $state("");
-let formError = $state<string | null>(null);
-let saving = $state(false);
+const serverForm = submitState();
 
-let loadGeneration = 0;
-async function load(forceReload = false) {
-  const generation = ++loadGeneration;
-  loading = true;
-  loadError = null;
-  try {
-    const next = await listIntegrations(projectPath ? [projectPath] : [], forceReload);
-    if (generation === loadGeneration) data = retainFailedInventory(data, next);
-  } catch (cause) {
-    if (generation === loadGeneration) loadError = errorMessage(cause);
-  } finally {
-    if (generation === loadGeneration) loading = false;
-  }
-}
+const load = (forceReload = false) => inventory.reload(forceReload);
 
 let observedSkillsNonce = skillsStatus.nonce;
 $effect(() => {
@@ -154,26 +152,15 @@ async function refresh() {
  * the "Refresh" button and the startup notification both trigger — there is no
  * one moment when the picture is final.
  */
-let statusGeneration = 0;
-
 async function refreshStatus() {
-  // Every startup or login event asks again; only the newest answer may land,
-  // or a slow older one leaves a running server on "Checking…".
-  const generation = ++statusGeneration;
   // This API returns the home runtime, not a runtime for an arbitrary project.
   if (projectPath) {
-    statuses = {};
+    liveStatus.set({});
     return;
   }
-  checking = true;
-  try {
-    const next = await listMcpServerStatus();
-    if (generation === statusGeneration) statuses = next;
-  } catch (cause) {
-    if (generation === statusGeneration) actionError = errorMessage(cause);
-  } finally {
-    if (generation === statusGeneration) checking = false;
-  }
+  // Every startup or login event asks again; only the newest answer may land,
+  // or a slow older one leaves a running server on "Checking…".
+  await liveStatus.reload();
 }
 
 // Reload whenever the section is (re-)opened, and honour a focus request.
@@ -206,9 +193,7 @@ $effect(() => {
 });
 
 function apply(next: IntegrationsList) {
-  ++loadGeneration;
-  loading = false;
-  data = retainFailedInventory(data, next);
+  inventory.set(retainFailedInventory(data, next));
   actionNotice = next.errors.find((message) => message.startsWith("Saved.")) ?? null;
   // This view already has the refreshed mutation result. Notify other consumers.
   observedSkillsNonce = ++skillsStatus.nonce;
@@ -216,18 +201,12 @@ function apply(next: IntegrationsList) {
 
 async function changeSetting(kind: "mcp" | "plugin", id: string, value: string) {
   const context = projectPath;
-  actionError = null;
-  updating = true;
-  try {
+  await actions.run(async () => {
     const next = await setIntegrationEnabled(kind, id, value === "inherit" ? null : value === "enabled", context);
     if (projectPath !== context) return;
     apply(next);
     await refreshStatus();
-  } catch (cause) {
-    actionError = errorMessage(cause);
-  } finally {
-    updating = false;
-  }
+  });
 }
 
 function settingValue(key: string): string {
@@ -261,14 +240,11 @@ async function toggleEnabled(server: McpServerSummary) {
     await changeSetting("mcp", server.name, server.enabled ? "disabled" : "enabled");
     return;
   }
-  actionError = null;
-  try {
+  await actions.run(async () => {
     apply(await setMcpEnabled(server.name, !server.enabled));
     // The backend reloaded Codex's config; pick up the resulting state.
     await refreshStatus();
-  } catch (cause) {
-    actionError = errorMessage(cause);
-  }
+  });
 }
 
 /**
@@ -276,27 +252,21 @@ async function toggleEnabled(server: McpServerSummary) {
  * we stay pending until it reports back, since there is nothing to poll.
  */
 async function signIn(server: McpServerSummary) {
-  actionError = null;
   signingIn[server.name] = true;
-  try {
+  const started = await actions.run(async () => {
     await mcpOauthLogin(server.name);
     // In browser preview there is no completion event, so reflect it now.
     await refreshStatus();
-  } catch (cause) {
-    delete signingIn[server.name];
-    actionError = errorMessage(cause);
-  }
+  });
+  if (!started) delete signingIn[server.name];
 }
 
 async function toggleSkill(skill: SkillSummary) {
-  actionError = null;
-  try {
+  await actions.run(async () => {
     await setSkillEnabled(skill.name, !skill.enabled, skill.path);
     skillsStatus.nonce += 1;
     // The notification reloads Codex's effective state in both views.
-  } catch (cause) {
-    actionError = errorMessage(cause);
-  }
+  });
 }
 
 async function toggleSkillView(skill: SkillSummary) {
@@ -308,20 +278,17 @@ async function toggleSkillView(skill: SkillSummary) {
     skillText[skill.path] = await readSkill(skill.path);
   } catch (cause) {
     delete skillOpen[skill.path];
-    actionError = errorMessage(cause);
+    actions.error = errorMessage(cause);
   }
 }
 
 async function doDeleteSkill(skill: SkillSummary) {
-  actionError = null;
-  try {
+  await actions.run(async () => {
     apply(await deleteSkill(skill.path));
     confirmDeleteSkill = null;
     delete skillOpen[skill.path];
     delete skillText[skill.path];
-  } catch (cause) {
-    actionError = errorMessage(cause);
-  }
+  });
 }
 
 function openAddSkill() {
@@ -330,23 +297,22 @@ function openAddSkill() {
   skillFormName = "";
   skillFormDescription = "";
   skillFormBody = "";
-  skillFormError = null;
+  skillForm.error = null;
 }
 
 async function saveSkillForm(event: SubmitEvent) {
   event.preventDefault();
-  skillFormError = null;
+  skillForm.error = null;
   const name = skillFormName.trim();
   if (!validSkillName(name)) {
-    skillFormError = "Name must be lowercase letters, digits, '-' or '_' (not leading).";
+    skillForm.error = "Name must be lowercase letters, digits, '-' or '_' (not leading).";
     return;
   }
   if (!skillFormDescription.trim()) {
-    skillFormError = "Description is required — it is what Codex matches against.";
+    skillForm.error = "Description is required — it is what Codex matches against.";
     return;
   }
-  skillSaving = true;
-  try {
+  await skillForm.run(async () => {
     apply(await createSkill({ name, description: skillFormDescription.trim(), body: skillFormBody.trim() || null }));
     addingSkill = false;
     filter = filter === "all" ? "all" : "skills";
@@ -356,11 +322,7 @@ async function saveSkillForm(event: SubmitEvent) {
       queueMicrotask(() =>
         document.getElementById(`skill-row-${encodeURIComponent(created.path)}`)?.scrollIntoView({ block: "nearest" }),
       );
-  } catch (cause) {
-    skillFormError = errorMessage(cause);
-  } finally {
-    skillSaving = false;
-  }
+  });
 }
 
 function openAdd() {
@@ -373,7 +335,7 @@ function openAdd() {
   formEnv = [];
   formUrl = "";
   formBearerEnv = "";
-  formError = null;
+  serverForm.error = null;
 }
 
 function openConfigure(server: McpServerSummary) {
@@ -389,12 +351,12 @@ function openConfigure(server: McpServerSummary) {
   formEnv = server.envKeys.map((key) => ({ key, value: "" }));
   formUrl = server.url ?? "";
   formBearerEnv = server.bearerTokenEnvVar ?? "";
-  formError = null;
+  serverForm.error = null;
 }
 
 function cancelEdit() {
   editing = null;
-  formError = null;
+  serverForm.error = null;
 }
 
 function addEnvRow() {
@@ -407,23 +369,23 @@ function removeEnvRow(index: number) {
 
 async function saveForm(event: SubmitEvent) {
   event.preventDefault();
-  formError = null;
+  serverForm.error = null;
   const name = formName.trim();
   if (!name) {
-    formError = "Name is required.";
+    serverForm.error = "Name is required.";
     return;
   }
   if (formTransport === "stdio" && !formCommand.trim()) {
-    formError = "Command is required.";
+    serverForm.error = "Command is required.";
     return;
   }
   if (formTransport === "http" && !formUrl.trim()) {
-    formError = "URL is required.";
+    serverForm.error = "URL is required.";
     return;
   }
   const keys = formEnv.map((row) => row.key.trim());
   if (formTransport === "stdio" && !envKeysValid(keys)) {
-    formError = "Environment variable names must be unique and non-empty.";
+    serverForm.error = "Environment variable names must be unique and non-empty.";
     return;
   }
   // Only send env pairs that have a value typed this session. Empty values keep
@@ -432,8 +394,7 @@ async function saveForm(event: SubmitEvent) {
   for (const row of formEnv) {
     if (row.key.trim() && row.value) env[row.key.trim()] = row.value;
   }
-  saving = true;
-  try {
+  await serverForm.run(async () => {
     apply(
       await saveMcpServer(
         formTransport === "stdio"
@@ -458,23 +419,16 @@ async function saveForm(event: SubmitEvent) {
     );
     editing = null;
     await refreshStatus();
-  } catch (cause) {
-    formError = errorMessage(cause);
-  } finally {
-    saving = false;
-  }
+  });
 }
 
 async function doRemove(name: string) {
-  actionError = null;
-  try {
+  await actions.run(async () => {
     apply(await removeMcpServer(name));
     confirmRemove = null;
     delete expanded[name];
     await refreshStatus();
-  } catch (cause) {
-    actionError = errorMessage(cause);
-  }
+  });
 }
 
 const FILTERS: { id: IntegrationFilter; label: string }[] = [
@@ -557,10 +511,10 @@ const matchCount = $derived(
   </div>
 
   {#if loadError}
-    <div class="card preset-tonal-error mt-4 px-3 py-2 text-xs">{loadError}</div>
+    <div class="error-note mt-4">{loadError}</div>
   {/if}
   {#if actionError}
-    <div class="card preset-tonal-error mt-4 px-3 py-2 text-xs">{actionError}</div>
+    <div class="error-note mt-4">{actionError}</div>
   {/if}
   {#if actionNotice}<p class="mt-3 text-xs text-surface-500">{actionNotice}</p>{/if}
   {#each data?.errors ?? [] as error}
@@ -603,12 +557,12 @@ const matchCount = $derived(
           class="textarea mt-1 w-full font-mono text-xs"
         ></textarea>
       </div>
-      {#if skillFormError}
-        <div class="card preset-tonal-error px-3 py-2 text-xs">{skillFormError}</div>
+      {#if skillForm.error}
+        <div class="error-note">{skillForm.error}</div>
       {/if}
       <div class="flex items-center gap-2">
-        <button type="submit" disabled={skillSaving} class="btn btn-sm preset-filled-primary-500">
-          {skillSaving ? "Creating…" : "Create skill"}
+        <button type="submit" disabled={skillForm.busy} class="btn btn-sm preset-filled-primary-500">
+          {skillForm.busy ? "Creating…" : "Create skill"}
         </button>
         <button type="button" onclick={() => (addingSkill = false)} class="btn btn-sm hover:preset-tonal text-surface-500">Cancel</button>
       </div>
@@ -719,12 +673,12 @@ const matchCount = $derived(
         </p>
       </div>
       {/if}
-      {#if formError}
-        <div class="card preset-tonal-error px-3 py-2 text-xs">{formError}</div>
+      {#if serverForm.error}
+        <div class="error-note">{serverForm.error}</div>
       {/if}
       <div class="flex items-center gap-2">
-        <button type="submit" disabled={saving} class="btn btn-sm preset-filled-primary-500">
-          {saving ? "Saving…" : editing === "" ? "Add server" : "Save changes"}
+        <button type="submit" disabled={serverForm.busy} class="btn btn-sm preset-filled-primary-500">
+          {serverForm.busy ? "Saving…" : editing === "" ? "Add server" : "Save changes"}
         </button>
         <button type="button" onclick={cancelEdit} class="btn btn-sm hover:preset-tonal text-surface-500">Cancel</button>
       </div>
@@ -1025,7 +979,7 @@ const matchCount = $derived(
                         {/each}
                       </dl>
                     {/if}
-                    <div class="prose-skill">{@html renderMarkdown(parsed.body)}</div>
+                    <div class="prose-md prose-md-compact">{@html renderMarkdown(parsed.body)}</div>
                   </div>
                 {/if}
               </div>
@@ -1071,31 +1025,3 @@ const matchCount = $derived(
     </div>
   {/if}
 </div>
-
-<style>
-  .prose-skill :global(h1),
-  .prose-skill :global(h2),
-  .prose-skill :global(h3) {
-    margin: 0.6rem 0 0.25rem;
-    font-weight: 600;
-  }
-  .prose-skill :global(h1) { font-size: 0.9rem; }
-  .prose-skill :global(h2) { font-size: 0.8rem; }
-  .prose-skill :global(p) { margin: 0.35rem 0; }
-  .prose-skill :global(ul),
-  .prose-skill :global(ol) {
-    margin: 0.35rem 0;
-    padding-left: 1.1rem;
-  }
-  .prose-skill :global(ul) { list-style: disc; }
-  .prose-skill :global(ol) { list-style: decimal; }
-  .prose-skill :global(pre) {
-    overflow-x: auto;
-    border-radius: 0.5rem;
-    background: #0d1117;
-    padding: 0.5rem 0.7rem;
-    font-size: 11px;
-  }
-  .prose-skill :global(code) { font-size: 11px; }
-  .prose-skill :global(hr) { margin: 0.5rem 0; opacity: 0.3; }
-</style>

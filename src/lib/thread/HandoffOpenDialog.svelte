@@ -1,9 +1,10 @@
 <script lang="ts">
 import { AlertTriangle } from "@lucide/svelte";
-import { type DialogClose, submitState } from "$lib/app/dialogs.svelte";
+import type { DialogClose } from "$lib/app/dialogs.svelte";
 import DialogShell from "$lib/components/DialogShell.svelte";
 import { handoffHomeIssue, shortHomeName } from "$lib/thread/handoff";
 import type { HandoffOpen } from "$lib/types";
+import { submitState } from "$lib/utils/actionState.svelte";
 
 let {
   handoff,
@@ -64,7 +65,7 @@ async function switchHome() {
   {/if}
 
   {#if action.error}
-    <p class="mt-3 rounded-md preset-tonal-error px-3 py-2 text-xs">{action.error}</p>
+    <p class="mt-3 error-note">{action.error}</p>
   {/if}
 
   {#snippet footer()}

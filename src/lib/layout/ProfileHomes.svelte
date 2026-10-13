@@ -1,11 +1,11 @@
 <script lang="ts">
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
-import { submitState } from "$lib/app/dialogs.svelte";
 import { hostFromOption } from "$lib/app/host";
 import { commands, type HarnessKind } from "$lib/bindings";
 import { type ClaudeStatus, readHomeClaudeStatus } from "$lib/services/api";
 import { chooseDefaultHome, loadProfile, profileHomes, removeHome, updateHome } from "$lib/services/homeRouting";
 import { isTauri } from "$lib/services/tauri";
+import { submitState } from "$lib/utils/actionState.svelte";
 
 let harness = $state<HarnessKind>("codex");
 let host = $state("native");

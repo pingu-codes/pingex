@@ -2,6 +2,7 @@
 import { Check, Copy } from "@lucide/svelte";
 import type { Snippet } from "svelte";
 import type { ThreadSummary } from "$lib/types";
+import { flashKey } from "$lib/utils/flash.svelte";
 
 let {
   thread,
@@ -14,7 +15,7 @@ let {
 } = $props();
 
 let open = $state(false);
-let copiedKey = $state<string | null>(null);
+const copied = flashKey<string>(1200);
 let openTimer: ReturnType<typeof setTimeout> | null = null;
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -57,17 +58,14 @@ function hide() {
   closeTimer = setTimeout(() => {
     closeTimer = null;
     open = false;
-    copiedKey = null;
+    copied.clear();
   }, 200);
 }
 
 async function copy(key: string, value: string) {
   try {
     await navigator.clipboard.writeText(value);
-    copiedKey = key;
-    setTimeout(() => {
-      if (copiedKey === key) copiedKey = null;
-    }, 1200);
+    copied.trigger(key);
   } catch {
     // Clipboard unavailable; nothing to surface in a debug hover.
   }
@@ -79,7 +77,7 @@ async function copy(key: string, value: string) {
   {@render children()}
   {#if open && thread}
     <div
-      class="card absolute left-0 top-full z-[80] mt-1.5 w-[26rem] max-w-[80vw] select-text border border-surface-200-800 bg-surface-50-950 p-2 shadow-xl"
+      class="popover-card absolute left-0 top-full z-[80] mt-1.5 w-[26rem] max-w-[80vw] select-text p-2"
       role="tooltip"
       aria-label="Thread debug info"
     >
@@ -93,7 +91,7 @@ async function copy(key: string, value: string) {
         >
           <span class="w-20 shrink-0 text-[10px] text-surface-500">{label}</span>
           <span class="min-w-0 flex-1 break-all font-mono text-[11px] text-surface-700-300">{value}</span>
-          {#if copiedKey === label}
+          {#if copied.current === label}
             <Check size={11} class="shrink-0 self-center text-primary-500" />
           {:else}
             <Copy size={11} class="shrink-0 self-center text-surface-400-600 opacity-0 transition group-hover:opacity-100" />

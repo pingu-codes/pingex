@@ -41,7 +41,7 @@ function onKeydown(event: KeyboardEvent) {
 }
 </script>
 
-<div class="rounded-xl border border-surface-200-800 bg-surface-100-900 p-3">
+<div class="panel-card p-3">
   <textarea
     bind:value={message}
     onkeydown={onKeydown}
@@ -49,7 +49,7 @@ function onKeydown(event: KeyboardEvent) {
     placeholder={stagedCount > 0 ? "Commit message" : "Stage changes to commit"}
     aria-label="Commit message"
     disabled={busy}
-    class="w-full resize-y rounded-md border border-surface-300-700 bg-surface-50-950 px-2.5 py-1.5 text-sm outline-none placeholder:text-surface-500 focus:border-primary-500"
+    class="w-full resize-y field text-sm placeholder:text-surface-500"
   ></textarea>
   <div class="mt-2 flex items-center gap-2">
     <span class="min-w-0 flex-1 truncate text-[11px] text-surface-500">
@@ -65,7 +65,7 @@ function onKeydown(event: KeyboardEvent) {
   </div>
 
   {#if error}
-    <div class="mt-2 rounded-md preset-tonal-error px-3 py-2 text-xs">
+    <div class="mt-2 error-note">
       <div>{error.message}</div>
       {#if hintFor(error.kind)}<div class="mt-0.5 opacity-80">{hintFor(error.kind)}</div>{/if}
       {#if error.detail}<pre class="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-4 opacity-90">{error.detail}</pre>{/if}

@@ -4,12 +4,12 @@ import { untrack } from "svelte";
 import { respondServerRequest } from "$lib/services/api";
 import { type Elicitation, removeElicitation } from "$lib/services/codexEvents.svelte";
 import { buildContent, formFields, initialValues, isComplete } from "$lib/thread/elicitationForm";
+import { submitState } from "$lib/utils/actionState.svelte";
 import { errorMessage } from "$lib/utils/errors";
 
 let { elicitation }: { elicitation: Elicitation } = $props();
 
-let submitting = $state(false);
-let respondError = $state<string | null>(null);
+const reply = submitState({ describe: (cause) => `Could not reply: ${errorMessage(cause)}` });
 
 // `form` is the only mode carrying a schema this app can draw controls for.
 // `openai/form` sends an opaque schema and `url` sends the user to a web page,
@@ -27,10 +27,7 @@ function toggleOption(name: string, value: string) {
 }
 
 async function respond(action: "accept" | "decline" | "cancel") {
-  if (submitting) return;
-  submitting = true;
-  respondError = null;
-  try {
+  await reply.run(async () => {
     await respondServerRequest(elicitation.requestId, {
       action,
       content: action === "accept" ? buildContent(fields, values) : null,
@@ -39,11 +36,7 @@ async function respond(action: "accept" | "decline" | "cancel") {
     // Only once answered: the MCP request is still waiting if this failed,
     // and removing the card left the turn hanging with nothing to retry.
     removeElicitation(elicitation.requestId);
-  } catch (cause) {
-    respondError = `Could not reply: ${errorMessage(cause)}`;
-  } finally {
-    submitting = false;
-  }
+  });
 }
 </script>
 
@@ -86,7 +79,7 @@ async function respond(action: "accept" | "decline" | "cancel") {
 
       {#if field.control === "boolean"}
         <label class="flex items-center gap-2 text-xs">
-          <input type="checkbox" bind:checked={values[field.name] as boolean} disabled={submitting} class="checkbox" />
+          <input type="checkbox" bind:checked={values[field.name] as boolean} disabled={reply.busy} class="checkbox" />
           Yes
         </label>
       {:else if field.control === "select" || field.control === "multiselect"}
@@ -101,7 +94,7 @@ async function respond(action: "accept" | "decline" | "cancel") {
                 field.control === "multiselect"
                   ? toggleOption(field.name, option.const)
                   : (values[field.name] = selected ? null : option.const)}
-              disabled={submitting}
+              disabled={reply.busy}
               class="flex w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-xs transition {selected
                 ? 'border-primary-500 bg-primary-500/10'
                 : 'border-surface-200-800 hover:preset-tonal'}"
@@ -121,7 +114,7 @@ async function respond(action: "accept" | "decline" | "cancel") {
         <input
           type={field.control === "number" ? "number" : field.format === "email" ? "email" : "text"}
           bind:value={values[field.name] as string}
-          disabled={submitting}
+          disabled={reply.busy}
           placeholder={String(field.default ?? "")}
           class="w-full rounded-lg border border-surface-200-800 bg-surface-50-950 px-2.5 py-1.5 text-xs outline-none focus:border-surface-400-600"
         />
@@ -130,19 +123,19 @@ async function respond(action: "accept" | "decline" | "cancel") {
   {/each}
 
   <div class="flex items-center justify-end gap-2 pt-0.5">
-    <button onclick={() => respond("cancel")} disabled={submitting} class="btn btn-sm preset-tonal mr-auto">
+    <button onclick={() => respond("cancel")} disabled={reply.busy} class="btn btn-sm preset-tonal mr-auto">
       Cancel
     </button>
-    <button onclick={() => respond("decline")} disabled={submitting} class="btn btn-sm preset-tonal">Decline</button>
+    <button onclick={() => respond("decline")} disabled={reply.busy} class="btn btn-sm preset-tonal">Decline</button>
     <button
       onclick={() => respond("accept")}
-      disabled={submitting || !submittable}
+      disabled={reply.busy || !submittable}
       class="btn btn-sm preset-filled-primary-500"
     >
       {fields.length ? "Send" : "Continue"}
     </button>
   </div>
-  {#if respondError}
-    <p class="text-[11px] text-error-500" role="alert">{respondError}</p>
+  {#if reply.error}
+    <p class="text-[11px] text-error-500" role="alert">{reply.error}</p>
   {/if}
 </div>

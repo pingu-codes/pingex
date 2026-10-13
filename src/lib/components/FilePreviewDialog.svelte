@@ -15,6 +15,7 @@ import { copyText, openInZed, revealInFinder } from "$lib/services/api";
 import type { FilePreview } from "$lib/types";
 import { languageForPath } from "$lib/utils/codeLanguage";
 import { fileIconFor } from "$lib/utils/fileIcons";
+import { flashKey } from "$lib/utils/flash.svelte";
 import { formatBytes } from "$lib/utils/format";
 import { relativeMentionPath } from "$lib/utils/mentions";
 import { basename } from "$lib/utils/path";
@@ -69,14 +70,11 @@ const notes = $derived.by(() => {
   return list;
 });
 
-let copied = $state<"absolute" | "relative" | null>(null);
+const copied = flashKey<"absolute" | "relative">(1200);
 
 async function copy(which: "absolute" | "relative") {
   await copyText(which === "absolute" ? path : relative);
-  copied = which;
-  setTimeout(() => {
-    if (copied === which) copied = null;
-  }, 1200);
+  copied.trigger(which);
 }
 </script>
 
@@ -88,7 +86,7 @@ async function copy(which: "absolute" | "relative") {
   <div class="mt-4">
     {#if reason}
       <div
-        class="rounded-xl border border-surface-200-800 bg-surface-100-900 px-4 py-6 text-center text-xs text-surface-500"
+        class="panel-card px-4 py-6 text-center text-xs text-surface-500"
         data-testid="preview-problem"
       >
         {reason}
@@ -108,7 +106,7 @@ async function copy(which: "absolute" | "relative") {
       class="btn btn-sm mr-auto gap-1.5 preset-tonal"
       title={path}
     >
-      {#if copied === "absolute"}<Check size={13} />{:else}<Copy size={13} />{/if}
+      {#if copied.current === "absolute"}<Check size={13} />{:else}<Copy size={13} />{/if}
       Copy path
     </button>
     {#if hasRelative}
@@ -118,7 +116,7 @@ async function copy(which: "absolute" | "relative") {
         class="btn btn-sm gap-1.5 preset-tonal"
         title={relative}
       >
-        {#if copied === "relative"}<Check size={13} />{:else}<Copy size={13} />{/if}
+        {#if copied.current === "relative"}<Check size={13} />{:else}<Copy size={13} />{/if}
         Copy relative
       </button>
     {/if}

@@ -1,7 +1,8 @@
 <script lang="ts">
-import { AlertTriangle, ArrowLeftRight, Check, GitBranch, RefreshCw } from "@lucide/svelte";
+import { AlertTriangle, ArrowLeftRight, Check, GitBranch, RefreshCw, Undo2 } from "@lucide/svelte";
 import { onMount, untrack } from "svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
+import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import {
   gitCommit,
@@ -18,12 +19,12 @@ import {
 import { type CodexEvent, setThreadHandler } from "$lib/services/codexEvents.svelte";
 import type { CommitResult, FileDiff, GitContext, SyncResult } from "$lib/types";
 import { formatBytes } from "$lib/utils/format";
-import { highlightAs } from "$lib/utils/markdown";
+import { highlightDiff } from "$lib/utils/markdown";
+import { resource } from "$lib/utils/resource.svelte";
 import { gitStatusCache, refreshGitStatus } from "$lib/worktrees/gitStatus.svelte";
 import { aheadBehindLabel } from "$lib/worktrees/worktrees";
 import BranchSwitcherDialog from "./BranchSwitcherDialog.svelte";
 import CommitBox from "./CommitBox.svelte";
-import DiscardDialog from "./DiscardDialog.svelte";
 import { type GitError, hintFor, parseGitError } from "./gitErrors";
 import { groupStatusFiles, type Selection, selectionAfterRefresh } from "./gitStatusFiles";
 import StatusFileList from "./StatusFileList.svelte";
@@ -41,13 +42,19 @@ let {
   onContextChanged?: (context: GitContext) => void;
 } = $props();
 
-const HIGHLIGHT_BYTES = 100_000;
-
 let selected = $state<Selection | null>(null);
-let diff = $state<FileDiff | null>(null);
-let diffLoading = $state(false);
-let diffError = $state<string | null>(null);
-let requestId = 0;
+// Only the newest request lands, so a slow diff for a row the user has left
+// never shows under another row's header.
+const fileDiff = resource(
+  (dir: string, current: Selection): Promise<FileDiff | null> =>
+    current.section === "staged"
+      ? gitStagedFileDiff(dir, current.path)
+      : gitFileDiff(dir, "HEAD", current.path, current.section === "untracked"),
+  { initial: null, describe: (cause) => parseGitError(cause).message },
+);
+const diff = $derived(fileDiff.value);
+const diffLoading = $derived(fileDiff.loading);
+const diffError = $derived(fileDiff.error);
 
 /** One mutation at a time; the label drives button states. */
 let busy = $state<"files" | "commit" | SyncOperation | null>(null);
@@ -87,43 +94,19 @@ $effect(() => {
   const snapshot = status?.refreshedAt;
   void snapshot;
   if (!current) {
-    diff = null;
+    fileDiff.set(null);
     diffFor = null;
     return;
   }
   const key = `${current.section}:${current.path}`;
   if (key !== diffFor) {
-    diff = null;
+    fileDiff.set(null);
     diffFor = key;
   }
-  const id = ++requestId;
-  diffLoading = true;
-  diffError = null;
-  const request =
-    current.section === "staged"
-      ? gitStagedFileDiff(dir, current.path)
-      : gitFileDiff(dir, "HEAD", current.path, current.section === "untracked");
-  request
-    .then((result) => {
-      if (id === requestId) diff = result;
-    })
-    .catch((cause) => {
-      if (id === requestId) diffError = parseGitError(cause).message;
-    })
-    .finally(() => {
-      if (id === requestId) diffLoading = false;
-    });
+  void fileDiff.reload(dir, current);
 });
 
-const rendered = $derived.by(() => {
-  if (!diff) return "";
-  if (diff.patch.length > HIGHLIGHT_BYTES) return escapeHtml(diff.patch);
-  return highlightAs(diff.patch, "diff");
-});
-
-function escapeHtml(text: string): string {
-  return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-}
+const rendered = $derived(diff ? highlightDiff(diff.patch) : "");
 
 async function mutate(
   kind: NonNullable<typeof busy>,
@@ -150,7 +133,24 @@ const stage = (paths: string[]) => void mutate("files", () => gitStage(dir, path
 const unstage = (paths: string[]) => void mutate("files", () => gitUnstage(dir, paths));
 
 async function discard(paths: string[], untrackedPaths: string[]) {
-  const confirmed = await openDialog(DiscardDialog, { paths, untrackedPaths });
+  const total = paths.length + untrackedPaths.length;
+  const plural = (n: number) => (n === 1 ? "" : "s");
+  const confirmed = await openDialog(ConfirmDialog, {
+    title: "Discard changes",
+    body: [
+      "This cannot be undone.",
+      paths.length > 0 ? `Changes to ${paths.length} tracked file${plural(paths.length)} will be reverted.` : "",
+      untrackedPaths.length > 0
+        ? `${untrackedPaths.length} untracked file${plural(untrackedPaths.length)} will be deleted.`
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" "),
+    detail: [...paths, ...untrackedPaths],
+    confirmLabel: `Discard ${total} file${plural(total)}`,
+    icon: Undo2,
+    width: 440,
+  });
   if (confirmed) void mutate("files", () => gitDiscard(dir, paths, untrackedPaths));
 }
 
@@ -195,7 +195,7 @@ async function switchBranch() {
 
 <div class="space-y-4">
   <!-- Branch context and sync -->
-  <div class="flex flex-wrap items-center gap-2 rounded-xl border border-surface-200-800 bg-surface-100-900 px-3 py-2">
+  <div class="flex flex-wrap items-center gap-2 panel-card px-3 py-2">
     <div class="flex min-w-0 flex-1 items-center gap-2 text-sm">
       <GitBranch size={14} class="shrink-0 text-primary-500" />
       <span class="truncate font-mono font-medium">{branchLabel}</span>
@@ -227,7 +227,7 @@ async function switchBranch() {
   </div>
 
   {#if actionError}
-    <div class="rounded-md preset-tonal-error px-3 py-2 text-xs">
+    <div class="error-note">
       <div>{actionError.message}</div>
       {#if hintFor(actionError.kind)}<div class="mt-0.5 opacity-80">{hintFor(actionError.kind)}</div>{/if}
       {#if actionError.detail}<pre class="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-4 opacity-90">{actionError.detail}</pre>{/if}
@@ -241,7 +241,7 @@ async function switchBranch() {
   {#if !status && loading}
     <div class="placeholder h-24 animate-pulse rounded-xl"></div>
   {:else if !status}
-    <p class="rounded-xl border border-dashed border-surface-300-700 px-4 py-6 text-center text-xs text-surface-500">Could not read the Git status of this folder.</p>
+    <p class="empty-state">Could not read the Git status of this folder.</p>
   {:else}
     <div class="grid gap-4 lg:grid-cols-[minmax(16rem,2fr)_3fr]">
       <div class="min-w-0 space-y-3">
@@ -269,7 +269,7 @@ async function switchBranch() {
       </div>
       <div class="min-w-0">
         {#if !selected}
-          <div class="rounded-xl border border-dashed border-surface-300-700 px-4 py-10 text-center text-xs text-surface-500">Select a file to see its diff.</div>
+          <div class="empty-state py-10">Select a file to see its diff.</div>
         {:else}
           <div class="flex items-center gap-2 pb-2 text-xs">
             <span class="min-w-0 flex-1 truncate font-mono" title={selected.path}>{selected.path}</span>
@@ -283,7 +283,7 @@ async function switchBranch() {
             <p class="text-xs text-surface-500">Binary file — no text diff.</p>
           {:else if diff}
             <div class="overflow-hidden rounded-xl border border-surface-200-800">
-              <pre class="diff-block max-h-[32rem] overflow-auto px-3 py-2.5 font-mono text-[11px] leading-5"><code class="hljs">{@html rendered}</code></pre>
+              <pre class="code-dark max-h-[32rem] overflow-auto px-3 py-2.5 font-mono text-[11px] leading-5"><code class="hljs">{@html rendered}</code></pre>
             </div>
             {#if diff.truncated}
               <p class="mt-1 text-[11px] text-surface-500">Showing the first {formatBytes(diff.bytes)}.</p>
@@ -294,14 +294,3 @@ async function switchBranch() {
     </div>
   {/if}
 </div>
-
-<style>
-  .diff-block {
-    background: #0d1117;
-    color: #e6edf3;
-  }
-  .diff-block :global(.hljs) {
-    background: transparent;
-    padding: 0;
-  }
-</style>

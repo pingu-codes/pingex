@@ -34,8 +34,7 @@ const selectedLabel = $derived(selected?.label ?? "Permissions");
       onToggle();
     }}
     aria-label={permissionModes ? "Set Claude mode" : "Set permissions level"}
-    class="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] transition hover:bg-surface-200-800
-      {selectedId === null ? 'text-error-500' : 'text-surface-500 hover:text-surface-800-200'}"
+    class="pill {selectedId === null ? 'text-error-500 hover:text-error-500' : ''}"
   >
     <Shield size={12} />
     {selectedLabel}
@@ -44,18 +43,18 @@ const selectedLabel = $derived(selected?.label ?? "Permissions");
   {#if open}
     <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
     <div
-      class="card absolute bottom-8 left-0 z-50 w-[270px] select-none border border-surface-200-800 bg-surface-50-950 p-2 shadow-xl"
+      class="popover-card absolute bottom-8 left-0 z-50 w-[270px] select-none p-2"
       onclick={(event) => event.stopPropagation()}
       use:positionComposerPopover
       role="dialog"
       aria-label="Permission options"
     >
-      <span class="px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-surface-500">Permissions</span>
+      <span class="px-1 eyebrow text-[10px]">Permissions</span>
       <div class="mt-1 space-y-0.5">
         {#each presets as preset (preset.id)}
           <button
             onclick={() => onChoose(preset.id)}
-            class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal"
+            class="menu-row"
           >
             <span class="min-w-0 flex-1">
               <span class="block">{preset.label}</span>

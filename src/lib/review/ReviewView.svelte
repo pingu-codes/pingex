@@ -38,6 +38,7 @@ import {
   reviewSubmit,
 } from "$lib/services/api";
 import type { PendingComment, PrDetail, PrFile, PrFreshness, ProviderStatus, PrSummary } from "$lib/types";
+import { submitState } from "$lib/utils/actionState.svelte";
 import { errorMessage } from "$lib/utils/errors";
 
 let {
@@ -60,8 +61,8 @@ let provider = $state<ProviderStatus | null>(null);
 let prs = $state<PrSummary[]>([]);
 let loading = $state(true);
 let error = $state<string | null>(null);
-let actionError = $state<string | null>(null);
-let busy = $state(false);
+/** Submit, reply and resolve: one at a time, reported in the action banner. */
+const action = submitState();
 
 let detail = $state<PrDetail | null>(null);
 let localFiles = $state<PrFile[]>([]);
@@ -108,7 +109,7 @@ async function openPr(number: number) {
   const run = ++openRun;
   loading = true;
   error = null;
-  actionError = null;
+  action.error = null;
   try {
     const next = await reviewPrDetail(repoDir, number);
     if (run !== openRun) return;
@@ -130,7 +131,7 @@ async function openLocal() {
   const run = ++openRun;
   loading = true;
   error = null;
-  actionError = null;
+  action.error = null;
   try {
     const files = await reviewLocalDiff(repoDir, localBase);
     if (run !== openRun) return;
@@ -224,56 +225,37 @@ function startReview() {
 
 async function submitReview(event: string, body: string) {
   if (mode !== "pr" || !detail) return;
-  busy = true;
-  actionError = null;
   // The PR this review is for, fixed before the await: the user can open
   // another PR meanwhile, whose pending comments and draft must survive.
   const number = detail.summary.number;
   const run = openRun;
-  try {
+  await action.run(async () => {
     await reviewSubmit(repoDir, number, event, body, pending);
     await reviewDeleteDraft(PROVIDER, repoName, number).catch(() => {});
     if (run !== openRun) return;
     pending = [];
     reviewStarted = false;
     await openPr(number);
-  } catch (cause) {
-    actionError = errorMessage(cause);
-  } finally {
-    busy = false;
-  }
+  });
 }
 
 /** Whether the reply was posted; the panel keeps the typed text otherwise. */
 async function reply(commentId: number, body: string): Promise<boolean> {
   if (mode !== "pr" || !detail) return false;
   const number = detail.summary.number;
-  busy = true;
-  actionError = null;
-  try {
+  return action.run(async () => {
     await reviewReply(repoDir, number, commentId, body);
     await openPr(number);
-    return true;
-  } catch (cause) {
-    actionError = errorMessage(cause);
-    return false;
-  } finally {
-    busy = false;
-  }
+  });
 }
 
 async function resolve(threadId: string) {
   if (mode !== "pr" || !detail) return;
-  busy = true;
-  actionError = null;
-  try {
+  await action.run(async () => {
     await reviewResolveThread(repoDir, threadId);
-    await openPr(detail.summary.number);
-  } catch (cause) {
-    actionError = errorMessage(cause);
-  } finally {
-    busy = false;
-  }
+    // Refresh whichever PR is showing now.
+    if (detail) await openPr(detail.summary.number);
+  });
 }
 
 function askCodex() {
@@ -327,8 +309,8 @@ function backToPicker() {
     </div>
   {/if}
 
-  {#if actionError}
-    <div class="border-b border-error-500/40 bg-error-500/10 px-4 py-2 text-xs text-error-600 dark:text-error-400">{actionError}</div>
+  {#if action.error}
+    <div class="border-b border-error-500/40 bg-error-500/10 px-4 py-2 text-xs text-error-600 dark:text-error-400">{action.error}</div>
   {/if}
 
   <!-- Body -->
@@ -358,21 +340,21 @@ function backToPicker() {
 {#snippet picker()}
   <div class="flex-1 overflow-y-auto px-6 py-5">
     <div class="mx-auto max-w-2xl">
-      <h2 class="text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Open pull requests</h2>
+      <h2 class="eyebrow">Open pull requests</h2>
       {#if loading && prs.length === 0}
         <div class="mt-2 space-y-2">
           <div class="placeholder h-14 animate-pulse rounded-xl"></div>
           <div class="placeholder h-14 animate-pulse rounded-xl opacity-70"></div>
         </div>
       {:else if prs.length === 0}
-        <p class="mt-2 rounded-xl border border-dashed border-surface-300-700 px-4 py-6 text-center text-xs text-surface-500">
+        <p class="mt-2 empty-state">
           No open pull requests for this repository.
         </p>
       {:else}
         <ul class="mt-2 space-y-2">
           {#each prs as pr (pr.number)}
             <li>
-              <button onclick={() => openPr(pr.number)} class="flex w-full items-start gap-3 rounded-xl border border-surface-200-800 bg-surface-100-900 p-3 text-left hover:border-primary-500/40">
+              <button onclick={() => openPr(pr.number)} class="flex w-full items-start gap-3 panel-card p-3 text-left hover:border-primary-500/40">
                 <GitPullRequest size={15} class="mt-0.5 shrink-0 text-primary-500" />
                 <div class="min-w-0 flex-1">
                   <div class="truncate text-sm font-medium">#{pr.number} {pr.title}</div>
@@ -388,8 +370,8 @@ function backToPicker() {
         </ul>
       {/if}
 
-      <h2 class="mt-6 text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Local diff (no PR)</h2>
-      <div class="mt-2 flex items-center gap-2 rounded-xl border border-surface-200-800 bg-surface-100-900 p-3">
+      <h2 class="mt-6 eyebrow">Local diff (no PR)</h2>
+      <div class="mt-2 flex items-center gap-2 panel-card p-3">
         <label class="text-xs text-surface-500" for="review-base">Base</label>
         <input id="review-base" bind:value={localBase} class="input input-sm w-40 text-xs" placeholder="main" />
         <button onclick={openLocal} class="btn btn-sm preset-tonal-primary">
@@ -471,7 +453,7 @@ function backToPicker() {
 
         <div class="mt-3">
           {#if selectedFile.patchTruncated}
-            <div class="rounded-xl border border-surface-200-800 bg-surface-100-900 p-4 text-center text-xs text-surface-500">
+            <div class="panel-card p-4 text-center text-xs text-surface-500">
               No text diff available (binary or too large).
             </div>
           {:else}
@@ -492,7 +474,7 @@ function backToPicker() {
           comments={detail.comments}
           {pending}
           {reviewStarted}
-          {busy}
+          busy={action.busy}
           onStartReview={startReview}
           onSubmit={submitReview}
           onReply={reply}

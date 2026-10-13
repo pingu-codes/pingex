@@ -48,6 +48,32 @@ it("updates an open list when skills change", async () => {
   expect(await screen.findByText("unslop")).toBeInTheDocument();
 });
 
+it("drops an inventory read that a newer one overtook", async () => {
+  render(IntegrationsSection);
+  await screen.findByText("code-reviewer");
+  const withSkill = (name: string) => {
+    const list = fixture();
+    list.skills.push({ ...list.skills[0], name, path: `/skills/${name}/SKILL.md` });
+    return list;
+  };
+  let answerSlow!: (list: IntegrationsList) => void;
+  listIntegrations.mockReturnValueOnce(
+    new Promise<IntegrationsList>((resolve) => {
+      answerSlow = resolve;
+    }),
+  );
+  skillsStatus.nonce += 1;
+  await waitFor(() => expect(listIntegrations).toHaveBeenCalledTimes(2));
+  listIntegrations.mockResolvedValueOnce(withSkill("fresh-skill"));
+  skillsStatus.nonce += 1;
+  expect(await screen.findByText("fresh-skill")).toBeInTheDocument();
+
+  answerSlow(withSkill("stale-skill"));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(screen.queryByText("stale-skill")).not.toBeInTheDocument();
+  expect(screen.getByText("fresh-skill")).toBeInTheDocument();
+});
+
 function fixture(): IntegrationsList {
   return {
     mcpServers: [

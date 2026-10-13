@@ -24,6 +24,64 @@ button {
   cursor: default;
 }
 
+/* Shared class recipes. Utilities sort by their lowest CSS property, so a
+   single-property class beside one (`eyebrow text-[10px]`, `error-note p-3`)
+   overrides it. */
+
+/* Small uppercase section label. */
+@utility eyebrow {
+  @apply text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500;
+}
+
+/* Inline error message box. */
+@utility error-note {
+  @apply card preset-tonal-error px-3 py-2 text-xs;
+}
+
+/* Bordered surface panel for settings rows and grouped content. */
+@utility panel-card {
+  @apply rounded-xl border border-surface-200-800 bg-surface-100-900;
+}
+
+/* Dashed placeholder shown when a list is empty. */
+@utility empty-state {
+  @apply rounded-xl border border-dashed border-surface-300-700 px-4 py-6 text-center text-xs text-surface-500;
+}
+
+/* Dashed call-to-action button standing in for an empty list. */
+@utility empty-cta {
+  @apply rounded-xl border border-dashed border-surface-300-700 px-4 py-6 text-left text-xs leading-5 text-surface-600-400 hover:border-surface-400-600 hover:text-surface-800-200;
+}
+
+/* Floating popover / dropdown surface. */
+@utility popover-card {
+  @apply card border border-surface-200-800 bg-surface-50-950 shadow-xl;
+}
+
+/* Row inside a popover menu. */
+@utility menu-row {
+  @apply flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal;
+}
+
+/* Composer toolbar trigger pill; `pill-active` replaces `pill` when on. */
+@utility pill {
+  @apply inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] text-surface-500 transition hover:bg-surface-200-800 hover:text-surface-800-200;
+}
+@utility pill-active {
+  @apply inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] transition preset-filled-primary-500;
+}
+
+/* Hover tooltip content (TooltipButton, TooltipAnchor). */
+@utility tooltip-bubble {
+  @apply pointer-events-none z-[100] rounded-lg border border-white/10 bg-surface-900/80 px-2.5 py-1.5 text-center text-[11px] leading-4 font-medium text-white shadow-lg backdrop-blur-md dark:border-surface-900/10 dark:bg-white/80 dark:text-surface-900;
+}
+
+/* Bordered text input / textarea. Sites set the font size. Skeleton's `input`
+   is larger (16px, ring edge, 0.5rem radius), so this keeps the compact look. */
+@utility field {
+  @apply rounded-md border border-surface-300-700 bg-surface-50-950 px-2.5 py-1.5 outline-none focus:border-primary-500;
+}
+
 /* Copy button injected into markdown code blocks by renderMarkdown. */
 .code-block {
   position: relative;
@@ -60,4 +118,150 @@ button {
 .code-block .code-copy.copied .icon-check {
   display: block;
   color: #3fb950;
+}
+
+/* Dark surface for highlighted code: markdown code blocks, diffs, file views.
+   Matches highlight.js's github-dark theme; `.hljs` drops its own box so the
+   container's padding and background show. */
+.code-dark {
+  background: #0d1117;
+  color: #e6edf3;
+}
+.code-dark .hljs {
+  background: transparent;
+  padding: 0;
+}
+
+/* Rendered markdown (renderMarkdown output). `.prose-md-compact` is the
+   smaller variant for side panels, previews and reasoning. */
+.prose-md {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.prose-md p {
+  margin: 0.5rem 0;
+}
+.prose-md ul,
+.prose-md ol {
+  margin: 0.5rem 0;
+  padding-left: 1.25rem;
+}
+.prose-md ul {
+  list-style: disc;
+}
+.prose-md ol {
+  list-style: decimal;
+}
+.prose-md h1,
+.prose-md h2,
+.prose-md h3 {
+  margin: 1rem 0 0.5rem;
+  font-weight: 600;
+}
+.prose-md a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose-md code:not(.hljs) {
+  border-radius: 0.3rem;
+  background: color-mix(in oklab, currentColor 10%, transparent);
+  padding: 0.1rem 0.35rem;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.85em;
+}
+.prose-md blockquote {
+  margin: 0.5rem 0;
+  border-left: 3px solid color-mix(in oklab, currentColor 25%, transparent);
+  padding-left: 0.75rem;
+  opacity: 0.85;
+}
+.prose-md .table-wrap {
+  margin: 0.75rem 0;
+  overflow-x: auto;
+}
+.prose-md table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+.prose-md th,
+.prose-md td {
+  border: 1px solid color-mix(in oklab, currentColor 18%, transparent);
+  padding: 0.35rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+.prose-md th {
+  background: color-mix(in oklab, currentColor 6%, transparent);
+  font-weight: 600;
+}
+.prose-md .code-block {
+  margin: 0.75rem 0;
+  overflow: hidden;
+  border-radius: 0.75rem;
+}
+.prose-md .code-lang {
+  padding: 0.4rem 0.9rem 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #7d8590;
+}
+.prose-md pre {
+  overflow-x: auto;
+  padding: 0.65rem 0.9rem;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.prose-md.prose-md-compact p {
+  margin: 0.35rem 0;
+}
+.prose-md.prose-md-compact ul,
+.prose-md.prose-md-compact ol {
+  margin: 0.35rem 0;
+  padding-left: 1.1rem;
+}
+.prose-md.prose-md-compact h1,
+.prose-md.prose-md-compact h2,
+.prose-md.prose-md-compact h3 {
+  margin: 0.6rem 0 0.25rem;
+}
+.prose-md.prose-md-compact h1 {
+  font-size: 0.9rem;
+}
+.prose-md.prose-md-compact h2 {
+  font-size: 0.8rem;
+}
+.prose-md.prose-md-compact code:not(.hljs) {
+  font-size: 11px;
+}
+.prose-md.prose-md-compact hr {
+  margin: 0.5rem 0;
+  opacity: 0.3;
+}
+.prose-md.prose-md-compact .table-wrap {
+  margin: 0.5rem 0;
+}
+.prose-md.prose-md-compact table {
+  font-size: inherit;
+  line-height: 1.45;
+}
+.prose-md.prose-md-compact th,
+.prose-md.prose-md-compact td {
+  padding: 0.25rem 0.5rem;
+}
+.prose-md.prose-md-compact .code-block {
+  margin: 0.5rem 0;
+  border-radius: 0.5rem;
+}
+.prose-md.prose-md-compact .code-lang {
+  padding: 0.35rem 0.7rem 0;
+}
+.prose-md.prose-md-compact pre {
+  padding: 0.5rem 0.7rem;
+  font-size: 11px;
 }

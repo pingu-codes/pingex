@@ -57,8 +57,8 @@ duplicated (section 1); §1.1, §1.4 and §1.5 are done.
 | 6 | Shared frontend test factories (`makeProject`, `makeThreadSummary`, `makeBootstrap`, `worktreeEntry`) | §11.1 | ~250–300 lines | low |
 | 7 | Retire Codex compat gates older than the last-stable tier | §9.1 | ~200–300 lines | med (policy call) |
 | 8 | Deduplicate `.agents/skills` vs `.claude/skills` | §1.3 | ~205 KB, 51 files | low |
-| 9 | `errorMessage(cause)` helper (109 copies) | §2.1 | ~4 KB, many 3→1-line handlers | low |
-| 10 | Tailwind `@utility` classes for repeated class strings | §2.6 | ~10 KB of markup | low |
+| 9 | ~~`errorMessage(cause)` helper (109 copies)~~ (done) | §2.1 | ~4 KB, many 3→1-line handlers | low |
+| 10 | ~~Tailwind `@utility` classes for repeated class strings~~ (done) | §2.6 | ~10 KB of markup | low |
 | 11 | git/commands.rs: use the existing `locked()` and add `blocking()` | §10.3, §10.4 | ~170–210 lines | low |
 | 12 | Split ThreadView (goal banner, scroll follow) | §5.2, §5.3 | ~330 lines out of the 1,489-line file | med |
 | 13 | Split Composer (attachments, draft, settings) and use Skeleton Popover | §6.2, §6.3 | Composer ~1,374 → ~600 lines; ~130 removed | med |
@@ -149,148 +149,89 @@ duplicated (section 1); §1.1, §1.4 and §1.5 are done.
 Several reviewers reported these independently. Each is a small utility plus
 a mechanical sweep.
 
-### 2.1 `errorMessage(cause)`: 109 inline copies
-- **Done:** `src/lib/utils/errors.ts`; ThreadView has `fail(cause)`.
-- **What:** `cause instanceof Error ? cause.message : String(cause)` appears
-  109 times under `src/` (verified). That includes 16 in ThreadView.svelte,
-  7 in threadSession.svelte.ts, 7 in SettingsView.svelte and 5 in
-  Connections.svelte. `MemoriesView.svelte:66` has its own local `message()`,
-  and `api.ts:834-901` repeats it inside 5 `is*Unsupported` predicates.
-- **Proposal:** `export function errorMessage(cause: unknown): string` in
-  `$lib/utils`, used everywhere, including `submitState` and
-  `gitErrors.ts:32`. In ThreadView, also add
-  `fail = (c) => (session.streamError = errorMessage(c))`, which covers about
-  10 sites.
-- **Savings:** ~4 KB; many catch blocks become one line. **Risk:** low.
+### 2.1 `errorMessage(cause)`: done
+- `errorMessage` in `src/lib/utils/errors.ts` replaces all 109 inline copies,
+  including `MemoriesView`'s local `message()`, the `is*Unsupported`
+  predicates in `api.ts`, `submitState` and `gitErrors.ts`. ThreadView has
+  `fail(cause)` for its 11 `session.streamError` sites.
 
-### 2.2 `basename` / `folderName`: about 14 copies with four behaviours
-- **Done:** `src/lib/utils/path.ts`. `folderName` is gone; `shortHomeName`
-  and `dirName` wrap `basename`. `appData.directoryKey` keeps its own
-  normalisation.
-- **Where:** `Composer.svelte:820`, `panels/ChangesPanel.svelte:97`,
-  `utils/codeLanguage.ts:110`, `utils/mentions.ts:12`,
-  `workspaces/CreateWorkspaceDialog.svelte:48`, `thread/messageText.ts:14`,
-  `thread/UserMessageBubble.svelte:108`, `thread/FloatingMenu.svelte:96`,
-  `git/StatusFileList.svelte:36`, `services/preview/attachments.ts:22`,
-  `worktrees/worktrees.ts:4`, `handoff.ts:13,21`, `ThreadImage.svelte:46`,
-  `ProjectDetail.svelte:251`, `SidebarSearch.svelte:54`. A separate
-  `.replace(/\/+$/, "")` trailing-slash trim appears 17 times.
-- **What:** the copies disagree on edge cases. Only two handle `\`, and only
-  some strip trailing slashes. That matters for Windows-native Homes.
-- **Proposal:** `src/lib/utils/path.ts` with `basename(path)` (both
-  separators, trailing separators trimmed) and `trimSlash`.
-- **Savings:** ~25–40 lines, plus consistent Windows behaviour. **Risk:** low.
+### 2.2 `basename` / `trimSlash`: done
+- `src/lib/utils/path.ts` has `basename` (splits on `/` and `\`, ignores
+  trailing separators) and `trimSlash`. They replace the 14 local copies and
+  the 17 inline trailing-slash trims. `folderName` is gone; `shortHomeName`
+  and `dirName` keep their `null` handling and wrap `basename`.
+  `appData.directoryKey` keeps its own normalisation.
 
-### 2.3 Formatters: bytes, tokens, relative time
-- **Done:** `src/lib/utils/format.ts` (`utils/time.ts` removed). Compact
-  tokens use `k`/`M`, whole numbers from 100 up. `formatAge` and
-  `lastSeenLabel` stay as thin wrappers over `relativeTime`.
-- **Tokens:** `thread/goalBudget.ts:24 formatTokens` and
-  `thread/contextUsage.ts:70 formatTokensShort` are near-identical (`k` vs
-  `K`), and `contextUsage.ts:65 formatTokens` is a *different* function with
-  the same name. `trimZero` exists in both files.
-- **Bytes:** `composer/composerParts.ts:59 formatSize` and
-  `memories/memoriesHelpers.ts:78 formatBytes` differ only in KB rounding.
-  There's also inline KB math in `FilePreviewDialog.svelte:66` and
-  `GitTab.svelte:288`.
-- **Time:** `utils/time.ts relativeTime` has verbatim copies with an " ago"
-  suffix in `HomePicker.svelte:147` and `HomePage.svelte:115`, plus separate
-  ladders in `memoriesHelpers.ts:85 formatAge` and
-  `layout/connectionState.ts:54-56`.
-- **Proposal:** `src/lib/utils/format.ts` with `formatBytes`,
-  `formatTokens`/`formatTokensShort` (one suffix case) and
-  `relativeTime(ts, { suffix, granularity })`.
-- **Savings:** ~60 lines; the name clash goes away. **Risk:** low (some test
-  strings change case).
+### 2.3 Formatters: done
+- `src/lib/utils/format.ts` has `formatBytes`, `formatTokens`,
+  `formatTokensShort` and `relativeTime(ts, { suffix, granularity, now })`.
+  `utils/time.ts`, `formatSize`, the memories `formatBytes`, both token
+  formatters and the `HomePicker`/`HomePage` copies are gone, and the inline
+  KB maths in `FilePreviewDialog` and `GitTab` uses `formatBytes`.
+  `formatAge` and `lastSeenLabel` wrap `relativeTime` for their special cases.
+- Compact token counts now read `k`/`M`, whole numbers from 100 up
+  (`120.6K` → `121k`); sizes read `2 KB`, not `2.0 KB`.
 
-### 2.4 `escapeHtml` and the dark code-block styles
-- **Where:** `escapeHtml` appears in `CodeView.svelte:68`,
-  `ChangesPanel.svelte:117`, `GitTab.svelte:123` and `utils/markdown.ts:49`
-  (private there). An identical `background:#0d1117; color:#e6edf3;
-  :global(.hljs){…}` block appears in `CodeView.svelte:111`,
-  `DiffBlock.svelte:53`, `ChangesPanel.svelte:217`, `RightPanel.svelte:310`,
-  `WorkItem.svelte:696`, `GitTab.svelte:299` and
-  `IntegrationsSection.svelte:1094`. GitTab and ChangesPanel also copy the
-  same `HIGHLIGHT_BYTES` escape-or-highlight logic and the `<pre><code
-  class="hljs">` markup.
-- **Proposal:** export `escapeHtml` and `highlightDiff(patch, maxBytes)` from
-  `utils/markdown.ts`, add a global `.code-dark` class in `app.css`, and
-  optionally add a `DiffPre.svelte` for GitTab and ChangesPanel.
-- **Savings:** ~100 lines. **Risk:** low.
+### 2.4 `escapeHtml` and `.code-dark`: done
+- `utils/markdown.ts` exports `escapeHtml` and `highlightDiff(patch,
+  maxBytes)`; the copies in CodeView, ChangesPanel and GitTab and their
+  `HIGHLIGHT_BYTES` logic are gone. A global `.code-dark` in `app.css`
+  replaces the seven `#0d1117` blocks, and markdown code blocks render with
+  it. No `DiffPre.svelte`: it wouldn't pay for itself. DiffBlock keeps its own
+  truncation.
 
-### 2.5 Global markdown prose styles (also fixes a bug)
-- **Where:** `.prose-thread` lives in a component-scoped `<style>` in
-  `thread/WorkItem.svelte:626-717`. `memories/MemoriesView.svelte` uses
-  `class="prose-thread"` but gets none of the styles. `.prose-skill` in
-  `IntegrationsSection.svelte:1074-1100` is a private workaround for the same
-  gap, and `.prose-reasoning :global(p)` is duplicated in
-  `ReasoningBlock.svelte:27`.
-- **Proposal:** one global `.prose-md` in `app.css` with a compact modifier,
-  used by WorkItem, MemoriesView, the Integrations SKILL.md preview and
-  ReasoningBlock.
-- **Savings:** ~120 lines out of components; fixes memory rendering.
-  **Risk:** low (check visually).
+### 2.5 Global markdown prose styles: done
+- `.prose-md` (from WorkItem's `.prose-thread`) and the `.prose-md-compact`
+  modifier (from `.prose-skill`/`.prose-side`) live in `app.css`. WorkItem,
+  MemoriesView (which now gets styles: the bug), the SKILL.md preview,
+  ReasoningBlock and RightPanel's plan view use them. Reasoning, plan and
+  SKILL.md text now also get list bullets, inline-code chips and code-lang
+  labels.
 
-### 2.6 Tailwind `@utility` classes for repeated class strings
-Long class recipes are pasted dozens of times and have drifted apart.
-`src/app.css` already uses Tailwind v4, so `@utility` fits.
+### 2.6 Tailwind `@utility` classes: done
+- `app.css` defines `eyebrow` (11px; 10px sites add `text-[10px]`),
+  `error-note`, `panel-card`, `empty-state`, `empty-cta`, `popover-card`,
+  `menu-row`, `pill`/`pill-active`, `tooltip-bubble` and `field` (the
+  hand-rolled inputs; Skeleton's `input` looks too different, see §3.6).
+  About 190 sites use them.
+- Left alone because the recipes differ: the large `p-4 text-sm` error
+  panels, the 11px QuickChat/Memories errors, HomePicker's add-home button,
+  the dashed rows in SectionPicker/Integrations/SystemPrompt and menu-like
+  rows without `w-full`/`text-left`.
+- Visible changes: SidebarContextMenu rows are `text-xs` (line height ~2px
+  shorter) and six error notes moved from `rounded-md` to the card radius.
 
-| Recipe | Copies | Suggested name |
-|---|---|---|
-| `text-[10px\|11px] font-semibold uppercase tracking-[0.08em] text-surface-500` | 41 exact (26 at 11px, 15 at 10px), more with extra classes mixed in | `eyebrow` |
-| `card preset-tonal-error … px-3 py-2 text-xs` (5 variants) | ~27 | `error-note` (or an `ErrorNote` component) |
-| `rounded-xl border border-surface-200-800 bg-surface-100-900` | ~25 | `panel-card` |
-| `border-dashed border-surface-300-700 …` empty-state CTA | ~15 | `empty-state` |
-| Popover card `card … border … bg-surface-50-950 … shadow-xl` | ~13 | `popover-card` |
-| `flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal` | ~17 (FloatingMenu 12, ThreadHeader 4, …) | `menu-row` |
-| Pill trigger `inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] …` | 8 | `pill`, `pill-active` |
-| Hand-rolled input `rounded-md border border-surface-300-700 bg-surface-50-950 px-2.5 py-1.5 … focus:border-primary-500` | 10 | use Skeleton `input`/`textarea` instead (§3.6) |
-| Tooltip content class | 2 (TooltipButton, TooltipAnchor) | `tooltip-bubble` |
+### 2.7 Small rune helpers: done
+- `utils/flash.svelte.ts` has `flashFlag(ms)` and the keyed `flashKey(ms)`,
+  used by WorkItem, UserMessageBubble, ThreadHeader, FilePreviewDialog and
+  ThreadDebugPopover.
+- `utils/resource.svelte.ts` has `resource(fetcher)` → `{ value, error,
+  loading, reload, set }` with latest-request-wins built in. It's used by
+  IntegrationsSection, UsageSummary, the GitTab and ChangesPanel diffs and
+  the three worktree dialogs. That fixed two races, each with a test: a late
+  older diff overwriting ChangesPanel's cache, and a deselected file's diff
+  landing in GitTab.
+- `submitState` moved to `utils/actionState.svelte.ts` (with `describe` and
+  `exclusive: false`). It's used by the request cards (§5.10),
+  IntegrationsSection, ReviewView's submit/reply/resolve and Worktrees.
+- Left alone: ReviewView `openPr`/`openLocal` (they share one guard with
+  `loadProvider`/`restoreDraft`), GitTab `commit()` (one `busy` label across
+  all mutations) and `copy.ts` (it toggles a DOM class).
 
-- **Savings:** ~10 KB of markup; restyling becomes a one-place edit.
-  **Risk:** low, mechanical.
+### 2.8 A generic `ConfirmDialog`: done
+- `components/ConfirmDialog.svelte` takes `{ title, body, detail, confirmLabel,
+  cancelLabel, tone, icon, width }`. DiscardQueuedDialog, ReplaceGoalDialog,
+  DeleteThreadDialog, git/DiscardDialog and the dead RewindThreadDialog are
+  deleted. Thread titles and goals in the body are now quoted plain text,
+  not bold.
 
-### 2.7 Small rune helpers repeated across components
-- **Copy-feedback flash:** `copied` + timer + `setTimeout(…, 1500)` is
-  written 4 times (`WorkItem.svelte:66-89` twice,
-  `UserMessageBubble.svelte:47-55`, `ThreadHeader.svelte:88-89`). Add
-  `flashFlag(ms)` returning `{ on, trigger() }`.
-- **"Latest request wins":** `const mine = ++gen; … if (mine === gen)` is
-  hand-written 6 ways: `IntegrationsSection.svelte:124-176` (twice),
-  `ReviewView.svelte:104-147`, `UsageSummary.svelte:32-47`,
-  `GitTab.svelte:98-114` and `ChangesPanel.svelte:80-93`. Three dialogs
-  share the same onMount loader with `loaded`/`loadError`
-  (`AddWorktreeDialog.svelte:33-44`, `CreateWorktreeDialog.svelte:41-50`,
-  `BranchSwitcherDialog.svelte:35-46`). Add a `resource(fetcher)` rune
-  returning `{ value, error, loading, reload }` with the guard built in.
-- **Busy/error action state:** `submitState()` in `app/dialogs.svelte.ts`
-  already does busy + error + run, but only dialogs use it. ApprovalCard,
-  QuestionCard and ElicitationCard each hand-roll it (§5.10), and so do
-  IntegrationsSection (7 handlers), ReviewView, GitTab's `commit()` and
-  `Worktrees.svelte:104 runAction`. Move it to
-  `$lib/utils/actionState.svelte.ts` and use it in views as well.
-- **Savings:** ~150 lines across these. **Risk:** low–med; the guards fix
-  races, so keep their tests green.
-
-### 2.8 A generic `ConfirmDialog`
-- **Where:** `DiscardQueuedDialog.svelte`, `ReplaceGoalDialog.svelte`,
-  `layout/DeleteThreadDialog.svelte`, `git/DiscardDialog.svelte` (and
-  `RewindThreadDialog`, which is dead, see §5.1).
-- **What:** each is ~25–30 lines of the same DialogShell + text +
-  Cancel/Confirm.
-- **Proposal:** `components/ConfirmDialog.svelte` taking
-  `{ title, body, confirmLabel, tone }`.
-- **Savings:** ~60 lines, 3–4 files. **Risk:** low.
-
-### 2.9 Shared image-extension table
-- **Where:** `src-tauri/src/composer/attachments.rs:113-124`,
-  `src-tauri/src/files/preview.rs:162-171`, `Composer.svelte:819-825`
-  (`guessKind`) and `services/preview/attachments.ts:10-19`. The lists are
-  already out of sync (heic vs avif/ico).
-- **Proposal:** one `util::media::IMAGE_EXTENSIONS` in Rust and one exported
-  `guessKind` in TS. Better still, let the stage command return the
-  placeholder kind.
-- **Savings:** ~15 lines. **Risk:** low.
+### 2.9 Shared image-extension table: done
+- Rust: `util::media` has `IMAGE_EXTENSIONS` (ext → MIME), `image_mime` and
+  `is_image_path`, used by `composer/attachments.rs` and `files/preview.rs`.
+  TS: `utils/media.ts` has `IMAGE_EXTENSIONS`, `isImagePath` and `guessKind`,
+  used by Composer and the preview attachments fake. Both lists are the union:
+  png, jpg, jpeg, gif, webp, bmp, tif, tiff, heic, avif, ico, svg. The stage
+  command still doesn't return the kind.
 
 ---
 
@@ -529,8 +470,7 @@ the right `Menu` pattern, and `Collapsible` is already used 8 times.
 ## 5. Thread UI (`src/lib/thread`)
 
 ### 5.1 Dead code
-- `RewindThreadDialog.svelte`: the whole file is dead. Its only reference is
-  an unused import at `ThreadView.svelte:57` (verified).
+- ~~`RewindThreadDialog.svelte`~~: deleted with §2.8.
 - `ThreadView.svelte:51` imports `groupForTurn`, which is then used only by
   tests.
 - `FloatingMenu.svelte:7` imports `FileText`, which is unused.
@@ -615,10 +555,8 @@ the right `Menu` pattern, and `Collapsible` is already used 8 times.
 - Move `queuedText` into `queueEntries.ts`, add an `inlineEdit()` helper, and
   reuse `editedParts`. ~30 lines.
 
-### 5.10 Request cards hand-roll `submitState()`
-- `ApprovalCard.svelte:43-64`, `QuestionCard.svelte:44-135` and
-  `ElicitationCard.svelte:28-45` each carry `submitting`/`error`/try/finally.
-  ~30 lines.
+### 5.10 Request cards hand-roll `submitState()`: done
+- The three cards use `submitState` (§2.7).
 
 ### 5.11 ThreadSession operation scaffolding
 - `review`, `compact` and `undoTurns` (`threadSession.svelte.ts:135-219`)
@@ -760,7 +698,7 @@ See §3.2. ~100–130 lines.
   use `{#each}`.
 - 3 project sections have the same heading, blurb and list (346-396).
 - 2 identical cancellable `$effect` fetches (83-111).
-- A local `relativeTime` (§2.3) and the hand-rolled `iconAction` (§3.6).
+- The hand-rolled `iconAction` (§3.6). (The local `relativeTime` went in §2.3.)
 - ~80–100 lines.
 
 ### 7.5 Sidebar
@@ -1274,10 +1212,9 @@ Carried over from the cleanup log's "Found, not yet fixed" list:
 1. **Free and safe.** The rest of repo hygiene (§1.3, §1.6–1.8) and the dead-code deletions
    (§4.3, §4.10, §5.1, §6.7, §6.9, §7.3, §8.5). Most of the byte savings,
    almost no risk.
-2. **Helpers first, then sweeps.** Add `errorMessage`, `utils/path`,
-   `utils/format`, `escapeHtml`/`.code-dark`, `.prose-md`, the `@utility`
-   classes, and the test factories (§2, §11.1). Many later items get shorter
-   once these exist.
+2. **Helpers first, then sweeps.** §2 is done. Still to add: the test
+   factories (§11.1). Many later items get shorter now that the helpers
+   exist.
 3. **Rust mechanical wins.** `HomeWindow::ctx()`, `db` executor, `locked()`
    / `blocking()` / `require()`, `Default` derives (§10.1–10.5, §10.8).
    All low risk, compile-checked, and about 700 lines together.

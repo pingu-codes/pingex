@@ -2,14 +2,15 @@
 import { FolderOpen, GitBranch } from "@lucide/svelte";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { onMount } from "svelte";
-import { type DialogClose, submitState } from "$lib/app/dialogs.svelte";
+import type { DialogClose } from "$lib/app/dialogs.svelte";
 import DialogShell from "$lib/components/DialogShell.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import { filterBranches } from "$lib/composer/reviewTargets";
 import { gitBranches, gitRecentCommits, isTauri } from "$lib/services/api";
 import type { GitBranch as Branch, GitCommit, WorktreeBranchRequest } from "$lib/types";
-import { errorMessage } from "$lib/utils/errors";
+import { submitState } from "$lib/utils/actionState.svelte";
 import { basename, trimSlash } from "$lib/utils/path";
+import { resource } from "$lib/utils/resource.svelte";
 import { stripRemotePrefix } from "$lib/worktrees/worktrees";
 
 let {
@@ -35,21 +36,21 @@ let activeIndex = $state(0);
 let base = $state("");
 let location = $state("");
 let locationTouched = $state(false);
-let branches = $state<Branch[]>([]);
-let commits = $state<GitCommit[]>([]);
-let loadError = $state<string | null>(null);
+const refs = resource(
+  async () => {
+    const [branches, commits] = await Promise.all([
+      gitBranches(repoDir),
+      gitRecentCommits(repoDir, 20).catch(() => [] as GitCommit[]),
+    ]);
+    return { branches, commits };
+  },
+  { initial: { branches: [] as Branch[], commits: [] as GitCommit[] } },
+);
+const branches = $derived(refs.value.branches);
+const commits = $derived(refs.value.commits);
 const action = submitState();
 
-onMount(() => {
-  Promise.all([gitBranches(repoDir), gitRecentCommits(repoDir, 20).catch(() => [] as GitCommit[])])
-    .then(([refs, recent]) => {
-      branches = refs;
-      commits = recent;
-    })
-    .catch((cause) => {
-      loadError = errorMessage(cause);
-    });
-});
+onMount(() => void refs.reload());
 
 const matches = $derived(filterBranches(branches, existingQuery));
 /** A branch checked out in another worktree cannot be added again. */
@@ -162,14 +163,14 @@ async function create() {
           type="text"
           bind:value={branchName}
           placeholder="feature/my-change"
-          class="mt-1 w-full rounded-md border border-surface-300-700 bg-surface-50-950 px-2.5 py-1.5 font-mono text-sm outline-none focus:border-primary-500"
+          class="mt-1 w-full field font-mono text-sm"
         />
       </label>
       <label class="block">
         <span class="text-xs font-medium text-surface-600-400">Base revision</span>
         <select
           bind:value={base}
-          class="mt-1 w-full rounded-md border border-surface-300-700 bg-surface-50-950 px-2.5 py-1.5 text-sm outline-none focus:border-primary-500"
+          class="mt-1 w-full field text-sm"
         >
           <option value="">Current HEAD</option>
           {#if branches.length > 0}
@@ -206,7 +207,7 @@ async function create() {
             aria-expanded="true"
             aria-controls="worktree-branch-list"
             aria-autocomplete="list"
-            class="mt-1 w-full rounded-md border border-surface-300-700 bg-surface-50-950 px-2.5 py-1.5 font-mono text-sm outline-none focus:border-primary-500"
+            class="mt-1 w-full field font-mono text-sm"
           />
         </label>
         <div
@@ -215,8 +216,8 @@ async function create() {
           aria-label="Branches"
           class="mt-1 max-h-48 select-none overflow-y-auto rounded-md border border-surface-200-800 bg-surface-50-950 p-1"
         >
-          {#if loadError}
-            <p class="px-2 py-2 text-xs text-error-500">{loadError}</p>
+          {#if refs.error}
+            <p class="px-2 py-2 text-xs text-error-500">{refs.error}</p>
           {:else if matches.length === 0}
             <p class="px-2 py-2 text-xs text-surface-500">
               {branches.length === 0 ? "No branches found." : `No branch matches “${existingQuery}”.`}
@@ -263,7 +264,7 @@ async function create() {
             locationTouched = true;
             location = event.currentTarget.value;
           }}
-          class="min-w-0 flex-1 rounded-md border border-surface-300-700 bg-surface-50-950 px-2.5 py-1.5 font-mono text-[13px] outline-none focus:border-primary-500"
+          class="min-w-0 flex-1 field font-mono text-[13px]"
         />
         {#if isTauri()}
           <TooltipButton label="Browse for location" type="button" onclick={browse} class="btn btn-sm preset-tonal shrink-0" aria-label="Browse for location">
@@ -278,7 +279,7 @@ async function create() {
   </div>
 
   {#if action.error}
-    <p class="mt-3 rounded-md preset-tonal-error px-3 py-2 text-xs">{action.error}</p>
+    <p class="mt-3 error-note">{action.error}</p>
   {/if}
 
   {#snippet footer()}

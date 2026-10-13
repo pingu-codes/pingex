@@ -128,7 +128,7 @@ async function toggle() {
   {/if}
   <div class="control context" use:measure={'context'}>{@render context()}</div>
   <!-- Hidden controls retain measurable intrinsic widths without duplicate controls. -->
-  <div id={panelId} bind:this={panel} class="overflow card border border-surface-200-800 bg-surface-50-950 shadow-xl" class:closed={!open}
+  <div id={panelId} bind:this={panel} class="overflow popover-card" class:closed={!open}
     style:left="{position.left}px" style:bottom="{position.bottom}px"
     style:max-height="calc(100vh - {position.bottom + 8}px)"
     role="dialog" aria-label="More composer options" aria-hidden={!open} inert={!open}

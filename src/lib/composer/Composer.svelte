@@ -58,6 +58,7 @@ import { freshPlanPrompt } from "$lib/thread/planHandoff";
 import type { Model, ReviewTarget, SkillSummary, SubagentPolicy, TurnOptions, UserInputPart } from "$lib/types";
 import { can } from "$lib/utils/capabilities";
 import { clickOutside } from "$lib/utils/clickOutside";
+import { guessKind } from "$lib/utils/media";
 import { basename } from "$lib/utils/path";
 import { loadSize, resizeHandle } from "$lib/utils/resize";
 
@@ -817,13 +818,6 @@ type StageSource =
 const sources = new Map<string, StageSource>();
 let dragOver = $state(false);
 
-const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "heic", "svg"];
-function guessKind(filename: string, mime = ""): "image" | "file" {
-  if (mime.startsWith("image/")) return "image";
-  const dot = filename.lastIndexOf(".");
-  return dot >= 0 && IMAGE_EXTENSIONS.includes(filename.slice(dot + 1).toLowerCase()) ? "image" : "file";
-}
-
 function placeholderFor(clientId: string, source: StageSource): AttachmentPart {
   const filename =
     source.via === "path" ? basename(source.path) : source.via === "file" ? source.file.name : source.filename;
@@ -1096,7 +1090,7 @@ function onPaste(event: ClipboardEvent) {
     }}
   >
     {#if showPlanActions}
-      <div class="mb-2 flex items-center gap-2 rounded-xl border border-surface-200-800 bg-surface-100-900 px-3 py-2">
+      <div class="mb-2 flex items-center gap-2 panel-card px-3 py-2">
         <span class="min-w-0 flex-1 truncate text-xs text-surface-500">Plan ready — implement it, or keep refining in plan mode.</span>
         <button
           onclick={keepPlanning}
@@ -1124,7 +1118,7 @@ function onPaste(event: ClipboardEvent) {
     {/if}
     {#if goalEditing}
       <div
-        class="mb-2 flex items-center gap-2 rounded-xl border border-surface-200-800 bg-surface-100-900 px-3 py-2"
+        class="mb-2 flex items-center gap-2 panel-card px-3 py-2"
         data-testid="goal-edit-bar"
       >
         <Target size={12} class="shrink-0 text-primary-500" />
@@ -1266,7 +1260,7 @@ function onPaste(event: ClipboardEvent) {
             onclick={togglePlanMode}
             aria-label="Toggle plan mode"
             aria-pressed={prefs.planMode}
-            class="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] transition {prefs.planMode ? 'preset-filled-primary-500' : 'text-surface-500 hover:bg-surface-200-800 hover:text-surface-800-200'}"
+            class={prefs.planMode ? "pill-active" : "pill"}
           >
             <MapIcon size={12} />
             Plan
@@ -1280,7 +1274,7 @@ function onPaste(event: ClipboardEvent) {
             onclick={toggleGoalMode}
             aria-label="Toggle goal mode"
             aria-pressed={goalMode}
-            class="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] transition {goalMode ? 'preset-filled-primary-500' : 'text-surface-500 hover:bg-surface-200-800 hover:text-surface-800-200'}"
+            class={goalMode ? "pill-active" : "pill"}
           >
             <Target size={12} />
             Goal
@@ -1309,7 +1303,7 @@ function onPaste(event: ClipboardEvent) {
             aria-pressed={displayedFast === undefined ? "mixed" : displayedFast}
             disabled={disabled || (!fastSpeedTier && selectedFast !== true)}
             onclick={toggleFastMode}
-            class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] transition {displayedFast ? 'preset-filled-primary-500' : 'text-surface-500 hover:bg-surface-200-800'}"
+            class="{displayedFast ? 'pill-active' : 'pill'} gap-1"
           >
             Fast {displayedFast === undefined ? "unknown" : displayedFast ? "on" : "off"}
             {#if speedPending}<span>· Next {selectedFast ? "on" : "off"}</span>{/if}

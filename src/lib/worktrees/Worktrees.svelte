@@ -34,6 +34,7 @@ import {
 import { type CodexEvent, setThreadHandler } from "$lib/services/codexEvents.svelte";
 import HandoffToLocalDialog from "$lib/thread/HandoffToLocalDialog.svelte";
 import type { GitRepoInfo, Project, WorktreeBranchRequest, WorktreeEntry } from "$lib/types";
+import { submitState } from "$lib/utils/actionState.svelte";
 import { errorMessage } from "$lib/utils/errors";
 import CreateWorktreeDialog from "$lib/worktrees/CreateWorktreeDialog.svelte";
 import { refreshGitStatus } from "$lib/worktrees/gitStatus.svelte";
@@ -71,7 +72,8 @@ let entries = $state<WorktreeEntry[]>([]);
 let repoInfo = $state<GitRepoInfo | null>(null);
 let loading = $state(true);
 let error = $state<string | null>(null);
-let actionError = $state<string | null>(null);
+/** Menu actions; they may overlap and share one error banner. */
+const actions = submitState({ exclusive: false });
 
 let openMenu = $state<string | null>(null);
 
@@ -103,15 +105,12 @@ onMount(() => {
 });
 
 async function runAction(fn: () => Promise<void>) {
-  actionError = null;
   openMenu = null;
-  try {
+  await actions.run(async () => {
     await fn();
     await load();
     void refreshGitStatus(repoDir);
-  } catch (cause) {
-    actionError = errorMessage(cause);
-  }
+  });
 }
 
 function newWorktree() {
@@ -204,8 +203,8 @@ async function removeWorktree(entry: WorktreeEntry) {
         <p class="mt-1 text-xs leading-5">{error}</p>
       </div>
     {:else}
-      {#if actionError}
-        <div class="mt-4 card preset-tonal-error p-3 text-xs">{actionError}</div>
+      {#if actions.error}
+        <div class="mt-4 error-note p-3">{actions.error}</div>
       {/if}
       {#if repoInfo?.inProgress}
         <div class="mt-4 rounded-lg border border-warning-500/40 bg-warning-500/10 px-3 py-2 text-xs text-warning-700 dark:text-warning-300">
@@ -214,13 +213,13 @@ async function removeWorktree(entry: WorktreeEntry) {
       {/if}
 
       {#if mainCard}
-        <h2 class="{embedded ? 'mt-4' : 'mt-6'} text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Main checkout</h2>
+        <h2 class="{embedded ? 'mt-4' : 'mt-6'} eyebrow">Main checkout</h2>
         <div class="mt-2 rounded-xl border-2 border-primary-500/40 bg-surface-100-900 p-4">
           {@render cardBody(mainCard)}
         </div>
       {/if}
 
-      <h2 class="mt-6 text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">
+      <h2 class="mt-6 eyebrow">
         Linked worktrees
         <span class="ml-1 rounded-full bg-surface-200-800 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal">{linkedCards.length}</span>
       </h2>
@@ -230,13 +229,13 @@ async function removeWorktree(entry: WorktreeEntry) {
           <div class="placeholder h-20 animate-pulse rounded-xl opacity-70"></div>
         </div>
       {:else if linkedCards.length === 0}
-        <p class="mt-2 rounded-xl border border-dashed border-surface-300-700 px-4 py-6 text-center text-xs text-surface-500">
+        <p class="mt-2 empty-state">
           No linked worktrees yet. Create one to work on a branch in an isolated checkout.
         </p>
       {:else}
         <div class="mt-2 space-y-2">
           {#each linkedCards as card (card.entry.path)}
-            <div class="rounded-xl border border-surface-200-800 bg-surface-100-900 p-4">
+            <div class="panel-card p-4">
               {@render cardBody(card)}
             </div>
           {/each}
@@ -303,7 +302,7 @@ async function removeWorktree(entry: WorktreeEntry) {
         </button>
         {#if openMenu === card.entry.path}
           <button type="button" class="fixed inset-0 z-40 cursor-default" aria-label="Close menu" onclick={() => (openMenu = null)}></button>
-          <div class="absolute right-0 z-50 mt-1 w-48 overflow-hidden rounded-lg border border-surface-200-800 bg-surface-50-950 py-1 text-sm shadow-xl">
+          <div class="popover-card absolute right-0 z-50 mt-1 w-48 overflow-hidden py-1 text-sm">
             {#if onRenameProject}
               <button onclick={() => { openMenu = null; onRenameProject?.(card.entry.path); }} class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:preset-tonal">
                 <Pencil size={13} /> Rename display name

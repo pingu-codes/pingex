@@ -19,7 +19,7 @@ let { label, children, openDelay = 350, ...buttonProps }: Props = $props();
   <Portal>
     <Tooltip.Positioner>
       <Tooltip.Content
-        class="pointer-events-none z-[100] max-w-[16rem] rounded-lg border border-white/10 bg-surface-900/80 px-2.5 py-1.5 text-center text-[11px] leading-4 font-medium text-white shadow-lg backdrop-blur-md dark:border-surface-900/10 dark:bg-white/80 dark:text-surface-900"
+        class="tooltip-bubble max-w-[16rem]"
       >{label}</Tooltip.Content>
     </Tooltip.Positioner>
   </Portal>

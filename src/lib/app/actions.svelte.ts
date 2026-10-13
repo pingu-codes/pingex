@@ -28,8 +28,8 @@ import {
   setView,
   view,
 } from "$lib/app/navigation.svelte";
+import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
 import type { SlashCommandId } from "$lib/composer/slashCommands";
-import DeleteThreadDialog from "$lib/layout/DeleteThreadDialog.svelte";
 import RenameDialog from "$lib/layout/RenameDialog.svelte";
 import SectionPickerDialog from "$lib/layout/SectionPickerDialog.svelte";
 import { touchThread } from "$lib/layout/sessionFocus.svelte";
@@ -185,7 +185,12 @@ async function moveToSection(threadId: string, currentSectionId: string | null |
 
 async function confirmDelete(target: MenuTarget) {
   if (target.kind !== "thread") return;
-  if (!(await openDialog(DeleteThreadDialog, { title: target.thread.title }))) return;
+  const confirmed = await openDialog(ConfirmDialog, {
+    title: "Delete thread",
+    body: `Permanently delete “${target.thread.title}”? This cannot be undone.`,
+    confirmLabel: "Delete",
+  });
+  if (!confirmed) return;
   const ticket = dataTicket();
   const deleted = await deleteThread(target.thread.id);
   forgetOptimisticThread(target.thread.id);

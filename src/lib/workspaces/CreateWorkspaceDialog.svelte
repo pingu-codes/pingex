@@ -1,8 +1,9 @@
 <script lang="ts">
 import { FolderGit2, Layers3 } from "@lucide/svelte";
-import { type DialogClose, submitState } from "$lib/app/dialogs.svelte";
+import type { DialogClose } from "$lib/app/dialogs.svelte";
 import DialogShell from "$lib/components/DialogShell.svelte";
 import type { CreateWorkspaceInput, Project, WorkspaceMemberInput } from "$lib/types";
+import { submitState } from "$lib/utils/actionState.svelte";
 import { basename } from "$lib/utils/path";
 
 let {

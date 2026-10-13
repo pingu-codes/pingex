@@ -1,11 +1,12 @@
 <script lang="ts">
 import { GitBranch, RefreshCw } from "@lucide/svelte";
 import { onMount } from "svelte";
-import { type DialogClose, submitState } from "$lib/app/dialogs.svelte";
+import type { DialogClose } from "$lib/app/dialogs.svelte";
 import DialogShell from "$lib/components/DialogShell.svelte";
 import { gitWorktrees } from "$lib/services/api";
 import { dirName } from "$lib/thread/handoff";
 import type { WorktreeEntry } from "$lib/types";
+import { submitState } from "$lib/utils/actionState.svelte";
 import { errorMessage } from "$lib/utils/errors";
 import { trimSlash } from "$lib/utils/path";
 
@@ -62,7 +63,7 @@ async function fork() {
   {#if loading}
     <div class="mt-4 grid place-items-center py-6"><RefreshCw size={18} class="animate-spin text-surface-500" /></div>
   {:else if loadError}
-    <div class="card preset-tonal-error mt-4 p-3 text-xs">{loadError}</div>
+    <div class="error-note p-3 mt-4">{loadError}</div>
   {:else if options.length === 0}
     <p class="mt-4 rounded-lg border border-surface-200-800 bg-surface-100-900 px-3 py-4 text-center text-xs text-surface-500">
       No other worktrees are available to move to.
@@ -91,7 +92,7 @@ async function fork() {
   {/if}
 
   {#if action.error}
-    <div class="card preset-tonal-error mt-3 p-3 text-xs">{action.error}</div>
+    <div class="error-note p-3 mt-3">{action.error}</div>
   {/if}
 
   {#snippet footer()}

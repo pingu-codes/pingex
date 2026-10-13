@@ -80,11 +80,11 @@ const label = $derived(
 
     {#if hovered}
       <div
-        class="card pointer-events-none absolute bottom-9 right-0 z-50 w-[248px] select-none border border-surface-200-800 bg-surface-50-950 p-2.5 shadow-xl"
+        class="popover-card pointer-events-none absolute bottom-9 right-0 z-50 w-[248px] select-none p-2.5"
         role="tooltip"
       >
         <div class="flex items-baseline justify-between gap-2">
-          <span class="text-[10px] font-semibold uppercase tracking-[0.08em] text-surface-500">Context</span>
+          <span class="eyebrow text-[10px]">Context</span>
           {#if percentUsed !== null}
             <span class="text-xs font-medium">{percentUsed}% used</span>
           {/if}

@@ -38,7 +38,7 @@ const marked = new Marked({
       const open = /^\s*(`{3,}|~{3,})/.test(raw) && !/\n\s*(`{3,}|~{3,})\s*$/.test(raw);
       const highlighted = !language && open ? escapeHtml(text) : highlightBlock(text, language);
       const label = language ? `<div class="code-lang">${language}</div>` : "";
-      return `<div class="code-block">${label}${COPY_BUTTON}<pre><code class="hljs">${highlighted}</code></pre></div>`;
+      return `<div class="code-block code-dark">${label}${COPY_BUTTON}<pre><code class="hljs">${highlighted}</code></pre></div>`;
     },
     table(token: Tokens.Table) {
       return `<div class="table-wrap">${Renderer.prototype.table.call(this, token)}</div>`;
@@ -46,7 +46,8 @@ const marked = new Marked({
   },
 });
 
-function escapeHtml(text: string): string {
+/** Escapes text for `{@html}`, for code shown without highlighting. */
+export function escapeHtml(text: string): string {
   return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
@@ -57,4 +58,12 @@ export function renderMarkdown(text: string): string {
 export function highlightAs(code: string, language: string): string {
   const value = hljs.getLanguage(language) ? hljs.highlight(code, { language }).value : hljs.highlightAuto(code).value;
   return DOMPurify.sanitize(value);
+}
+
+/** Above this a diff is only escaped: highlight.js on a megabyte of generated text lags the UI. */
+const DIFF_HIGHLIGHT_BYTES = 100_000;
+
+/** A patch highlighted as `diff`, or escaped as plain text when longer than `maxBytes`. */
+export function highlightDiff(patch: string, maxBytes = DIFF_HIGHLIGHT_BYTES): string {
+  return patch.length > maxBytes ? escapeHtml(patch) : highlightAs(patch, "diff");
 }

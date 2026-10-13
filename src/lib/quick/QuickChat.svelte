@@ -169,7 +169,7 @@ $effect(() => () => {
           projectMenuOpen = !projectMenuOpen;
           modelMenuOpen = false;
         }}
-        class="inline-flex max-w-[220px] items-center gap-1.5 rounded-full px-2 py-1 text-[11px] text-surface-500 transition hover:bg-surface-200-800 hover:text-surface-800-200"
+        class="pill max-w-[220px]"
       >
         <Folder size={12} class="shrink-0" />
         <span class="truncate">{selectedProject?.name ?? "Select project"}</span>
@@ -178,7 +178,7 @@ $effect(() => () => {
       {#if projectMenuOpen}
         <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
         <div
-          class="card absolute right-0 top-8 z-50 max-h-56 w-[240px] overflow-y-auto border border-surface-200-800 bg-surface-50-950 p-1 shadow-xl"
+          class="popover-card absolute right-0 top-8 z-50 max-h-56 w-[240px] overflow-y-auto p-1"
           onclick={(event) => event.stopPropagation()}
         >
           {#if projects.length === 0}

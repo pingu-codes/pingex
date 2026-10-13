@@ -26,7 +26,7 @@ const open = $derived(userOpen ?? (!autoCollapse && !oversized));
 </script>
 
 <Collapsible class="min-w-0 items-stretch" {open} onOpenChange={(details) => (userOpen = details.open)}>
-  <div class="overflow-hidden rounded-xl border border-surface-200-800 bg-surface-100-900">
+  <div class="overflow-hidden panel-card">
     <Collapsible.Trigger class="group flex w-full items-center gap-2.5 px-3 py-2 text-left">
       <FileDiff size={13} class="shrink-0 text-surface-500" />
       <span class="min-w-0 flex-1 truncate font-mono text-xs">{change.path}</span>
@@ -36,7 +36,7 @@ const open = $derived(userOpen ?? (!autoCollapse && !oversized));
     <Collapsible.Content>
       <!-- Collapsible keeps closed content mounted; highlight only when shown. -->
       {#if open}
-        <pre class="diff-block max-h-96 overflow-auto border-t border-surface-200-800 px-3 py-2.5 font-mono text-[11px] leading-5"><code class="hljs">{@html highlightAs(visible, "diff")}</code></pre>
+        <pre class="code-dark max-h-96 overflow-auto border-t border-surface-200-800 px-3 py-2.5 font-mono text-[11px] leading-5"><code class="hljs">{@html highlightAs(visible, "diff")}</code></pre>
       {/if}
       {#if oversized && !showAll}
         <button
@@ -49,14 +49,3 @@ const open = $derived(userOpen ?? (!autoCollapse && !oversized));
     </Collapsible.Content>
   </div>
 </Collapsible>
-
-<style>
-  .diff-block {
-    background: #0d1117;
-    color: #e6edf3;
-  }
-  .diff-block :global(.hljs) {
-    background: transparent;
-    padding: 0;
-  }
-</style>

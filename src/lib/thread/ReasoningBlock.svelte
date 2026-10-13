@@ -12,21 +12,18 @@ const latest = $derived(summaries.at(-1) ?? "");
   <div class="text-xs">
     <div class="working-shimmer mb-1 font-medium">Working…</div>
     {#if latest}
-      <div class="prose-reasoning leading-5 text-surface-500">
+      <div class="prose-md prose-md-compact leading-5 text-surface-500">
         {@html renderMarkdown(latest)}
       </div>
     {/if}
   </div>
 {:else if summaries.length > 0}
-  <div class="prose-reasoning text-xs leading-5 text-surface-500">
+  <div class="prose-md prose-md-compact text-xs leading-5 text-surface-500">
     {@html renderMarkdown(summaries.join("\n\n"))}
   </div>
 {/if}
 
 <style>
-  .prose-reasoning :global(p) {
-    margin: 0.25rem 0;
-  }
   .working-shimmer {
     background: linear-gradient(
       90deg,

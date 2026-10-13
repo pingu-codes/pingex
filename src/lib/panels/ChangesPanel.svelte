@@ -3,10 +3,10 @@ import { ArrowLeft, FileDiff, RefreshCw } from "@lucide/svelte";
 import { untrack } from "svelte";
 import { gitFileDiff } from "$lib/services/api";
 import type { ChangedFile, ChangesSummary, FileDiff as FileDiffData } from "$lib/types";
-import { errorMessage } from "$lib/utils/errors";
 import { fileIconFor } from "$lib/utils/fileIcons";
-import { highlightAs } from "$lib/utils/markdown";
+import { highlightDiff } from "$lib/utils/markdown";
 import { basename } from "$lib/utils/path";
+import { resource } from "$lib/utils/resource.svelte";
 
 let {
   cwd,
@@ -29,18 +29,30 @@ let {
 const PAGE = 150;
 /** Above this many changed lines a diff starts collapsed and is never highlighted. */
 const LARGE_LINES = 5000;
-const HIGHLIGHT_BYTES = 100_000;
 const DEFAULT_BYTES = 256 * 1024;
 const MAX_BYTES = 2 * 1024 * 1024;
 
 let selected = $state<string | null>(null);
 let visibleCount = $state(PAGE);
-let diff = $state<FileDiffData | null>(null);
-let diffLoading = $state(false);
-let diffError = $state<string | null>(null);
 let forceLarge = $state(false);
-let requestId = 0;
 const cache = new Map<string, FileDiffData>();
+// Only the newest request lands, cached or not: a slow patch for a file the
+// user has moved past never replaces the one on screen.
+const fileDiff = resource(
+  async (file: ChangedFile, base: string, maxBytes: number): Promise<FileDiffData | null> => {
+    const key = `${base}:${file.path}:${maxBytes}`;
+    const cached = cache.get(key);
+    if (cached) return cached;
+    const result = await gitFileDiff(cwd, base, file.path, file.status === "untracked", maxBytes);
+    if (cache.size > 50) cache.delete(cache.keys().next().value as string);
+    cache.set(key, result);
+    return result;
+  },
+  { initial: null },
+);
+const diff = $derived(fileDiff.value);
+const diffLoading = $derived(fileDiff.loading);
+const diffError = $derived(fileDiff.error);
 
 const files = $derived(summary?.files ?? []);
 const selectedFile = $derived(files.find((file) => file.path === selected) ?? null);
@@ -67,33 +79,13 @@ $effect(() => {
   forceLarge = false;
   const path = selected;
   if (path) untrack(() => void load(path, DEFAULT_BYTES));
-  else diff = null;
+  else fileDiff.set(null);
 });
 
-async function load(path: string, maxBytes: number) {
+function load(path: string, maxBytes: number) {
   const file = files.find((entry) => entry.path === path);
   if (!file || !summary) return;
-  const key = `${summary.base}:${path}:${maxBytes}`;
-  const cached = cache.get(key);
-  if (cached) {
-    diff = cached;
-    return;
-  }
-  const id = ++requestId;
-  diffLoading = true;
-  diffError = null;
-  try {
-    const result = await gitFileDiff(cwd, summary.base, path, file.status === "untracked", maxBytes);
-    if (id !== requestId) return;
-    if (cache.size > 50) cache.delete(cache.keys().next().value as string);
-    cache.set(key, result);
-    diff = result;
-  } catch (e) {
-    if (id !== requestId) return;
-    diffError = errorMessage(e);
-  } finally {
-    if (id === requestId) diffLoading = false;
-  }
+  void fileDiff.reload(file, summary.base, maxBytes);
 }
 
 const statusLabel: Record<ChangedFile["status"], string> = {
@@ -106,15 +98,7 @@ const statusLabel: Record<ChangedFile["status"], string> = {
 
 // Only highlight modest diffs: highlight.js on a megabyte of generated text
 // is exactly the lag this panel exists to avoid.
-const rendered = $derived.by(() => {
-  if (!diff) return "";
-  if (diff.patch.length > HIGHLIGHT_BYTES) return escapeHtml(diff.patch);
-  return highlightAs(diff.patch, "diff");
-});
-
-function escapeHtml(text: string): string {
-  return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-}
+const rendered = $derived(diff ? highlightDiff(diff.patch) : "");
 </script>
 
 {#if error}
@@ -150,7 +134,7 @@ function escapeHtml(text: string): string {
       <p class="text-xs text-error-500">{diffError}</p>
     {:else if diff}
       <div class="min-h-0 flex-1 overflow-hidden rounded-xl border border-surface-200-800">
-        <pre class="diff-block h-full overflow-auto px-3 py-2.5 font-mono text-[11px] leading-5"><code class="hljs">{@html rendered}</code></pre>
+        <pre class="code-dark h-full overflow-auto px-3 py-2.5 font-mono text-[11px] leading-5"><code class="hljs">{@html rendered}</code></pre>
       </div>
       {#if diff.truncated}
         <div class="flex items-center gap-2 text-[11px] text-surface-500">
@@ -185,7 +169,7 @@ function escapeHtml(text: string): string {
         <button
           onclick={() => (selected = file.path)}
           title={file.path}
-          class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal"
+          class="menu-row"
         >
           <icon.icon size={13} class="shrink-0 {icon.class}" />
           <span class="min-w-0 flex-1 truncate">{file.path}</span>
@@ -211,14 +195,3 @@ function escapeHtml(text: string): string {
     {/if}
   {/if}
 {/if}
-
-<style>
-  .diff-block {
-    background: #0d1117;
-    color: #e6edf3;
-  }
-  .diff-block :global(.hljs) {
-    background: transparent;
-    padding: 0;
-  }
-</style>

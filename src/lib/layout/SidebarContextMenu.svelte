@@ -64,7 +64,7 @@ const hiddenCount = (target: MenuTarget) =>
   }}
 ></div>
 <div
-  class="card fixed z-50 w-[190px] select-none border border-surface-200-800 bg-surface-50-950 p-1 shadow-xl"
+  class="popover-card fixed z-50 w-[190px] select-none p-1"
   style="left: {menu.x}px; top: {menu.y}px"
   role="menu"
 >
@@ -72,7 +72,7 @@ const hiddenCount = (target: MenuTarget) =>
     <button
       role="menuitem"
       onclick={() => onAct("newFolder")}
-      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+      class="menu-row"
     >
       <FolderPlus size={13} class="text-surface-500" />
       New subfolder
@@ -80,7 +80,7 @@ const hiddenCount = (target: MenuTarget) =>
     <button
       role="menuitem"
       onclick={() => onAct("rename")}
-      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+      class="menu-row"
     >
       <Pencil size={13} class="text-surface-500" />
       Rename folder
@@ -88,7 +88,7 @@ const hiddenCount = (target: MenuTarget) =>
     <button
       role="menuitem"
       onclick={() => onAct("deleteFolder")}
-      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-error-500 hover:preset-tonal"
+      class="menu-row text-error-500"
       title="Its contents move up a level"
     >
       <Trash2 size={13} />
@@ -98,7 +98,7 @@ const hiddenCount = (target: MenuTarget) =>
     <button
       role="menuitem"
       onclick={() => onAct("rename")}
-      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+      class="menu-row"
     >
       <Pencil size={13} class="text-surface-500" />
       Rename section
@@ -106,7 +106,7 @@ const hiddenCount = (target: MenuTarget) =>
     <button
       role="menuitem"
       onclick={() => onAct("deleteSection")}
-      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-error-500 hover:preset-tonal"
+      class="menu-row text-error-500"
     >
       <Trash2 size={13} />
       Delete section
@@ -115,7 +115,7 @@ const hiddenCount = (target: MenuTarget) =>
   <button
     role="menuitem"
     onclick={() => onAct("reveal")}
-    class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+    class="menu-row"
   >
     <FolderOpen size={13} class="text-surface-500" />
     Open in Finder
@@ -124,7 +124,7 @@ const hiddenCount = (target: MenuTarget) =>
     <button
       role="menuitem"
       onclick={() => onAct("rename")}
-      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+      class="menu-row"
     >
       <Pencil size={13} class="text-surface-500" />
       Rename {menu.target.kind}
@@ -132,7 +132,7 @@ const hiddenCount = (target: MenuTarget) =>
     <button
       role="menuitem"
       onclick={() => onAct("togglePin")}
-      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+      class="menu-row"
     >
       {#if menu.target.kind === "thread"}
         {#if menuIsPinned(menu.target)}
@@ -155,7 +155,7 @@ const hiddenCount = (target: MenuTarget) =>
     <button
       role="menuitem"
       onclick={() => onAct("toggleHidden")}
-      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+      class="menu-row"
     >
       {#if menu.target.thread.hidden}
         <Eye size={13} class="text-surface-500" />
@@ -169,7 +169,7 @@ const hiddenCount = (target: MenuTarget) =>
       <button
         role="menuitem"
         onclick={() => onAct("hideBelow")}
-        class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+        class="menu-row"
         title="Hide every thread listed after this one"
       >
         <ArrowDownToLine size={13} class="text-surface-500" />
@@ -181,7 +181,7 @@ const hiddenCount = (target: MenuTarget) =>
     <button
       role="menuitem"
       onclick={() => onAct("newFolder")}
-      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+      class="menu-row"
     >
       <FolderPlus size={13} class="text-surface-500" />
       New thread folder
@@ -189,7 +189,7 @@ const hiddenCount = (target: MenuTarget) =>
     <button
       role="menuitem"
       onclick={() => onAct("openDetails")}
-      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+      class="menu-row"
     >
       <Settings2 size={13} class="text-surface-500" />
       {menu.target.project.kind === "multiProject" ? "Workspace details" : "Project details"}
@@ -198,7 +198,7 @@ const hiddenCount = (target: MenuTarget) =>
       <button
         role="menuitem"
         onclick={() => onAct("openGit")}
-        class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+        class="menu-row"
       >
         <GitBranch size={13} class="text-surface-500" />
         Git
@@ -206,7 +206,7 @@ const hiddenCount = (target: MenuTarget) =>
       <button
         role="menuitem"
         onclick={() => onAct("openWorktrees")}
-        class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+        class="menu-row"
       >
         <FolderGit2 size={13} class="text-surface-500" />
         Worktrees
@@ -216,7 +216,7 @@ const hiddenCount = (target: MenuTarget) =>
       <button
         role="menuitem"
         onclick={() => onAct("addWorktree")}
-        class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+        class="menu-row"
         title="Add an existing worktree of this repository to the sidebar"
       >
         <FolderGit2 size={13} class="text-surface-500" />
@@ -227,7 +227,7 @@ const hiddenCount = (target: MenuTarget) =>
     <button
       role="menuitem"
       onclick={() => onAct("resetOrder")}
-      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+      class="menu-row"
       title="Forget drag ordering: favorites first, then most recent"
     >
       <ListRestart size={13} class="text-surface-500" />
@@ -237,7 +237,7 @@ const hiddenCount = (target: MenuTarget) =>
       <button
         role="menuitem"
         onclick={() => onAct("unhideAll")}
-        class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+        class="menu-row"
       >
         <Eye size={13} class="text-surface-500" />
         Unhide {hiddenCount(menu.target)} thread{hiddenCount(menu.target) === 1 ? "" : "s"}
@@ -246,7 +246,7 @@ const hiddenCount = (target: MenuTarget) =>
     <button
       role="menuitem"
       onclick={() => onAct("toggleArchive")}
-      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+      class="menu-row"
     >
       <Archive size={13} class="text-surface-500" />
       {menu.target.project.kind === "worktree" ? "Hide worktree" : "Archive project"}
@@ -257,7 +257,7 @@ const hiddenCount = (target: MenuTarget) =>
     <button
       role="menuitem"
       onclick={() => onAct("moveUp")}
-      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+      class="menu-row"
     >
       <ArrowUp size={13} class="text-surface-500" />
       Move up
@@ -265,7 +265,7 @@ const hiddenCount = (target: MenuTarget) =>
     <button
       role="menuitem"
       onclick={() => onAct("moveDown")}
-      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+      class="menu-row"
     >
       <ArrowDown size={13} class="text-surface-500" />
       Move down
@@ -273,7 +273,7 @@ const hiddenCount = (target: MenuTarget) =>
     <button
       role="menuitem"
       onclick={() => onAct("remove")}
-      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-error-500 hover:preset-tonal"
+      class="menu-row text-error-500"
     >
       <X size={13} />
       Remove project
@@ -283,7 +283,7 @@ const hiddenCount = (target: MenuTarget) =>
     <button
       role="menuitem"
       onclick={() => onAct("moveToWorkspace")}
-      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+      class="menu-row"
     >
       <Layers3 size={13} class="text-surface-500" />
       Move to workspace
@@ -292,7 +292,7 @@ const hiddenCount = (target: MenuTarget) =>
       <button
         role="menuitem"
         onclick={() => onAct("moveToSection")}
-        class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+        class="menu-row"
       >
         <Bookmark size={13} class="text-surface-500" />
         Move to section
@@ -302,7 +302,7 @@ const hiddenCount = (target: MenuTarget) =>
       <button
         role="menuitem"
         onclick={() => onAct("createWorktree")}
-        class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+        class="menu-row"
       >
         <GitBranch size={13} class="text-surface-500" />
         Create worktree
@@ -311,7 +311,7 @@ const hiddenCount = (target: MenuTarget) =>
     <button
       role="menuitem"
       onclick={() => onAct("fork")}
-      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+      class="menu-row"
     >
       <GitFork size={13} class="text-surface-500" />
       Fork thread
@@ -319,7 +319,7 @@ const hiddenCount = (target: MenuTarget) =>
     <button
       role="menuitem"
       onclick={() => onAct("archive")}
-      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:preset-tonal"
+      class="menu-row"
     >
       <Archive size={13} class="text-surface-500" />
       Archive thread
@@ -327,7 +327,7 @@ const hiddenCount = (target: MenuTarget) =>
     <button
       role="menuitem"
       onclick={() => onAct("delete")}
-      class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-error-500 hover:preset-tonal"
+      class="menu-row text-error-500"
     >
       <Trash2 size={13} />
       Delete thread

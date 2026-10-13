@@ -209,7 +209,7 @@ function openProjectFile(relativePath: string) {
       {:else if view.kind === "files"}
         <FileTree root={cwd} onOpenFile={openProjectFile} />
       {:else if view.kind === "plan"}
-        <div class="prose-side text-xs leading-6">
+        <div class="prose-md prose-md-compact text-xs leading-6">
           {@html renderMarkdown(view.text)}
         </div>
       {:else if view.kind === "sources"}
@@ -271,44 +271,3 @@ function openProjectFile(relativePath: string) {
     {/if}
   {/if}
 </aside>
-
-<style>
-  .prose-side :global(p) {
-    margin: 0.35rem 0;
-  }
-  .prose-side :global(ul),
-  .prose-side :global(ol) {
-    margin: 0.35rem 0;
-    padding-left: 1.1rem;
-  }
-  .prose-side :global(ul) {
-    list-style: disc;
-  }
-  .prose-side :global(.table-wrap) {
-    margin: 0.5rem 0;
-    overflow-x: auto;
-  }
-  .prose-side :global(table) {
-    width: 100%;
-    border-collapse: collapse;
-    line-height: 1.45;
-  }
-  .prose-side :global(th),
-  .prose-side :global(td) {
-    border: 1px solid color-mix(in oklab, currentColor 18%, transparent);
-    padding: 0.25rem 0.5rem;
-    text-align: left;
-    vertical-align: top;
-  }
-  .prose-side :global(th) {
-    background: color-mix(in oklab, currentColor 6%, transparent);
-    font-weight: 600;
-  }
-  .prose-side :global(pre) {
-    overflow-x: auto;
-    border-radius: 0.5rem;
-    background: #0d1117;
-    padding: 0.5rem 0.7rem;
-    font-size: 11px;
-  }
-</style>

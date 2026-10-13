@@ -50,7 +50,7 @@ function discardRow(row: StatusRow) {
     {#if rows.length > 0}
       <section aria-label={section.title}>
         <div class="flex items-center gap-2 px-1">
-          <h3 class="text-[11px] font-semibold uppercase tracking-[0.08em] {section.key === 'conflicted' ? 'text-error-500' : 'text-surface-500'}">
+          <h3 class="eyebrow {section.key === 'conflicted' ? 'text-error-500' : ''}">
             {section.title}
             <span class="ml-1 rounded-full bg-surface-200-800 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal">{rows.length}</span>
           </h3>
@@ -99,6 +99,6 @@ function discardRow(row: StatusRow) {
     {/if}
   {/each}
   {#if files.length === 0}
-    <p class="rounded-xl border border-dashed border-surface-300-700 px-4 py-6 text-center text-xs text-surface-500">Working tree clean.</p>
+    <p class="empty-state">Working tree clean.</p>
   {/if}
 </div>

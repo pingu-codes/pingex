@@ -1,7 +1,8 @@
 <script lang="ts">
 import { Copy, TerminalSquare } from "@lucide/svelte";
-import { type DialogClose, submitState } from "$lib/app/dialogs.svelte";
+import type { DialogClose } from "$lib/app/dialogs.svelte";
 import DialogShell from "$lib/components/DialogShell.svelte";
+import { submitState } from "$lib/utils/actionState.svelte";
 
 let {
   home,
@@ -56,7 +57,7 @@ async function launchTerminal() {
   <pre class="mt-3 overflow-x-auto rounded-lg border border-surface-200-800 bg-surface-100-900 px-3 py-2 text-[11px] leading-5 text-surface-800-200"><code>{command}</code></pre>
 
   {#if action.error}
-    <div class="card preset-tonal-error mt-3 p-3 text-xs">{action.error}</div>
+    <div class="error-note p-3 mt-3">{action.error}</div>
   {/if}
 
   {#snippet footer()}
