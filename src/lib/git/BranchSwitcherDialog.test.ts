@@ -52,6 +52,23 @@ describe("BranchSwitcherDialog", () => {
     expect(close).toHaveBeenCalledWith("feature");
   });
 
+  it("tracks a remote branch and still offers to switch anyway on a dirty tree", async () => {
+    create.mockResolvedValue(undefined);
+    checkout
+      .mockRejectedValueOnce(new Error("dirtyTree: This checkout has uncommitted changes."))
+      .mockResolvedValueOnce(undefined);
+    const close = vi.fn();
+    render(BranchSwitcherDialog, { dir: "/repo", currentBranch: "main", close });
+
+    await userEvent.click(await screen.findByRole("option", { name: /origin\/remote-only/ }));
+    expect(create).toHaveBeenCalledWith("/repo", "remote-only", "origin/remote-only", false);
+    expect(await screen.findByText(/uncommitted changes/)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Switch anyway" }));
+    expect(checkout).toHaveBeenLastCalledWith("/repo", "remote-only", true);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledWith("remote-only");
+  });
+
   it("creates a branch from a base and checks it out", async () => {
     create.mockResolvedValue(undefined);
     const close = vi.fn();

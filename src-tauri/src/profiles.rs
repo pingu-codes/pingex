@@ -260,20 +260,19 @@ pub(crate) async fn register_profile_home(
 /// Copy the projects (and their instructions) `source` lists but `target`
 /// lacks. Threads are never copied. Idempotent.
 async fn seed_projects(target: &turso::Database, source: &turso::Database) -> Result<(), String> {
-    let mut store = storage::read_store(target).await?;
-    let before = store.projects.len();
-    for project in storage::read_store(source).await?.projects {
-        if !store
-            .projects
-            .iter()
-            .any(|existing| existing.path == project.path)
-        {
-            store.projects.push(project);
+    let seeds = storage::read_store(source).await?.projects;
+    storage::update_store(target, |store| {
+        for project in seeds {
+            if !store
+                .projects
+                .iter()
+                .any(|existing| existing.path == project.path)
+            {
+                store.projects.push(project);
+            }
         }
-    }
-    if store.projects.len() != before {
-        storage::write_store(target, &store).await?;
-    }
+    })
+    .await?;
     let existing = storage::read_all_project_instructions(target).await?;
     for (path, instructions) in storage::read_all_project_instructions(source).await? {
         if !existing.iter().any(|(key, _)| key == &path) {

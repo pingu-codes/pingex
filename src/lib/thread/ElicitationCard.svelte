@@ -1,18 +1,23 @@
 <script lang="ts">
 import { Check, ExternalLink, Plug } from "@lucide/svelte";
+import { untrack } from "svelte";
 import { respondServerRequest } from "$lib/services/api";
 import { type Elicitation, removeElicitation } from "$lib/services/codexEvents.svelte";
-import { buildContent, formFields, isComplete } from "$lib/thread/elicitationForm";
+import { buildContent, formFields, initialValues, isComplete } from "$lib/thread/elicitationForm";
 
 let { elicitation }: { elicitation: Elicitation } = $props();
 
 let submitting = $state(false);
-let values = $state<Record<string, unknown>>({});
+let respondError = $state<string | null>(null);
 
 // `form` is the only mode carrying a schema this app can draw controls for.
 // `openai/form` sends an opaque schema and `url` sends the user to a web page,
 // so both are shown as the message plus a plain accept/decline.
 const fields = $derived(elicitation.mode === "form" ? formFields(elicitation.requestedSchema) : []);
+// Seeded once: a card is keyed by its request, whose schema never changes.
+let values = $state<Record<string, unknown>>(
+  untrack(() => initialValues(elicitation.mode === "form" ? formFields(elicitation.requestedSchema) : [])),
+);
 const submittable = $derived(isComplete(fields, values));
 
 function toggleOption(name: string, value: string) {
@@ -23,14 +28,20 @@ function toggleOption(name: string, value: string) {
 async function respond(action: "accept" | "decline" | "cancel") {
   if (submitting) return;
   submitting = true;
+  respondError = null;
   try {
     await respondServerRequest(elicitation.requestId, {
       action,
       content: action === "accept" ? buildContent(fields, values) : null,
       _meta: elicitation.meta ?? null,
     });
-  } finally {
+    // Only once answered: the MCP request is still waiting if this failed,
+    // and removing the card left the turn hanging with nothing to retry.
     removeElicitation(elicitation.requestId);
+  } catch (cause) {
+    respondError = `Could not reply: ${cause instanceof Error ? cause.message : String(cause)}`;
+  } finally {
+    submitting = false;
   }
 }
 </script>
@@ -130,4 +141,7 @@ async function respond(action: "accept" | "decline" | "cancel") {
       {fields.length ? "Send" : "Continue"}
     </button>
   </div>
+  {#if respondError}
+    <p class="text-[11px] text-error-500" role="alert">{respondError}</p>
+  {/if}
 </div>

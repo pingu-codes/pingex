@@ -280,6 +280,9 @@ impl Projector {
                                 "last": last.breakdown(),
                                 "modelContextWindow": usage.context_window,
                                 "model": usage.model,
+                                // `total` restarts with the process; the
+                                // ledger books `last` instead.
+                                "totalSpansProcess": true,
                             },
                         }),
                     ));
@@ -585,6 +588,7 @@ mod tests {
         assert!((usage["total"]["costUsd"].as_f64().unwrap() - 0.75).abs() < 1e-9);
         assert!((usage["last"]["costUsd"].as_f64().unwrap() - 0.25).abs() < 1e-9);
         assert_eq!(usage["modelContextWindow"], 200_000);
+        assert_eq!(usage["totalSpansProcess"], true);
     }
 
     #[test]

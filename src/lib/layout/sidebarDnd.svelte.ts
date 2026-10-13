@@ -58,7 +58,7 @@ export function startDrag(event: PointerEvent, source: DragSource, hooks: DragHo
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
     window.removeEventListener("pointercancel", onCancel);
-    window.removeEventListener("keydown", onKey);
+    window.removeEventListener("keydown", onKey, true);
     if (!active) return;
     const target = dnd.over;
     dnd.dragging = null;
@@ -69,13 +69,17 @@ export function startDrag(event: PointerEvent, source: DragSource, hooks: DragHo
   };
   const onUp = () => finish(true);
   const onCancel = () => finish(false);
+  // Capture phase + preventDefault while dragging: the composer reads an
+  // unclaimed Escape as "interrupt the running turn".
   const onKey = (key: KeyboardEvent) => {
-    if (key.key === "Escape") finish(false);
+    if (key.key !== "Escape") return;
+    if (active) key.preventDefault();
+    finish(false);
   };
   window.addEventListener("pointermove", onMove);
   window.addEventListener("pointerup", onUp);
   window.addEventListener("pointercancel", onCancel);
-  window.addEventListener("keydown", onKey);
+  window.addEventListener("keydown", onKey, true);
 }
 
 /** Svelte action: make a row draggable and addressable for drop resolution. */

@@ -113,7 +113,10 @@ $effect(() => {
 // intentional (and avoids resetting an in-progress edit when the project object
 // is replaced by a background refresh).
 let instructions = $state(untrack(() => project.instructions ?? ""));
-let savingInstructions = $state(false);
+/** Instruction saves in flight; a count, since a slow one can overlap the next. */
+let instructionSaves = $state(0);
+const savingInstructions = $derived(instructionSaves > 0);
+let instructionsError = $state<string | null>(null);
 let sources = $state<ProjectSource[]>(untrack(() => project.sources ?? []));
 let sourceError = $state<string | null>(null);
 
@@ -144,11 +147,15 @@ async function refreshSources() {
 }
 
 const saveInstructions = debounce((path: string, text: string) => {
-  savingInstructions = true;
+  instructionSaves++;
+  instructionsError = null;
   saveProjectInstructions(path, text)
-    .catch(() => {})
+    .catch((cause) => {
+      // Said out loud: "Saving…" vanishing used to read as saved.
+      instructionsError = `Not saved: ${cause instanceof Error ? cause.message : String(cause)}`;
+    })
     .finally(() => {
-      savingInstructions = false;
+      instructionSaves--;
     });
 }, 400);
 
@@ -207,6 +214,8 @@ async function retrySource(id: string) {
 const runSearch = debounce((value: string) => {
   const trimmed = value.trim();
   if (!trimmed) {
+    // Supersede any search still in flight, or it lands after the clear.
+    ++generation;
     results = null;
     searching = false;
     return;
@@ -351,7 +360,8 @@ const sourceName = (source: ProjectSource) => source.sourcePath.split("/").pop()
         <div class="mt-6">
           <div class="mb-1.5 flex items-center gap-2">
             <h2 class="text-[11px] font-semibold uppercase tracking-[0.08em] text-surface-500">Instructions</h2>
-            {#if savingInstructions}<span class="text-[10px] text-surface-500">Saving…</span>{/if}
+            {#if savingInstructions}<span class="text-[10px] text-surface-500">Saving…</span>
+            {:else if instructionsError}<span class="text-[10px] text-error-500" role="alert">{instructionsError}</span>{/if}
           </div>
           <textarea
             value={instructions}

@@ -76,14 +76,18 @@ async function switchTo(name: string, force: boolean) {
   if (ok) close(name);
 }
 
-/** A remote-only branch becomes a local tracking branch on checkout. */
+/** A remote-only branch becomes a local tracking branch on checkout. The
+ *  create and the switch are separate steps: a dirty tree refuses the switch
+ *  after the branch exists, and that must surface as the usual "Switch
+ *  anyway" rather than a retry that fails with "already exists". */
 async function trackRemote(remoteName: string) {
   const name = stripRemotePrefix(remoteName);
-  const ok = await action.run(async () => {
-    await gitCreateBranch(dir, name, remoteName, false);
-    await gitCheckoutBranch(dir, name, false);
-  });
-  if (ok) close(name);
+  if (!branches.some((branch) => !branch.isRemote && branch.name === name)) {
+    const created = await action.run(() => gitCreateBranch(dir, name, remoteName, false));
+    if (!created) return;
+    branches = await gitBranches(dir).catch(() => branches);
+  }
+  await switchTo(name, false);
 }
 
 async function create() {

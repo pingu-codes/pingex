@@ -23,7 +23,7 @@ pub(crate) struct StoredProject {
     pub(crate) worktree: bool,
 }
 
-#[derive(Default, Debug, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
+#[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct Store {
     pub(crate) projects: Vec<StoredProject>,
@@ -69,6 +69,28 @@ pub(crate) async fn read_store(database: &Database) -> Result<Store, String> {
         pinned_threads,
         hidden_threads,
     })
+}
+
+/// Serializes every [`update_store`], so two read-modify-write cycles never
+/// interleave and drop each other's change. One lock for all homes: these
+/// writes are rare and small.
+static STORE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Read the store, let `mutate` change it, and write it back if it changed,
+/// with no other update in between. The way callers change the store;
+/// [`write_store`] alone would race a concurrent update.
+pub(crate) async fn update_store<T>(
+    database: &Database,
+    mutate: impl FnOnce(&mut Store) -> T,
+) -> Result<T, String> {
+    let _guard = STORE_LOCK.lock().await;
+    let mut store = read_store(database).await?;
+    let before = store.clone();
+    let result = mutate(&mut store);
+    if store != before {
+        write_store(database, &store).await?;
+    }
+    Ok(result)
 }
 
 pub(crate) async fn write_store(database: &Database, store: &Store) -> Result<(), String> {
@@ -161,6 +183,29 @@ pub async fn read_temp_worktrees(database: &Database) -> Result<Vec<(String, Str
 mod tests {
     use super::*;
     use crate::storage::open;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_updates_keep_every_change() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = std::sync::Arc::new(open(directory.path()).await.unwrap());
+        let tasks: Vec<_> = (0..16)
+            .map(|index| {
+                let database = database.clone();
+                tokio::spawn(async move {
+                    update_store(&database, |store| {
+                        store.pinned_threads.push(format!("thread-{index}"));
+                    })
+                    .await
+                    .unwrap();
+                })
+            })
+            .collect();
+        for task in tasks {
+            task.await.unwrap();
+        }
+        let store = read_store(&database).await.unwrap();
+        assert_eq!(store.pinned_threads.len(), 16);
+    }
 
     #[tokio::test]
     async fn round_trips_projects_and_pinned_threads() {

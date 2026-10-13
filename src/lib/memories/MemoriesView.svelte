@@ -98,13 +98,15 @@ async function save() {
   if (!current || draft === undefined) return;
   const { homeId } = current.home;
   const { path } = current.entry;
+  // Captured: by the time the write returns the user may be on another memory.
+  const text = draft;
   saving = true;
   error = null;
   try {
-    const next = await writeMemory(homeId, path, draft, projectPaths());
-    contents[path] = draft;
+    const next = await writeMemory(homeId, path, text, projectPaths());
+    contents[path] = text;
     delete drafts[path];
-    editing = false;
+    if (current?.entry.path === path) editing = false;
     apply(next);
   } catch (cause) {
     error = message(cause);
@@ -122,8 +124,11 @@ async function remove() {
     const next = await deleteMemory(homeId, path, projectPaths());
     delete drafts[path];
     delete contents[path];
-    confirmDelete = false;
-    editing = false;
+    // Only close the editor if it is still showing the deleted memory.
+    if (current?.entry.path === path) {
+      confirmDelete = false;
+      editing = false;
+    }
     apply(next);
   } catch (cause) {
     error = message(cause);

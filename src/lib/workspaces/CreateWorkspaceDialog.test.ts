@@ -108,4 +108,21 @@ describe("CreateWorkspaceDialog", () => {
       ],
     });
   });
+
+  it("keeps a member whose project is hidden when the workspace is edited", async () => {
+    const user = userEvent.setup();
+    const { submit } = setup({ workspace, projects: [{ ...api, archived: true }, web, workspace] });
+
+    await user.clear(screen.getByLabelText("Workspace name"));
+    await user.type(screen.getByLabelText("Workspace name"), "Renamed");
+    await user.click(screen.getByRole("button", { name: "Save workspace" }));
+
+    expect(submit).toHaveBeenCalledWith({
+      name: "Renamed",
+      members: [
+        { sourcePath: "/projects/api", alias: "server", isolated: true },
+        { sourcePath: "/projects/web", alias: "client", isolated: false },
+      ],
+    });
+  });
 });

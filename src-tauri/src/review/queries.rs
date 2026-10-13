@@ -133,36 +133,13 @@ fn fetch_review_threads(dir: &Path, number: i64) -> Vec<PrComment> {
 /// `gh api --paginate` emits one JSON array per page, concatenated. Flatten them
 /// into a single array of file objects.
 fn merge_paginated_arrays(stdout: &str) -> Value {
-    // The simple, common case: a single well-formed array.
-    if let Ok(value) = serde_json::from_str::<Value>(stdout.trim()) {
-        if value.is_array() {
-            return value;
-        }
-    }
     let mut merged = Vec::new();
-    let mut depth = 0usize;
-    let mut start = None;
-    for (index, byte) in stdout.char_indices() {
-        match byte {
-            '[' => {
-                if depth == 0 {
-                    start = Some(index);
-                }
-                depth += 1;
-            }
-            ']' => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    if let Some(begin) = start.take() {
-                        if let Ok(Value::Array(items)) =
-                            serde_json::from_str::<Value>(&stdout[begin..=index])
-                        {
-                            merged.extend(items);
-                        }
-                    }
-                }
-            }
-            _ => {}
+    for page in serde_json::Deserializer::from_str(stdout).into_iter::<Value>() {
+        match page {
+            Ok(Value::Array(items)) => merged.extend(items),
+            Ok(_) => {}
+            // Past a malformed page there is no telling where the next begins.
+            Err(_) => break,
         }
     }
     Value::Array(merged)
@@ -204,22 +181,66 @@ pub(crate) fn local_diff(
     base: &str,
     head: Option<&str>,
 ) -> Result<Vec<PrFile>, String> {
-    let range = match head {
-        Some(head) if !head.trim().is_empty() => format!("{base}...{head}"),
-        _ => base.to_string(),
-    };
+    let range = diff_range(base, head)?;
     // Reuses the native Git service's runner, so the local diff gets the same
-    // argument-array discipline and timeout handling as everything else.
-    let output = run_git(host, dir, &["diff", "--no-color", &range], READ_TIMEOUT)?;
+    // argument-array discipline and timeout handling as everything else. The
+    // trailing `--` keeps the range from being read as a path.
+    let output = run_git(
+        host,
+        dir,
+        &["diff", "--no-color", &range, "--"],
+        READ_TIMEOUT,
+    )?;
     if !output.ok {
         return Err("Could not diff against that base revision".to_string());
     }
     Ok(parse_git_diff(&output.stdout))
 }
 
+/// The `git diff` revision argument for a user-typed base and head. A
+/// revision starting with `-` would be parsed as an option (`--output=...`
+/// writes a file), so it is refused rather than passed through.
+fn diff_range(base: &str, head: Option<&str>) -> Result<String, String> {
+    let base = base.trim();
+    let head = head.map(str::trim).filter(|head| !head.is_empty());
+    if base.is_empty() {
+        return Err("Enter a base revision".to_string());
+    }
+    if base.starts_with('-') || head.is_some_and(|head| head.starts_with('-')) {
+        return Err("A revision cannot start with '-'".to_string());
+    }
+    Ok(match head {
+        Some(head) => format!("{base}...{head}"),
+        None => base.to_string(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_bracket_inside_a_string_does_not_drop_a_page() {
+        let stdout = "[{\"filename\":\"a\",\"patch\":\"+let x = [1\"}]\n[{\"filename\":\"b\"}]";
+        let merged = merge_paginated_arrays(stdout);
+        let names: Vec<&str> = merged
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|file| file["filename"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["a", "b"]);
+    }
+
+    #[test]
+    fn diff_ranges_refuse_option_like_revisions() {
+        assert_eq!(diff_range("main", None).unwrap(), "main");
+        assert_eq!(diff_range("main", Some("feat")).unwrap(), "main...feat");
+        assert_eq!(diff_range(" main ", Some(" ")).unwrap(), "main");
+        assert!(diff_range("--output=/tmp/x", None).is_err());
+        assert!(diff_range("main", Some("--output=/tmp/x")).is_err());
+        assert!(diff_range("", None).is_err());
+    }
 
     #[test]
     fn merges_paginated_file_arrays() {

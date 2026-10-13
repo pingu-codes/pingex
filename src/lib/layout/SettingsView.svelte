@@ -253,6 +253,22 @@ async function saveGeneral(event: SubmitEvent) {
 }
 
 /** Save one changed field, keeping the rest of the agent settings as they are. */
+/**
+ * The whole number typed into an agent limit, or null when it is empty, not
+ * an integer, or outside the input's own min/max (which the browser only
+ * hints at). A rejected value snaps back to the stored one: an emptied
+ * "Time limit" used to save as 0, which the backend raised to a 1-second
+ * timeout that killed every agent.
+ */
+function agentLimit(input: HTMLInputElement, stored: number): number | null {
+  const value = Number(input.value);
+  const ok =
+    input.value.trim() !== "" && Number.isInteger(value) && value >= Number(input.min) && value <= Number(input.max);
+  if (ok) return value;
+  input.value = String(stored);
+  return null;
+}
+
 async function saveAgents(patch: Partial<AgentSettings>) {
   agentError = null;
   const next = { ...agentSettings, ...patch };
@@ -564,6 +580,7 @@ async function reveal(path: string | null | undefined) {
                   </div>
                   <input
                     type="checkbox"
+                    aria-label="Run subagents as separate processes"
                     class="checkbox shrink-0"
                     checked={agentSettings.enabled}
                     onchange={(event) => saveAgents({ enabled: event.currentTarget.checked })}
@@ -599,10 +616,14 @@ async function reveal(path: string | null | undefined) {
                     type="number"
                     min="1"
                     max="16"
+                    aria-label="Concurrent agents"
                     class="input w-24 shrink-0"
                     value={agentSettings.maxConcurrent}
                     disabled={!agentSettings.enabled}
-                    onchange={(event) => saveAgents({ maxConcurrent: Number(event.currentTarget.value) })}
+                    onchange={(event) => {
+                      const value = agentLimit(event.currentTarget, agentSettings.maxConcurrent);
+                      if (value !== null) void saveAgents({ maxConcurrent: value });
+                    }}
                   />
                 </div>
                 <div class="flex items-center justify-between gap-3 py-3">
@@ -617,10 +638,14 @@ async function reveal(path: string | null | undefined) {
                     min="30"
                     max="7200"
                     step="30"
+                    aria-label="Agent time limit in seconds"
                     class="input w-24 shrink-0"
                     value={agentSettings.timeoutSeconds}
                     disabled={!agentSettings.enabled}
-                    onchange={(event) => saveAgents({ timeoutSeconds: Number(event.currentTarget.value) })}
+                    onchange={(event) => {
+                      const value = agentLimit(event.currentTarget, agentSettings.timeoutSeconds);
+                      if (value !== null) void saveAgents({ timeoutSeconds: value });
+                    }}
                   />
                 </div>
               </div>

@@ -153,7 +153,12 @@ async function refresh() {
  * the "Refresh" button and the startup notification both trigger — there is no
  * one moment when the picture is final.
  */
+let statusGeneration = 0;
+
 async function refreshStatus() {
+  // Every startup or login event asks again; only the newest answer may land,
+  // or a slow older one leaves a running server on "Checking…".
+  const generation = ++statusGeneration;
   // This API returns the home runtime, not a runtime for an arbitrary project.
   if (projectPath) {
     statuses = {};
@@ -161,11 +166,12 @@ async function refreshStatus() {
   }
   checking = true;
   try {
-    statuses = await listMcpServerStatus();
+    const next = await listMcpServerStatus();
+    if (generation === statusGeneration) statuses = next;
   } catch (cause) {
-    actionError = cause instanceof Error ? cause.message : String(cause);
+    if (generation === statusGeneration) actionError = cause instanceof Error ? cause.message : String(cause);
   } finally {
-    checking = false;
+    if (generation === statusGeneration) checking = false;
   }
 }
 
@@ -343,7 +349,12 @@ async function saveSkillForm(event: SubmitEvent) {
     apply(await createSkill({ name, description: skillFormDescription.trim(), body: skillFormBody.trim() || null }));
     addingSkill = false;
     filter = filter === "all" ? "all" : "skills";
-    queueMicrotask(() => document.getElementById(`skill-row-${name}`)?.scrollIntoView({ block: "nearest" }));
+    // Rows are keyed by path, not name.
+    const created = data?.skills.find((row) => row.name === name);
+    if (created)
+      queueMicrotask(() =>
+        document.getElementById(`skill-row-${encodeURIComponent(created.path)}`)?.scrollIntoView({ block: "nearest" }),
+      );
   } catch (cause) {
     skillFormError = cause instanceof Error ? cause.message : String(cause);
   } finally {

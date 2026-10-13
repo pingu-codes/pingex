@@ -21,6 +21,10 @@ let {
 const stranded = $derived(request.requestId === null);
 
 let submitting = $state(false);
+let submitError = $state<string | null>(null);
+/** A stranded answer already went to Codex as a message; a retry after the
+ *  record failed must not send it a second time. */
+let resumeSent = false;
 let selections = $state<Record<string, string | null>>({});
 let notes = $state<Record<string, string>>({});
 let steer = $state("");
@@ -40,6 +44,7 @@ function toggle(questionId: string, label: string) {
 async function submit() {
   if (submitting || !submittable) return;
   submitting = true;
+  submitError = null;
   try {
     const steerText = steer.trim();
     const answers: Record<string, { answers: string[] }> = {};
@@ -70,7 +75,10 @@ async function submit() {
     };
     // A stranded question has no live request: the answer only gets to Codex as
     // a new message, so send it first and record it once that succeeds.
-    if (stranded) await onResume?.(steerText || resumeMessage(answers));
+    if (stranded && !resumeSent) {
+      await onResume?.(steerText || resumeMessage(answers));
+      resumeSent = true;
+    }
     await respondUserInput(request.requestId, answers, {
       threadId: request.threadId,
       turnId: request.turnId,
@@ -80,6 +88,9 @@ async function submit() {
     onAnswered?.(item);
     clearUnanswered(request.threadId);
     if (request.requestId !== null) removeUserInputRequest(request.requestId);
+  } catch (cause) {
+    // Kept on screen with the answers intact, so Send can simply be retried.
+    submitError = `Could not send the answer: ${cause instanceof Error ? cause.message : String(cause)}`;
   } finally {
     submitting = false;
   }
@@ -213,6 +224,9 @@ async function dismiss() {
       class="max-h-28 min-h-[1.75rem] w-full resize-none rounded-lg border border-surface-200-800 bg-surface-50-950 px-2.5 py-1.5 text-xs leading-5 outline-none placeholder:text-surface-500 focus:border-surface-400-600"
     ></textarea>
   </div>
+  {#if submitError}
+    <p class="text-[11px] text-error-500" role="alert">{submitError}</p>
+  {/if}
   <div class="flex items-center justify-end gap-2 pt-0.5">
     {#if steering}
       <span class="mr-auto text-[11px] text-surface-500">Questions will be skipped.</span>

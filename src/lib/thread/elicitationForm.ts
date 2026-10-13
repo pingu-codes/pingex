@@ -52,6 +52,21 @@ export function formFields(schema: McpElicitationSchema | null | undefined): For
   });
 }
 
+/**
+ * The form's starting values: each field's schema default, and `false` for a
+ * checkbox without one. Defaults used to be placeholders only, so a required
+ * field with a default could not be accepted as shown, and a required
+ * checkbox counted as unanswered until it was ticked and unticked again.
+ */
+export function initialValues(fields: FormField[]): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+  for (const field of fields) {
+    if (field.default !== undefined && field.default !== null) values[field.name] = field.default;
+    else if (field.control === "boolean") values[field.name] = false;
+  }
+  return values;
+}
+
 /** Whether every required field has been given a value. */
 export function isComplete(fields: FormField[], values: Record<string, unknown>): boolean {
   return fields.every((field) => {

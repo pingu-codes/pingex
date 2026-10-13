@@ -22,7 +22,8 @@ let {
   busy?: boolean;
   onStartReview: () => void;
   onSubmit: (event: string, body: string) => void;
-  onReply: (commentId: number, body: string) => void;
+  /** Resolves true once posted; on false the typed reply is kept. */
+  onReply: (commentId: number, body: string) => Promise<boolean | undefined> | boolean | undefined;
   onResolve: (threadId: string) => void;
   onRemovePending: (index: number) => void;
   onAskCodex: () => void;
@@ -42,11 +43,12 @@ function lastCommentId(thread: CommentThread): number {
   return thread.comments[thread.comments.length - 1]?.id ?? 0;
 }
 
-function submitReply(thread: CommentThread) {
+async function submitReply(thread: CommentThread) {
   const body = replyBody.trim();
   const commentId = lastCommentId(thread);
   if (!body || !commentId) return;
-  onReply(commentId, body);
+  // Cleared only once posted: a failed send used to throw the text away.
+  if ((await onReply(commentId, body)) === false) return;
   replyBody = "";
   replyOpen = null;
 }

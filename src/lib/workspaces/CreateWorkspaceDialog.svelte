@@ -35,7 +35,13 @@ let isolated = $state<Record<string, boolean>>(
 );
 const action = submitState();
 
-const choices = $derived(projects.filter((project) => !project.archived && project.kind !== "multiProject"));
+// Existing members stay listed even when their project is hidden: leaving
+// them out of the list dropped them from the save, and the backend unlinked
+// them from the workspace on a mere rename.
+const memberPaths = new Set(members.map((member) => member.sourcePath));
+const choices = $derived(
+  projects.filter((project) => project.kind !== "multiProject" && (!project.archived || memberPaths.has(project.path))),
+);
 const selectedChoices = $derived(choices.filter((project) => selected[project.path]));
 const canCreate = $derived(name.trim().length > 0 && selectedChoices.length >= 2 && !action.busy);
 

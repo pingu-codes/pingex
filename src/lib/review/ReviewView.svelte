@@ -225,12 +225,17 @@ async function submitReview(event: string, body: string) {
   if (mode !== "pr" || !detail) return;
   busy = true;
   actionError = null;
+  // The PR this review is for, fixed before the await: the user can open
+  // another PR meanwhile, whose pending comments and draft must survive.
+  const number = detail.summary.number;
+  const run = openRun;
   try {
-    await reviewSubmit(repoDir, detail.summary.number, event, body, pending);
+    await reviewSubmit(repoDir, number, event, body, pending);
+    await reviewDeleteDraft(PROVIDER, repoName, number).catch(() => {});
+    if (run !== openRun) return;
     pending = [];
     reviewStarted = false;
-    await reviewDeleteDraft(PROVIDER, repoName, detail.summary.number).catch(() => {});
-    await openPr(detail.summary.number);
+    await openPr(number);
   } catch (cause) {
     actionError = cause instanceof Error ? cause.message : String(cause);
   } finally {
@@ -238,15 +243,19 @@ async function submitReview(event: string, body: string) {
   }
 }
 
-async function reply(commentId: number, body: string) {
-  if (mode !== "pr" || !detail) return;
+/** Whether the reply was posted; the panel keeps the typed text otherwise. */
+async function reply(commentId: number, body: string): Promise<boolean> {
+  if (mode !== "pr" || !detail) return false;
+  const number = detail.summary.number;
   busy = true;
   actionError = null;
   try {
-    await reviewReply(repoDir, detail.summary.number, commentId, body);
-    await openPr(detail.summary.number);
+    await reviewReply(repoDir, number, commentId, body);
+    await openPr(number);
+    return true;
   } catch (cause) {
     actionError = cause instanceof Error ? cause.message : String(cause);
+    return false;
   } finally {
     busy = false;
   }

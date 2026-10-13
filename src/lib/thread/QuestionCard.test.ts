@@ -174,6 +174,22 @@ describe("QuestionCard", () => {
     await waitFor(() => expect(mocks.clearUnanswered).toHaveBeenCalledWith("thread-1"));
   });
 
+  it("shows a failed answer and retries a stranded one without resending it", async () => {
+    const user = userEvent.setup();
+    const onResume = vi.fn();
+    mocks.respondUserInput.mockRejectedValueOnce(new Error("database is locked"));
+    render(QuestionCard, { request: { ...request, requestId: null }, onResume });
+
+    await user.click(screen.getByRole("button", { name: /SQLite/ }));
+    await user.click(screen.getByRole("button", { name: "Send as new message" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("database is locked");
+
+    await user.click(screen.getByRole("button", { name: "Send as new message" }));
+    expect(onResume).toHaveBeenCalledTimes(1);
+    expect(mocks.respondUserInput).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("dismisses a stranded question without sending anything", async () => {
     const user = userEvent.setup();
     const onResume = vi.fn();

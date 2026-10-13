@@ -112,10 +112,11 @@ describe("resolveDrop", () => {
       parentId: "f",
       before: null,
     });
+    // Not "before a": a is the one being dragged, so the anchor is b.
     expect(resolveDrop(tree, layout, drag, row, 128, rect)).toMatchObject({
       zone: "after",
       parentId: null,
-      before: { kind: "item", id: "a" },
+      before: { kind: "item", id: "b" },
     });
   });
 
@@ -124,13 +125,23 @@ describe("resolveDrop", () => {
     expect(resolveDrop(tree, layout, drag, { kind: "item", id: "a" }, 114, rect)).toMatchObject({ zone: "before" });
     expect(resolveDrop(tree, layout, drag, { kind: "item", id: "a" }, 116, rect)).toMatchObject({
       zone: "after",
-      before: { kind: "item", id: "b" },
+      before: null,
     });
+  });
+
+  it("treats dropping an item just below its upper neighbour as staying put", () => {
+    const drag = { kind: "item" as const, id: "a" };
+    // Root order is f, a, b: "after f" is where a already is.
+    const target = resolveDrop(tree, layout, drag, { kind: "folder", id: "f" }, 128, rect);
+    expect(target).toMatchObject({ zone: "after", before: { kind: "item", id: "b" } });
+    expect(isNoopDrop(tree, drag, target!)).toBe(true);
   });
 
   it("refuses dropping onto itself or into its own subtree", () => {
     expect(resolveDrop(tree, layout, { kind: "item", id: "a" }, { kind: "item", id: "a" }, 110, rect)).toBeNull();
     expect(resolveDrop(tree, layout, { kind: "folder", id: "f" }, { kind: "folder", id: "g" }, 115, rect)).toBeNull();
+    // A thread row inside the folder would make it its own parent.
+    expect(resolveDrop(tree, layout, { kind: "folder", id: "f" }, { kind: "item", id: "in" }, 102, rect)).toBeNull();
     expect(isFolderOrDescendant(layout.folders, "f", "g")).toBe(true);
     expect(isFolderOrDescendant(layout.folders, "g", "f")).toBe(false);
   });

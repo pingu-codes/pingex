@@ -6,7 +6,9 @@
 //! The ledger keeps, per thread, the last total it saw and the total the open
 //! turn started from, so a turn's row is `total − turn_base` however many
 //! requests it took, and anything the total exceeds the rows by outside a
-//! turn is booked to the thread's opening row.
+//! turn is booked to the thread's opening row. Claude's total only spans
+//! its current process (`totalSpansProcess`), so there each turn books its
+//! own `last`, which covers the whole turn.
 //!
 //! Attribution needs the items in stream order, and the journal writes those
 //! asynchronously, so the ledger takes its own copy of every completed item
@@ -166,6 +168,23 @@ impl LedgerCore {
                 let total = read_tokens(token_usage.get("total"));
                 let total_cost = read_cost(token_usage.get("total")).unwrap_or(0.0);
                 let last = read_tokens(token_usage.get("last"));
+                let last_cost = read_cost(token_usage.get("last")).unwrap_or(0.0);
+                // A harness whose total counts only since its process started
+                // (Claude's projector) restarts from zero on every respawn, so
+                // its `total` cannot be compared with what is stored; `last`
+                // covers the whole turn there and is what gets booked.
+                let process_total = token_usage
+                    .get("totalSpansProcess")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                // A total that went backwards means the harness process
+                // restarted its count.
+                let restarted = process_total || total.input < thread.seen.0.input;
+                let next_seen = if restarted {
+                    (total, total_cost)
+                } else {
+                    (total, total_cost.max(thread.seen.1))
+                };
                 thread.context_tokens = Some(last.total())
                     .filter(|n| *n > 0)
                     .or(thread.context_tokens);
@@ -183,9 +202,15 @@ impl LedgerCore {
                 let Some(turn_id) = turn_id else {
                     // Outside a turn: what the total exceeds what is recorded
                     // by happened where this process could not see it.
-                    let increment = total.saturating_sub(&thread.seen.0);
-                    let cost_increment = (total_cost - thread.seen.1).max(0.0);
-                    thread.seen = (total, total_cost.max(thread.seen.1));
+                    let (increment, cost_increment) = if process_total {
+                        (last, last_cost)
+                    } else {
+                        (
+                            total.saturating_sub(&thread.seen.0),
+                            (total_cost - thread.seen.1).max(0.0),
+                        )
+                    };
+                    thread.seen = next_seen;
                     if increment.is_zero() {
                         return;
                     }
@@ -230,9 +255,14 @@ impl LedgerCore {
                     finish_turn(thread);
                 }
                 if thread.open.is_none() {
-                    // A total that went backwards means the harness process
-                    // restarted its count; the turn then started from nothing.
-                    let base = if total.input < thread.seen.0.input {
+                    // A per-process total started the turn at `total − last`;
+                    // one that went backwards started it from nothing.
+                    let base = if process_total {
+                        (
+                            total.saturating_sub(&last),
+                            (total_cost - last_cost).max(0.0),
+                        )
+                    } else if restarted {
                         (UsageTokens::default(), 0.0)
                     } else {
                         thread.seen
@@ -252,7 +282,7 @@ impl LedgerCore {
                 let tokens = total.saturating_sub(&base.0);
                 let cost_usd =
                     read_cost(token_usage.get("total")).map(|cost| (cost - base.1).max(0.0));
-                thread.seen = (total, total_cost.max(thread.seen.1));
+                thread.seen = next_seen;
                 if !thread.comp.is_seeded() {
                     if let Some(context) = thread.context_tokens {
                         thread.comp.seed(context.saturating_sub(tokens.output));
@@ -654,6 +684,62 @@ mod tests {
         let stored = rows(&database).await;
         assert_eq!(stored[1].tokens.input, 700);
         assert_eq!(stored[1].tokens.output, 30);
+    }
+
+    fn claude_usage(turn: &str, total: (u64, f64), last: (u64, f64)) -> LedgerEvent {
+        LedgerEvent::Usage {
+            thread_id: "t1".into(),
+            turn_id: Some(turn.to_string()),
+            turn_open: true,
+            harness: HarnessKind::Claude,
+            token_usage: json!({
+                "total": {"totalTokens": total.0, "inputTokens": total.0, "outputTokens": 0, "costUsd": total.1},
+                "last": {"totalTokens": last.0, "inputTokens": last.0, "outputTokens": 0, "costUsd": last.1},
+                "totalSpansProcess": true,
+            }),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_respawned_process_books_each_turn_its_own_usage_and_cost() {
+        let database = database().await;
+        let mut core = LedgerCore::default();
+        let host = Host::Native;
+        core.apply(
+            &database,
+            &host,
+            claude_usage("turn-1", (300, 0.5), (300, 0.5)),
+        )
+        .await;
+        core.apply(&database, &host, completed("turn-1")).await;
+        // Respawned: the new projector's first total exceeds the stored sum
+        // in tokens but not in cost.
+        core.apply(
+            &database,
+            &host,
+            claude_usage("turn-2", (700, 0.1), (700, 0.1)),
+        )
+        .await;
+        core.apply(&database, &host, completed("turn-2")).await;
+        core.apply(
+            &database,
+            &host,
+            claude_usage("turn-3", (1500, 0.3), (800, 0.2)),
+        )
+        .await;
+        core.apply(&database, &host, completed("turn-3")).await;
+        let second = storage::read_turn_usage(&database, "t1", "turn-2")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(second.tokens.input, 700);
+        assert!((second.cost_usd.unwrap() - 0.1).abs() < 1e-9);
+        let third = storage::read_turn_usage(&database, "t1", "turn-3")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(third.tokens.input, 800);
+        assert!((third.cost_usd.unwrap() - 0.2).abs() < 1e-9);
     }
 
     #[tokio::test]

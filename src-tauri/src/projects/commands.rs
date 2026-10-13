@@ -109,9 +109,10 @@ pub(crate) async fn add_project_in(
     path: &str,
 ) -> Result<BootstrapData, String> {
     let canonical = canonical_project_path(&ctx.host(), path)?;
-    let mut store = storage::read_store(&ctx.database()).await?;
-    stored_project_mut(&mut store, &canonical);
-    storage::write_store(&ctx.database(), &store).await?;
+    storage::update_store(&ctx.database(), |store| {
+        stored_project_mut(store, &canonical);
+    })
+    .await?;
     bootstrap_cached(ctx).await
 }
 
@@ -136,13 +137,14 @@ pub(crate) async fn add_worktree_project(
         tauri::async_runtime::spawn_blocking(move || linked_worktree_parent(&host, &canonical))
             .await
             .map_err(|error| format!("Could not inspect the worktree: {error}"))??;
-    let mut store = storage::read_store(&ctx.database()).await?;
-    stored_project_mut(&mut store, &parent);
-    let entry = stored_project_mut(&mut store, &canonical_text);
-    entry.worktree = true;
-    // Adding a worktree that was hidden earlier brings it back.
-    entry.archived = false;
-    storage::write_store(&ctx.database(), &store).await?;
+    storage::update_store(&ctx.database(), |store| {
+        stored_project_mut(store, &parent);
+        let entry = stored_project_mut(store, &canonical_text);
+        entry.worktree = true;
+        // Adding a worktree that was hidden earlier brings it back.
+        entry.archived = false;
+    })
+    .await?;
     bootstrap_cached(&ctx).await
 }
 
@@ -156,23 +158,24 @@ pub(crate) async fn rename_project(
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
-    let mut store = storage::read_store(&ctx.database()).await?;
     let trimmed = name.trim();
-    // A blank name clears the override so the folder name is used again.
-    let entry = stored_project_mut(&mut store, &path);
-    entry.name = if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    };
-    let server_name = entry.name.clone().unwrap_or_else(|| {
-        std::path::Path::new(&path)
-            .file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or(&path)
-            .to_string()
-    });
-    storage::write_store(&ctx.database(), &store).await?;
+    let server_name = storage::update_store(&ctx.database(), |store| {
+        // A blank name clears the override so the folder name is used again.
+        let entry = stored_project_mut(store, &path);
+        entry.name = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+        entry.name.clone().unwrap_or_else(|| {
+            std::path::Path::new(&path)
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or(&path)
+                .to_string()
+        })
+    })
+    .await?;
     super::server::rename(&app, &ctx, &path, &server_name).await;
     bootstrap_cached(&ctx).await
 }
@@ -186,9 +189,10 @@ pub(crate) async fn set_project_pinned(
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
-    let mut store = storage::read_store(&ctx.database()).await?;
-    stored_project_mut(&mut store, &path).pinned = pinned;
-    storage::write_store(&ctx.database(), &store).await?;
+    storage::update_store(&ctx.database(), |store| {
+        stored_project_mut(store, &path).pinned = pinned;
+    })
+    .await?;
     bootstrap_cached(&ctx).await
 }
 
@@ -201,9 +205,10 @@ pub(crate) async fn set_project_archived(
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
-    let mut store = storage::read_store(&ctx.database()).await?;
-    stored_project_mut(&mut store, &path).archived = archived;
-    storage::write_store(&ctx.database(), &store).await?;
+    storage::update_store(&ctx.database(), |store| {
+        stored_project_mut(store, &path).archived = archived;
+    })
+    .await?;
     bootstrap_cached(&ctx).await
 }
 
@@ -324,12 +329,13 @@ pub(crate) async fn set_thread_pinned(
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
-    let mut store = storage::read_store(&ctx.database()).await?;
-    store.pinned_threads.retain(|id| id != &thread_id);
-    if pinned {
-        store.pinned_threads.push(thread_id);
-    }
-    storage::write_store(&ctx.database(), &store).await?;
+    storage::update_store(&ctx.database(), |store| {
+        store.pinned_threads.retain(|id| id != &thread_id);
+        if pinned {
+            store.pinned_threads.push(thread_id);
+        }
+    })
+    .await?;
     bootstrap_cached(&ctx).await
 }
 
@@ -343,9 +349,10 @@ pub(crate) async fn set_threads_hidden(
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
-    let mut store = storage::read_store(&ctx.database()).await?;
-    set_hidden(&mut store, &thread_ids, hidden);
-    storage::write_store(&ctx.database(), &store).await?;
+    storage::update_store(&ctx.database(), |store| {
+        set_hidden(store, &thread_ids, hidden)
+    })
+    .await?;
     bootstrap_cached(&ctx).await
 }
 
@@ -384,9 +391,7 @@ pub(crate) async fn apply_session_focus(
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
     if !hide.is_empty() {
-        let mut store = storage::read_store(&ctx.database()).await?;
-        set_hidden(&mut store, &hide, true);
-        storage::write_store(&ctx.database(), &store).await?;
+        storage::update_store(&ctx.database(), |store| set_hidden(store, &hide, true)).await?;
     }
     for path in &collapse_projects {
         storage::set_project_expanded(&ctx.database(), path, false).await?;
@@ -415,9 +420,10 @@ pub(crate) async fn remove_project(
     {
         return Err("Remove this project from its workspace before removing it from Pingex".into());
     }
-    let mut store = storage::read_store(&ctx.database()).await?;
-    store.projects.retain(|project| project.path != path);
-    storage::write_store(&ctx.database(), &store).await?;
+    storage::update_store(&ctx.database(), |store| {
+        store.projects.retain(|project| project.path != path);
+    })
+    .await?;
     storage::forget_sidebar_scope(&ctx.database(), &path).await?;
     // Its threads keep their Codex assignment until the project is gone
     // server-side too; otherwise they would vanish from the sidebar.

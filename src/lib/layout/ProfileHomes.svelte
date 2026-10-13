@@ -40,8 +40,9 @@ $effect(() => {
       .catch(() => {});
 });
 
-// Re-probe whenever the set of Claude Homes changes — after an add, an edit or
-// a removal, `loadProfile` replaces the list and the ids that went with it.
+// Re-probe whenever the set of Claude Homes changes — after an add or a
+// removal, `loadProfile` replaces the list and the ids that went with it. An
+// edit keeps the id, so `saveEdit` re-probes that one itself.
 $effect(() => {
   const claudeHomes = homes.filter((entry) => entry.home.harness === "claude").map((entry) => entry.home.id);
   for (const id of [...probed]) {
@@ -69,7 +70,15 @@ function openEditor(id: string, dir: string, cli: string, name: string) {
 
 async function saveEdit(id: string) {
   const saved = await action.run(() => updateHome(id, editDir, editBinary, editLabel));
-  if (saved) editing = null;
+  if (!saved) return;
+  editing = null;
+  // A new config dir is a different login; drop the old badge and ask again.
+  if (probed.has(id)) {
+    logins.delete(id);
+    readHomeClaudeStatus(id)
+      .then((status) => logins.set(id, status))
+      .catch(() => logins.set(id, null));
+  }
 }
 
 async function remove(id: string) {

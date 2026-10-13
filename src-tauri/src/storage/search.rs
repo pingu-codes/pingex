@@ -26,14 +26,27 @@ impl MessageScope {
 }
 
 /// Subquery selecting the ids of threads with a journaled item of `kind`
-/// whose payload matches the LIKE pattern bound in its place. Payloads are
-/// compact `serde_json` strings, so the `"type":"…"` token is literal.
+/// whose message text matches the LIKE pattern bound in its place. The
+/// pattern runs over the decoded text, not the serialized payload, so JSON
+/// keys never match and quotes or backslashes match as typed. Payloads are
+/// compact `serde_json` strings, so the `"type":"…"` prefilter is literal.
 fn message_subquery(kind: &str) -> String {
-    format!(
-        "SELECT DISTINCT thread_id FROM thread_items
-         WHERE payload LIKE '%\"type\":\"{kind}\"%'
-           AND payload LIKE ? ESCAPE '\\'"
-    )
+    let prefilter = format!("payload LIKE '%\"type\":\"{kind}\"%'");
+    if kind == "userMessage" {
+        // A user message's text is spread over its `content` parts.
+        format!(
+            "SELECT DISTINCT thread_items.thread_id
+             FROM thread_items, json_each(thread_items.payload, '$.content') AS part
+             WHERE {prefilter}
+               AND json_extract(part.value, '$.text') LIKE ? ESCAPE '\\'"
+        )
+    } else {
+        format!(
+            "SELECT DISTINCT thread_id FROM thread_items
+             WHERE {prefilter}
+               AND json_extract(payload, '$.text') LIKE ? ESCAPE '\\'"
+        )
+    }
 }
 
 /// The filter shared by the page query and its count, built in one place so the
@@ -521,6 +534,33 @@ mod tests {
         };
         assert_eq!(run("cursor", both).await, vec!["b"]);
         assert_eq!(run("Alpha", both).await, vec!["a"]);
+
+        // The text matches, not the JSON around it.
+        assert!(run("type", both).await.is_empty());
+        assert!(run("text", both).await.is_empty());
+        record_thread_item(
+            &database,
+            "b",
+            "turn",
+            "m2",
+            &json!({"type": "agentMessage", "text": r#"Set "mode" in C:\temp"#}),
+            None,
+        )
+        .await
+        .unwrap();
+        record_thread_item(
+            &database,
+            "a",
+            "turn",
+            "u2",
+            &json!({"type": "userMessage", "content": [{"type": "text", "text": r#"why "quoted""#}]}),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(run(r#""mode""#, agent).await, vec!["b"]);
+        assert_eq!(run(r#"C:\temp"#, agent).await, vec!["b"]);
+        assert_eq!(run(r#"why "quoted""#, user).await, vec!["a"]);
 
         let ids = thread_ids_with_message_match(&database, "cursor", both)
             .await

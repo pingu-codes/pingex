@@ -77,13 +77,23 @@ onMount(() => {
 });
 
 // Load the diff for whichever row is selected; staged rows diff the index.
+// A refresh of the same row keeps its diff on screen while reloading; a new
+// row clears it, so one file's patch never sits under another's header
+// (where it could be staged or discarded by mistake).
+let diffFor: string | null = null;
 $effect(() => {
   const current = selected;
   const snapshot = status?.refreshedAt;
   void snapshot;
   if (!current) {
     diff = null;
+    diffFor = null;
     return;
+  }
+  const key = `${current.section}:${current.path}`;
+  if (key !== diffFor) {
+    diff = null;
+    diffFor = key;
   }
   const id = ++requestId;
   diffLoading = true;

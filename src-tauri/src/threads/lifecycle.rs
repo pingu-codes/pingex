@@ -229,13 +229,11 @@ pub(crate) async fn invalidate_thread_cache(
 /// Drop a thread from the sidebar's local state. Shared by archive and delete,
 /// which differ only in what they do to the search index.
 async fn remove_thread_locally(ctx: &crate::HomeContext, thread_id: &str) -> Result<(), String> {
-    let mut store = storage::read_store(&ctx.database()).await?;
-    let listed = |ids: &[String]| ids.iter().any(|id| id == thread_id);
-    if listed(&store.pinned_threads) || listed(&store.hidden_threads) {
+    storage::update_store(&ctx.database(), |store| {
         store.pinned_threads.retain(|id| id != thread_id);
         store.hidden_threads.retain(|id| id != thread_id);
-        storage::write_store(&ctx.database(), &store).await?;
-    }
+    })
+    .await?;
     storage::delete_thread_summary(&ctx.database(), thread_id).await?;
     storage::invalidate_thread_detail(&ctx.database(), thread_id).await
 }

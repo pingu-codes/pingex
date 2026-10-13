@@ -140,6 +140,7 @@ $effect(() => {
   activeSideId = null;
   sideThread = null;
   starting = false;
+  sideLoading = false;
   sideError = null;
   question = "";
 });
@@ -149,6 +150,9 @@ $effect(() => {
   const id = activeSideId;
   if (!id) {
     sideThread = null;
+    // A load still in flight for the closed question will see itself stale
+    // and skip this, leaving the skeleton up over whatever comes next.
+    sideLoading = false;
     return;
   }
   if (id.startsWith("preview-")) return;
@@ -202,7 +206,10 @@ function handleEvent(event: CodexEvent) {
 
 async function ask() {
   const text = question.trim();
-  if (!text || !parentThreadId || busy) return;
+  // The thread this question is about. The prop can change while the fork
+  // and read below are awaited; the fork still belongs to this one.
+  const parent = parentThreadId;
+  if (!text || !parent || busy) return;
   question = "";
   sideError = null;
   starting = true;
@@ -212,15 +219,23 @@ async function ask() {
     // stale id from a previous thread must fork fresh.
     let id = activeSideId && mine.some((entry) => entry.sideThreadId === activeSideId) ? activeSideId : null;
     if (!id) {
-      const forked = await forkThread(parentThreadId);
+      const forked = await forkThread(parent);
       id = forked.id;
       // Read the fork before recording it: the turns it carries at this point
       // are the parent's, and the panel hides exactly that many.
       const inherited = await readThread(id);
+      if (parent !== parentThreadId) {
+        // The user moved to another thread meanwhile: file the question under
+        // its own thread and let it run, without touching this panel.
+        onDataChanged(await addSideQuestion(parent, id, text, inherited.turns.length));
+        void startTurn(id, [{ type: "text", text }]).catch(() => {});
+        return;
+      }
       askedId = id;
+      sideLoading = false;
       activeSideId = id;
       sideThread = { ...inherited, turns: [...inherited.turns] };
-      onDataChanged(await addSideQuestion(parentThreadId, id, text, inherited.turns.length));
+      onDataChanged(await addSideQuestion(parent, id, text, inherited.turns.length));
     }
     sideThread?.turns.push({
       id: localTurnId,

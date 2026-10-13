@@ -167,6 +167,9 @@ export function resolveDrop<T>(
   }
   const rowParent = parentOf(tree, row);
   if (rowParent === undefined) return null;
+  // A folder can't land anywhere inside itself, whichever row is under the
+  // pointer: a thread row inside it resolves to a parent within the subtree.
+  if (dragging.kind === "folder" && isFolderOrDescendant(layout.folders, dragging.id, rowParent)) return null;
   const fraction = rect.height > 0 ? (pointerY - rect.top) / rect.height : 0.5;
   const rowId = `${row.kind}:${row.id}`;
   if (row.kind === "folder" && fraction >= 1 / 3 && fraction <= 2 / 3) {
@@ -175,7 +178,9 @@ export function resolveDrop<T>(
   const siblings = childrenOf(tree, rowParent) ?? [];
   const index = siblings.findIndex((node) => sameRef(refOf(node), row));
   if (fraction < 0.5) return { parentId: rowParent, before: row, rowId, zone: "before" };
-  const next = siblings[index + 1];
+  // The row after this one, skipping the dragged item itself: dropping an item
+  // just below its upper neighbour is "stay put", not "anchor on yourself".
+  const next = siblings.slice(index + 1).find((node) => !sameRef(refOf(node), dragging));
   return { parentId: rowParent, before: next ? refOf(next) : null, rowId, zone: "after" };
 }
 

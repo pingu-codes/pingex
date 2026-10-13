@@ -418,3 +418,59 @@ write at exactly the wrong moment) were given seams and tests instead:
   the session that answered. Tests: a respawn mid-request hands back the
   respawned session, and a request that may have run is not resent.
   `ensure_resumed` records on that returned session.
+
+## 8. Second review sweep (stopped part-way at the user's request)
+
+Three more reviewers covered the areas the first pass barely touched. I
+re-read each finding below in the code before fixing it; "(test)" means
+red on the old code, green after.
+
+**Fixed:**
+- Sidebar drag-and-drop: dropping an item just below its upper neighbour
+  anchored on itself and moved it to the end (test). A folder dragged over a
+  thread row inside itself became its own parent (test). Escape during a drag
+  now claims the key, so it no longer interrupts the running turn.
+- Editing a workspace silently unlinked members whose project was hidden
+  (test).
+- Agent limits: an emptied or out-of-range "Time limit" saved as a
+  1-second timeout. Values are now validated (test), and the inputs got
+  accessible names.
+- Review: a submitted review could clear and delete *another* PR's draft
+  (PR number now pinned before the await). A failed reply no longer throws
+  away the typed text (test).
+- Side questions: a fork could be filed under the wrong thread after a
+  switch, and the loading skeleton could stick.
+- QuestionCard: a failed answer is shown instead of an unhandled rejection,
+  and a stranded retry doesn't resend the message (test). ElicitationCard: a
+  failed reply keeps the card (the MCP request is still waiting), and form
+  defaults are seeded (`initialValues`).
+- GitTab no longer shows one file's diff under another's header. Tracking a
+  remote branch on a dirty tree offers "Switch anyway" (test).
+- Stale async results: ProjectDetail search after clearing, Integrations MCP
+  status, and MemoriesView save/delete. ProjectDetail instruction saves now
+  report failure. The add-skill scroll uses the row's real id. An edited
+  Claude Home re-probes its login. Plus the WSL canonical memo fix (section 4).
+
+**Rust fixes applied by a background agent that was stopped mid-run.** They
+compile and pass `rust:preflight` (527 tests, including ones it added), but I
+have **not** reviewed them line by line:
+- `connections/commands.rs`: revoke no longer reports success when the
+  revoke wasn't sent.
+- `usage/ledger.rs` + `harness/project.rs`: Claude's per-process totals; each
+  turn books its own `last` (with a test).
+- `review/queries.rs`: PR page merging and the git option-injection guard.
+- `storage/search.rs`: search matches message text.
+- `storage/projects.rs`: `update_store` holds a lock across
+  read-modify-write; callers converted in `projects/commands.rs`.
+- `profiles.rs` and `threads/lifecycle.rs`: changes from the same batch.
+
+Review that diff before committing.
+
+**Found, not yet fixed:**
+- Session focus and `clearThread` compare the sidebar's root thread ids with
+  `view.threadId`, which is a version (leaf) id.
+- SidebarSearch "Load more" within the debounce mixes queries, and its timer
+  isn't cleared on unmount.
+- From the Rust list, possibly incomplete: caching rollout-lookup misses,
+  pruning per-thread rows on delete, and clamping agent limits in
+  `prefs::write_agent_settings`.

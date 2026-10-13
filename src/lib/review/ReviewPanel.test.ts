@@ -81,6 +81,22 @@ describe("ReviewPanel actions", () => {
     expect(h.onReply).toHaveBeenCalledWith(11, "thanks");
   });
 
+  it("keeps the typed reply when sending it fails", async () => {
+    const user = userEvent.setup();
+    const h = handlers();
+    h.onReply.mockResolvedValue(false);
+    render(ReviewPanel, {
+      comments: [comment({ id: 10, path: "a.ts", line: 4, side: "RIGHT", threadId: "T1" })],
+      reviewStarted: false,
+      ...h,
+    });
+
+    await user.click(screen.getByRole("button", { name: /Reply/ }));
+    await user.type(screen.getByLabelText("Reply"), "thanks");
+    await user.click(screen.getByRole("button", { name: /Send reply/ }));
+    expect(screen.getByLabelText("Reply")).toHaveValue("thanks");
+  });
+
   it("resolves a thread that has a real node id", async () => {
     const user = userEvent.setup();
     const h = handlers();
