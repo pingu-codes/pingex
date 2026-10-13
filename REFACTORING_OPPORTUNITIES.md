@@ -50,8 +50,8 @@ duplicated (section 1); §1.1, §1.4 and §1.5 are done.
 | # | Opportunity | Where | Est. savings | Risk |
 |---|---|---|---|---|
 | 1 | ~~Untrack generated Tauri schemas~~ (done) | §1.1 | ~578 KB, 6 files | low |
-| 2 | Move preview fakes out of `api.ts` behind the `commands` proxy | §4.1 | ~800 lines from api.ts (~450 net) | med |
-| 3 | Delete ~71 pass-through wrappers in `api.ts` | §4.2 | ~250 lines | med |
+| 2 | ~~Move preview fakes out of `api.ts` behind the `commands` proxy~~ (done) | §4.1 | ~800 lines from api.ts (~450 net) | med |
+| 3 | ~~Delete ~71 pass-through wrappers in `api.ts`~~ (done) | §4.2 | ~250 lines | med |
 | 4 | `HomeWindow::ctx()` so 144 commands drop their `State` param | §10.1 | ~150–250 lines | low |
 | 5 | `db::conn` / transaction boilerplate in storage | §10.2 | ~190–220 lines | low |
 | 6 | Shared frontend test factories (`makeProject`, `makeThreadSummary`, `makeBootstrap`, `worktreeEntry`) | §11.1 | ~250–300 lines | low |
@@ -60,7 +60,7 @@ duplicated (section 1); §1.1, §1.4 and §1.5 are done.
 | 9 | ~~`errorMessage(cause)` helper (109 copies)~~ (done) | §2.1 | ~4 KB, many 3→1-line handlers | low |
 | 10 | ~~Tailwind `@utility` classes for repeated class strings~~ (done) | §2.6 | ~10 KB of markup | low |
 | 11 | git/commands.rs: use the existing `locked()` and add `blocking()` | §10.3, §10.4 | ~170–210 lines | low |
-| 12 | Split ThreadView (goal banner, scroll follow) | §5.2, §5.3 | ~330 lines out of the 1,489-line file | med |
+| 12 | ~~Split ThreadView (goal banner, scroll follow)~~ (done) | §5.2, §5.3 | ~330 lines out of the 1,489-line file | med |
 | 13 | Split Composer (attachments, draft, settings) and use Skeleton Popover | §6.2, §6.3 | Composer ~1,374 → ~600 lines; ~130 removed | med |
 | 14 | Shared JSONL child process core for Codex and Claude | §9.2 | ~100–130 lines | med |
 | 15 | Split IntegrationsSection into dialogs and rows | §8.1 | ~120 lines; file ~1,100 → ~450 | med |
@@ -237,338 +237,254 @@ a mechanical sweep.
 
 ## 3. Skeleton components replacing hand-rolled UI
 
-CLAUDE.md asks for Skeleton first. `composer/HarnessMenu.svelte` already shows
-the right `Menu` pattern, and `Collapsible` is already used 8 times.
+CLAUDE.md asks for Skeleton first. All of §3 is done; the notes below record
+what changed and what was left alone on purpose.
 
-### 3.1 Menus
-- `layout/SidebarContextMenu.svelte`: 27 copy-pasted `<button
-  role="menuitem">` blocks with an identical 100-char class string, plus its
-  own backdrop, Escape handler and fixed positioning. That is why
-  `Sidebar.svelte:342-367` guesses menu heights (80/110/330/380).
-  - Quick win: render a `{action, icon, label, danger, show}[]` list with
-    `{#each}`.
-  - Full fix: Skeleton `Menu` with `Menu.ContextTrigger`, which removes the
-    backdrop, the Escape handling and the height guessing.
-  - ~150–200 lines.
-- `thread/FloatingMenu.svelte:171-232` ("Open in") and
-  `thread/ThreadHeader.svelte:133-200` (Handoff): `svelte:window` click and
-  Escape capture plus manual a11y. ~50 lines. Check that Escape inside a
-  Menu still doesn't reach the composer's interrupt handler.
-- `worktrees/Worktrees.svelte:294-336`: popup with a fixed-backdrop button.
-- `quick/QuickChat.svelte:160-200`: project menu with manual close-on-click.
+### 3.1 Menus: done
+- `SidebarContextMenu` is a Skeleton `Menu` built from an
+  `{action, icon, label, danger, title, show}` list. The backdrop, the window
+  Escape handler and Sidebar's 80/110/330/380 height guesses are gone.
+  `Menu.ContextTrigger` can't carry a per-row value, so Sidebar calls
+  `useMenu` and spreads zag's `getContextTriggerProps({value})` /
+  `getTriggerProps({value})` onto rows and ellipsis buttons. There are two
+  menus over one item list: zag never positions a context-trigger menu opened
+  from a button, so right-click and the ellipsis use separate instances.
+- FloatingMenu "Open in", ThreadHeader Handoff, the Worktrees overflow menu
+  and QuickChat's project picker (radio items; focus returns to the input)
+  are Skeleton `Menu`s. Zag's dismissable layer calls `preventDefault` on
+  Escape in the capture phase, so the composer still never sees it as an
+  interrupt (tests cover Sidebar, FloatingMenu and ThreadHeader).
 
-### 3.2 Popovers in the composer
-- **Where:** `ModelPopover.svelte:38-60`, `PermissionsPopover.svelte:30-51`,
-  `SubagentPolicyPopover.svelte:55-76`, `positionComposerPopover.ts` (whole
-  file), `Composer.svelte:398, 512-515, 1049-1050`,
-  `AdaptiveToolbar.svelte:75-141`.
-- **What:** each re-implements stopPropagation, card chrome, outside-click
-  dismissal and fixed positioning, with `svelte-ignore a11y` comments. Their
-  `absolute bottom-8 left-0 z-50` classes are dead because
-  `positionComposerPopover` overwrites them.
-- **Proposal:** one `ComposerPopover.svelte` on Skeleton `Popover`, with
-  controlled `open` so `/model` and `/permissions` can still open it from
-  code. Then delete `positionComposerPopover.ts`.
-- **Savings:** ~100–130 lines. **Risk:** med; re-test the More-overflow focus.
+### 3.2 Popovers in the composer: done
+- `composer/ComposerPopover.svelte` sits on Skeleton `Popover` with a
+  controlled `open`, so `/model` and `/permissions` still open it from code.
+  Model, Permissions and SubagentPolicy popovers use it.
+  `positionComposerPopover.ts` and Composer's window `onclick` closer are
+  deleted.
+- It isn't portalled, so More's outside-click check still counts clicks in
+  it as inside; it is fixed-positioned so More's scroll area doesn't clip it.
+  The More panel itself stays hand-rolled: it must stay rendered while hidden
+  so the toolbar can measure item widths.
+- Opening a popover now moves focus into it and closing returns focus to the
+  trigger.
 
-### 3.3 Switches
-- Hand-built `role="switch"` toggles in `SettingsView.svelte:539-556` and
-  `771-787`, and in `MemoriesView.svelte:196-206`. Use Skeleton `Switch`.
-  `SettingsView.test.ts` queries `role="switch"`, so check what Skeleton
-  renders.
+### 3.3 Switches: done
+- `components/Toggle.svelte` wraps Skeleton `Switch` (sr-only label). Its
+  hidden checkbox carries `role="switch"` and the old `data-testid`s. Used by
+  SettingsView (twice) and MemoriesView; tests use `toBeChecked()`.
 
-### 3.4 Collapsibles / disclosures
-- `layout/ArchivedThreadsSection.svelte:18-73` and `HomePage.svelte:399-408`
-  (a boolean, a rotated chevron, `{#if}` and no `aria-expanded`).
-- `IntegrationsSection.svelte:809-842` (`expanded[...]` map) and `979-1012`
-  (`skillOpen[...]` map). Use Collapsible's `open` prop for the
-  focus-scroll case.
-- `WorkItem.svelte`: five near-identical Collapsible expanders (§5.6).
+### 3.4 Collapsibles / disclosures: done
+- ArchivedThreadsSection and HomePage's "Archived & hidden" are Skeleton
+  `Collapsible`s (they gain `aria-expanded`; archived threads still load on
+  first open).
+- IntegrationsSection's MCP details and SKILL.md view are `Collapsible`s
+  driven by the existing `expanded`/`skillOpen` maps through `open` +
+  `onOpenChange`; the maps stay because a focus request and a failed SKILL.md
+  load change open state from code. The focus-scroll waits for `tick()`.
+- WorkItem: see §5.6.
 
-### 3.5 Segmented controls / tabs
-- Five hand-rolled controls: `IntegrationsSection.svelte:542-556` (filter)
-  and `636-647` (transport), `CreateWorktreeDialog.svelte:~143-158`,
-  `BranchSwitcherDialog.svelte:~107-110` and `UsageSummary.svelte:~98-110`.
-  ThreadView has 3 more.
-- Wrap Skeleton `SegmentedControl` in a `components/Segmented.svelte`.
-  ~50 lines. Tests query `role="tab"`/`aria-pressed`.
+### 3.5 Segmented controls / tabs: done
+- `components/Segmented.svelte` wraps Skeleton `SegmentedControl`
+  (`value`, `options: SegmentedOption<T>[]`, `onChange`, `label`, `size`,
+  `fill`, `iconOnly`, `disabled`). It replaces the IntegrationsSection filter
+  and transport, CreateWorktreeDialog's and BranchSwitcherDialog's modes,
+  UsageSummary's range and ThreadView's new-thread location picker. They
+  render as radio groups; tests query `role="radio"`.
+- All segmented controls now share one look (grey track, raised indicator);
+  the integration filter and usage range used to be primary-filled pills.
 
-### 3.6 Inputs, tooltips, progress
-- 10 hand-styled inputs and 4 hand-styled textareas in git/, worktrees/ and
-  review/. Skeleton's `input`/`select`/`textarea` classes are already used
-  next door.
-- `IntegrationsSection.svelte` repeats
-  `autocomplete="off" autocorrect="off" autocapitalize="off"
-  spellcheck={false}` 8 times. Spread a `codeInput` const.
-- `HomePage.svelte:123-146` `iconAction` rebuilds TooltipButton by hand and
-  picks its icon through a 10-way `label.startsWith("Pin")` chain. Pass the
-  icon in.
-- `TooltipButton.svelte` and `TooltipAnchor.svelte` are near-copies. Render
-  one through the other.
-- ContextMeter's hover card (`ContextMeter.svelte:18-80`, 4 handlers) can be
-  `TooltipAnchor`.
-- The goal budget bar is a hand-rolled progressbar; Skeleton has `Progress`.
-- FloatingMenu's process filter chips (445-459) can use Skeleton
-  `ToggleGroup`.
+### 3.6 Inputs, tooltips, progress: done
+- Inputs: git/ and worktrees/ already used the `field` utility from §2.6,
+  which deliberately replaces Skeleton's larger `input`; the three remaining
+  hand-styled review textareas now use it too. IntegrationsSection spreads a
+  `codeInput` const for its 8 autocomplete/autocorrect/spellcheck sets.
+- HomePage's `iconAction(label, Icon, …)` takes the icon and renders
+  TooltipButton (this fixed "Workspace details" showing an X icon).
+- `TooltipButton` renders through `TooltipAnchor tag="button"`; TooltipAnchor
+  gained optional `tag`, `placement`, `content` and `contentClass`.
+- ContextMeter's hover card is a `TooltipAnchor`; the meter uses
+  `aria-disabled` so the stats stay reachable while compaction is
+  unavailable.
+- The goal budget bar is Skeleton `Progress` (value clamped to the budget:
+  `Progress` throws above max). FloatingMenu's process filter chips are a
+  multiple `ToggleGroup` that keeps the pill look and `aria-pressed`.
 
-### 3.7 Shared composite components
+### 3.7 Shared composite components: done
 - `components/DirectoryField.svelte` (path input + `isTauri()`-gated Browse)
-  for AddWorktreeDialog, CreateWorktreeDialog and AddProjectDialog.
-  CreateWorktreeDialog imports Tauri's `open` as `openDialog`, which collides
-  with `$lib/app/dialogs.openDialog`. ~35 lines.
-- `HostSelect.svelte`: the native/WSL `<select>` is built 5 times
-  (`SettingsView.svelte:417-454` twice, `AddProjectDialog.svelte`,
-  `ProfileHomes.svelte:241-246`, `HomePicker.svelte:298-308`) with
-  inconsistent wording ("This PC" vs "This computer"). `listWslDistros()` is
-  fetched 4 times even though `launch.distros` already holds the list.
-  ~50 lines and 3 IPC calls.
-- `BranchList.svelte`: `BranchSwitcherDialog.svelte:113-158` and
-  `CreateWorktreeDialog.svelte:196-245` duplicate the filter + listbox +
-  states + badges. ~40 lines; med risk (remote-branch and keyboard
-  differences).
+  is used by AddWorktreeDialog, CreateWorktreeDialog and AddProjectDialog;
+  the Tauri `open` import lives only there, so the `openDialog` collision is
+  gone. AddProjectDialog's Browse is now an icon button, hidden in preview.
+- `components/HostSelect.svelte` reads `launch.distros`, always says "This
+  computer", and still offers a selected distro missing from the list. Used
+  by SettingsView (twice), AddProjectDialog, ProfileHomes and HomePicker; the
+  three per-component `listWslDistros` fetches are gone.
+- `components/BranchList.svelte` is shared by BranchSwitcherDialog and
+  CreateWorktreeDialog. `remote` gives the grouped Remote heading,
+  `combobox` gives arrow/Enter navigation (now with
+  `aria-activedescendant`), plus `currentLabel`, `selected`, `disabled`.
+  Checked-out branches use real `disabled`.
 
 ---
 
 ## 4. Services, types and the preview layer
 
-### 4.1 Move the browser-preview fakes out of `api.ts`
-- **Where:** `src/lib/services/api.ts` (2,222 lines, 79 KB) has 182
-  `isTauri()` calls (verified). About 710 lines sit inside
-  `if (!isTauri())` branches, including 91 one-line guards (19 of them bare
-  `return;`), plus ~60 lines of preview imports.
-- **Seam:** the `commands` Proxy in `services/homeRouting.ts:383`.
-- **Proposal:** add `preview/commands.ts`, a `Partial<typeof nativeCommands>`
-  of fakes keyed by command name. The proxy dispatches to it when
-  `!isTauri()` and resolves `undefined` for commands it doesn't implement,
-  which removes every no-op branch. api.ts keeps only wrappers that do real
-  work: `normalizeModels`, `queueList` pagination, `listSkillsFor` dedupe,
-  `listMcpServerStatus` keying, and the 27 `unknown` result casts.
-- **Savings:** ~800 lines out of api.ts (~450 net). **Risk:** med; 21 test
-  files mock `$lib/services/api`.
+All of §4 is done. `api.ts` went from 2,223 to 456 lines.
 
-### 4.2 Delete the thin pass-through wrappers
-- **What:** 71 functions in api.ts are just a guard plus
-  `return commands.x(sameArgs)` (~280 lines). Five
-  (`add/read/prepare/answer/cancelNativeSideQuestion`, 1013-1031) have no
-  preview branch and are pure aliases. `saveProject` (141) only forwards to
-  `addProfileProject`.
-- **Proposal:** after §4.1, callers use `commands.x` directly, as CLAUDE.md
-  already prescribes. Keep `export const x = commands.x` only where a short
-  name helps.
-- **Savings:** ~250 lines. **Risk:** med (many call sites and mocks).
+### 4.1 Move the browser-preview fakes out of `api.ts`: done
+- `services/preview/commands.ts` is a `Partial` of fakes keyed by command
+  name. The routed `commands` proxy in `homeRouting.ts` sends every command
+  there when `!isTauri()`; commands without a fake resolve `undefined`.
+  Fakes return wire shapes, so the real unwrapping (queue pages, usage,
+  model normalising, MCP status keying, skill dedupe) runs on top of them.
+- The only `isTauri` branches left in api.ts are Tauri-only by nature
+  (`threadImageSrc`, `stageBrowserFile`).
+- `homeRouting.test.ts` runs in node, so it mocks `$lib/services/tauri` to
+  report Tauri.
 
-### 4.3 Dead exports in api.ts, their routing and their Rust commands
-- **Dead in TS:** none of these has a caller outside `homeRouting`'s routing
-  table (verified):
-  - `readClaudeStatus` (442-455, plus `homeRouting.ts:522`)
-  - `listArchivedThreads` + `ArchivedThreadWire` (730-748,
-    `homeRouting.ts:371`)
-  - `queueStart` (996-1006)
-  - `openAgentThread` (1910-1915, `homeRouting.ts:377`)
-  - `reloadMcpServers` (2020-2023)
-  - `checkCodexBinary` (1295-1307, used only by another preview branch)
-  - `previewArchived` (fixtures.ts:364)
-- **Rust side:** the commands behind them then become dead too:
-  - `list_archived_threads`, `read_claude_status` (`threads/lifecycle.rs`)
-  - `queue_start` (`threads/queue.rs`)
-  - `open_agent_thread` (`agents/commands.rs`)
-  - `reload_mcp_servers` (`integrations/app_server.rs`)
-  - `check_codex_binary` (`settings/commands.rs`)
+### 4.2 Delete the thin pass-through wrappers: done
+- 150 wrappers are gone; callers use `commands.x` from
+  `$lib/services/homeRouting`, passing defaults explicitly
+  (e.g. `commands.gitBranches(dir, null)`). `saveProject`, the five
+  `*NativeSideQuestion` aliases, `clearThreadGoal` and
+  `removeStagedAttachment` went to their commands.
+- 34 remain because they reshape arguments or results (queue, usage, MCP
+  status, skills, models, `startThread`/`startTurn`/`forkThread`, goal
+  setters, …) or only cast an untyped `Json`/app-server result
+  (`readThread`, `listSubagents`, `startReview`, `getThreadGoal`,
+  `readAccountRateLimits`, `revertThread`, `remotePairingStart/Status`).
+- `AgentSettingsPayload.sandboxOptions` is now required, which removed the
+  `readAgentSettings`/`writeAgentSettings` casts.
+- 21 test files mock `$lib/services/homeRouting`'s `commands` instead of
+  `$lib/services/api`. No shared helper: an imported helper can't be used
+  inside a hoisted `vi.mock` factory.
 
-  The backend reviewer counted these as "referenced from src/" only because
-  the dead wrappers reference them.
-- **Savings:** ~80 TS lines plus the Rust commands and their registrations.
-  **Risk:** low.
+### 4.3 Dead exports in api.ts, their routing and their Rust commands: done
+- Removed `readClaudeStatus`, `listArchivedThreads` + `ArchivedThreadWire`,
+  `queueStart`, `openAgentThread`, `reloadMcpServers`, `checkCodexBinary`,
+  `previewArchived`, their routing branches, and the Rust commands
+  `list_archived_threads`, `read_claude_status`, `queue_start`,
+  `open_agent_thread`, `reload_mcp_servers`, `check_codex_binary` with their
+  registrations and the helpers only they used. Fixed bug §13.2.
 
-### 4.4 Preview fixtures ship in the production bundle
-- **What:** api.ts statically imports `preview/fixtures.ts` (1,699 lines),
-  `stream.ts`, `memories.ts` and `attachments.ts`. `isTauri()` is a runtime
-  check, so nothing tree-shakes. Verified: `dist/assets/autoName-*.js`
-  contains `preview-pairing-code`.
-- **Proposal:** after §4.1, load the preview module with
-  `await import("./preview/commands")` when `!isTauri()`, or gate it on
-  `import.meta.env`.
-- **Savings:** ~60–90 KB unminified out of shipped JS. **Risk:** low–med.
+### 4.4 Preview fixtures ship in the production bundle: done
+- The preview module loads through `import.meta.env.DEV ? await import(…)`,
+  so production builds contain no preview code (`dist/assets` has no
+  `preview-pairing-code`). Playwright and the demo run against the dev
+  server. A production build opened in a plain browser now gets `undefined`
+  from every command.
 
-### 4.5 `types.ts`: a hand-maintained re-export list and rename aliases
-- **Where:** `types.ts:6-122` holds a 29-name import block and a 72-name
-  `export type {…}` list. There are about 17 aliases that give one concept
-  two names (106-122, 575, 610-616, 629, 658, 758), e.g.
-  `ThreadSection = StoredThreadSection`, `GitCommit = CommitInfo`,
-  `RemoteConnection = Connection`.
-- **Hand-written duplicates of generated types:**
-  - `TurnOptions` (549-566 vs bindings 2110).
-  - `ClaudeStatus` and `HarnessKind`, re-declared in `api.ts:408, 431-439`.
-- **Proposal:** `export type * from "$lib/bindings"` (local declarations
-  still win). Rename the Rust structs, or use `#[specta(rename)]`, so the
-  aliases can go. Derive `TurnOptions` with the existing `Override` pattern.
-  Move the runtime function `codexVersionFromUserAgent` (types.ts:605) to
-  utils.
-- **Savings:** ~130 lines. **Risk:** low–med (Rust renames change bindings;
-  run `deno task typegen`).
+### 4.5 `types.ts`: a hand-maintained re-export list and rename aliases: done
+- `types.ts` is `export type * from "$lib/bindings"` plus local types.
+- All 17 aliases are gone, each by a Rust-side rename: 14 structs carry
+  `#[serde(rename = "…")]` (changes the generated name, not the JSON;
+  container `#[specta(rename)]` is deprecated in rc.25), and two enums were
+  renamed outright because specta ignores serde renames on enums
+  (`WorktreeBranch` → `WorktreeBranchRequest`, `UsageScopeArg` →
+  `UsageScope`). `AgentSettings` went with §4.2's `sandboxOptions` change.
+- `TurnOptions` is the generated type with three fields overridden;
+  `ClaudeStatus`/`HarnessKind` come from bindings;
+  `codexVersionFromUserAgent` lives in `utils/userAgent.ts`.
 
-### 4.6 `homeRouting.ts` proxy is a 230-line if-chain
-- **Where:** `homeRouting.ts:383-612` (`get` handler) and `343-379`
-  (`normalizeResult` name switch). It also re-implements `hostKey` (42) and
-  the "WSL · distro" label (73, 83), which exist in `$lib/app/host`.
-- **Proposal:** a `Partial<Record<CommandName, Handler>>` table of
-  per-command routers and result mappers, with generic id/path routing as
-  the fallback. Import the host helpers.
-- **Savings:** ~30 lines; mostly readability. **Risk:** med (core routing,
-  but `homeRouting.test.ts` covers it).
+### 4.6 `homeRouting.ts` proxy is a 230-line if-chain: done
+- A `routers` table (usage breakdown, search, every-Home fan-out,
+  profile-root sidebar, id collection) with single-owner routing as the
+  fallback, plus `resultMappers` and `defaultHarness` tables. `hostKey`,
+  `hostLabel` and `sameHost` come from `$lib/app/host`. The file grew
+  (667 → 743 lines, mostly per-router docs and the preview dispatch); the
+  gain is readability.
 
-### 4.7 `codexEvents.svelte.ts` listener boilerplate
-- Four identical `listen → eventMatchesHome → scopeEvent → handler` blocks
-  (466-489). The "mark unanswered + `recordUserInputRequest`" step is
-  duplicated in `onServerRequest` and `onHarnessRequest` (378-393 vs
-  417-423).
-- Add `listenScoped(evt, handler)` and `persistQuestion(...)`. ~25 lines.
+### 4.7 `codexEvents.svelte.ts` listener boilerplate: done
+- `listenScoped(evt, handler)` and `persistQuestion(…)`. Listeners still
+  attach one at a time so a failure undoes all of them.
 
-### 4.8 `is*Unsupported` predicates
-- Five identical bodies at `api.ts:834-901`. All six prefixes are still live
-  (checked against `compat.rs` and `usage/commands.rs`). Add one
-  `isUnsupported(cause, ...prefixes)` and keep the constants CLAUDE.md
-  requires. ~20 lines.
+### 4.8 `is*Unsupported` predicates: done
+- One `isUnsupported(cause, ...prefixes)`; the named predicates are
+  one-liners over it and every `*_UNSUPPORTED` constant stays.
 
-### 4.9 Repeated preview mutation snippets (mostly folded into §4.1)
-- "Loop `previewData.projects` → find thread → mutate" appears 6 times. The
-  `archiveThread`/`deleteThread` fakes are identical, as are
-  `disconnectConnection`/`revokeConnection`. `readClaudeStatus` and
-  `readHomeClaudeStatus` share a 9-line literal. The three `setThreadGoal*`
-  functions are near-identical.
-- Add `previewThread(id, fn)` and `previewProject(path, fn)`, and collapse
-  the goal setters into `updateThreadGoal(threadId, patch)`. ~60 lines.
+### 4.9 Repeated preview mutation snippets: done
+- `editThread`/`editProject` helpers, one `removeThread` for
+  archive/delete, one `dropConnection` for disconnect/revoke, one Claude
+  status literal and one goal fake; the goal setters share
+  `updateThreadGoal(threadId, patch)`.
 
-### 4.10 Over-exported symbols
-- Exported but used only within their own file:
-  - **types.ts:** `WorkspaceFileMatch`, `WorkspaceThreadMatch`,
-    `TurnPlanStep`, `TurnError`, `TokenUsageBreakdown`,
-    `ThreadUsageBreakdownGroup`, `ModelUpgradeInfo`, `McpAuthStatus`,
-    `McpServerRuntimeStatus`.
-  - **api.ts:** `StartedThread`, `RevertedThread`,
-    `TurnSettingsUpdateStatus`.
-  - **codexEvents:** `markUnanswered`, `onHarnessRequest`.
-  - **Elsewhere:** `connections.setConnections`,
-    `processes.processesFor`, and the fixtures `previewPixel`,
-    `previewArchivedThreads`, `previewQueues`, `previewRepoInfo`.
-  - **utils:** `fileRef.safeDecode`, `externalLinks.LinkHandlers`,
-    `mentions.MentionSegment`, `rateLimits.UsageWindow`,
-    `resize.ResizeHandleOptions`.
-- Fully dead: `WorkspaceSearchGroup` and `RecentHome`.
-- Other aliases: `api.ts:1690 copyText = handoffCopy` (pick one name), and
-  `api.ts:134` re-exports `isTauri` (import it from `services/tauri`).
+### 4.10 Over-exported symbols: done
+- The listed symbols are un-exported; `WorkspaceSearchGroup`, `RecentHome`,
+  `WorkspaceFileMatch` and `WorkspaceThreadMatch` are deleted.
+- `handoff_copy` is renamed `copy_text`, so `commands.copyText` is the one
+  name, and `isTauri` is imported from `$lib/services/tauri` everywhere.
 
-### 4.11 `WorktreeEntry` literal copied 7 times
-- `entry()` builders appear in `AddWorktreeDialog.test.ts:7`,
-  `RemoveWorktreeDialog.test.ts:7` and `worktrees.test.ts:18`. There are also
-  3 full literals in `fixtures.ts:1012-1094` and one in `api.ts:1603-1622`.
-  Export one `worktreeEntry(overrides)`. The same applies to the 7
-  hand-written `ThreadSummary` literals in fixtures.ts. ~100 lines.
+### 4.11 `WorktreeEntry` literal copied 7 times: done
+- `services/preview/factories.ts` exports `worktreeEntry(overrides)` and
+  `threadSummary(overrides)`, used by the fixtures, the preview
+  `gitWorktreeAdd` fake and the three worktree tests.
 
 ---
 
 ## 5. Thread UI (`src/lib/thread`)
 
-### 5.1 Dead code
-- ~~`RewindThreadDialog.svelte`~~: deleted with §2.8.
-- `ThreadView.svelte:51` imports `groupForTurn`, which is then used only by
-  tests.
-- `FloatingMenu.svelte:7` imports `FileText`, which is unused.
-- `autoName.ts:37 resetAutoNameState` and `messageVersions.ts:127 isBranch`
-  have no references (verified).
-- `threadStream.ts:155`: `ApplyOutcome.changed` is always `true` and never
-  read. `misalignment` is read only by a test.
-- An orphaned JSDoc at `threadStream.ts:160-163` sits above the wrong
-  function, and there's a stale duplicate doc line at :152.
-- Biome doesn't catch unused imports inside `.svelte` files, so these
-  accumulate.
-- **Savings:** ~60 lines + 1 file. **Risk:** low.
+All of §5 is done. ThreadView went from 1,499 to 1,079 lines.
 
-### 5.2 Extract the goal banner from ThreadView
-- **Where:** `ThreadView.svelte:850-1025` (`goalCommand`,
-  `goalBudgetCommand`, `applyGoalBudget`, `editGoalBudget`, `setGoal`,
-  `toggleGoal`, `clearGoal`, the label/preset tables, `startGoalEdit`) and
-  the markup at 1291-1357.
-- **What:** about 240 lines of one feature live inside a 1,489-line view. It
-  passes `aria-label` equal to `label` on 4 TooltipButtons, which already
-  default to that.
-- **Proposal:** `GoalBanner.svelte` plus `goalCommands.ts`, with Skeleton
-  `Progress` for the budget bar.
-- **Savings:** ~230 lines out of ThreadView. **Risk:** med (`/goal` is well
-  tested).
+### 5.1 Dead code: done
+- Removed `groupForTurn` (test-only), `isBranch`, `resetAutoNameState`,
+  `ApplyOutcome.changed`, `ApplyOutcome.misalignment` (the turn error still
+  carries it), the orphaned and duplicate JSDoc in `threadStream.ts`, and
+  FloatingMenu's unused `FileText`. Biome still doesn't see unused imports in
+  `.svelte` files.
 
-### 5.3 Extract the transcript scroll-follow state machine
-- **Where:** `ThreadView.svelte:213-233, 358-454` (`following`,
-  `programmaticScroll`, `atBottom`, `recentDownScroll`, `maybeScroll`,
-  `onScroll`, `onWheel`, the restore effect …) and the jump-pill condition
-  at 1273.
-- **Proposal:** a `TranscriptScroll` class in a `.svelte.ts` file next to
-  `scrollPositions.ts`, exposing `attach`, `onScroll`, `onWheel`, `follow`,
-  `restore` and `showJumpPill`.
-- **Savings:** ~100 lines out of ThreadView; testable on its own.
-  **Risk:** med (timing).
+### 5.2 Extract the goal banner from ThreadView: done
+- `GoalBanner.svelte` (Skeleton `Progress` for the budget bar) and
+  `goalCommands.ts` (`run`, `set`, `editBudget`, `toggle`, `clear`). Each
+  command reads the session once up front, so switching threads mid-request
+  can no longer land the result on the other thread. Redundant
+  `aria-label`s equal to `label` are gone here and in QueuedMessageRow and
+  WorkItem.
 
-### 5.4 ThreadView boilerplate
-- 12 `$derived(session.x)` aliases (185-196).
-- One-line wrappers: `interrupt`, `compact`, `undoTurns`.
-- A hand-rolled `lastTurnModel` loop where `findLast` would do.
-- An inline 12-member `composer` type where `ReturnType<typeof Composer>`
-  would do.
-- Repeated expressions:
-  - `estimateCost(...)` is computed twice.
-  - `workspaceId ? cwd : thread?.cwd || cwd` appears 4 times.
-  - `repoInfo?.root ?? (projectPath || cwd)` appears 3 times.
-- `runCommand` is an if-chain (780-841) that should be a
-  `Record<SlashCommandId, handler>`.
-- **Savings:** ~60 lines. **Risk:** low.
+### 5.3 Extract the transcript scroll-follow state machine: done
+- `transcriptScroll.svelte.ts` (`TranscriptScroll`, wired with `{@attach}`)
+  with its own unit tests.
 
-### 5.5 FloatingMenu repeated markup
-- 12 copies of the row-button class, 7 of the section header and 8 of the
-  empty line. Use `section`, `row` and `empty` snippets, or `menu-row` from
-  §2.6. ~80 lines.
+### 5.4 ThreadView boilerplate: done
+- `runCommand` is a `Record<SlashCommandId, handler>` plus a
+  `DRAFT_COMMANDS` set (`/diff` and `/status` still work on drafts). The
+  composer is typed `ReturnType<typeof Composer>`. `workDir`, `repoDir` and
+  `costUsd` are derived once. `interrupt`, `compact`, `undoTurns`,
+  `failCommand`, `queuedPreview` and 7 of the 12 session aliases are gone.
+- `findLast` isn't available (tsconfig's lib is ES2022), so `lastTurnModel`
+  uses `[...x].reverse().find()`.
 
-### 5.6 WorkItem: five near-identical Collapsible expanders
-- **Where:** `WorkItem.svelte:338-348, 416-441, 557-567, 571-580, 586-600`.
-  The same Trigger class appears 4 times and the same Content class 5 times.
-  The "▸ activity" line and the progress line are the same markup, and
-  "Open thread" is duplicated (456-462, 511-517).
-- **Proposal:** `expander`, `liveLine` and `openThreadButton` snippets.
-  Optionally move the agent rows into `AgentActivityRow.svelte`.
-- **Savings:** ~60 lines (plus ~90 from §2.5). **Risk:** low.
+### 5.5 FloatingMenu repeated markup: done
+- `section` and `empty` snippets; rows already used `menu-row` (§2.6).
 
-### 5.7 `AgentRun → SubagentDetail` mapping duplicated
-- The same 11-field literal appears at `ThreadView.svelte:335-351` and
-  `WorkItem.svelte:188-202`. Export `runAsSubagent(run)` from
-  `services/agentRuns.svelte`. ~15 lines.
+### 5.6 WorkItem: five near-identical Collapsible expanders: done
+- `expander`, `liveLine` and `openThreadButton` snippets cover four
+  expanders; the reasoning one keeps its own differently styled trigger.
+  `AgentActivityRow.svelte` was not worth splitting out.
 
-### 5.8 Status-to-tone classification in four places
-- `WorkItem.svelte:231-236` and `FloatingMenu.svelte:136-169` (four
-  functions) each restate the status lists, with slightly different results.
-  Add one `agentStatus.ts` with `statusBucket` and `statusTone`. ~20 lines.
+### 5.7 `AgentRun → SubagentDetail` mapping duplicated: done
+- `runAsSubagent(run)` in `services/agentRuns.svelte.ts`.
 
-### 5.9 Queued-message edit duplication
-- `QueuedMessageRow.svelte:23-29 queuedText` (an instance export from a
-  component) is the same as `ThreadView.svelte:585-590 queuedPreview`.
-- Inline-edit logic is near-identical in `QueuedMessageRow.svelte:31-55` and
-  `UserMessageBubble.svelte:56-90`. Only one checks `isComposing`, and only
-  one preserves chips.
-- Move `queuedText` into `queueEntries.ts`, add an `inlineEdit()` helper, and
-  reuse `editedParts`. ~30 lines.
+### 5.8 Status-to-tone classification in four places: done
+- `thread/agentStatus.ts` (`statusBucket`, `statusTone`). Where the copies
+  disagreed: `killed`, `orphaned` and `interrupted` are now Stopped (grey),
+  and unknown statuses read as Finished (grey); WorkItem used to show some of
+  these green and FloatingMenu called interrupted agents "Finished".
+
+### 5.9 Queued-message edit duplication: done
+- `queuedText` lives in `queueEntries.ts`, `editedParts` in
+  `messageText.ts`, and an `InlineEdit` class (`inlineEdit.svelte.ts`) is
+  shared by QueuedMessageRow and UserMessageBubble. Both check
+  `isComposing` and `preventDefault` Escape. Queued edits keep their chips
+  (bug §13.8); the textarea shows only the prose.
 
 ### 5.10 Request cards hand-roll `submitState()`: done
 - The three cards use `submitState` (§2.7).
 
-### 5.11 ThreadSession operation scaffolding
-- `review`, `compact` and `undoTurns` (`threadSession.svelte.ts:135-219`)
-  each set `operation`/`starting`/`streamError` and guard staleness. The idle
-  check appears 3 times.
-- Add `#runOperation(kind, body)` and `#maybeIdle()`. ~25 lines; med risk
-  (concurrency).
+### 5.11 ThreadSession operation scaffolding: done
+- `#runOperation(kind, body)` and `#maybeIdle()` in `threadSession`.
 
-### 5.12 `threadStream.ts` duplicate switch arms
-- `agentMessage/delta` and `plan/delta` are identical (234-248). Summary
-  padding is repeated (249-261). `outputDelta` and `terminalInteraction` are
-  identical (276-288). Fall through, and add `padTo`. ~15 lines.
+### 5.12 `threadStream.ts` duplicate switch arms: done
+- Message/plan deltas, summary part/delta and output/terminal interaction
+  share arms; `padTo` pads summaries.
 
 ---
 
@@ -596,8 +512,8 @@ the right `Menu` pattern, and `Collapsible` is already used 8 times.
 - **Savings:** Composer drops to ~600 lines. **Risk:** med (many `$derived`
   dependencies; Composer.test.ts is broad).
 
-### 6.3 Composer popovers → Skeleton Popover
-See §3.2. ~100–130 lines.
+### 6.3 Composer popovers → Skeleton Popover: done
+See §3.2.
 
 ### 6.4 Chip construction duplicated three ways
 - `buildMentionChip`/`buildSkillChip`/`buildAttachmentChip`
@@ -670,7 +586,7 @@ See §3.2. ~100–130 lines.
   - The card wrapper appears 8 times (369, 493, 564, 654, 680, 725, 733,
     759).
   - The label/description/control row appears about 12 times.
-  - There are 2 hand-built switches (§3.3) and 4 error cards.
+  - There are 4 error cards (the switches are `Toggle` now, §3.3).
 - **Proposal:** `settingsCard` and `settingRow` snippets or components,
   Skeleton `Switch`, and a split into `layout/settings/{General, Agents,
   Keyboard, Advanced}.svelte`.
@@ -698,7 +614,7 @@ See §3.2. ~100–130 lines.
   use `{#each}`.
 - 3 project sections have the same heading, blurb and list (346-396).
 - 2 identical cancellable `$effect` fetches (83-111).
-- The hand-rolled `iconAction` (§3.6). (The local `relativeTime` went in §2.3.)
+- (`iconAction` went in §3.6 and the local `relativeTime` in §2.3.)
 - ~80–100 lines.
 
 ### 7.5 Sidebar
@@ -1075,7 +991,8 @@ See §3.2. ~100–130 lines.
 ### 11.1 Frontend fixture factories
 - **What:** `Project` literals appear in 10 files, `ThreadSummary` in 7
   (16 fields each), `BootstrapData` in 6 (12–43 lines each), and
-  `WorktreeEntry` in 3 test files plus fixtures (§4.11). Adding a field to
+  `WorktreeEntry` in 3 test files plus fixtures (done in §4.11:
+  `services/preview/factories.ts` has `worktreeEntry` and `threadSummary`). Adding a field to
   a bindings type means editing about 10 files.
 - **Proposal:** `src/lib/testing/factories.ts` with `makeProject`,
   `makeThreadSummary`, `makeBootstrap` and `worktreeEntry(overrides)`, shared
@@ -1171,7 +1088,8 @@ listed so they aren't lost.
    WorkItem, so MemoriesView's `class="prose-thread"` does nothing (§2.5).
 2. **Unarchive does nothing in preview mode.** The preview
    `unarchiveThread` (`api.ts:750`) splices `previewArchived`, but the UI
-   reads `previewArchivedThreads` (§4.3).
+   reads `previewArchivedThreads` (§4.3). Fixed: unarchive moves the
+   thread back into its project and the search index.
 3. **gh runs on the wrong host for WSL Homes.** `review/gh.rs` derives the
    host from a Linux path with `Host::from_local`, which gives `Native`
    (§10.9, §12).
@@ -1185,7 +1103,7 @@ listed so they aren't lost.
 7. **Settings opens with a wasted IPC call.** `readHomeOverview()` runs on
    every open and its result is unused (§7.3).
 8. **Queued-message edits flatten chips to `@name`,** while bubble edits
-   preserve them (§5.9).
+   preserve them (§5.9). Fixed with the shared `InlineEdit`.
 
 Carried over from the cleanup log's "Found, not yet fixed" list:
 
@@ -1218,13 +1136,10 @@ Carried over from the cleanup log's "Found, not yet fixed" list:
 3. **Rust mechanical wins.** `HomeWindow::ctx()`, `db` executor, `locked()`
    / `blocking()` / `require()`, `Default` derives (§10.1–10.5, §10.8).
    All low risk, compile-checked, and about 700 lines together.
-4. **api.ts restructuring** (§4.1, §4.2, §4.4, §4.5). This is the biggest
-   frontend win. Do it as one focused change with the 21 mocking test files
-   updated together.
-5. **Skeleton swaps** (§3). One widget type per change, each with its tests
-   adjusted.
-6. **Large component splits:** ThreadView, Composer, SettingsView,
-   IntegrationsSection (§5.2, §5.3, §6.2, §7.1, §8.1).
+4. ~~**api.ts restructuring** (§4.1, §4.2, §4.4, §4.5).~~ Done.
+5. ~~**Skeleton swaps** (§3).~~ Done.
+6. **Large component splits:** Composer, SettingsView, IntegrationsSection
+   (§6.2, §7.1, §8.1). ThreadView (§5.2, §5.3) is done.
 7. **Driver-level Rust:** `JsonlProcess`, typed journal, `ThreadDriver`
    (§9.2, §9.3, §9.8).
 8. **Policy call:** retiring the compat gates (§9.1). Decide the ADR 0001
