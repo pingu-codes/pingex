@@ -6,6 +6,7 @@ import { SvelteSet } from "svelte/reactivity";
 import { nameNewThread } from "$lib/app/appData.svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
 import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
+import Segmented, { type SegmentedOption } from "$lib/components/Segmented.svelte";
 import TypingDots from "$lib/components/TypingDots.svelte";
 import Composer from "$lib/composer/Composer.svelte";
 import type { SlashCommandId } from "$lib/composer/slashCommands";
@@ -246,6 +247,23 @@ $effect(() => {
       repoInfo = null;
     });
 });
+
+const notGitRepo = "This project is not a Git repository";
+const newThreadLocations = $derived<SegmentedOption<NewThreadLocation>[]>([
+  { value: "project", label: "Project" },
+  {
+    value: "temporary",
+    label: "Temporary worktree",
+    disabled: !repoInfo?.isGitRepo || !codexHome,
+    title: repoInfo?.isGitRepo ? "Created under CODEX_HOME/worktrees-tmp and kept across restarts" : notGitRepo,
+  },
+  {
+    value: "permanent",
+    label: "Permanent worktree",
+    disabled: !repoInfo?.isGitRepo,
+    title: repoInfo?.isGitRepo ? "Create a named worktree under CODEX_HOME/worktrees" : notGitRepo,
+  },
+]);
 
 function chooseNewThreadLocation(location: NewThreadLocation) {
   if (location === "permanent") {
@@ -981,31 +999,12 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
           <span class="px-2 text-surface-500">Workspace hub — shared notes and all member roots are writable</span>
         {:else}
           <span class="px-2 text-surface-500">Start in</span>
-          <button
-            type="button"
-            class="rounded-md px-2.5 py-1.5 transition {newThreadLocation === 'project' ? 'bg-surface-50-950 font-medium shadow-sm' : 'text-surface-500 hover:text-surface-800-200'}"
-            onclick={() => chooseNewThreadLocation("project")}
-          >
-            Project
-          </button>
-          <button
-          type="button"
-          disabled={!repoInfo?.isGitRepo || !codexHome}
-          title={!repoInfo?.isGitRepo ? "This project is not a Git repository" : "Created under CODEX_HOME/worktrees-tmp and kept across restarts"}
-          class="rounded-md px-2.5 py-1.5 transition disabled:cursor-not-allowed disabled:opacity-40 {newThreadLocation === 'temporary' ? 'bg-surface-50-950 font-medium shadow-sm' : 'text-surface-500 hover:text-surface-800-200'}"
-          onclick={() => chooseNewThreadLocation("temporary")}
-        >
-          Temporary worktree
-          </button>
-          <button
-          type="button"
-          disabled={!repoInfo?.isGitRepo}
-          title={!repoInfo?.isGitRepo ? "This project is not a Git repository" : "Create a named worktree under CODEX_HOME/worktrees"}
-          class="rounded-md px-2.5 py-1.5 transition disabled:cursor-not-allowed disabled:opacity-40 {newThreadLocation === 'permanent' ? 'bg-surface-50-950 font-medium shadow-sm' : 'text-surface-500 hover:text-surface-800-200'}"
-          onclick={() => chooseNewThreadLocation("permanent")}
-        >
-          Permanent worktree
-          </button>
+          <Segmented
+            label="Start in"
+            value={newThreadLocation}
+            options={newThreadLocations}
+            onChange={chooseNewThreadLocation}
+          />
           {#if newThreadLocation === "permanent"}
             <span class="min-w-0 flex-1 truncate px-2 text-right font-mono text-[10px] text-surface-500" title={newThreadCwd}>
               {newThreadCwd}

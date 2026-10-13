@@ -918,6 +918,13 @@ describe("ThreadView workspace starts", () => {
     mocks.startTurn.mockResolvedValue({ id: "turn-1", status: "inProgress" });
   });
 
+  it("offers worktree start locations for a project in a Git repository", async () => {
+    render(ThreadView, { threadId: null, cwd: "/workspace/hub", projectPath: "/workspace/hub", codexHome: "/codex" });
+
+    expect(screen.getByRole("radio", { name: "Project" })).toBeChecked();
+    expect(await screen.findByRole("radio", { name: "Permanent worktree" })).toBeEnabled();
+  });
+
   it("starts new workspace threads with the workspace id and keeps the hub fixed", async () => {
     const user = userEvent.setup();
     render(ThreadView, {
@@ -929,7 +936,7 @@ describe("ThreadView workspace starts", () => {
     const message = screen.getByRole("textbox", { name: "Message Codex… (@ to attach files, / for commands)" });
 
     expect(screen.getByText("Workspace hub — shared notes and all member roots are writable")).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Temporary worktree" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "Temporary worktree" })).not.toBeInTheDocument();
     await user.type(message, "Coordinate the release{Enter}");
 
     expect(mocks.startThread).toHaveBeenCalledWith("/workspace/hub", "workspace-1", null, null);
