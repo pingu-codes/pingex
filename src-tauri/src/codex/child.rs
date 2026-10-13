@@ -256,6 +256,11 @@ pub fn kill_orphaned_app_servers(hosts: &[Host]) {
     }
 }
 
+/// How long a fresh app-server gets to answer `initialize`. Generous: a cold
+/// WSL distro has to boot first. Without a bound, a Codex that hangs at
+/// startup blocks every request for the home behind the session lock.
+const INITIALIZE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
+
 fn reader_loop(
     child: Arc<CodexChild>,
     sink: Arc<dyn ChildSink>,
@@ -285,6 +290,13 @@ fn reader_loop(
     }
     child.mark_dead();
     child.fail_pending("Codex exited before responding");
+    // Reap the process. Without a `wait` every respawn, home switch and
+    // subagent run leaves a zombie behind until the app exits. Killing first
+    // covers a child that closed stdout but is still running.
+    if let Ok(mut process) = child.child.lock() {
+        let _ = process.kill();
+        let _ = process.wait();
+    }
     sink.on_closed();
 }
 
@@ -371,9 +383,26 @@ pub(crate) async fn spawn_child(
     let reader_child = child.clone();
     std::thread::spawn(move || reader_loop(reader_child, sink, app, stdout));
 
-    let info = receiver
-        .await
-        .map_err(|_| "Codex exited during initialization".to_string())??;
+    // Kill on every failure path: the reader thread holds its own reference,
+    // so dropping ours would leave the process (and the thread) running.
+    let info = match tokio::time::timeout(INITIALIZE_TIMEOUT, receiver).await {
+        Ok(Ok(Ok(info))) => info,
+        Ok(Ok(Err(error))) => {
+            child.kill();
+            return Err(error);
+        }
+        Ok(Err(_)) => {
+            child.kill();
+            return Err("Codex exited during initialization".to_string());
+        }
+        Err(_) => {
+            child.kill();
+            return Err(format!(
+                "Codex did not finish starting within {}s",
+                INITIALIZE_TIMEOUT.as_secs()
+            ));
+        }
+    };
     if let Ok(mut slot) = child.server_info.lock() {
         *slot = info;
     }

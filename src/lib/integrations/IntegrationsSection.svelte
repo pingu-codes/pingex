@@ -23,8 +23,8 @@ import {
   type IntegrationFilter,
   parseArgs,
   resourcesOf,
-  retainFailedInventory,
   resourceTemplatesOf,
+  retainFailedInventory,
   rowStatus,
   runtimeStatusLabel,
   serverInfoLines,
@@ -47,9 +47,9 @@ import {
   removeMcpServer,
   revealInFinder,
   saveMcpServer,
+  setIntegrationEnabled,
   setMcpEnabled,
   setSkillEnabled,
-  setIntegrationEnabled,
 } from "$lib/services/api";
 import { mcpStatus as mcpStatusEvents, skillsStatus } from "$lib/services/codexEvents.svelte";
 import type { IntegrationsList, McpServerStatus, McpServerSummary, SkillSummary } from "$lib/types";
@@ -131,7 +131,9 @@ async function load(forceReload = false) {
     if (generation === loadGeneration) data = retainFailedInventory(data, next);
   } catch (cause) {
     if (generation === loadGeneration) loadError = cause instanceof Error ? cause.message : String(cause);
-  } finally { if (generation === loadGeneration) loading = false; }
+  } finally {
+    if (generation === loadGeneration) loading = false;
+  }
 }
 
 let observedSkillsNonce = skillsStatus.nonce;
@@ -153,7 +155,10 @@ async function refresh() {
  */
 async function refreshStatus() {
   // This API returns the home runtime, not a runtime for an arbitrary project.
-  if (projectPath) { statuses = {}; return; }
+  if (projectPath) {
+    statuses = {};
+    return;
+  }
   checking = true;
   try {
     statuses = await listMcpServerStatus();
@@ -213,7 +218,9 @@ async function changeSetting(kind: "mcp" | "plugin", id: string, value: string) 
     await refreshStatus();
   } catch (cause) {
     actionError = cause instanceof Error ? cause.message : String(cause);
-  } finally { updating = false; }
+  } finally {
+    updating = false;
+  }
 }
 
 function settingValue(key: string): string {
@@ -469,10 +476,31 @@ const FILTERS: { id: IntegrationFilter; label: string }[] = [
 const showMcp = $derived(filter === "all" || filter === "mcp");
 const showSkills = $derived(filter === "all" || filter === "skills");
 const showPlugins = $derived(filter === "all" || filter === "plugins");
-const servers = $derived((data?.mcpServers ?? []).filter((row) => matches(row.name, liveFor(row)?.serverInfo?.title, liveFor(row)?.serverInfo?.description, data?.settings[`mcp:${row.name}`]?.pluginId)));
-const skills = $derived((data?.skills ?? []).filter((row) => matches(row.name, row.displayName, row.description, row.shortDescription, data?.settings[`skill:${row.path}`]?.pluginId)));
+const servers = $derived(
+  (data?.mcpServers ?? []).filter((row) =>
+    matches(
+      row.name,
+      liveFor(row)?.serverInfo?.title,
+      liveFor(row)?.serverInfo?.description,
+      data?.settings[`mcp:${row.name}`]?.pluginId,
+    ),
+  ),
+);
+const skills = $derived(
+  (data?.skills ?? []).filter((row) =>
+    matches(
+      row.name,
+      row.displayName,
+      row.description,
+      row.shortDescription,
+      data?.settings[`skill:${row.path}`]?.pluginId,
+    ),
+  ),
+);
 const plugins = $derived((data?.plugins ?? []).filter((row) => matches(row.id, row.name, row.description)));
-const matchCount = $derived((showMcp ? servers.length : 0) + (showSkills ? skills.length : 0) + (showPlugins ? plugins.length : 0));
+const matchCount = $derived(
+  (showMcp ? servers.length : 0) + (showSkills ? skills.length : 0) + (showPlugins ? plugins.length : 0),
+);
 </script>
 
 <div class="text-sm">

@@ -98,47 +98,59 @@ async function loadProvider() {
 
 onMount(loadProvider);
 
+// Bumped by every open. A slow response for a PR the user has already left
+// must not land: its draft comments would be applied to, saved into and
+// submitted on whichever PR is showing now.
+let openRun = 0;
+
 async function openPr(number: number) {
+  const run = ++openRun;
   loading = true;
   error = null;
   actionError = null;
   try {
-    detail = await reviewPrDetail(repoDir, number);
+    const next = await reviewPrDetail(repoDir, number);
+    if (run !== openRun) return;
+    detail = next;
     mode = "pr";
-    selectedPath = detail.files[0]?.path ?? null;
+    selectedPath = next.files[0]?.path ?? null;
     viewedPaths = new Set();
     reviewStarted = false;
     freshness = null;
-    await restoreDraft(number, detail.headSha);
+    await restoreDraft(number, next.headSha, run);
   } catch (cause) {
-    error = cause instanceof Error ? cause.message : String(cause);
+    if (run === openRun) error = cause instanceof Error ? cause.message : String(cause);
   } finally {
-    loading = false;
+    if (run === openRun) loading = false;
   }
 }
 
 async function openLocal() {
+  const run = ++openRun;
   loading = true;
   error = null;
   actionError = null;
   try {
-    localFiles = await reviewLocalDiff(repoDir, localBase);
+    const files = await reviewLocalDiff(repoDir, localBase);
+    if (run !== openRun) return;
+    localFiles = files;
     mode = "local";
     selectedPath = localFiles[0]?.path ?? null;
     viewedPaths = new Set();
     pending = [];
     reviewStarted = false;
   } catch (cause) {
-    error = cause instanceof Error ? cause.message : String(cause);
+    if (run === openRun) error = cause instanceof Error ? cause.message : String(cause);
   } finally {
-    loading = false;
+    if (run === openRun) loading = false;
   }
 }
 
-async function restoreDraft(number: number, headSha: string) {
+async function restoreDraft(number: number, headSha: string, run: number) {
   pending = [];
   try {
     const draft = await reviewLoadDraft(PROVIDER, repoName, number);
+    if (run !== openRun) return;
     if (draft && draft.headSha === headSha) {
       const parsed = JSON.parse(draft.payload) as { pending?: PendingComment[]; reviewStarted?: boolean };
       pending = parsed.pending ?? [];

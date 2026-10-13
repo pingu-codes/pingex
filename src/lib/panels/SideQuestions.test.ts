@@ -114,11 +114,19 @@ describe("SideQuestions", () => {
     await user.type(await screen.findByPlaceholderText("Follow up…"), "Why?{Enter}");
     await screen.findByLabelText("Codex is working");
 
-    await user.click(screen.getByRole("button", { name: "Stop side question" }));
-    expect(mocks.interruptTurn).toHaveBeenCalledWith(SIDE, "turn-1");
+    // Fake the stop grace timer instead of waiting it out in real time.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    try {
+      await user.click(screen.getByRole("button", { name: "Stop side question" }));
+      expect(mocks.interruptTurn).toHaveBeenCalledWith(SIDE, "turn-1");
+      expect(stopButton()).toBeInTheDocument();
 
-    await waitFor(() => expect(stopButton()).not.toBeInTheDocument(), { timeout: 3000 });
-    expect(screen.queryByLabelText("Codex is working")).not.toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(1500);
+      await waitFor(() => expect(stopButton()).not.toBeInTheDocument());
+      expect(screen.queryByLabelText("Codex is working")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("waits for the real turn id before interrupting an optimistic turn", async () => {

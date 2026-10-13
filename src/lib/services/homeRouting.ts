@@ -334,39 +334,47 @@ function mapStructured(value: unknown, host: Host): unknown {
   );
 }
 
-function normalizeResult(name: string, entry: HomeSnapshot, result: any): any {
-  if (result && Array.isArray(result.projects) && result.sidebarLayout) {
-    entry.data = result;
+/** A command result is JSON of a shape keyed by the command's name. */
+type JsonRecord = Record<string, unknown>;
+type Summary = Parameters<typeof mapSummary>[1];
+const asRecord = (value: unknown): JsonRecord | null =>
+  value !== null && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : null;
+
+function normalizeResult(name: string, entry: HomeSnapshot, result: unknown): unknown {
+  const record = asRecord(result);
+  const host = entry.home.host;
+  if (record && Array.isArray(record.projects) && record.sidebarLayout) {
+    entry.data = record as unknown as BootstrapData;
     return merged();
   }
-  if (["startThread", "readThread", "forkThread", "revertThread"].includes(name) && result?.id)
-    return mapSummary(entry, result);
-  if (name === "listSubagents" && Array.isArray(result)) return result.map((item) => mapSummary(entry, item));
-  if (["threadsWithActiveTurns", "threadsWithUnansweredQuestions"].includes(name))
+  if (["startThread", "readThread", "forkThread", "revertThread"].includes(name) && record?.id)
+    return mapSummary(entry, record as Summary);
+  if (name === "listSubagents" && Array.isArray(result)) return result.map((item: Summary) => mapSummary(entry, item));
+  if (["threadsWithActiveTurns", "threadsWithUnansweredQuestions"].includes(name) && Array.isArray(result))
     return result.map((id: string) => scopedId(entry.homeKey, id));
   if (name === "listProjectSources" && Array.isArray(result))
-    return result.map((source) => ({ ...source, id: scopedId(entry.homeKey, source.id) }));
-  if (["stageAttachment", "stageClipboardImage"].includes(name) && result?.id)
-    return { ...result, id: scopedId(entry.homeKey, result.id) };
+    return result.map((source: { id: string }) => ({ ...source, id: scopedId(entry.homeKey, source.id) }));
+  if (["stageAttachment", "stageClipboardImage"].includes(name) && typeof record?.id === "string")
+    return { ...record, id: scopedId(entry.homeKey, record.id) };
   if (name === "gitWorktrees" && Array.isArray(result))
-    return result.map((tree) => ({ ...tree, path: localProjectPath(entry.home.host, tree.path) }));
-  if (["gitRepoInfo", "gitContext"].includes(name) && result)
+    return result.map((tree: { path: string }) => ({ ...tree, path: localProjectPath(host, tree.path) }));
+  if (["gitRepoInfo", "gitContext"].includes(name) && record) {
+    const path = (value: unknown) => (typeof value === "string" && value ? localProjectPath(host, value) : null);
     return {
-      ...result,
-      ...(name === "gitContext"
-        ? { parentPath: result.parentPath ? localProjectPath(entry.home.host, result.parentPath) : null }
-        : {}),
-      dir: localProjectPath(entry.home.host, result.dir),
-      root: result.root ? localProjectPath(entry.home.host, result.root) : null,
-      commonDir: result.commonDir ? localProjectPath(entry.home.host, result.commonDir) : null,
+      ...record,
+      ...(name === "gitContext" ? { parentPath: path(record.parentPath) } : {}),
+      dir: typeof record.dir === "string" ? localProjectPath(host, record.dir) : record.dir,
+      root: path(record.root),
+      commonDir: path(record.commonDir),
     };
-  if (name === "listArchivedThreads" && Array.isArray(result?.data))
-    return { ...result, data: result.data.map((item: any) => mapSummary(entry, item)) };
-  if (["listThreadsPage", "searchThreads"].includes(name) && Array.isArray(result?.items))
-    return { ...result, items: result.items.map((item: any) => mapSummary(entry, item)) };
+  }
+  if (name === "listArchivedThreads" && Array.isArray(record?.data))
+    return { ...record, data: (record.data as Summary[]).map((item) => mapSummary(entry, item)) };
+  if (["listThreadsPage", "searchThreads"].includes(name) && Array.isArray(record?.items))
+    return { ...record, items: (record.items as Summary[]).map((item) => mapSummary(entry, item)) };
   if (name === "listAgentRuns" && Array.isArray(result))
     return result.map((run) => scopeEvent(entry.homeKey, { run }).run);
-  if (name === "openAgentThread" && result?.id) return mapSummary(entry, result);
+  if (name === "openAgentThread" && record?.id) return mapSummary(entry, record as Summary);
   return result;
 }
 
@@ -487,7 +495,10 @@ export const commands: typeof nativeCommands = new Proxy(nativeCommands, {
           const name = names[index];
           if (["id", "parentId"].includes(name)) return unwrap(value);
           if (name === "item" || name === "siblings") {
-            const reference = (item: any) => (item.kind === "folder" ? { ...item, id: unwrap(item.id) } : item);
+            const reference = (item: unknown) => {
+              const record = asRecord(item);
+              return record?.kind === "folder" ? { ...record, id: unwrap(record.id) } : item;
+            };
             return Array.isArray(value) ? value.map(reference) : reference(value);
           }
           return value;
@@ -612,10 +623,12 @@ function scopedRequest(homeKey: string, nativeId: number): number {
 
 export function scopeEvent<T>(homeKey: string, original: T): T {
   if (!belongsToProfile(homeKey)) return original;
-  const payload: any = structuredClone(original);
+  const payload = asRecord(structuredClone(original));
+  if (!payload) return original;
   const entry = profileHomes().find((home) => home.homeKey === homeKey)!;
-  const fields = (object: any) => {
-    if (!object || typeof object !== "object") return;
+  const fields = (value: unknown) => {
+    const object = asRecord(value);
+    if (!object) return;
     for (const key of [
       "threadId",
       "thread_id",
@@ -627,20 +640,24 @@ export function scopeEvent<T>(homeKey: string, original: T): T {
       "runId",
       "senderThreadId",
     ]) {
-      if (typeof object[key] === "string") object[key] = scopedId(homeKey, object[key]);
+      const id = object[key];
+      if (typeof id === "string") object[key] = scopedId(homeKey, id);
     }
     if (typeof object.requestId === "number") object.requestId = scopedRequest(homeKey, object.requestId);
-    if (object.thread?.id) object.thread = mapSummary(entry, object.thread);
+    const thread = asRecord(object.thread);
+    if (thread?.id) object.thread = mapSummary(entry, thread as Summary);
     if (Array.isArray(object.receiverThreadIds))
       object.receiverThreadIds = object.receiverThreadIds.map((id: string) => scopedId(homeKey, id));
   };
+  const params = asRecord(payload.params);
   fields(payload);
-  fields(payload.params);
-  fields(payload.event?.params);
-  fields(payload.params?.item);
-  if (payload.run) {
-    fields(payload.run);
-    if (typeof payload.run.id === "string") payload.run.id = scopedId(homeKey, payload.run.id);
+  fields(params);
+  fields(asRecord(payload.event)?.params);
+  fields(params?.item);
+  const run = asRecord(payload.run);
+  if (run) {
+    fields(run);
+    if (typeof run.id === "string") run.id = scopedId(homeKey, run.id);
   }
   return payload as T;
 }

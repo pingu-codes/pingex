@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { canHandoff, cwdBelongsTo, dirName, handoffHomeIssue, shortHomeName } from "$lib/thread/handoff";
 import type { HandoffOpen } from "$lib/types";

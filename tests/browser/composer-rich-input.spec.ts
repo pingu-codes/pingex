@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import { chooseTurnSettings } from "./turnSettings";
 
 async function loadPreview(page: Page) {
   await page.goto("/");
@@ -388,13 +389,15 @@ test("a chip does not make its line taller than a line of plain text", async ({ 
 
 test("sends a message with a mention and a skill chip, echoed correctly in the transcript", async ({ page }) => {
   const composer = await newComposer(page);
+  await chooseTurnSettings(page);
+  await composer.click();
   await composer.pressSequentially("Review ");
   await insertUtilsMention(page, composer);
   await composer.pressSequentially(" using $code");
   await page.getByRole("option", { name: /code-reviewer/ }).click();
   await composer.press("Enter");
 
-  await expect(page.getByText("Review @utils.ts using", { exact: false })).toBeVisible();
+  await expect(page.getByText("Review @utils.ts using", { exact: false }).last()).toBeVisible();
   await expect(page.getByText("@utils.ts", { exact: true }).last()).toBeVisible();
   await expect(page.getByText("code-reviewer", { exact: true }).last()).toBeVisible();
 });

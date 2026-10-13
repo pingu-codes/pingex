@@ -310,7 +310,7 @@ pub(crate) fn cleanup(staging_dir: &Path, max_total: u64) -> Result<usize, Stage
         files.push((entry.path(), metadata.len(), modified));
     }
     // Oldest first, so we evict the least-recently-staged files.
-    files.sort_by(|a, b| a.2.cmp(&b.2));
+    files.sort_by_key(|a| a.2);
     let mut removed = 0;
     for (path, size, _) in files {
         if total <= max_total {
@@ -344,7 +344,7 @@ fn staging_local(ctx: &crate::HomeContext) -> PathBuf {
     staging_dir(ctx).local
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn stage_attachment(
     source_path: String,
@@ -355,7 +355,7 @@ pub(crate) fn stage_attachment(
     Ok(stage_source(&staging_dir(&ctx), Path::new(&source_path))?)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn stage_clipboard_image(
     filename: Option<String>,
@@ -377,7 +377,7 @@ pub(crate) fn stage_clipboard_image(
     Ok(stage_bytes(&staging_dir(&ctx), &filename, &bytes)?)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn remove_staged(
     id: String,

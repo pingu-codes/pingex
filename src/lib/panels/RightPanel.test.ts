@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
+import type { ComponentProps } from "svelte";
 import { describe, expect, it, vi } from "vitest";
 import RightPanel from "$lib/panels/RightPanel.svelte";
 import type { FileUpdateChange, SideQuestion } from "$lib/types";
@@ -16,7 +17,7 @@ const sideQuestions: SideQuestion[] = [
 ];
 
 function setup(
-  view: any,
+  view: ComponentProps<typeof RightPanel>["view"],
   parentThreadId = "parent-1",
   changes: FileUpdateChange[] = [],
   extra: Record<string, unknown> = {},

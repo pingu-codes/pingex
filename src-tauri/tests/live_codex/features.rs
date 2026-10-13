@@ -87,7 +87,7 @@ fn canonical(path: &str) -> String {
 /// and clearing it must stick too.
 #[test]
 fn goal_survives_restart_pause_and_clear() {
-    let server = live!();
+    live!(server);
     let thread_id = server.start_thread();
     let objective = "E2E goal: reply GOAL-OK whenever asked, nothing else";
 
@@ -186,7 +186,7 @@ fn goal_survives_restart_pause_and_clear() {
 /// after leaves an active-then-paused goal that a relaunch reads back.
 #[test]
 fn start_with_goal_on_fresh_thread_then_pause_survives_restart() {
-    let server = live!();
+    live!(server);
     let thread_id = server.start_thread();
     let objective = "E2E goal: reply GOAL-FRESH-OK whenever asked, nothing else";
 
@@ -291,7 +291,7 @@ fn plan_text(outcome: &TurnOutcome) -> String {
 /// record and no duplicates.
 #[test]
 fn plan_then_restart_then_implement_in_same_thread() {
-    let server = live!();
+    live!(server);
     let file = server.cwd.join(PLAN_FILE);
     let _ = std::fs::remove_file(&file);
     let thread_id = server.start_thread();
@@ -363,7 +363,7 @@ fn plan_then_restart_then_implement_in_same_thread() {
 /// planning thread is left untouched — also after a relaunch.
 #[test]
 fn plan_then_implement_in_fresh_thread_after_restart() {
-    let server = live!();
+    live!(server);
     let file_name = "PLAN_FRESH.txt";
     let file = server.cwd.join(file_name);
     let _ = std::fs::remove_file(&file);
@@ -438,7 +438,7 @@ fn fresh_plan_prompt(plan: &str) -> String {
 /// the link leaves the thread itself intact.
 #[test]
 fn side_question_link_survives_restart() {
-    let server = live!();
+    live!(server);
     let parent = server.start_thread();
     let side = server.start_thread();
     let long_title = "Side question about restarts ".repeat(6); // > MAX_TITLE_CHARS
@@ -562,7 +562,7 @@ fn side_question_link_survives_restart() {
 /// "Open in…" uses).
 #[test]
 fn temp_worktree_link_survives_restart_and_removal() {
-    let server = live!();
+    live!(server);
     let repo = server.git_repo("e2e-repo");
     let repo_path = repo.display().to_string();
     let worktree = temp_worktrees_root(&server.codex_home)

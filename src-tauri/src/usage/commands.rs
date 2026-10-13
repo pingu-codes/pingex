@@ -267,7 +267,7 @@ pub(crate) async fn read_context_breakdown(
         ));
     }
     let local_home = ctx.runtime().local_home();
-    let Some(path) = crate::codex::rollout::locate(&local_home, &thread_id) else {
+    let Some(path) = ctx.rollouts.locate(&local_home, &thread_id) else {
         return Err(format!(
             "{CONTEXT_BREAKDOWN_UNSUPPORTED}: no rollout on disk for this thread"
         ));
@@ -301,7 +301,7 @@ pub(crate) async fn read_prompt_parts_text(
 ) -> Result<Vec<PromptPart>, String> {
     let ctx = state.ctx(&window);
     let local_home = ctx.runtime().local_home();
-    let Some(path) = crate::codex::rollout::locate(&local_home, &thread_id) else {
+    let Some(path) = ctx.rollouts.locate(&local_home, &thread_id) else {
         return Err(format!(
             "{PROMPT_TEXT_UNSUPPORTED}: no rollout on disk for this thread"
         ));

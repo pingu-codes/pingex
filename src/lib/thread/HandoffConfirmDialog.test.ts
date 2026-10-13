@@ -32,7 +32,7 @@ describe("HandoffConfirmDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: /copy command/i }));
     expect(copy).toHaveBeenCalledWith(props.command);
     await userEvent.click(screen.getByRole("button", { name: /open terminal/i }));
-    expect(launch).toHaveBeenCalledWith(props.command);
+    expect(launch).toHaveBeenCalledOnce();
     expect(close).toHaveBeenCalledWith(true);
   });
 });

@@ -46,7 +46,7 @@ fn reveal_command(target: &Path, os: &str) -> Command {
 
 /// Show a path in the file manager. `path` is a host path of this window's
 /// home; a WSL path opens through the `\\wsl.localhost` share.
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn reveal_in_finder(
     path: String,
@@ -87,6 +87,7 @@ pub(crate) fn open_external_url(url: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     let mut command = {
         let mut c = Command::new("cmd");
+        crate::util::host::no_console_window(&mut c);
         c.args(["/C", "start", "", &url]);
         c
     };
@@ -106,7 +107,7 @@ pub(crate) fn open_external_url(url: String) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn open_in_zed(
     path: String,

@@ -74,16 +74,21 @@ test("sidebar rows stretch consistently and contain long names", async ({ page }
   // Check actual bounds, including children: clipping overflow would hide the
   // symptom without fixing the layout.
   async function expectContained() {
-    const overflow = await page.locator("aside").first().evaluate((sidebar) => {
-      const bounds = sidebar.getBoundingClientRect();
-      return Array.from(sidebar.querySelectorAll('[data-sidebar-row], [data-part="trigger"], button[title$="open git"]'))
-        .filter((element) => element.getClientRects().length > 0)
-        .filter((element) => {
-          const rect = element.getBoundingClientRect();
-          return rect.left < bounds.left - 1 || rect.right > bounds.right + 1;
-        })
-        .map((element) => element.textContent);
-    });
+    const overflow = await page
+      .locator("aside")
+      .first()
+      .evaluate((sidebar) => {
+        const bounds = sidebar.getBoundingClientRect();
+        return Array.from(
+          sidebar.querySelectorAll('[data-sidebar-row], [data-part="trigger"], button[title$="open git"]'),
+        )
+          .filter((element) => element.getClientRects().length > 0)
+          .filter((element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.left < bounds.left - 1 || rect.right > bounds.right + 1;
+          })
+          .map((element) => element.textContent);
+      });
     expect(overflow).toEqual([]);
   }
   await expectContained();

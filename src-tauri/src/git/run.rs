@@ -37,6 +37,17 @@ pub(crate) fn run_git(
     full_args.extend_from_slice(args);
 
     process::run(Run::on(host, "git", &dir_str, &full_args, timeout)).map_err(|error| match error {
+        RunError::Timeout => "git timed out".to_string(),
+        error => run_error(host, &dir_str, error),
+    })
+}
+
+/// The message for a git that never ran. Spawning in a folder that has been
+/// deleted (a removed worktree, say) fails with the same `NotFound` as a
+/// missing binary, so check the folder before blaming git.
+fn run_error(host: &Host, dir: &str, error: RunError) -> String {
+    match error {
+        RunError::NotFound if !host.is_dir(dir) => format!("The folder {dir} no longer exists"),
         RunError::NotFound => match host {
             Host::Native => "Git is not installed or not on PATH".to_string(),
             Host::Wsl { distro } => {
@@ -46,7 +57,7 @@ pub(crate) fn run_git(
         RunError::Spawn => "Could not start git".to_string(),
         RunError::Timeout => "git timed out".to_string(),
         RunError::NoOutput => "git did not produce any output".to_string(),
-    })
+    }
 }
 
 /// Run a network command (fetch/pull/push). Credential prompts are disabled so
@@ -71,10 +82,8 @@ pub(crate) fn run_git_network(
         timeout: NETWORK_TIMEOUT,
     };
     process::run(spec).map_err(|error| match error {
-        RunError::NotFound => "Git is not installed or not on PATH".to_string(),
-        RunError::Spawn => "Could not start git".to_string(),
         RunError::Timeout => "git timed out waiting for the remote".to_string(),
-        RunError::NoOutput => "git did not produce any output".to_string(),
+        error => run_error(host, &dir_str, error),
     })
 }
 
@@ -230,6 +239,14 @@ pub(crate) fn common_dir_of(host: &Host, repo_dir: &Path) -> Result<PathBuf, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_deleted_folder_is_not_reported_as_missing_git() {
+        let temp = tempfile::tempdir().unwrap();
+        let gone = temp.path().join("removed-worktree");
+        let error = run_git(&Host::Native, &gone, &["status"], READ_TIMEOUT).unwrap_err();
+        assert!(error.contains("no longer exists"), "{error}");
+    }
 
     fn output(stderr: &str) -> CommandOutput {
         CommandOutput {

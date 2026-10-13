@@ -1,5 +1,6 @@
 import { claudeModeFromPrefs, isClaudeMode, selectClaudeMode } from "$lib/composer/claudeModes";
 import type { SubagentPolicy, TurnOptions } from "$lib/types";
+import { can } from "$lib/utils/capabilities";
 
 /**
  * The Subagents popover's choices. Held apart from the rest of the prefs
@@ -107,7 +108,7 @@ export const CLAUDE_PERMISSION_PRESETS: PermissionPreset[] = [
 ];
 
 export function permissionPresetsFor(harness: HarnessChoice | null | undefined): PermissionPreset[] {
-  return harness === "claude" ? CLAUDE_PERMISSION_PRESETS : PERMISSION_PRESETS;
+  return can(harness, "permissionModes") ? CLAUDE_PERMISSION_PRESETS : PERMISSION_PRESETS;
 }
 
 /** The preset `id` names on `harness`. A preset only the other harness has
@@ -369,7 +370,7 @@ export function turnOptionsFrom(
   if (prefs.speedTier) options.speedTier = prefs.speedTier;
   if (prefs.model) options.model = prefs.model;
   if (prefs.effort) options.effort = prefs.effort;
-  if (harness === "claude") {
+  if (can(harness, "permissionModes")) {
     const mode = claudeModeFromPrefs(prefs);
     if (mode) options.claudeMode = mode;
   } else if (preset) {
@@ -387,7 +388,7 @@ export function turnOptionsFrom(
   // a state where it never re-sends the "Default mode" instructions, so a
   // thread that was in plan mode looks stuck there to the model.
   const model = prefs.model ?? defaultModel ?? threadModel ?? null;
-  if (model && harness !== "claude") {
+  if (model && can(harness, "collaborationModes")) {
     options.collaborationMode = {
       mode: prefs.planMode ? "plan" : "default",
       settings: { model, reasoning_effort: prefs.effort ?? null, developer_instructions: null },

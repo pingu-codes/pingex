@@ -41,6 +41,10 @@ export class ThreadQueue {
   /** Local mutations in flight; while > 0, server re-lists are skipped so they
    *  cannot clobber an optimistic entry. */
   private mutations = 0;
+  /** Bumped by every mutation and every sync. A listing applies only if
+   *  nothing moved since it was requested: one that raced a whole
+   *  delete-and-settle would put a drained entry back and send it twice. */
+  private generation = 0;
   private inFlight = false;
   /** Set when a drain put its message back: nothing else would change, so
    *  without this the retry fires again immediately and spins. Cleared by the
@@ -69,6 +73,7 @@ export class ThreadQueue {
       return;
     }
     this.mutations++;
+    this.generation++;
     try {
       const submission = await queueAdd(threadId, input, clientUserMessageId);
       this.replace(optimistic.id, submission);
@@ -97,6 +102,7 @@ export class ThreadQueue {
     const threadId = this.deps.threadId();
     if (!threadId || isClientQueued(entry)) return;
     this.mutations++;
+    this.generation++;
     try {
       await queueDelete(threadId, entry.id);
     } catch {
@@ -112,6 +118,7 @@ export class ThreadQueue {
     const threadId = this.deps.threadId();
     if (!threadId || isClientQueued(entry)) return;
     this.mutations++;
+    this.generation++;
     try {
       await queueUpdate(threadId, entry.id, input);
     } catch (cause) {
@@ -129,6 +136,7 @@ export class ThreadQueue {
     const threadId = this.deps.threadId();
     if (threadId && !this.entries.some(isClientQueued) && this.entries.length > 1) {
       this.mutations++;
+      this.generation++;
       try {
         await queueReorder(
           threadId,
@@ -149,9 +157,10 @@ export class ThreadQueue {
   syncFromServer(): void {
     const threadId = this.deps.threadId();
     if (!threadId || this.mutations > 0) return;
+    const generation = ++this.generation;
     queueList(threadId)
       .then((items) => {
-        if (threadId !== this.deps.threadId() || this.mutations > 0) return;
+        if (threadId !== this.deps.threadId() || generation !== this.generation) return;
         // Keeps the client-only entries the server does not know about — both
         // the ones still in flight and the ones it will never hold.
         this.entries = mergeQueue(items, this.entries);

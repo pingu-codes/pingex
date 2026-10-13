@@ -50,7 +50,7 @@ test("opens a diff from the overview outputs in the right panel", async ({ page 
   await closeOverview(page);
 
   const panel = rightPanel(page);
-  await expect(panel.getByText("Changes")).toBeVisible();
+  await expect(panel.getByText("Outputs", { exact: true })).toBeVisible();
   await expect(panel.getByText("src/lib/utils.ts")).toBeVisible();
   await expect(panel.getByText("src/lib/generated.ts")).toBeVisible();
   // The small diff is expanded by default; its added lines are readable.
@@ -65,7 +65,7 @@ test("opens a diff from the overview outputs in the right panel", async ({ page 
 });
 
 test("browses the complete file tree from the Files button", async ({ page }) => {
-  await page.getByRole("button", { name: "Files" }).click();
+  await page.getByRole("button", { name: "Files", exact: true }).click();
   await closeOverview(page);
 
   const panel = rightPanel(page);

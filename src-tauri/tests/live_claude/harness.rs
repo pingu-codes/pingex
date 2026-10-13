@@ -159,8 +159,24 @@ pub fn resume_in_mode(setup: &Setup, session_id: String, mode: &str) -> ClaudePr
     spawn_session(setup, mode, session_id, true)
 }
 
+/// Resume at another `--effort`: what the driver does when the user changes
+/// effort on an idle thread.
+pub fn resume_with_effort(setup: &Setup, session_id: String, effort: &str) -> ClaudeProcess {
+    spawn_session_at(setup, "default", session_id, true, effort)
+}
+
 fn spawn_session(setup: &Setup, mode: &str, session_id: String, resume: bool) -> ClaudeProcess {
-    let args = claude_turn_args(Some(&setup.model), Some("low"), mode, resume, &session_id);
+    spawn_session_at(setup, mode, session_id, resume, "low")
+}
+
+fn spawn_session_at(
+    setup: &Setup,
+    mode: &str,
+    session_id: String,
+    resume: bool,
+    effort: &str,
+) -> ClaudeProcess {
+    let args = claude_turn_args(Some(&setup.model), Some(effort), mode, resume, &session_id);
     // The same argv the driver builds, through the same `Host`.
     let mut argv: Vec<&str> = CLAUDE_BASE_ARGS.to_vec();
     argv.extend(args.iter().map(String::as_str));

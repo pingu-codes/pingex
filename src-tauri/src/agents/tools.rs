@@ -12,7 +12,7 @@
 use crate::util::host::Host;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::path::{Component, Path, PathBuf};
+use std::path::Path;
 
 pub(crate) const SPAWN: &str = "pingex_spawn_agent";
 pub(crate) const WAIT: &str = "pingex_wait_agents";
@@ -277,31 +277,31 @@ pub(crate) fn parse_spawn_args(arguments: &Value) -> Result<SpawnArgs, String> {
 /// Resolve the working directory a spawn asked for, refusing anything outside
 /// the parent's own. The model picks this string, so it is untrusted: `..`
 /// segments are rejected outright rather than normalised away, and an absolute
-/// path is only allowed if it is already inside the parent directory.
-pub(crate) fn resolve_cwd(parent_cwd: &Path, requested: Option<&str>) -> Result<PathBuf, String> {
+/// path is only allowed if it is already inside the parent directory. Both are
+/// host paths, so a WSL path keeps its `/` separators even on Windows.
+pub(crate) fn resolve_cwd(
+    host: &Host,
+    parent_cwd: &str,
+    requested: Option<&str>,
+) -> Result<String, String> {
     let Some(requested) = requested else {
-        return Ok(parent_cwd.to_path_buf());
+        return Ok(parent_cwd.to_string());
     };
-    let candidate = Path::new(requested);
-    let joined = if candidate.is_absolute() {
-        candidate.to_path_buf()
-    } else {
-        parent_cwd.join(candidate)
-    };
-    if joined
-        .components()
-        .any(|component| matches!(component, Component::ParentDir))
-    {
-        return Err(format!(
-            "`cwd` must stay inside {}: {requested}",
-            parent_cwd.display()
-        ));
+    let outside = || format!("`cwd` must stay inside {parent_cwd}: {requested}");
+    if requested.split(['/', '\\']).any(|segment| segment == "..") {
+        return Err(outside());
     }
-    if !joined.starts_with(parent_cwd) {
-        return Err(format!(
-            "`cwd` must stay inside {}: {requested}",
-            parent_cwd.display()
-        ));
+    let absolute = match host {
+        Host::Native => Path::new(requested).is_absolute(),
+        Host::Wsl { .. } => requested.starts_with('/'),
+    };
+    let joined = if absolute {
+        requested.to_string()
+    } else {
+        host.join_str(parent_cwd, requested)
+    };
+    if !host.is_under(parent_cwd, &joined) {
+        return Err(outside());
     }
     Ok(joined)
 }
@@ -331,7 +331,7 @@ pub(crate) fn clamp_sandbox(requested: Option<&str>, ceiling: &str) -> String {
 /// Append the requested files to the prompt. A fresh process shares nothing
 /// with its parent, and a bounded file list is the one piece of context the
 /// parent cannot simply write out in prose.
-pub(crate) fn attach_files(prompt: &str, cwd: &Path, files: &[String], host: &Host) -> String {
+pub(crate) fn attach_files(prompt: &str, cwd: &str, files: &[String], host: &Host) -> String {
     if files.is_empty() {
         return prompt.to_string();
     }
@@ -339,10 +339,10 @@ pub(crate) fn attach_files(prompt: &str, cwd: &Path, files: &[String], host: &Ho
     let mut budget = MAX_ATTACHED_BYTES;
     for file in files {
         // Reuse the cwd guard: an attachment path is as untrusted as a cwd.
-        let Ok(path) = resolve_cwd(cwd, Some(file)) else {
+        let Ok(path) = resolve_cwd(host, cwd, Some(file)) else {
             continue;
         };
-        let Ok(content) = std::fs::read_to_string(host.to_local(&host.path_string(&path))) else {
+        let Ok(content) = std::fs::read_to_string(host.to_local(&path)) else {
             continue;
         };
         let content = if content.len() > budget {
@@ -414,7 +414,7 @@ mod tests {
     use super::*;
 
     fn attach_files_native(prompt: &str, cwd: &Path, files: &[String]) -> String {
-        attach_files(prompt, cwd, files, &Host::Native)
+        attach_files(prompt, &cwd.to_string_lossy(), files, &Host::Native)
     }
 
     #[test]
@@ -512,26 +512,42 @@ mod tests {
 
     #[test]
     fn resolves_a_cwd_inside_the_parent() {
-        let parent = Path::new("/repo");
-        assert_eq!(resolve_cwd(parent, None).unwrap(), PathBuf::from("/repo"));
+        let host = Host::Native;
+        assert_eq!(resolve_cwd(&host, "/repo", None).unwrap(), "/repo");
         assert_eq!(
-            resolve_cwd(parent, Some("crates/core")).unwrap(),
-            PathBuf::from("/repo/crates/core")
+            std::path::PathBuf::from(resolve_cwd(&host, "/repo", Some("crates/core")).unwrap()),
+            std::path::PathBuf::from("/repo/crates/core")
         );
         assert_eq!(
-            resolve_cwd(parent, Some("/repo/crates")).unwrap(),
-            PathBuf::from("/repo/crates")
+            resolve_cwd(&host, "/repo", Some("/repo/crates")).unwrap(),
+            "/repo/crates"
         );
     }
 
     #[test]
     fn refuses_a_cwd_that_escapes_the_parent() {
-        let parent = Path::new("/repo");
-        assert!(resolve_cwd(parent, Some("../secrets")).is_err());
-        assert!(resolve_cwd(parent, Some("crates/../../etc")).is_err());
-        assert!(resolve_cwd(parent, Some("/etc")).is_err());
-        // A sibling that merely shares a name prefix is still outside.
-        assert!(resolve_cwd(parent, Some("/repo-other")).is_err());
+        for host in [Host::Native, Host::wsl("Ubuntu")] {
+            assert!(resolve_cwd(&host, "/repo", Some("../secrets")).is_err());
+            assert!(resolve_cwd(&host, "/repo", Some("crates/../../etc")).is_err());
+            assert!(resolve_cwd(&host, "/repo", Some("/etc")).is_err());
+            // A sibling that merely shares a name prefix is still outside.
+            assert!(resolve_cwd(&host, "/repo", Some("/repo-other")).is_err());
+        }
+    }
+
+    /// On Windows `Path` neither sees `/home/..` as absolute nor joins with
+    /// `/`; a WSL home must get a Linux path either way.
+    #[test]
+    fn resolves_wsl_cwds_as_linux_paths() {
+        let host = Host::wsl("Ubuntu");
+        assert_eq!(
+            resolve_cwd(&host, "/home/u/repo", Some("sub/dir")).unwrap(),
+            "/home/u/repo/sub/dir"
+        );
+        assert_eq!(
+            resolve_cwd(&host, "/home/u/repo", Some("/home/u/repo/sub")).unwrap(),
+            "/home/u/repo/sub"
+        );
     }
 
     #[test]

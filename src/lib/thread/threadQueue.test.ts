@@ -245,3 +245,43 @@ describe("ThreadQueue on a draft thread", () => {
     expect(mocks.queueList).not.toHaveBeenCalled();
   });
 });
+
+describe("ThreadQueue re-listing the server queue", () => {
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((done) => (resolve = done));
+    return { promise, resolve };
+  }
+
+  const entry: QueuedSubmission = { id: "q1", input: text("hi"), clientUserMessageId: "c1" };
+
+  it("drops a listing that raced a delete, so the entry cannot come back and send twice", async () => {
+    const { queue } = harness();
+    queue.entries = [entry];
+    const stale = deferred<QueuedSubmission[]>();
+    mocks.queueList.mockReturnValueOnce(stale.promise);
+
+    queue.syncFromServer();
+    await queue.remove(entry); // starts and settles while the listing is in flight
+    stale.resolve([entry]);
+    await settle();
+
+    expect(queue.entries).toEqual([]);
+  });
+
+  it("keeps only the newest of two overlapping listings", async () => {
+    const { queue } = harness();
+    const older = deferred<QueuedSubmission[]>();
+    const newer = deferred<QueuedSubmission[]>();
+    mocks.queueList.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+
+    queue.syncFromServer();
+    queue.syncFromServer();
+    newer.resolve([]);
+    await settle();
+    older.resolve([entry]);
+    await settle();
+
+    expect(queue.entries).toEqual([]);
+  });
+});

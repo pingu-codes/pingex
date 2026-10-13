@@ -1,6 +1,6 @@
 <script lang="ts">
-import { positionComposerPopover } from "$lib/composer/positionComposerPopover";
 import { Check, ChevronDown, Cpu } from "@lucide/svelte";
+import { positionComposerPopover } from "$lib/composer/positionComposerPopover";
 import type { Model, ReasoningEffortOption } from "$lib/types";
 
 let {

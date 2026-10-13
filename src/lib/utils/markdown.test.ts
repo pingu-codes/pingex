@@ -16,4 +16,18 @@ describe("renderMarkdown", () => {
     expect(html).toContain('aria-label="Copy code"');
     expect(html).toContain('<code class="hljs">');
   });
+
+  it("shows an unlabeled block plain while it streams, then highlights it once closed", () => {
+    const code = 'function greet() { return "<hi>"; }';
+    const streaming = renderMarkdown(`Here:\n\n\`\`\`\n${code}`);
+    expect(streaming).not.toContain("hljs-");
+    expect(streaming).toContain("&lt;hi&gt;");
+
+    const closed = renderMarkdown(`Here:\n\n\`\`\`\n${code}\n\`\`\``);
+    expect(closed).toContain("hljs-");
+  });
+
+  it("still highlights a labeled block while it streams", () => {
+    expect(renderMarkdown("```js\nconst x = 1;")).toContain("hljs-");
+  });
 });

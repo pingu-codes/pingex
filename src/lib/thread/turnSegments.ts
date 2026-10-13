@@ -1,4 +1,5 @@
 import type { KnownThreadItemType, ThreadItem, Turn, UserInputPart } from "$lib/types";
+import { can } from "$lib/utils/capabilities";
 
 export type Segment = { kind: "item"; item: ThreadItem } | { kind: "reasoning"; items: ThreadItem[] };
 
@@ -139,11 +140,11 @@ export function splitTurn(turn: Turn, harness?: string | null) {
       work.items.push(item);
     }
   }
-  // Other harnesses report tool completion while the enclosing turn continues.
+  // A harness with live tool results reports completion while the turn continues.
   // Fold the finished prefix of the live tail, preserving transcript order and
   // leaving running tools (including parallel calls) on screen.
   const tail = body.at(-1);
-  if (harness && harness !== "codex" && turn.status === "inProgress" && tail?.kind === "work") {
+  if (can(harness, "liveToolResults") && turn.status === "inProgress" && tail?.kind === "work") {
     const firstLive = tail.items.findIndex((item, index) =>
       item.type === "reasoning"
         ? index === tail.items.length - 1
@@ -180,8 +181,9 @@ export function workedLabel(turn: Turn): string {
   }
   if (ms == null) return "Worked";
   if (ms < 1000) return `Worked for ${Math.round(ms)}ms`;
-  if (ms < 60_000) return `Worked for ${Math.max(1, Math.round(ms / 1000))}s`;
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.round((ms % 60_000) / 1000);
-  return `Worked for ${minutes}m ${String(seconds).padStart(2, "0")}s`;
+  // Round once, then split, so 59.7s reads "1m 00s" rather than "60s".
+  const total = Math.max(1, Math.round(ms / 1000));
+  if (total < 60) return `Worked for ${total}s`;
+  const seconds = total % 60;
+  return `Worked for ${Math.floor(total / 60)}m ${String(seconds).padStart(2, "0")}s`;
 }

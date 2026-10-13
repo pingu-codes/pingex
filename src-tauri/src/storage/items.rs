@@ -58,6 +58,18 @@ pub(crate) async fn record_thread_item(
     .await
 }
 
+/// Whether anything is journaled for a thread, without loading (and parsing)
+/// every item the way [`read_thread_items`] would.
+pub(crate) async fn has_thread_items(database: &Database, thread_id: &str) -> Result<bool, String> {
+    let connection = db::conn(database)?;
+    db::exists(
+        &connection,
+        "SELECT 1 FROM thread_items WHERE thread_id = ? LIMIT 1",
+        (thread_id,),
+    )
+    .await
+}
+
 pub(crate) async fn read_thread_items(
     database: &Database,
     thread_id: &str,
@@ -256,6 +268,24 @@ mod tests {
 
     fn item(id: &str) -> Value {
         json!({"type": "commandExecution", "id": id, "command": "cargo test"})
+    }
+
+    #[tokio::test]
+    async fn knows_whether_a_thread_has_items() {
+        let database = database().await;
+        assert!(!has_thread_items(&database, "thread-1").await.unwrap());
+        record_thread_item(
+            &database,
+            "thread-1",
+            "turn-1",
+            "item_1",
+            &item("item_1"),
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(has_thread_items(&database, "thread-1").await.unwrap());
+        assert!(!has_thread_items(&database, "thread-2").await.unwrap());
     }
 
     #[tokio::test]

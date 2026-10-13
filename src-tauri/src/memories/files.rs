@@ -2,7 +2,6 @@
 //! frontmatter, guarding paths, writing atomically.
 
 use std::fs;
-use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -180,16 +179,8 @@ pub(super) fn guard(path: &Path, roots: &[PathBuf]) -> Result<(PathBuf, PathBuf)
 
 /// Replace a file's contents without leaving it half-written.
 pub(super) fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| format!("{} has no parent directory", path.display()))?;
-    let mut temp = tempfile::NamedTempFile::new_in(parent)
-        .map_err(|error| format!("Could not write {}: {error}", path.display()))?;
-    temp.write_all(contents.as_bytes())
-        .map_err(|error| format!("Could not write {}: {error}", path.display()))?;
-    temp.persist(path)
-        .map_err(|error| format!("Could not write {}: {error}", path.display()))?;
-    Ok(())
+    crate::util::fs::write_atomic(path, contents.as_bytes())
+        .map_err(|error| format!("Could not write {}: {error}", path.display()))
 }
 
 #[cfg(test)]

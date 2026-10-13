@@ -34,6 +34,7 @@ export type {
   Attachment,
   BinaryStatus,
   BootstrapData,
+  Capability,
   CategoryTokensDto as CategoryTokens,
   ChangedFile,
   ChangesSummary,

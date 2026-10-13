@@ -1,5 +1,5 @@
 import { eventMatchesHome } from "$lib/app/launch.svelte";
-import { events, type HarnessRequestEnvelope } from "$lib/bindings";
+import { events, type HarnessKind, type HarnessRequestEnvelope } from "$lib/bindings";
 import { saveThreadClaudeMode } from "$lib/composer/composerPrefs.svelte";
 import { applyRateLimitUpdate } from "$lib/services/accountUsage.svelte";
 import { applyAgentActivity, applyAgentRunEvent } from "$lib/services/agentRuns.svelte";
@@ -39,9 +39,9 @@ export interface Approval {
   changes?: FileUpdateChange[] | null;
   /** What Codex is asking to be allowed, on a `permissions` approval. */
   permissions?: RequestPermissionProfile | null;
-  /** Set on a request from another harness; the card then draws `options`
-   *  instead of the Codex decision buttons. */
-  harness?: "claude";
+  /** Set on a request from a non-Codex harness (the one that sent it); the
+   *  card then draws `options` instead of the Codex decision buttons. */
+  harness?: HarnessKind;
   options?: { optionId: string; name: string; kind: string }[];
   title?: string;
   description?: string | null;
@@ -410,7 +410,7 @@ function onServerRequest(payload: CodexServerRequestEvent) {
  * persisted the same way so an unanswered one survives a reload.
  */
 export function onHarnessRequest(payload: HarnessRequestEnvelope) {
-  const { requestId, threadId, turnId, itemId, request } = payload;
+  const { requestId, threadId, turnId, itemId, request, harness } = payload;
   if (request.type === "user_input") {
     const questions = (request.questions ?? []) as UserInputQuestion[];
     userInputRequests.list.push({ requestId, threadId, turnId, itemId, questions });
@@ -432,7 +432,7 @@ export function onHarnessRequest(payload: HarnessRequestEnvelope) {
   approvals.list.push({
     requestId,
     kind,
-    harness: "claude",
+    harness,
     threadId,
     turnId,
     itemId,
@@ -453,37 +453,56 @@ let started = false;
 export async function startCodexListeners(): Promise<void> {
   if (started || !isTauri()) return;
   started = true;
-  // Backend events are broadcast to every window and tagged with the home
-  // they belong to; drop what is meant for a window on another account.
-  //
-  // The generated payload leaves structured fields (`item`, `turn`, ...) as
-  // `unknown`; this is the one place they are asserted to be the hand-written
-  // shapes in `$lib/types` the reducers read.
-  await events.codexEvent.listen(({ payload }) => {
-    if (!eventMatchesHome(payload.codexHome)) return;
-    dispatch(scopeEvent(payload.codexHome, payload) as CodexEvent, payload.codexHome);
-  });
-  await events.codexServerRequest.listen(({ payload }) => {
-    if (!eventMatchesHome(payload.codexHome)) return;
-    onServerRequest(scopeEvent(payload.codexHome, payload) as CodexServerRequestEvent);
-  });
-  await events.harnessRequest.listen(({ payload }) => {
-    if (!eventMatchesHome(payload.codexHome)) return;
-    onHarnessRequest(scopeEvent(payload.codexHome, payload));
-  });
-  await events.codexAgentRun.listen(({ payload }) => {
-    if (!eventMatchesHome(payload.codexHome)) return;
-    applyAgentRunEvent(scopeEvent(payload.codexHome, payload));
-  });
-  await events.codexDisconnected.listen(({ payload }) => {
-    if (!eventMatchesHome(payload?.codexHome)) return;
-    approvals.list = approvals.list.filter((item) => !threadBelongsToHome(item.threadId, payload.codexHome));
-    userInputRequests.list = userInputRequests.list.filter(
-      (item) => !threadBelongsToHome(item.threadId, payload.codexHome),
+  // All or nothing: a listener that failed to attach leaves the window deaf,
+  // so undo the ones that did and let a later call try again.
+  const attached: (() => void)[] = [];
+  try {
+    // Backend events are broadcast to every window and tagged with the home
+    // they belong to; drop what is meant for a window on another account.
+    //
+    // The generated payload leaves structured fields (`item`, `turn`, ...) as
+    // `unknown`; this is the one place they are asserted to be the hand-written
+    // shapes in `$lib/types` the reducers read.
+    attached.push(
+      await events.codexEvent.listen(({ payload }) => {
+        if (!eventMatchesHome(payload.codexHome)) return;
+        dispatch(scopeEvent(payload.codexHome, payload) as CodexEvent, payload.codexHome);
+      }),
     );
-    elicitations.list = elicitations.list.filter((item) => !threadBelongsToHome(item.threadId, payload.codexHome));
-    dispatch({ method: "disconnected", params: null, homeKey: payload.codexHome });
-  });
+    attached.push(
+      await events.codexServerRequest.listen(({ payload }) => {
+        if (!eventMatchesHome(payload.codexHome)) return;
+        onServerRequest(scopeEvent(payload.codexHome, payload) as CodexServerRequestEvent);
+      }),
+    );
+    attached.push(
+      await events.harnessRequest.listen(({ payload }) => {
+        if (!eventMatchesHome(payload.codexHome)) return;
+        onHarnessRequest(scopeEvent(payload.codexHome, payload));
+      }),
+    );
+    attached.push(
+      await events.codexAgentRun.listen(({ payload }) => {
+        if (!eventMatchesHome(payload.codexHome)) return;
+        applyAgentRunEvent(scopeEvent(payload.codexHome, payload));
+      }),
+    );
+    attached.push(
+      await events.codexDisconnected.listen(({ payload }) => {
+        if (!eventMatchesHome(payload?.codexHome)) return;
+        approvals.list = approvals.list.filter((item) => !threadBelongsToHome(item.threadId, payload.codexHome));
+        userInputRequests.list = userInputRequests.list.filter(
+          (item) => !threadBelongsToHome(item.threadId, payload.codexHome),
+        );
+        elicitations.list = elicitations.list.filter((item) => !threadBelongsToHome(item.threadId, payload.codexHome));
+        dispatch({ method: "disconnected", params: null, homeKey: payload.codexHome });
+      }),
+    );
+  } catch (cause) {
+    for (const unlisten of attached) unlisten();
+    started = false;
+    throw cause;
+  }
 }
 
 /** Drives the same dispatch path from browser-preview fakes. */

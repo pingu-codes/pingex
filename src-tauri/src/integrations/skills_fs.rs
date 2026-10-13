@@ -114,7 +114,7 @@ pub(crate) fn read_skill_at(path: &str) -> Result<String, String> {
     fs::read_to_string(&file).map_err(|e| format!("Could not read {}: {e}", file.display()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn read_skill(
     path: String,

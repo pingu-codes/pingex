@@ -113,18 +113,18 @@ async fn parent_thread_cwd(
     app: &AppHandle,
     ctx: &HomeContext,
     thread_id: &str,
-) -> Result<std::path::PathBuf, String> {
+) -> Result<String, String> {
     // Remembered when the thread was started: the only source that is both
     // current and free of a request back to the app-server.
     if let Some(cwd) = ctx.agents.cwd_for(thread_id) {
-        return Ok(std::path::PathBuf::from(cwd));
+        return Ok(cwd);
     }
     let summaries = crate::storage::read_thread_summaries(&ctx.database()).await?;
     if let Some(summary) = summaries
         .into_iter()
         .find(|summary| summary.id == thread_id)
     {
-        return Ok(std::path::PathBuf::from(summary.cwd));
+        return Ok(summary.cwd);
     }
     // Last resort — a thread started by a previous run of the app and not yet
     // in the cache. Bounded, because this asks Codex about a thread whose turn
@@ -141,7 +141,7 @@ async fn parent_thread_cwd(
         .and_then(|thread| str_at(thread, "cwd"))
         .ok_or_else(|| "Could not resolve this thread's working directory.".to_string())?;
     ctx.agents.remember_cwd(thread_id, cwd);
-    Ok(std::path::PathBuf::from(cwd))
+    Ok(cwd.to_string())
 }
 
 async fn wait(ctx: &HomeContext, arguments: &Value) -> Result<Value, String> {

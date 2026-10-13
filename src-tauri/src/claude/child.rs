@@ -303,6 +303,12 @@ fn reader_loop(
         let _ = done.recv_timeout(std::time::Duration::from_millis(200));
     }
     let reason = child.exit_reason();
+    // Reap it: `exit_reason` only collects a child that has already exited,
+    // and one that merely closed stdout would otherwise linger as a zombie.
+    if let Ok(mut process) = child.child.lock() {
+        let _ = process.kill();
+        let _ = process.wait();
+    }
     child.fail_pending(&reason);
     sink.on_closed(&reason);
     child.closed.store(true, Ordering::SeqCst);

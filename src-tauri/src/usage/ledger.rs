@@ -38,10 +38,13 @@ pub(crate) struct ContextSnapshot {
 }
 
 pub(crate) enum LedgerEvent {
-    /// An `item/completed` payload (the `item` object).
+    /// What an `item/completed` contributes to the context, sketched by the
+    /// sender. Not the payload itself: that can be megabytes of command
+    /// output, cloned on the stream's reader thread into an unbounded queue
+    /// only to be reduced to a few counts here.
     Item {
         thread_id: String,
-        payload: Value,
+        sketch: Sketch,
     },
     /// A `thread/tokenUsage/updated`: its `tokenUsage` object, and whether the
     /// journal has a turn open on the thread.
@@ -147,10 +150,7 @@ impl LedgerCore {
 
     pub(crate) async fn apply(&mut self, database: &Database, host: &Host, event: LedgerEvent) {
         match event {
-            LedgerEvent::Item { thread_id, payload } => {
-                let Some(sketch) = sketch_item(&payload) else {
-                    return;
-                };
+            LedgerEvent::Item { thread_id, sketch } => {
                 let thread = self.thread(database, host, &thread_id).await;
                 thread.comp.absorb(&sketch, |path| skill_tokens(host, path));
             }
@@ -481,7 +481,7 @@ mod tests {
     fn item(payload: Value) -> LedgerEvent {
         LedgerEvent::Item {
             thread_id: "t1".into(),
-            payload,
+            sketch: sketch_item(&payload).expect("a sketchable item"),
         }
     }
 

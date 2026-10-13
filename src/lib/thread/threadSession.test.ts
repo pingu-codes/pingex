@@ -111,6 +111,49 @@ beforeEach(() => {
   mocks.getThreadGoal.mockResolvedValue(null);
 });
 
+describe("events during the initial load", () => {
+  function deferredRead() {
+    let resolve!: (value: ThreadDetail) => void;
+    mocks.readThread.mockReturnValueOnce(new Promise<ThreadDetail>((done) => (resolve = done)));
+    return (value: ThreadDetail) => resolve(value);
+  }
+
+  it("replays stream events that arrived while the transcript was being read", async () => {
+    mocks.activeTurns.list = ["thread-l"];
+    const resolve = deferredRead();
+    const session = openSession("thread-l");
+    await settle();
+    emit("item/agentMessage/delta", { threadId: "thread-l", turnId: "t1", itemId: "m1", delta: "Hi" });
+    // Already complete in the snapshot: appending would duplicate its tail.
+    emit("item/agentMessage/delta", { threadId: "thread-l", turnId: "t1", itemId: "m0", delta: "ne" });
+
+    resolve(
+      detail("thread-l", [
+        { id: "t1", status: "inProgress", items: [{ id: "m0", type: "agentMessage", text: "done" }] },
+      ] as ThreadDetail["turns"]),
+    );
+    await settle();
+
+    const items = session.thread?.turns[0].items ?? [];
+    expect(items.find((item) => item.id === "m0")?.text).toBe("done");
+    expect(items.find((item) => item.id === "m1")?.text).toBe("Hi");
+  });
+
+  it("keeps a turn that completed during the read as completed, not interrupted", async () => {
+    mocks.activeTurns.list = ["thread-c"];
+    const resolve = deferredRead();
+    const session = openSession("thread-c");
+    await settle();
+    emit("turn/completed", { threadId: "thread-c", turn: { id: "t1", status: "completed" } });
+    mocks.activeTurns.list = [];
+
+    resolve(detail("thread-c", [{ id: "t1", status: "inProgress", items: [] }] as ThreadDetail["turns"]));
+    await settle();
+
+    expect(session.thread?.turns[0].status).toBe("completed");
+  });
+});
+
 describe("sessions retention", () => {
   it("updates running speed without changing the thread default", async () => {
     const session = await leaveWorking("fast");

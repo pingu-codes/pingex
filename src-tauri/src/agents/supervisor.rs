@@ -92,9 +92,23 @@ impl AgentRun {
     }
 
     fn set_state(&self, next: AgentRunState) {
-        // `send` only fails when every receiver is gone, which is not a reason
-        // to stop tracking the run.
-        let _ = self.state.send(next);
+        // Not `send`: with every receiver gone (the case until something waits
+        // on the run) it refuses and keeps the old value, so a run that failed
+        // or was killed while starting stayed `Starting`, holding a
+        // concurrency slot for good. `send_replace` always stores it.
+        self.state.send_replace(next);
+    }
+
+    /// Move to `Running` unless the run already ended (killed by a home
+    /// switch while it was starting). Returns whether it moved.
+    fn start_running(&self) -> bool {
+        self.state.send_if_modified(|state| {
+            if state.is_terminal() {
+                return false;
+            }
+            *state = AgentRunState::Running;
+            true
+        })
     }
 }
 
@@ -148,23 +162,25 @@ impl AgentSupervisor {
         self.runs.lock().ok()?.get(run_id).cloned()
     }
 
-    fn insert(&self, run: Arc<AgentRun>) {
-        if let Ok(mut runs) = self.runs.lock() {
-            runs.insert(run.id.clone(), run);
-        }
-    }
-
-    /// How many runs are still going. Used to enforce the concurrency cap
-    /// without holding a permit across the whole (possibly very long) run.
-    fn running_count(&self) -> usize {
-        self.runs
+    /// Insert a new run if fewer than `max` are going. Count and insert happen
+    /// under one lock, so parallel `spawn_agent` calls cannot both slip under
+    /// the cap.
+    fn try_insert(&self, run: Arc<AgentRun>, max: usize) -> Result<(), String> {
+        let mut runs = self
+            .runs
             .lock()
-            .map(|runs| {
-                runs.values()
-                    .filter(|run| !run.state().is_terminal())
-                    .count()
-            })
-            .unwrap_or(0)
+            .map_err(|_| "Agent registry lock was poisoned".to_string())?;
+        let running = runs
+            .values()
+            .filter(|run| !run.state().is_terminal())
+            .count();
+        if running >= max {
+            return Err(format!(
+                "{running} agents are already running (the limit is {max}). Wait for one to finish first."
+            ));
+        }
+        runs.insert(run.id.clone(), run);
+        Ok(())
     }
 
     fn next_run_id(&self) -> String {
@@ -466,7 +482,8 @@ pub(crate) struct SpawnContext<'a> {
     /// only link between the row the GUI shows and this run.
     pub(crate) call_id: Option<&'a str>,
     /// Bounds where the agent may work: a spawn cannot escape it.
-    pub(crate) parent_cwd: &'a std::path::Path,
+    /// A host path.
+    pub(crate) parent_cwd: &'a str,
 }
 
 /// Start an agent: its own process, its own thread, one turn.
@@ -486,15 +503,8 @@ pub(crate) async fn spawn_agent(
         call_id,
         parent_cwd,
     } = parent;
-    if ctx.agents.running_count() >= settings.max_concurrent {
-        return Err(format!(
-            "{} agents are already running (the limit is {}). Wait for one to finish first.",
-            ctx.agents.running_count(),
-            settings.max_concurrent
-        ));
-    }
     let runtime = ctx.runtime();
-    let cwd = tools::resolve_cwd(parent_cwd, args.cwd.as_deref())?;
+    let cwd = tools::resolve_cwd(&runtime.host, parent_cwd, args.cwd.as_deref())?;
     let sandbox = tools::clamp_sandbox(args.sandbox.as_deref(), &settings.sandbox);
     let prompt = tools::attach_files(&args.prompt, &cwd, &args.files, &runtime.host);
 
@@ -518,7 +528,8 @@ pub(crate) async fn spawn_agent(
         last_message: Mutex::new(String::new()),
         state: sender,
     });
-    ctx.agents.insert(run.clone());
+    ctx.agents
+        .try_insert(run.clone(), settings.max_concurrent)?;
 
     storage::record_agent_run(
         &ctx.database(),
@@ -530,7 +541,7 @@ pub(crate) async fn spawn_agent(
             child_thread_id: None,
             name: args.name.clone(),
             prompt: prompt.clone(),
-            cwd: runtime.host.path_string(&cwd),
+            cwd: cwd.clone(),
             model: args.model.clone(),
             reasoning_effort: args.effort.clone(),
             status: storage::STATUS_RUNNING.to_string(),
@@ -577,10 +588,7 @@ pub(crate) async fn spawn_agent(
     // No `dynamicTools` for the child: an agent that could spawn agents is a
     // fork bomb one prompt away.
     let started = child
-        .send(requests::agent_thread_start(
-            &cwd.display().to_string(),
-            AGENT_PREAMBLE,
-        ))
+        .send(requests::agent_thread_start(&cwd, AGENT_PREAMBLE))
         .await;
     let child_thread_id = match started {
         Ok(response) => response
@@ -660,7 +668,12 @@ pub(crate) async fn spawn_agent(
         }
     }
 
-    run.set_state(AgentRunState::Running);
+    if !run.start_running() {
+        // Killed while starting: its child was spawned after `kill_all` ran,
+        // so nothing else will stop it.
+        child.kill();
+        return Err("The agent was stopped before it started.".to_string());
+    }
     persist(app, &ctx.home_key, &run, &AgentRunState::Running);
     spawn_deadline(
         app.clone(),
@@ -852,6 +865,34 @@ mod tests {
             last_message: Mutex::new(String::new()),
             state: sender,
         }
+    }
+
+    /// `spawn_agent` drops the channel's first receiver straight away, and
+    /// nothing subscribes until the run is going: a failure while starting
+    /// must still be recorded, or the run holds a concurrency slot forever.
+    #[test]
+    fn state_changes_land_with_no_one_subscribed() {
+        let run = run();
+        run.set_state(AgentRunState::Failed("boom".into()));
+        assert!(run.state().is_terminal());
+    }
+
+    #[test]
+    fn a_run_killed_while_starting_is_not_revived() {
+        let run = run();
+        run.set_state(AgentRunState::Killed);
+        assert!(!run.start_running());
+        assert!(run.state().is_terminal());
+    }
+
+    #[test]
+    fn the_cap_is_checked_and_taken_together() {
+        let supervisor = AgentSupervisor::default();
+        supervisor.try_insert(Arc::new(run()), 1).unwrap();
+        let mut second = run();
+        second.id = "agt_2".into();
+        let error = supervisor.try_insert(Arc::new(second), 1).unwrap_err();
+        assert!(error.contains("limit is 1"), "{error}");
     }
 
     fn completed(item: Value) -> Value {

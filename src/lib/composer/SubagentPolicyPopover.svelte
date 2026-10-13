@@ -1,7 +1,7 @@
 <script lang="ts">
-import { positionComposerPopover } from "$lib/composer/positionComposerPopover";
 import { Bot, ChevronDown } from "@lucide/svelte";
 import { policyAllows, policyIsEmpty } from "$lib/composer/composerPrefs.svelte";
+import { positionComposerPopover } from "$lib/composer/positionComposerPopover";
 import type { Model, SubagentPolicy } from "$lib/types";
 
 let {

@@ -185,15 +185,19 @@ async fn spawn_session(
     app: AppHandle,
     wire: Arc<WireLog>,
 ) -> Result<MainSession, String> {
-    crate::codex::child::kill_orphaned_app_servers(std::slice::from_ref(&runtime.host));
     // Resolve to an absolute path: a Finder-launched bundle has a bare PATH, so
     // spawning bare `codex` would fail even though the CLI is installed; a
-    // `wsl.exe` launch has no login PATH at all.
-    let binary = runtime.codex_binary_str();
-    let program = runtime
-        .host
-        .resolve_binary(&binary)
-        .ok_or_else(|| crate::codex::binary::missing_message_on(&runtime.host, &binary))?;
+    // `wsl.exe` launch has no login PATH at all. Both this and the orphan
+    // sweep run `ps`/login shells (through `wsl.exe` on WSL), so they go to
+    // a blocking thread rather than stall an async worker.
+    let (host, binary) = (runtime.host.clone(), runtime.codex_binary_str());
+    let program = tauri::async_runtime::spawn_blocking(move || {
+        crate::codex::child::kill_orphaned_app_servers(std::slice::from_ref(&host));
+        host.resolve_binary(&binary)
+            .ok_or_else(|| crate::codex::binary::missing_message_on(&host, &binary))
+    })
+    .await
+    .map_err(|error| format!("Could not start Codex: {error}"))??;
     let sink = Arc::new(MainSessionSink::new(app.clone(), home_key));
     let child = spawn_child(
         &runtime.host,
@@ -206,6 +210,32 @@ async fn spawn_session(
     )
     .await?;
     Ok(MainSession { child, sink })
+}
+
+/// Send on the live session, and return the response together with the
+/// session that answered it. One retry: if writing fails the request never
+/// reached Codex, so it is safe to respawn and resend. Failures after a
+/// successful write are surfaced as-is because the request may already be
+/// executing. Callers keep per-session state (what is resumed) on the
+/// returned session, never on whichever is live by the time they look.
+async fn served_by<S, SessionFut, SendFut>(
+    mut session: impl FnMut() -> SessionFut,
+    send: impl Fn(S) -> SendFut,
+) -> Result<(Value, S), String>
+where
+    S: Clone,
+    SessionFut: std::future::Future<Output = Result<S, String>>,
+    SendFut: std::future::Future<Output = Result<Value, RequestError>>,
+{
+    for attempt in 0..2 {
+        let current = session().await?;
+        match send(current.clone()).await {
+            Ok(response) => return Ok((response, current)),
+            Err(RequestError::NotSent(_)) if attempt == 0 => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+    unreachable!()
 }
 
 impl CodexSession {
@@ -293,21 +323,27 @@ impl CodexSession {
         method: &str,
         params: Value,
     ) -> Result<Value, String> {
-        // One retry: if writing fails the request never reached Codex, so it
-        // is safe to respawn and resend. Failures after a successful write are
-        // surfaced as-is because the request may already be executing.
-        for attempt in 0..2 {
-            let (child, _) = self.session(app).await?;
-            match child.try_request(method, params.clone()).await {
-                Ok(response) => return Ok(response),
-                Err(RequestError::NotSent(error)) if attempt == 0 => {
-                    let _ = error;
-                    continue;
-                }
-                Err(error) => return Err(error.into()),
-            }
-        }
-        unreachable!()
+        Ok(self.request_served(app, method, params).await?.0)
+    }
+
+    /// [`Self::request`], also naming the session that answered: a respawn
+    /// can happen mid-call, and per-session state (what is resumed) belongs
+    /// to the child that actually handled the request.
+    async fn request_served(
+        &self,
+        app: &AppHandle,
+        method: &str,
+        params: Value,
+    ) -> Result<(Value, Arc<MainSessionSink>), String> {
+        let (response, (_, sink)) = served_by(
+            || self.session(app),
+            |(child, _): (Arc<CodexChild>, Arc<MainSessionSink>)| {
+                let params = params.clone();
+                async move { child.try_request(method, params).await }
+            },
+        )
+        .await?;
+        Ok((response, sink))
     }
 
     /// Answer a server-initiated request (e.g. an approval) by id.
@@ -337,10 +373,13 @@ impl CodexSession {
                 return Ok(response.clone());
             }
         }
-        let response = self
-            .send(app, crate::codex::requests::thread_resume(thread_id))
+        let request = crate::codex::requests::thread_resume(thread_id);
+        // Recorded on the session that served the resume, not whichever one
+        // `session()` returns afterwards: a child respawned in between never
+        // loaded this thread, and marking it resumed would fail the next turn.
+        let (response, sink) = self
+            .request_served(app, request.method, request.params)
             .await?;
-        let (_, sink) = self.session(app).await?;
         sink.resumed
             .lock()
             .map_err(|_| "Codex resumed lock was poisoned".to_string())?
@@ -466,5 +505,53 @@ impl CodexSession {
             .await?;
         self.mark_resumed(app, thread_id, &response).await?;
         Ok(response)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// Sessions are numbered; each call to `session()` is a (re)spawn.
+    fn sessions() -> (
+        Arc<AtomicUsize>,
+        impl FnMut() -> std::future::Ready<Result<usize, String>>,
+    ) {
+        let spawned = Arc::new(AtomicUsize::new(0));
+        let counter = spawned.clone();
+        (spawned, move || {
+            std::future::ready(Ok(counter.fetch_add(1, Ordering::SeqCst) + 1))
+        })
+    }
+
+    #[tokio::test]
+    async fn the_response_comes_with_the_session_that_answered() {
+        let (spawned, session) = sessions();
+        // Session 1 dies before the write; the respawned session 2 answers.
+        let (response, served) = served_by(session, |current: usize| async move {
+            if current == 1 {
+                Err(RequestError::NotSent("pipe closed".into()))
+            } else {
+                Ok(json!({"served": current}))
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(served, 2);
+        assert_eq!(response["served"], 2);
+        assert_eq!(spawned.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn a_request_that_may_have_run_is_not_resent() {
+        let (spawned, session) = sessions();
+        let error = served_by(session, |_: usize| async {
+            Err::<Value, _>(RequestError::Failed("lost after write".into()))
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(error, "lost after write");
+        assert_eq!(spawned.load(Ordering::SeqCst), 1);
     }
 }

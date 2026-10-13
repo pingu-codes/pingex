@@ -67,6 +67,16 @@ impl Translator {
 
     /// Translate one stdout frame. Control requests never come here; the
     /// driver answers those itself.
+    /// Translate one frame and name the turn its events belong to: the turn
+    /// as it stood *before* the frame. A `result` ends the turn inside
+    /// [`Self::frame`] (taking `turn_id`), yet its cancelled tool calls and
+    /// `TurnEnded` are still that turn's; reading the id afterwards filed them
+    /// under turn `""`.
+    pub(crate) fn frame_in_turn(&mut self, frame: &Value) -> (Option<String>, Vec<HarnessEvent>) {
+        let turn_id = self.turn_id.clone();
+        (turn_id, self.frame(frame))
+    }
+
     pub(crate) fn frame(&mut self, frame: &Value) -> Vec<HarnessEvent> {
         match str_at(frame, "type") {
             Some("stream_event") => self.stream_event(frame.get("event").unwrap_or(&Value::Null)),
@@ -571,6 +581,39 @@ mod tests {
                 other => format!("{other:?}"),
             })
             .collect()
+    }
+
+    #[test]
+    fn a_turn_closing_frame_keeps_its_events_in_that_turn() {
+        let mut translator = Translator::new("/repo".into(), "/cfg".into(), Host::Native);
+        let mut projector = crate::harness::project::Projector::default();
+        translator.turn_id = Some("turn-1".into());
+        let (_, started) = translator.frame_in_turn(&json!({"type":"assistant","message":{"id":"m","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"sleep 9"}}]}}));
+        for event in &started {
+            projector.project("thread-1", "turn-1", event);
+        }
+
+        let (turn, events) = translator.frame_in_turn(
+            &json!({"type":"result","subtype":"success","terminal_reason":"aborted_tools","is_error":false}),
+        );
+        assert_eq!(turn.as_deref(), Some("turn-1"));
+        assert!(translator.turn_id.is_none(), "the result ends the turn");
+        assert_eq!(
+            kinds(&events),
+            vec!["update:Some(Cancelled)", "end:Cancelled"]
+        );
+
+        // Projected under that turn, the cancelled call closes its own card.
+        let turn = turn.unwrap();
+        let projected: Vec<_> = events
+            .iter()
+            .flat_map(|event| projector.project("thread-1", &turn, event))
+            .collect();
+        let completed = projected
+            .iter()
+            .find(|(method, _)| *method == "item/completed")
+            .expect("the cancelled call is completed");
+        assert_eq!(completed.1["turnId"], "turn-1");
     }
 
     #[test]

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { mergeTextParts, messageText, messageTitle, userMessageMarkdown } from "$lib/thread/messageText";
 import type { UserInputPart } from "$lib/types";

@@ -52,7 +52,7 @@ fn text_input(text: &str) -> Vec<Value> {
 
 #[test]
 fn model_list_offers_the_configured_model() {
-    let server = live!();
+    live!(server);
     let response = server.call(requests::model_list(100, true));
     let ids = collect_model_ids(&response);
     assert!(
@@ -67,7 +67,7 @@ fn model_list_offers_the_configured_model() {
 
 #[test]
 fn skills_list_reports_our_skill_with_a_path() {
-    let server = live!();
+    live!(server);
     let response = server.call(requests::skills_list(&[server.cwd.display().to_string()]));
     let skills = parse_skills(&response);
     let skill = skills
@@ -85,7 +85,7 @@ fn skills_list_reports_our_skill_with_a_path() {
 
 #[test]
 fn skill_config_write_toggles_enabled() {
-    let server = live!();
+    live!(server);
     let cwds = [server.cwd.display().to_string()];
     let enabled_of = |server: &Server| {
         parse_skills(&server.call(requests::skills_list(&cwds)))
@@ -101,7 +101,7 @@ fn skill_config_write_toggles_enabled() {
 
 #[test]
 fn mcp_server_status_lists_the_echo_server_and_its_tool() {
-    let server = live!();
+    live!(server);
     let response = server.call(requests::mcp_server_status_list());
     let servers = response["data"].as_array().expect("data array");
     let echo = servers
@@ -130,7 +130,7 @@ fn mcp_server_status_lists_the_echo_server_and_its_tool() {
 
 #[test]
 fn a_plain_text_turn_round_trips_and_is_readable() {
-    let server = live!();
+    live!(server);
     let thread_id = server.start_thread();
     let outcome = server.run_turn(requests::turn_start(
         &thread_id,
@@ -174,7 +174,7 @@ fn a_plain_text_turn_round_trips_and_is_readable() {
 /// The bug this suite was written for, in both directions.
 #[test]
 fn every_composer_input_fixture_is_accepted_and_understood() {
-    let server = live!();
+    live!(server);
     let skill_path = server.skill_path();
     let cwd = server.cwd.display().to_string();
     let image = server.image_path.display().to_string();
@@ -220,7 +220,7 @@ fn every_composer_input_fixture_is_accepted_and_understood() {
 /// rejected — otherwise this suite could not have caught it.
 #[test]
 fn a_skill_item_without_a_path_is_rejected_by_the_server() {
-    let server = live!();
+    live!(server);
     let thread_id = server.start_thread();
     let error = server
         .request(requests::turn_start(
@@ -237,7 +237,7 @@ fn a_skill_item_without_a_path_is_rejected_by_the_server() {
 
 #[test]
 fn every_permission_preset_and_option_the_composer_can_send_is_accepted() {
-    let server = live!();
+    live!(server);
     let thread_id = server.start_thread();
     let model = server.model.clone();
     let cases: Vec<(&str, TurnOptions)> = vec![
@@ -319,7 +319,7 @@ fn every_permission_preset_and_option_the_composer_can_send_is_accepted() {
 
 #[test]
 fn a_workspace_turn_with_additional_context_is_accepted() {
-    let server = live!();
+    live!(server);
     let thread_id = server.start_thread();
     let cwd = server.cwd.display().to_string();
     let mut request = requests::turn_start(
@@ -339,7 +339,7 @@ fn a_workspace_turn_with_additional_context_is_accepted() {
 
 #[test]
 fn a_thread_started_with_dynamic_agent_tools_is_accepted() {
-    let server = live!();
+    live!(server);
     let models = collect_model_ids(&server.call(requests::model_list(100, false)));
     let response = server.call(requests::thread_start(
         &server.cwd.display().to_string(),
@@ -358,7 +358,7 @@ fn a_thread_started_with_dynamic_agent_tools_is_accepted() {
 
 #[test]
 fn resume_then_follow_up_keeps_context() {
-    let server = live!();
+    live!(server);
     let thread_id = server.start_thread();
     let first = server.run_turn(requests::turn_start(
         &thread_id,
@@ -380,7 +380,7 @@ fn resume_then_follow_up_keeps_context() {
 /// suite answers with the payload `ElicitationCard` sends.
 #[test]
 fn an_mcp_tool_call_runs_through_our_server() {
-    let server = live!();
+    live!(server);
     let thread_id = server.start_thread();
     let from = server.cursor();
     let response = server.call(requests::turn_start(
@@ -432,7 +432,7 @@ fn an_mcp_tool_call_runs_through_our_server() {
 
 #[test]
 fn interrupt_stops_a_running_turn() {
-    let server = live!();
+    live!(server);
     let thread_id = server.start_thread();
     let from = server.cursor();
     let response = server.call(requests::turn_start(
@@ -462,7 +462,7 @@ fn interrupt_stops_a_running_turn() {
 
 #[test]
 fn approval_requests_are_answered_with_our_decision_payloads() {
-    let server = live!();
+    live!(server);
     let thread_id = server.start_thread();
     let escalate = |marker: &str| {
         Some(TurnOptions {
@@ -541,7 +541,7 @@ fn approval_requests_are_answered_with_our_decision_payloads() {
 
 #[test]
 fn autoname_thread_and_turn_produce_a_title() {
-    let server = live!();
+    live!(server);
     let started = server.call(requests::namer_thread_start(NAMER_INSTRUCTIONS));
     let namer_id = harness::thread_id_of(&started);
     let outcome = server.run_turn(requests::naming_turn(
@@ -559,7 +559,7 @@ fn autoname_thread_and_turn_produce_a_title() {
 
 #[test]
 fn subagent_thread_turn_and_follow_up_are_accepted() {
-    let server = live!();
+    live!(server);
     let started = server.call(requests::agent_thread_start(
         &server.cwd.display().to_string(),
         AGENT_PREAMBLE,
@@ -592,7 +592,7 @@ fn subagent_thread_turn_and_follow_up_are_accepted() {
 
 #[test]
 fn initialize_reports_a_parseable_cli_version() {
-    let server = live!();
+    live!(server);
     // `<clientInfo.name>/<cli version> (<os>) …` — the originator we sent
     // leads, so the version is what identifies the CLI.
     assert!(
@@ -615,7 +615,7 @@ fn initialize_reports_a_parseable_cli_version() {
 /// this queues behind a live turn, exactly as the app's composer does.
 #[test]
 fn server_side_queue_add_list_update_delete() {
-    let server = live!();
+    live!(server);
     let thread_id = server.start_thread();
     let input = json!([{"type": "text", "text": "queued: reply with exactly QUEUED-OK"}]);
 
@@ -684,7 +684,7 @@ fn server_side_queue_add_list_update_delete() {
 /// journal copy and message versions key on them) and drop the rest.
 #[test]
 fn thread_fork_before_a_turn_keeps_the_prefix_under_its_ids() {
-    let server = live!();
+    live!(server);
     let thread_id = server.start_thread();
     let first = server.run_turn(requests::turn_start(
         &thread_id,
@@ -738,7 +738,7 @@ fn thread_fork_before_a_turn_keeps_the_prefix_under_its_ids() {
 /// paginated since 0.152, so it must succeed on every supported tier.
 #[test]
 fn thread_revert_or_its_classified_absence() {
-    let server = live!();
+    live!(server);
     let thread_id = server.start_thread();
     let first = server.run_turn(requests::turn_start(
         &thread_id,
@@ -777,7 +777,7 @@ fn thread_revert_or_its_classified_absence() {
 /// a server project and reads `projectId` back off `thread/list`.
 #[test]
 fn projects_import_assign_rename_delete() {
-    let server = live!();
+    live!(server);
     let (thread_id, _) = server.persisted_thread();
     match server.request(requests::project_list(None, None)) {
         Ok(_) => {}
@@ -859,7 +859,7 @@ fn projects_import_assign_rename_delete() {
 /// `threadSection/*` (stable in 0.149): the sidebar's section groups.
 #[test]
 fn thread_sections_create_move_update_delete() {
-    let server = live!();
+    live!(server);
     let (thread_id, _) = server.persisted_thread();
     match server.request(requests::thread_section_list(None)) {
         Ok(_) => {}
@@ -924,7 +924,7 @@ fn thread_sections_create_move_update_delete() {
 
 #[test]
 fn thread_lifecycle_archive_unarchive_compact_revert_delete() {
-    let server = live!();
+    live!(server);
     let thread_id = server.start_thread();
     let outcome = server.run_turn(requests::turn_start(
         &thread_id,
@@ -993,7 +993,7 @@ fn thread_lifecycle_archive_unarchive_compact_revert_delete() {
 /// composer falls back to "applies from the next turn".
 #[test]
 fn turn_settings_update_or_its_classified_absence() {
-    let server = live!();
+    live!(server);
     let thread_id = server.start_thread();
     let from = server.cursor();
     let response = server.call(requests::turn_start(

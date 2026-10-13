@@ -228,7 +228,7 @@ pub(crate) async fn read_home_overview(
 
 /// Read the whitelisted `config.toml` settings for the active home, with their
 /// source (default vs config) and restart semantics.
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn read_config_settings(
     window: crate::HomeWindow,
@@ -240,7 +240,7 @@ pub(crate) fn read_config_settings(
 /// Set or unset a single whitelisted `config.toml` key, preserving the rest of
 /// the file. Passing `unset: true` removes the key so Codex inherits its
 /// default; otherwise `value` is written. Returns the refreshed settings list.
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn write_config_setting(
     key: String,
@@ -291,15 +291,16 @@ pub(crate) async fn update_runtime_settings(
                 .replace("Codex CLI", "Claude Code CLI"));
         }
     }
-    let mut overrides = prefs::read_overrides(&prefs::settings_path());
-    let saved = overrides.clone();
-    overrides.codex_home = normalize_override(codex_home);
-    overrides.codex_binary = codex_binary;
-    overrides.codex_host = codex_host;
-    overrides.claude_binary = claude_binary;
-    overrides.claude_config_dir = normalize_override(claude_config_dir);
-    overrides.claude_host = claude_host;
-    prefs::write_overrides(&prefs::settings_path(), &overrides)?;
+    let (saved, overrides) = prefs::update_overrides(&prefs::settings_path(), |overrides| {
+        let saved = overrides.clone();
+        overrides.codex_home = normalize_override(codex_home);
+        overrides.codex_binary = codex_binary;
+        overrides.codex_host = codex_host;
+        overrides.claude_binary = claude_binary;
+        overrides.claude_config_dir = normalize_override(claude_config_dir);
+        overrides.claude_host = claude_host;
+        Ok((saved, overrides.clone()))
+    })?;
     // Update this Profile's legacy default. Processes already running retain
     // their runtime.
     let previous = crate::claude::driver::ClaudeRuntime::resolve(&saved);
@@ -396,7 +397,7 @@ pub(crate) fn write_agent_settings(
 
 /// Probe a candidate Codex CLI without saving it, so the picker and the
 /// settings form can show "found at …" as the user types.
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn check_codex_binary(
     path: Option<String>,
@@ -411,7 +412,7 @@ pub(crate) fn check_codex_binary(
 
 /// The WSL distributions installed on this machine, for the host pickers.
 /// Empty off Windows.
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn list_wsl_distros() -> Vec<String> {
     host::list_distros()
@@ -435,9 +436,10 @@ pub(crate) async fn set_codex_binary(
         .unwrap_or_else(|| "codex".to_string());
     let context = state.ctx(&window);
     require_codex_on(&context.host(), &candidate)?;
-    let mut overrides = prefs::read_overrides(&prefs::settings_path());
-    overrides.codex_binary = override_binary;
-    prefs::write_overrides(&prefs::settings_path(), &overrides)?;
+    prefs::update_overrides(&prefs::settings_path(), |overrides| {
+        overrides.codex_binary = override_binary;
+        Ok(())
+    })?;
 
     context.set_binary(PathBuf::from(&candidate));
     context.session.reset().await;

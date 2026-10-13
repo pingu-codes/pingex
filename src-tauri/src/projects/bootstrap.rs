@@ -123,7 +123,7 @@ pub(crate) async fn bootstrap_inner(
     for thread in &mut all_threads {
         thread.hidden = hidden_threads.contains(thread.id.as_str());
     }
-    all_threads.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    all_threads.sort_by_key(|thread| std::cmp::Reverse(thread.updated_at));
     let stored_summaries: Vec<_> = all_threads.iter().map(StoredThreadSummary::from).collect();
     storage::replace_thread_summaries(&ctx.database(), &stored_summaries).await?;
     // Keep the local search index in step with the active thread listing.

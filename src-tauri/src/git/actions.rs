@@ -41,8 +41,12 @@ fn validate_paths(paths: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// `git [--literal-pathspecs] <head> -- <paths>`. Paths come from the file
+/// list, so they are names, never patterns: without the flag `src/[id]/x`
+/// would also match `src/i/x` and `src/d/x`, and discard would wipe them.
 fn with_paths<'a>(head: &[&'a str], paths: &'a [String]) -> Vec<&'a str> {
-    let mut args: Vec<&str> = head.to_vec();
+    let mut args: Vec<&str> = vec!["--literal-pathspecs"];
+    args.extend_from_slice(head);
     args.push("--");
     args.extend(paths.iter().map(String::as_str));
     args

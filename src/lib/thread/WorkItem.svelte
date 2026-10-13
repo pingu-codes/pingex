@@ -17,6 +17,7 @@ import {
   Wrench,
 } from "@lucide/svelte";
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
+import { openSubagent } from "$lib/app/actions.svelte";
 import { trackSubagent } from "$lib/app/appData.svelte";
 // Agent threads are hidden from the sidebar on purpose, and `openThreadById`
 // silently does nothing for a thread it cannot find there.
@@ -30,7 +31,6 @@ import { openSettings } from "$lib/services/settingsNav.svelte";
 import QuestionCard from "$lib/thread/QuestionCard.svelte";
 import ThreadImage from "$lib/thread/ThreadImage.svelte";
 import { functionCallOutputText, reasoningContent } from "$lib/thread/turnSegments";
-import { openSubagent } from "$lib/app/actions.svelte";
 import type { AgentRun, SubagentDetail, ThreadItem } from "$lib/types";
 import { copyCode, copyPlainOrMarkdown } from "$lib/utils/copy";
 import { renderMarkdown } from "$lib/utils/markdown";

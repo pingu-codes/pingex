@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import { chooseTurnSettings } from "./turnSettings";
 
 async function loadPreview(page: Page) {
   await page.goto("/");
@@ -32,7 +33,9 @@ test("thread disclosures align and contain long commands and output", async ({ p
 
   const command = root.locator("button").filter({ hasText: 'rg -n "export function"' });
   // Stress the real rendered command card with long text without executing it.
-  await command.locator("code").evaluate((code) => { code.textContent += " very-long-command-argument".repeat(80); });
+  await command.locator("code").evaluate((code) => {
+    code.textContent += " very-long-command-argument".repeat(80);
+  });
   async function expectContained() {
     const overflow = await root.evaluate((element) => {
       const bounds = element.getBoundingClientRect();
@@ -41,17 +44,23 @@ test("thread disclosures align and contain long commands and output", async ({ p
         .filter((child) => {
           const rect = child.getBoundingClientRect();
           return rect.left < bounds.left - 1 || rect.right > bounds.right + 1;
-        }).map((child) => child.tagName);
+        })
+        .map((child) => child.tagName);
     });
     expect(overflow).toEqual([]);
   }
   await expectContained();
   await command.click();
-  const output = command.locator("..").locator("pre");
+  // The trigger shares a header row with "Copy command"; the output is the last
+  // <pre> in the card's content, after the wrapped full command.
+  const output = command.locator("xpath=../..").locator("pre").last();
   await expect(output).toBeVisible();
-  await output.evaluate((pre) => { pre.textContent = "long-output".repeat(200); });
+  await output.evaluate((pre) => {
+    pre.textContent = "long-output".repeat(200);
+  });
   await expectContained();
-  expect(await output.evaluate((pre) => pre.scrollWidth > pre.clientWidth)).toBe(true);
+  // Long output wraps inside the card instead of scrolling sideways.
+  expect(await output.evaluate((pre) => pre.scrollWidth <= pre.clientWidth)).toBe(true);
   await page.setViewportSize({ width: 820, height: 560 });
   await expectContained();
   await command.click();
@@ -78,6 +87,10 @@ test("explores completed reasoning, command output, attachments, and diffs", asy
 });
 
 test("truncates a long project thread list until expanded", async ({ page }) => {
+  // The fixture's batch threads are over a day old, so the default "hide old
+  // threads" preference would fold them all; turn it off to exercise the cap.
+  await page.evaluate(() => localStorage.setItem("pingex-hide-old-threads", "false"));
+  await loadPreview(page);
   await expect(page.getByRole("button", { name: /Ice core batch 14/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /Ice core batch 15/ })).toHaveCount(0);
 
@@ -90,11 +103,14 @@ test("truncates a long project thread list until expanded", async ({ page }) => 
 
 test("creates a thread and renders optimistic and streamed content", async ({ page }) => {
   await page.getByRole("button", { name: "New thread", exact: true }).click();
+  await chooseTurnSettings(page);
   const composer = page.getByRole("textbox", { name: /Message Codex/ });
   await composer.fill("Stream a preview response");
   await composer.press("Enter");
 
-  await expect(page.getByText("Stream a preview response", { exact: true })).toBeVisible();
+  // The new thread is titled with the message too (sidebar, header); the
+  // transcript's copy is the last.
+  await expect(page.getByText("Stream a preview response", { exact: true }).last()).toBeVisible();
   await expect(page.getByText("Working…")).toBeVisible();
   await expect(page.getByText("Considering the request", { exact: false })).toBeVisible();
   await expect(page.getByText("Here is a preview response streamed", { exact: false })).toBeVisible();
@@ -103,8 +119,11 @@ test("creates a thread and renders optimistic and streamed content", async ({ pa
 
 test("answers an approval and lets the turn continue", async ({ page }) => {
   await page.getByRole("button", { name: "New thread", exact: true }).click();
+  await chooseTurnSettings(page);
   const composer = page.getByRole("textbox", { name: /Message Codex/ });
-  await composer.fill("Please approve this command");
+  // Avoid the simulator's "command"/"sleep" keywords, which add a slow 8s
+  // streamed command before the reply.
+  await composer.fill("Please approve this step");
   await composer.press("Enter");
 
   await expect(page.getByText("Codex wants to run a command")).toBeVisible();
@@ -116,12 +135,17 @@ test("answers an approval and lets the turn continue", async ({ page }) => {
 test("interrupts an active turn and suppresses later stream chunks", async ({ page }) => {
   await page.clock.install();
   await page.getByRole("button", { name: "New thread", exact: true }).click();
+  await chooseTurnSettings(page);
   const composer = page.getByRole("textbox", { name: /Message Codex/ });
   await composer.fill("Start a turn that will be interrupted");
   await composer.press("Enter");
 
-  await expect(page.getByRole("button", { name: "Interrupt" })).toBeVisible();
-  await page.getByRole("button", { name: "Interrupt" }).click();
+  // With the overview open (its default): it must not cover the composer.
+  // Match the stop button exactly so the sidebar row titled "…interrupted"
+  // does not.
+  await expect(page.getByRole("menu", { name: "Thread overview panel" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
   await expect(page.getByRole("button", { name: "Send message" })).toBeVisible();
   await page.clock.fastForward(10_000);
   await expect(page.getByText("Here is a preview response streamed", { exact: false })).not.toBeVisible();
@@ -129,6 +153,7 @@ test("interrupts an active turn and suppresses later stream chunks", async ({ pa
 
 test("renders selected @ files as inline composer chips", async ({ page }) => {
   await page.getByRole("button", { name: "New thread", exact: true }).click();
+  await chooseTurnSettings(page);
   const composer = page.getByRole("textbox", { name: /Message Codex/ });
 
   await composer.fill("Add comments to @util");
@@ -138,7 +163,7 @@ test("renders selected @ files as inline composer chips", async ({ page }) => {
 
   await composer.type(" please");
   await composer.press("Enter");
-  await expect(page.getByText("Add comments to", { exact: false })).toBeVisible();
+  await expect(page.getByText("Add comments to", { exact: false }).last()).toBeVisible();
   // How the mention is echoed in the transcript is covered by
   // composer-rich-input.spec.ts, which owns that behaviour.
 });

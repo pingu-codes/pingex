@@ -16,8 +16,13 @@ const homes = $derived(availableHomes());
 let error = $state<string | null>(null);
 
 async function chooseHome(id: string, next: HarnessChoice) {
-  try { await chooseDefaultHome(id); onChoose(next); error = null; }
-  catch (cause) { error = cause instanceof Error ? cause.message : String(cause); }
+  try {
+    await chooseDefaultHome(id);
+    onChoose(next);
+    error = null;
+  } catch (cause) {
+    error = cause instanceof Error ? cause.message : String(cause);
+  }
 }
 </script>
 

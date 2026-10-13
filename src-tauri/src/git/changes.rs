@@ -271,6 +271,8 @@ pub(crate) fn read_file_diff(
         &dir_str,
         "-c",
         "core.quotepath=off",
+        // The path is a file name, not a glob (`[id]` would match `i`, `d`).
+        "--literal-pathspecs",
         "diff",
         "--no-color",
         "--no-ext-diff",

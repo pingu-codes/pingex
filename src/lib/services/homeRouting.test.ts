@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type BootstrapData, type HomeSnapshot, type Host, commands as native } from "$lib/bindings";
 import {

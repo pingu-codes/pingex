@@ -1,5 +1,12 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { functionCallOutputText, rendersSomething, splitTurn, turnSegments } from "$lib/thread/turnSegments";
+import {
+  functionCallOutputText,
+  rendersSomething,
+  splitTurn,
+  turnSegments,
+  workedLabel,
+} from "$lib/thread/turnSegments";
 import type { Turn } from "$lib/types";
 
 describe("splitTurn", () => {
@@ -141,5 +148,17 @@ describe("functionCallOutputText", () => {
       }),
     ).toBe("a\nb\n[1 image]");
     expect(functionCallOutputText({ type: "functionCallOutput", id: "i" })).toBe("");
+  });
+});
+
+describe("workedLabel", () => {
+  const worked = (durationMs: number) => workedLabel({ id: "t", status: "completed", items: [], durationMs } as Turn);
+
+  it("never shows 60 seconds", () => {
+    expect(worked(59_700)).toBe("Worked for 1m 00s");
+    expect(worked(119_700)).toBe("Worked for 2m 00s");
+    expect(worked(61_000)).toBe("Worked for 1m 01s");
+    expect(worked(42_400)).toBe("Worked for 42s");
+    expect(worked(300)).toBe("Worked for 300ms");
   });
 });

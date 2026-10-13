@@ -7,8 +7,21 @@
 //!
 //! - `PINGEX_E2E_MODEL` — model slug (default `gpt-5.6-luna`)
 //! - `PINGEX_E2E_CODEX` — codex binary (default: resolved like the app does)
-//! - `PINGEX_E2E_AUTH_HOME` — Codex home to copy `auth.json` from (default
-//!   `~/.codex-personal`, then `~/.codex`)
+//! - `PINGEX_E2E_AUTH_HOME` — Codex home whose `auth.json` the suite uses
+//!   (default `~/.codex-personal`, then `~/.codex`)
+//!
+//! Every test gets its own app-server and scratch home, so tests run in
+//! parallel (`RUST_TEST_THREADS`, 2 in `deno task test:e2e:codex`). Four at
+//! once was faster but drew upstream stalls (a response stream that opens and
+//! never delivers) in half the runs; two stayed green.
+//!
+//! Credentials: each scratch home *symlinks* the source `auth.json` rather
+//! than copying it. Refresh tokens are single-use; a copy that refreshed
+//! spent the token the source still held, logging that home out ("your
+//! refresh token was already used"). Codex writes `auth.json` in place, so
+//! through the link a refresh lands in the source. The first server also
+//! runs one warm-up turn before any other test starts, so a refresh that is
+//! due happens once, not from several processes at the same moment.
 
 use pingex_app_lib::e2e::requests::{self, Request};
 use pingex_app_lib::e2e::{method_unsupported, Feature};
@@ -17,12 +30,17 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Condvar, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 pub const TURN_TIMEOUT: Duration = Duration::from_secs(180);
+/// How long a turn may go without the server saying anything at all before
+/// it counts as stalled. A working turn streams (deltas, items, output); an
+/// upstream stall is total silence, and used to cost the whole
+/// `TURN_TIMEOUT`.
+pub const STALL_TIMEOUT: Duration = Duration::from_secs(60);
 pub const DEFAULT_MODEL: &str = "gpt-5.6-luna";
 
 /// Text of the file the mention/attachment fixtures point the model at.
@@ -124,31 +142,106 @@ pub struct Server {
     pub user_agent: String,
 }
 
-static SERVER: OnceLock<Option<Server>> = OnceLock::new();
-
-/// The shared server, or `None` when the suite is not enabled. Spawned once
-/// per test binary; tests share it (and its scratch home) so the suite stays
-/// quick.
-pub fn server() -> Option<&'static Server> {
-    SERVER
-        .get_or_init(|| {
-            if std::env::var("PINGEX_LIVE_E2E").ok().as_deref() != Some("1") {
-                eprintln!("live e2e skipped: set PINGEX_LIVE_E2E=1 to run against a real codex");
-                return None;
+impl Drop for Server {
+    fn drop(&mut self) {
+        if let Ok(inner) = self.inner.read() {
+            if let Ok(mut process) = inner.process.lock() {
+                let _ = process.kill();
+                let _ = process.wait();
             }
-            Some(Server::spawn().unwrap_or_else(|error| panic!("could not start codex: {error}")))
-        })
-        .as_ref()
+        }
+        // A failed test keeps its home (logs_2.sqlite, sessions/) to read.
+        // `remove_dir_all` deletes the auth.json link, not what it points to.
+        if !std::thread::panicking() {
+            if let Some(root) = self.codex_home.parent() {
+                let _ = std::fs::remove_dir_all(root);
+            }
+        }
+    }
 }
 
-/// Return early from a test unless the suite is enabled.
+/// A fresh server for one test, or `None` when the suite is not enabled.
+/// Dropping it kills the app-server and removes its scratch root.
+pub fn server() -> Option<Server> {
+    if std::env::var("PINGEX_LIVE_E2E").ok().as_deref() != Some("1") {
+        eprintln!("live e2e skipped: set PINGEX_LIVE_E2E=1 to run against a real codex");
+        return None;
+    }
+    Some(Server::spawn().unwrap_or_else(|error| panic!("could not start codex: {error}")))
+}
+
+struct ResetOnDrop;
+
+impl Drop for ResetOnDrop {
+    fn drop(&mut self) {
+        WARMING_UP.set(false);
+    }
+}
+
+/// Requests that make the model work, and so may need the login refreshed.
+const MODEL_METHODS: &[&str] = &[
+    "turn/start",
+    "review/start",
+    "thread/compact/start",
+    "thread/goal/set",
+];
+
+thread_local! {
+    /// Set while this thread runs the warm-up, whose own turn must not wait
+    /// on itself.
+    static WARMING_UP: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// One turn before the first model request of the run (see the module
+/// docs); every other test's first model request waits here until it is
+/// done. Tests that never reach the model do not wait, and still run when
+/// the login is bad.
+fn warm_up(server: &Server) {
+    static READY: OnceLock<Result<(), String>> = OnceLock::new();
+    if WARMING_UP.get() {
+        return;
+    }
+    let ready = READY.get_or_init(|| {
+        WARMING_UP.set(true);
+        let _reset = ResetOnDrop;
+        let thread_id = server.start_thread();
+        let outcome = server.run_turn(requests::turn_start(
+            &thread_id,
+            vec![json!({"type": "text", "text": "Reply with exactly OK"})],
+            Some(requests::TurnOptions {
+                model: Some(server.model.clone()),
+                effort: Some("low".into()),
+                ..requests::TurnOptions::default()
+            }),
+        ));
+        if outcome.status == "completed" {
+            Ok(())
+        } else {
+            let status = &outcome.status;
+            let home = auth_source();
+            let home = home.display();
+            let stderr = server.stderr_tail();
+            Err(format!(
+                "the warm-up turn {status}: is the Codex login in {home} still valid? \
+                 (`CODEX_HOME={home} codex login`, or point PINGEX_E2E_AUTH_HOME elsewhere)\n{stderr}"
+            ))
+        }
+    });
+    if let Err(error) = ready {
+        panic!("{error}");
+    }
+}
+
+/// Bind a fresh server for this test as `$name: &Server`, or return early
+/// unless the suite is enabled.
 #[macro_export]
 macro_rules! live {
-    () => {
-        match $crate::harness::server() {
+    ($name:ident) => {
+        let owned = match $crate::harness::server() {
             Some(server) => server,
             None => return,
-        }
+        };
+        let $name = &owned;
     };
 }
 
@@ -180,6 +273,12 @@ fn codex_binary() -> PathBuf {
 /// The `mcp_echo` example binary, built on demand (`cargo test --test
 /// live_codex` does not build examples the way a bare `cargo test` does).
 fn mcp_echo_binary() -> PathBuf {
+    // Parallel tests would otherwise race several `cargo build`s.
+    static BUILT: OnceLock<PathBuf> = OnceLock::new();
+    BUILT.get_or_init(build_mcp_echo).clone()
+}
+
+fn build_mcp_echo() -> PathBuf {
     let exe = std::env::current_exe().expect("test exe path");
     // target/debug/deps/live_codex-… → target/debug/examples/mcp_echo
     let debug = exe
@@ -208,6 +307,23 @@ const PIXEL_PNG: [u8; 69] = [
     0x44, 0xAE, 0x42, 0x60, 0x82,
 ];
 
+/// Share, never copy, the login (see the module docs).
+#[cfg(unix)]
+fn link_auth(source: &Path, link: &Path) -> std::io::Result<()> {
+    if !source.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "no auth.json",
+        ));
+    }
+    std::os::unix::fs::symlink(source, link)
+}
+
+#[cfg(not(unix))]
+fn link_auth(source: &Path, link: &Path) -> std::io::Result<()> {
+    std::fs::hard_link(source, link)
+}
+
 fn io_err(error: std::io::Error) -> String {
     error.to_string()
 }
@@ -215,16 +331,21 @@ fn io_err(error: std::io::Error) -> String {
 impl Server {
     fn spawn() -> Result<Server, String> {
         let model = std::env::var("PINGEX_E2E_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
-        let root = std::env::temp_dir().join(format!("pingex-live-e2e-{}", std::process::id()));
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "pingex-live-e2e-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::SeqCst)
+        ));
         let codex_home = root.join("home");
         let cwd = root.join("work");
         std::fs::create_dir_all(codex_home.join("skills").join(SKILL_NAME)).map_err(io_err)?;
         std::fs::create_dir_all(&cwd).map_err(io_err)?;
 
         let auth = auth_source().join("auth.json");
-        std::fs::copy(&auth, codex_home.join("auth.json")).map_err(|error| {
+        link_auth(&auth, &codex_home.join("auth.json")).map_err(|error| {
             format!(
-                "could not copy {} (set PINGEX_E2E_AUTH_HOME to a logged-in Codex home): {error}",
+                "could not use {} (set PINGEX_E2E_AUTH_HOME to a logged-in Codex home): {error}",
                 auth.display()
             )
         })?;
@@ -374,6 +495,9 @@ impl Server {
 
     /// Send a request and wait for its response.
     pub fn request(&self, request: Request) -> Result<Value, RpcError> {
+        if MODEL_METHODS.contains(&request.method) {
+            warm_up(self);
+        }
         self.inner().request(request)
     }
 
@@ -408,26 +532,48 @@ impl Server {
         &self,
         from: usize,
         timeout: Duration,
-        mut predicate: impl FnMut(&Value) -> bool,
+        predicate: impl FnMut(&Value) -> bool,
     ) -> Option<(usize, Value)> {
+        self.wait_while_active(from, timeout, timeout, predicate)
+            .ok()
+    }
+
+    /// [`Self::wait_for`] that also gives up after `silence` with no new
+    /// message. `Err(true)` means it stalled, `Err(false)` that it ran out of
+    /// time while still active.
+    fn wait_while_active(
+        &self,
+        from: usize,
+        timeout: Duration,
+        silence: Duration,
+        mut predicate: impl FnMut(&Value) -> bool,
+    ) -> Result<(usize, Value), bool> {
         let deadline = Instant::now() + timeout;
+        let mut last_activity = Instant::now();
         let inner = self.inner();
         let mut messages = inner.messages.lock().expect("bus lock");
         let mut index = from;
         loop {
+            if index < messages.len() {
+                last_activity = Instant::now();
+            }
             while index < messages.len() {
                 if predicate(&messages[index]) {
-                    return Some((index + 1, messages[index].clone()));
+                    return Ok((index + 1, messages[index].clone()));
                 }
                 index += 1;
             }
             let now = Instant::now();
             if now >= deadline {
-                return None;
+                return Err(false);
+            }
+            let quiet_until = last_activity + silence;
+            if now >= quiet_until {
+                return Err(true);
             }
             let (guard, _) = inner
                 .changed
-                .wait_timeout(messages, deadline - now)
+                .wait_timeout(messages, deadline.min(quiet_until) - now)
                 .expect("bus lock");
             messages = guard;
         }
@@ -583,13 +729,20 @@ impl Server {
 
     /// Wait for `turn/completed` for `turn_id`, collecting its completed items.
     pub fn await_turn(&self, from: usize, turn_id: &str) -> TurnOutcome {
-        let (_, params) = self
-            .wait_notification(from, "turn/completed", TURN_TIMEOUT, |params| {
-                params.pointer("/turn/id").and_then(Value::as_str) == Some(turn_id)
+        let (_, message) = self
+            .wait_while_active(from, TURN_TIMEOUT, STALL_TIMEOUT, |message| {
+                message.get("id").is_none()
+                    && message.get("method").and_then(Value::as_str) == Some("turn/completed")
+                    && message.pointer("/params/turn/id").and_then(Value::as_str) == Some(turn_id)
             })
-            .unwrap_or_else(|| {
+            .unwrap_or_else(|stalled| {
+                let why = if stalled {
+                    format!("stalled: the server said nothing for {STALL_TIMEOUT:?} (an upstream hang, not a slow turn)")
+                } else {
+                    format!("did not complete within {TURN_TIMEOUT:?}")
+                };
                 panic!(
-                    "turn {turn_id} did not complete within {TURN_TIMEOUT:?}\nlast messages:\n{}\nstderr:\n{}",
+                    "turn {turn_id} {why}\nlast messages:\n{}\nstderr:\n{}",
                     self.messages_since(from)
                         .iter()
                         .rev()
@@ -609,6 +762,7 @@ impl Server {
             })
             .filter_map(|message| message.pointer("/params/item").cloned())
             .collect();
+        let params = &message["params"];
         TurnOutcome {
             turn_id: turn_id.to_string(),
             status: params

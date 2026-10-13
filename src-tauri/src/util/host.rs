@@ -122,6 +122,7 @@ impl Host {
         match self {
             Host::Native => {
                 let mut command = Command::new(program);
+                no_console_window(&mut command);
                 command.args(args);
                 if let Some(cwd) = cwd {
                     command.current_dir(cwd);
@@ -149,6 +150,7 @@ impl Host {
                 }
                 let argv = self.argv(program, args, cwd, &environment, unset);
                 let mut command = Command::new(&argv[0]);
+                no_console_window(&mut command);
                 command.args(&argv[1..]);
                 command
             }
@@ -295,17 +297,31 @@ impl Host {
                 .unwrap_or_else(|_| PathBuf::from(path))
                 .display()
                 .to_string(),
-            // `-m` resolves what exists and keeps the missing tail, like the
-            // lenient canonicalisation the worktree classifiers need.
             Host::Wsl { .. } => self
-                .command("readlink", &["-m", "--", path], None, &[], &[])
-                .output()
-                .ok()
-                .filter(|output| output.status.success())
-                .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
-                .filter(|resolved| resolved.starts_with('/'))
+                .wsl_resolve(path)
                 .unwrap_or_else(|| normalise_posix(path)),
         }
+    }
+
+    /// What the distribution itself says `path` resolves to, or `None` when
+    /// it could not be asked (stopped, wedged, or no answer). Unlike
+    /// [`Self::canonical`] this never falls back to a lexical guess, so a
+    /// caller can tell an answer worth remembering from a stand-in.
+    pub fn wsl_resolve(&self, path: &str) -> Option<String> {
+        // `-m` resolves what exists and keeps the missing tail, like the
+        // lenient canonicalisation the worktree classifiers need.
+        // Bounded: a stopped or wedged distro must not hang the caller.
+        run(Run::on(
+            self,
+            "readlink",
+            "/",
+            &["-m", "--", path],
+            WSL_LOOKUP_TIMEOUT,
+        ))
+        .ok()
+        .filter(|output| output.ok)
+        .map(|output| output.stdout.trim().to_string())
+        .filter(|resolved| resolved.starts_with('/'))
     }
 
     /// Whether a host path is a directory, without spawning: the share is
@@ -382,13 +398,17 @@ impl Host {
     pub fn home_dir(&self) -> Option<String> {
         match self {
             Host::Native => dirs::home_dir().map(|home| home.display().to_string()),
-            Host::Wsl { .. } => self
-                .command("sh", &["-lc", "printf %s \"$HOME\""], None, &[], &[])
-                .output()
-                .ok()
-                .filter(|output| output.status.success())
-                .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
-                .filter(|home| home.starts_with('/')),
+            Host::Wsl { .. } => run(Run::on(
+                self,
+                "sh",
+                "/",
+                &["-lc", "printf %s \"$HOME\""],
+                WSL_LOOKUP_TIMEOUT,
+            ))
+            .ok()
+            .filter(|output| output.ok)
+            .map(|output| output.stdout.trim().to_string())
+            .filter(|home| home.starts_with('/')),
         }
     }
 
@@ -423,7 +443,9 @@ pub fn list_distros() -> Vec<String> {
     if !cfg!(windows) {
         return Vec::new();
     }
-    Command::new(WSL_EXE)
+    let mut command = Command::new(WSL_EXE);
+    no_console_window(&mut command);
+    command
         .args(["-l", "-q"])
         .output()
         .ok()
@@ -549,7 +571,7 @@ fn drive_to_mnt(local: &str) -> Option<String> {
 
 /// Lexical clean-up of a POSIX path: collapse `//`, drop `.`, resolve `..`,
 /// strip a trailing `/`.
-fn normalise_posix(path: &str) -> String {
+pub(crate) fn normalise_posix(path: &str) -> String {
     let mut parts: Vec<&str> = Vec::new();
     for part in path.split('/') {
         match part {
@@ -561,6 +583,20 @@ fn normalise_posix(path: &str) -> String {
         }
     }
     format!("/{}", parts.join("/"))
+}
+
+/// A GUI app (`windows_subsystem = "windows"`) has no console, so Windows
+/// gives each console child (`wsl.exe`, `git`, `cmd`) a window of its own: a
+/// flash on every spawn. Background helpers never want one.
+pub(crate) fn no_console_window(command: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    let _ = command;
 }
 
 #[cfg(test)]

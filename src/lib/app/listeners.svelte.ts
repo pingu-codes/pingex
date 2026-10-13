@@ -15,6 +15,7 @@ import { isTauri } from "$lib/services/api";
 import { setThreadHandler, startCodexListeners } from "$lib/services/codexEvents.svelte";
 import { startConnectionsWatch } from "$lib/services/connections.svelte";
 import { belongsToProfile, identity, scopedId, setHomeSelection } from "$lib/services/homeRouting";
+import { toastError } from "$lib/toaster";
 import type { HandoffOpen } from "$lib/types";
 import { installExternalLinkHandler } from "$lib/utils/externalLinks";
 import { refreshAllGitStatus, refreshGitStatus } from "$lib/worktrees/gitStatus.svelte";
@@ -31,7 +32,9 @@ async function openThreadFromQuick(threadId: string) {
 
 export function startApp(): void {
   setHomeSelection(() => view);
-  startCodexListeners();
+  startCodexListeners().catch((cause) =>
+    toastError(`Could not listen for Codex events: ${cause instanceof Error ? cause.message : String(cause)}`),
+  );
   // Open links (markdown output, etc.) in the default browser rather than
   // navigating the app webview and stranding the user with no way back. A link
   // that names a local file opens the preview modal instead of Finder.
@@ -86,7 +89,7 @@ export function startApp(): void {
 
   if (!isTauri()) return;
   // A `codex://` deep link received by the backend (CLI-to-desktop handoff).
-  listen<HandoffOpen>("handoff://open", (event) => applyHandoff(event.payload));
+  listen<HandoffOpen>("handoff://open", (event) => applyHandoff(event.payload)).catch(() => {});
   listen<{ threadId: string; codexHome?: string }>("quickchat://open-thread", (event) => {
     // Broadcast to every window; only the ones on the quick chat's home react.
     if (!eventMatchesHome(event.payload?.codexHome)) return;
@@ -94,5 +97,5 @@ export function startApp(): void {
     const key = event.payload.codexHome;
     if (threadId)
       openThreadFromQuick(key && belongsToProfile(key) && !identity(threadId) ? scopedId(key, threadId) : threadId);
-  });
+  }).catch(() => {});
 }

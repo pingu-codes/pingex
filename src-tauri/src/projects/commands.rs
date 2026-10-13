@@ -112,7 +112,7 @@ pub(crate) async fn add_project_in(
     let mut store = storage::read_store(&ctx.database()).await?;
     stored_project_mut(&mut store, &canonical);
     storage::write_store(&ctx.database(), &store).await?;
-    bootstrap_cached(&ctx).await
+    bootstrap_cached(ctx).await
 }
 
 /// Adopt an existing linked worktree, wherever it lives, as a worktree
@@ -301,7 +301,7 @@ pub(crate) async fn place_sidebar_item(
             return Err("A folder cannot be moved inside itself".into());
         }
     }
-    if !siblings.iter().any(|sibling| *sibling == item) {
+    if !siblings.contains(&item) {
         return Err("The moved item must be among its siblings".into());
     }
     storage::place_sidebar_item(

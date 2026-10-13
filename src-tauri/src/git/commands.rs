@@ -610,6 +610,43 @@ mod tests {
             .unwrap_or(false)
     }
 
+    /// SvelteKit/Next routes like `[id]` are glob character classes to git's
+    /// default pathspec matching; discarding one must not touch `i` or `d`.
+    #[test]
+    fn path_actions_treat_paths_literally() {
+        if !git_available() {
+            eprintln!("skipping: git not available");
+            return;
+        }
+        let temp = tempfile::tempdir().expect("temp dir");
+        let repo = temp.path().to_path_buf();
+        assert!(git(&repo, &["init", "-q", "-b", "main"]));
+        for name in ["[id]", "i", "d"] {
+            std::fs::write(repo.join(name), "committed\n").unwrap();
+        }
+        assert!(git(&repo, &["add", "."]));
+        assert!(git(&repo, &["commit", "-q", "-m", "init"]));
+        for name in ["[id]", "i", "d"] {
+            std::fs::write(repo.join(name), "edited\n").unwrap();
+        }
+        std::fs::write(repo.join("[new]"), "x").unwrap();
+        std::fs::write(repo.join("n"), "x").unwrap();
+
+        actions::stage_paths(&Host::Native, &repo, &["[id]".into()]).unwrap();
+        assert_eq!(read_status(&Host::Native, &repo).unwrap().counts.staged, 1);
+        actions::unstage_paths(&Host::Native, &repo, &["[id]".into()]).unwrap();
+        actions::discard_paths(&Host::Native, &repo, &["[id]".into()], &["[new]".into()]).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(repo.join("[id]")).unwrap(),
+            "committed\n"
+        );
+        assert_eq!(std::fs::read_to_string(repo.join("i")).unwrap(), "edited\n");
+        assert_eq!(std::fs::read_to_string(repo.join("d")).unwrap(), "edited\n");
+        assert!(!repo.join("[new]").exists());
+        assert!(repo.join("n").exists());
+    }
+
     /// Builds a real repository with a linked worktree and exercises the read
     /// paths against it — the parsers are unit-tested elsewhere, this checks
     /// they are wired to git correctly.
@@ -753,7 +790,7 @@ mod tests {
         assert_eq!(commit.subject, "add world");
         assert_eq!(commit.author_name, "Test");
         assert_eq!(commit.short_hash.len(), 7);
-        assert!(read_status(&Host::Native, &repo).unwrap().counts.is_dirty() == false);
+        assert!(!read_status(&Host::Native, &repo).unwrap().counts.is_dirty());
         let empty = actions::commit(&Host::Native, &repo, "nothing").unwrap_err();
         assert!(empty.contains("Nothing is staged"), "{empty}");
 

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { estimateCost, formatCost, priceFor } from "$lib/thread/usageCost";
 import type { ThreadTokenUsage } from "$lib/types";

@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import {
-  loadSearchAgentMessages,
-  loadSearchUserMessages,
-  searchPrefs,
-} from "$lib/layout/searchPrefs.svelte";
+import { loadSearchAgentMessages, loadSearchUserMessages, searchPrefs } from "$lib/layout/searchPrefs.svelte";
 
 beforeEach(() => localStorage.clear());
 

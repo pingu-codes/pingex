@@ -101,10 +101,9 @@ pub(crate) fn set_quick_shortcut(app: AppHandle, accelerator: String) -> Result<
     }
     // Try the new binding; on failure (invalid or already taken) restore the
     // previously working shortcut so the user is never left with none.
-    register_quick_shortcut(&app, &trimmed).map_err(|error| {
+    register_quick_shortcut(&app, &trimmed).inspect_err(|_error| {
         let previous = settings::read_quick_shortcut(&settings::settings_path());
         let _ = register_quick_shortcut(&app, &previous);
-        error
     })?;
     settings::write_quick_shortcut(&settings::settings_path(), Some(trimmed.clone()))?;
     Ok(trimmed)

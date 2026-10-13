@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   appData,
   applyData,
+  applyTicketed,
+  dataTicket,
+  forgetOptimisticThread,
   nameNewThread,
   projectForCwd,
   trackNewThread,
@@ -50,6 +53,14 @@ describe("naming a freshly created thread", () => {
 
     nameNewThread("thread-a", "Fix the parser");
     expect(titleOf("thread-a")).toBe("Fix the parser");
+  });
+
+  it("does not bring back a new thread that was deleted before it persisted", () => {
+    trackNewThread("thread-gone", "/projects/api");
+    forgetOptimisticThread("thread-gone");
+
+    applyData(structuredClone(data));
+    expect(titleOf("thread-gone")).toBeUndefined();
   });
 
   it("keeps that title through refreshes that cannot see the thread yet", () => {
@@ -139,5 +150,29 @@ describe("project placement", () => {
     trackNewThread("worktree-fallback", api.path);
     appData.data.projects[0].threads[0].cwd = "/tmp/worktree";
     expect(projectForCwd("/tmp/worktree")?.path).toBe(api.path);
+  });
+});
+
+describe("sidebar data from overlapping requests", () => {
+  const titled = (title: string): BootstrapData => {
+    const next = structuredClone(data);
+    next.projects[0].name = title;
+    return next;
+  };
+
+  it("drops a response older than one already applied", () => {
+    const slowRefresh = dataTicket();
+    const addProject = dataTicket();
+    expect(applyTicketed(titled("after add"), addProject)).toBe(true);
+    expect(applyTicketed(titled("stale refresh"), slowRefresh, false)).toBe(false);
+    expect(appData.data?.projects[0].name).toBe("after add");
+  });
+
+  it("applies responses that land in order", () => {
+    const first = dataTicket();
+    const second = dataTicket();
+    expect(applyTicketed(titled("first"), first)).toBe(true);
+    expect(applyTicketed(titled("second"), second)).toBe(true);
+    expect(appData.data?.projects[0].name).toBe("second");
   });
 });

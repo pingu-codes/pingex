@@ -150,18 +150,32 @@ pub(crate) fn read_doc(codex_home: &Path) -> Result<toml_edit::DocumentMut, Stri
         .map_err(|error| format!("config.toml is not valid TOML: {error}"))
 }
 
-/// Write an edited document back, creating the home directory if needed.
+/// Write an edited document back atomically, creating the home directory if
+/// needed. Prefer [`edit_doc`], which also serializes the read-modify-write.
 pub(crate) fn write_doc(
     codex_home: &Path,
     document: &toml_edit::DocumentMut,
 ) -> Result<(), String> {
-    let path = config_path(codex_home);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("Could not create Codex home: {error}"))?;
-    }
-    fs::write(&path, document.to_string())
+    crate::util::fs::write_atomic(&config_path(codex_home), document.to_string().as_bytes())
         .map_err(|error| format!("Could not write config.toml: {error}"))
+}
+
+/// Read, edit and write back a `config.toml` under one process-wide lock, so
+/// two editors (an MCP save and a settings toggle, say) cannot each read the
+/// old file and silently drop the other's change. Nothing is written when
+/// `edit` fails.
+pub(crate) fn edit_doc<T>(
+    codex_home: &Path,
+    edit: impl FnOnce(&mut toml_edit::DocumentMut) -> Result<T, String>,
+) -> Result<T, String> {
+    static EDIT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = EDIT_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut document = read_doc(codex_home)?;
+    let result = edit(&mut document)?;
+    write_doc(codex_home, &document)?;
+    Ok(result)
 }
 
 /// Render a parsed value as the string we show/store. Only scalar types are
@@ -258,16 +272,15 @@ pub(crate) fn write_config_setting(
 ) -> Result<Vec<ConfigSetting>, String> {
     let spec = spec_for(key).ok_or_else(|| format!("{key} is not an editable setting"))?;
 
-    let mut document = read_doc(codex_home)?;
-
-    if unset {
-        document.as_table_mut().remove(spec.key);
-    } else {
-        let value = value.ok_or_else(|| "No value supplied".to_string())?;
-        document[spec.key] = toml_edit::value(edit_value(spec, value)?);
-    }
-
-    write_doc(codex_home, &document)?;
+    edit_doc(codex_home, |document| {
+        if unset {
+            document.as_table_mut().remove(spec.key);
+        } else {
+            let value = value.ok_or_else(|| "No value supplied".to_string())?;
+            document[spec.key] = toml_edit::value(edit_value(spec, value)?);
+        }
+        Ok(())
+    })?;
     Ok(read_config_settings(codex_home))
 }
 

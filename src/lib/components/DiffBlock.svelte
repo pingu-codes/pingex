@@ -14,7 +14,10 @@ const lines = $derived(change.diff.split("\n"));
 const oversized = $derived(lines.length > LINE_LIMIT || change.diff.length > BYTE_LIMIT);
 
 let showAll = $state(false);
-const visible = $derived(!oversized || showAll ? change.diff : lines.slice(0, LINE_LIMIT).join("\n"));
+// Capped by bytes too: a minified file is one 2 MB line, under the line limit.
+const visible = $derived(
+  !oversized || showAll ? change.diff : lines.slice(0, LINE_LIMIT).join("\n").slice(0, BYTE_LIMIT),
+);
 
 // A user toggle wins permanently; until then, open tracks autoCollapse so a
 // diff that expanded while it was the only change folds up when more appear.
@@ -31,13 +34,16 @@ const open = $derived(userOpen ?? (!autoCollapse && !oversized));
       <ChevronDown size={13} class="shrink-0 text-surface-500 transition group-data-[state=open]:rotate-180" />
     </Collapsible.Trigger>
     <Collapsible.Content>
-      <pre class="diff-block max-h-96 overflow-auto border-t border-surface-200-800 px-3 py-2.5 font-mono text-[11px] leading-5"><code class="hljs">{@html highlightAs(visible, "diff")}</code></pre>
+      <!-- Collapsible keeps closed content mounted; highlight only when shown. -->
+      {#if open}
+        <pre class="diff-block max-h-96 overflow-auto border-t border-surface-200-800 px-3 py-2.5 font-mono text-[11px] leading-5"><code class="hljs">{@html highlightAs(visible, "diff")}</code></pre>
+      {/if}
       {#if oversized && !showAll}
         <button
           onclick={() => (showAll = true)}
           class="w-full border-t border-surface-200-800 px-3 py-1.5 text-left text-[11px] text-surface-500 hover:preset-tonal"
         >
-          Show all {lines.length} lines
+          {lines.length > LINE_LIMIT ? `Show all ${lines.length} lines` : "Show the full diff"}
         </button>
       {/if}
     </Collapsible.Content>

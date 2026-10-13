@@ -18,7 +18,8 @@ let {
   /** The `codex resume` invocation this handoff produces. */
   command: string;
   copy: (command: string) => Promise<void>;
-  launch: (command: string) => Promise<void>;
+  /** Runs the shown command; the backend rebuilds it from the thread. */
+  launch: () => Promise<void>;
   close: DialogClose<true>;
 } = $props();
 
@@ -30,7 +31,7 @@ async function copyCommand() {
 }
 
 async function launchTerminal() {
-  if (await action.run(() => launch(command))) close(true);
+  if (await action.run(() => launch())) close(true);
 }
 </script>
 

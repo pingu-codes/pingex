@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { detectSlashQuery, filterSlashCommands, parseSlashCommand, SLASH_COMMANDS } from "$lib/composer/slashCommands";
 

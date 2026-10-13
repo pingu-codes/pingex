@@ -231,9 +231,7 @@ async fn start_claude_turn(
     options: Option<TurnOptions>,
 ) -> Result<Json, String> {
     let thread_id = &thread.thread_id;
-    let resume = !storage::read_thread_items(&ctx.database(), thread_id)
-        .await?
-        .is_empty();
+    let resume = storage::has_thread_items(&ctx.database(), thread_id).await?;
     let resolved = options
         .as_ref()
         .map(|options| {
@@ -409,6 +407,7 @@ pub(crate) async fn interrupt_turn(
 /// frontend can fall back to "applies from the next turn".
 #[tauri::command]
 #[specta::specta]
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn update_turn_settings(
     thread_id: String,
     turn_id: String,

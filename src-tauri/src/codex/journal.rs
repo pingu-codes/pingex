@@ -66,6 +66,9 @@ pub(crate) fn summary_key(turn_id: &str, item_id: &str) -> String {
 /// Reasoning text reaches the app only as these deltas: the `item/completed`
 /// that follows carries an empty `summary`, so without this buffer the journal
 /// — and therefore the thread after a restart — keeps no reasoning at all.
+/// More summary sections than any real reasoning item has.
+const MAX_SUMMARY_PARTS: usize = 256;
+
 pub(crate) fn record_summary_delta(summaries: &mut HashMap<String, Vec<String>>, params: &Value) {
     let (Some(turn_id), Some(item_id)) = (
         params.get("turnId").and_then(Value::as_str),
@@ -77,6 +80,11 @@ pub(crate) fn record_summary_delta(summaries: &mut HashMap<String, Vec<String>>,
         .get("summaryIndex")
         .and_then(Value::as_u64)
         .unwrap_or_default() as usize;
+    // The index comes off the wire and sizes a buffer; a corrupt one must not
+    // allocate gigabytes (or overflow and panic) on the reader thread.
+    if index >= MAX_SUMMARY_PARTS {
+        return;
+    }
     let parts = summaries.entry(summary_key(turn_id, item_id)).or_default();
     if parts.len() <= index {
         parts.resize(index + 1, String::new());
@@ -187,9 +195,8 @@ pub(crate) fn journal_target(params: &Value) -> Option<JournalTarget> {
 /// Persist a completed item so it survives the stream that carried it. Best
 /// effort throughout: a journal that cannot be written must not disturb the
 /// session it is watching.
-pub(crate) fn journal_item(
-    app: &AppHandle,
-    home_key: &str,
+fn journal_item(
+    journal: &TurnJournal,
     params: &Value,
     after_item_id: Option<String>,
     streamed_summary: Vec<String>,
@@ -209,11 +216,7 @@ pub(crate) fn journal_item(
     // streamed patch is as capable of carrying a megabyte as a reported one.
     restore_changes(&mut payload, &streamed_changes);
     payload = trim_payload(payload);
-    let (app, home_key) = (app.clone(), home_key.to_string());
-    tauri::async_runtime::spawn(async move {
-        let Some(database) = crate::database_for(&app, &home_key) else {
-            return;
-        };
+    journal.write(|database| async move {
         let _ = crate::storage::record_thread_item(
             &database,
             &thread_id,
@@ -270,11 +273,56 @@ pub(crate) struct TurnJournal {
     home_key: String,
     /// Which harness the child speaks for; the usage ledger records it.
     harness: HarnessKind,
+    /// Queue drained by this journal's one writer task; see [`Self::write`].
+    writes: OrderedWrites,
+}
+
+type JournalWrite = Box<
+    dyn FnOnce(turso::Database) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+        + Send,
+>;
+
+/// Database writes run one at a time, in the order they were queued, on one
+/// background task. A turn that ends quickly must not have its
+/// `complete = 1` update land before the row it updates exists, which is
+/// what one `spawn` per write allowed.
+struct OrderedWrites {
+    queue: tokio::sync::mpsc::UnboundedSender<JournalWrite>,
+}
+
+impl OrderedWrites {
+    /// `database` is resolved per write (the home's database can be reopened
+    /// while the journal lives); a write with no database is dropped. The task
+    /// ends once this is dropped and the queue drains.
+    fn spawn(database: impl Fn() -> Option<turso::Database> + Send + 'static) -> Self {
+        let (queue, mut pending) = tokio::sync::mpsc::unbounded_channel::<JournalWrite>();
+        tauri::async_runtime::spawn(async move {
+            while let Some(write) = pending.recv().await {
+                if let Some(database) = database() {
+                    write(database).await;
+                }
+            }
+        });
+        Self { queue }
+    }
+
+    fn push<F, Fut>(&self, body: F)
+    where
+        F: FnOnce(turso::Database) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let _ = self
+            .queue
+            .send(Box::new(move |database| Box::pin(body(database))));
+    }
 }
 
 impl TurnJournal {
     pub(crate) fn new(app: AppHandle, home_key: String, harness: HarnessKind) -> Self {
+        let (writer_app, writer_home) = (app.clone(), home_key.clone());
+        let writes = OrderedWrites::spawn(move || crate::database_for(&writer_app, &writer_home));
         Self {
+            writes,
             last_item_id: Mutex::new(HashMap::new()),
             summaries: Mutex::new(HashMap::new()),
             patches: Mutex::new(HashMap::new()),
@@ -330,15 +378,17 @@ impl TurnJournal {
                     )
                 })
                 .unwrap_or_default();
-            journal_item(&self.app, &self.home_key, params, anchor, summary, changes);
+            journal_item(self, params, anchor, summary, changes);
             if let (Some(thread_id), Some(item)) = (
                 params.get("threadId").and_then(Value::as_str),
                 params.get("item"),
             ) {
-                self.ledger(LedgerEvent::Item {
-                    thread_id: thread_id.to_string(),
-                    payload: item.clone(),
-                });
+                if let Some(sketch) = crate::usage::estimate::sketch_item(item) {
+                    self.ledger(LedgerEvent::Item {
+                        thread_id: thread_id.to_string(),
+                        sketch,
+                    });
+                }
             }
         }
         if method == "thread/tokenUsage/updated" {
@@ -498,19 +548,15 @@ impl TurnJournal {
 
     /// Run a journal write off the stream thread. The reader loop is
     /// synchronous, and a journal that cannot be written must not disturb the
-    /// session it is watching.
+    /// session it is watching. Writes run one at a time in the order they were
+    /// queued: a turn that ends quickly must not have its `complete = 1`
+    /// update land before the row it updates exists.
     fn write<F, Fut>(&self, body: F)
     where
         F: FnOnce(turso::Database) -> Fut + Send + 'static,
-        Fut: std::future::Future<Output = ()> + Send,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
     {
-        let (app, home_key) = (self.app.clone(), self.home_key.clone());
-        tauri::async_runtime::spawn(async move {
-            let Some(database) = crate::database_for(&app, &home_key) else {
-                return;
-            };
-            body(database).await;
-        });
+        self.writes.push(body);
     }
 }
 
@@ -523,14 +569,35 @@ pub(crate) fn trim_live_params(method: &str, params: &Value) -> Option<Value> {
     if !matches!(method, "item/completed" | "item/started") {
         return None;
     }
-    let item = params.get("item")?;
-    let trimmed = trim_payload(item.clone());
-    if &trimmed == item {
+    // Almost every item is already small: answer that from string lengths
+    // rather than cloning the item and comparing it whole.
+    if !needs_trim(params.get("item")?) {
         return None;
     }
     let mut params = params.clone();
-    params.as_object_mut()?.insert("item".into(), trimmed);
+    let item = params.get_mut("item")?;
+    *item = trim_payload(item.take());
     Some(params)
+}
+
+/// Whether [`trim_payload`] would change `item`.
+fn needs_trim(item: &Value) -> bool {
+    let long_output = item
+        .get("aggregatedOutput")
+        .and_then(Value::as_str)
+        .is_some_and(|output| output.len() > MAX_OUTPUT_BYTES);
+    let long_diff = item
+        .get("changes")
+        .and_then(Value::as_array)
+        .is_some_and(|changes| {
+            changes.iter().any(|change| {
+                change
+                    .get("diff")
+                    .and_then(Value::as_str)
+                    .is_some_and(|diff| diff.len() > MAX_DIFF_BYTES)
+            })
+        });
+    long_output || long_diff
 }
 
 /// Cut an item down to what is worth keeping on disk: the tail of an oversized
@@ -634,6 +701,47 @@ mod tests {
         assert!(stored.starts_with("@@ start"));
         assert!(stored.ends_with("[rest of diff truncated]"));
         assert_eq!(target.payload["changes"][1]["diff"], json!("+ok"));
+    }
+
+    /// The turn's first write is slow (it waits before inserting the row),
+    /// the completion right behind it is instant. Queued in order, the
+    /// completion still lands second, so the turn reads as complete.
+    #[tokio::test]
+    async fn journal_writes_land_in_queue_order() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = crate::storage::open(directory.path()).await.unwrap();
+        let resolve = database.clone();
+        let writes = OrderedWrites::spawn(move || Some(resolve.clone()));
+        writes.push(|database| async move {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            crate::storage::record_turn_start(&database, "thread-1", "turn-1")
+                .await
+                .unwrap();
+        });
+        writes.push(|database| async move {
+            crate::storage::mark_turn_complete(&database, "thread-1", "turn-1")
+                .await
+                .unwrap();
+        });
+        let (done, finished) = tokio::sync::oneshot::channel();
+        writes.push(|_| async move {
+            let _ = done.send(());
+        });
+        finished.await.unwrap();
+        let complete = crate::storage::read_complete_turns(&database, "thread-1")
+            .await
+            .unwrap();
+        assert!(complete.iter().any(|turn| turn == "turn-1"), "{complete:?}");
+    }
+
+    #[test]
+    fn ignores_an_absurd_summary_index() {
+        let mut summaries = HashMap::new();
+        record_summary_delta(
+            &mut summaries,
+            &json!({"turnId": "t", "itemId": "rs", "summaryIndex": u64::MAX, "delta": "x"}),
+        );
+        assert!(summaries.is_empty());
     }
 
     #[test]
@@ -753,6 +861,16 @@ mod tests {
         let small = completed(json!({"type": "commandExecution", "aggregatedOutput": "ok"}));
         assert!(trim_live_params("item/completed", &small).is_none());
         assert!(trim_live_params("item/agentMessage/delta", &params).is_none());
+        let big_diff = json!({"item": {"type": "fileChange", "id": "f", "changes": [
+            {"path": "a", "diff": "+ok"},
+            {"path": "b", "diff": "x".repeat(MAX_DIFF_BYTES + 1)},
+        ]}});
+        let trimmed =
+            trim_live_params("item/completed", &big_diff).expect("an oversized diff is trimmed");
+        assert!(trimmed["item"]["changes"][1]["diff"]
+            .as_str()
+            .unwrap()
+            .ends_with("[rest of diff truncated]"));
     }
 
     #[test]

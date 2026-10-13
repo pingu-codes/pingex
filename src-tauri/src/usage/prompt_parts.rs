@@ -168,7 +168,7 @@ mod tests {
         assert!(fitted.scaled);
         let total: u64 = fitted.parts.iter().map(|p| p.tokens).sum();
         assert!(
-            total <= 4_000 && total >= 3_998,
+            (3_998..=4_000).contains(&total),
             "sums to the system figure: {total}"
         );
         assert!(fitted.parts.iter().all(|p| p.kind != PromptPartKind::Tools));

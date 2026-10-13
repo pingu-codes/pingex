@@ -206,11 +206,20 @@ describe("IntegrationsSection", () => {
     const previous = fixture();
     previous.plugins = [{ id: "demo@local", name: "Demo", scope: "local", description: null, enabled: true }];
     previous.pluginsSupported = true;
-    previous.settings[`skill:${previous.skills[0].path}`] = { inheritedEnabled: true, overrideEnabled: null, pluginId: "demo@local" };
+    previous.settings[`skill:${previous.skills[0].path}`] = {
+      inheritedEnabled: true,
+      overrideEnabled: null,
+      pluginId: "demo@local",
+    };
     listIntegrations.mockResolvedValue(previous);
     render(IntegrationsSection);
     await screen.findByText("code-reviewer");
-    listIntegrations.mockResolvedValue({ ...previous, skills: [], plugins: [{ ...previous.plugins[0], enabled: false }], errors: ["Plugins: package unavailable"] });
+    listIntegrations.mockResolvedValue({
+      ...previous,
+      skills: [],
+      plugins: [{ ...previous.plugins[0], enabled: false }],
+      errors: ["Plugins: package unavailable"],
+    });
     await user.click(screen.getByRole("button", { name: "Refresh" }));
     await screen.findByText("Plugins: package unavailable");
     const row = screen.getByText("code-reviewer").closest(".card") as HTMLElement;
@@ -240,7 +249,11 @@ describe("IntegrationsSection", () => {
     const path = await screen.findByText("/project/.agents/skills/code-reviewer/SKILL.md");
     const row = path.closest(".card") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Disable" }));
-    expect(setSkillEnabled).toHaveBeenCalledWith("code-reviewer", false, "/project/.agents/skills/code-reviewer/SKILL.md");
+    expect(setSkillEnabled).toHaveBeenCalledWith(
+      "code-reviewer",
+      false,
+      "/project/.agents/skills/code-reviewer/SKILL.md",
+    );
   });
 
   it("uses marketplace identity for installed plugin controls", async () => {

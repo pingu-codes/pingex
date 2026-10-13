@@ -14,10 +14,9 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::SystemTime;
 
 use serde_json::Value;
 
@@ -60,32 +59,74 @@ fn find_with_suffix(dir: &Path, suffix: &str, depth: usize) -> Option<PathBuf> {
         .find_map(|folder| find_with_suffix(folder, suffix, depth - 1))
 }
 
-/// Parsed parts per rollout file, kept until the file grows or changes.
-/// Parsing streams the whole file; the usage panel asks on every token
-/// update, so the answer is cached by `(len, mtime)`.
-/// A file's size and mtime when it was parsed, and what came out.
-type CachedParts = (u64, Option<SystemTime>, Vec<PromptPart>);
+/// How far a rollout has been parsed, and the collector's state there.
+/// Rollouts are append-only, so the next read resumes at `offset`.
+struct Parsed {
+    offset: u64,
+    collector: Collector,
+}
 
+/// Parsed parts per rollout file. The usage panel asks on every token update
+/// while the file grows by a line or two each time; re-parsing it whole each
+/// time was quadratic over a turn, so only the appended lines are read.
 #[derive(Default)]
 pub(crate) struct RolloutCache {
-    entries: Mutex<HashMap<PathBuf, CachedParts>>,
+    entries: Mutex<HashMap<PathBuf, Parsed>>,
+    /// Where each thread's rollout was found, by `(home, thread id)`, so a
+    /// poll does not walk the dated `sessions/` tree every time.
+    paths: Mutex<HashMap<(PathBuf, String), PathBuf>>,
 }
 
 impl RolloutCache {
-    pub(crate) fn prompt_parts(&self, path: &Path) -> Result<Vec<PromptPart>, String> {
-        let meta = std::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let stamp = (meta.len(), meta.modified().ok());
-        if let Ok(entries) = self.entries.lock() {
-            if let Some((len, modified, parts)) = entries.get(path) {
-                if (*len, *modified) == stamp {
-                    return Ok(parts.clone());
-                }
-            }
+    /// [`locate`], remembered while the file is still there.
+    pub(crate) fn locate(&self, local_home: &Path, thread_id: &str) -> Option<PathBuf> {
+        let key = (local_home.to_path_buf(), thread_id.to_string());
+        let known = self
+            .paths
+            .lock()
+            .ok()
+            .and_then(|paths| paths.get(&key).cloned());
+        if let Some(path) = known.filter(|path| path.is_file()) {
+            return Some(path);
         }
-        let file = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let parts = prompt_parts_from_rollout(BufReader::new(file), false);
+        let found = locate(local_home, thread_id)?;
+        if let Ok(mut paths) = self.paths.lock() {
+            paths.insert(key, found.clone());
+        }
+        Some(found)
+    }
+
+    pub(crate) fn prompt_parts(&self, path: &Path) -> Result<Vec<PromptPart>, String> {
+        let len = std::fs::metadata(path)
+            .map_err(|e| format!("{}: {e}", path.display()))?
+            .len();
+        // Taken out rather than parsed under the lock; a concurrent caller
+        // for the same file just starts from scratch.
+        let previous = self
+            .entries
+            .lock()
+            .ok()
+            .and_then(|mut entries| entries.remove(path));
+        let Parsed {
+            mut offset,
+            mut collector,
+        } = match previous {
+            // Shorter than what was parsed: rewritten, so start over.
+            Some(parsed) if parsed.offset <= len => parsed,
+            _ => Parsed {
+                offset: 0,
+                collector: Collector::new(false),
+            },
+        };
+        if offset < len {
+            let mut file = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+            file.seek(SeekFrom::Start(offset))
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+            offset += feed_complete_lines(BufReader::new(file), &mut collector);
+        }
+        let parts = collector.clone().finish();
         if let Ok(mut entries) = self.entries.lock() {
-            entries.insert(path.to_path_buf(), (stamp.0, stamp.1, parts.clone()));
+            entries.insert(path.to_path_buf(), Parsed { offset, collector });
         }
         Ok(parts)
     }
@@ -215,7 +256,7 @@ struct Block {
     detail: Option<String>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Collector {
     /// Bytes per block; the latest occurrence of a block wins, since Codex
     /// re-sends one when it changes and after a compaction. Blocks of one
@@ -359,7 +400,9 @@ impl Collector {
         for (block, bytes) in &self.bytes {
             // A compaction summary replaces the compacted record's message
             // rather than adding to it; everything else of a kind adds up.
-            let entry = by_part.entry((block.kind, block.detail.clone())).or_insert(0);
+            let entry = by_part
+                .entry((block.kind, block.detail.clone()))
+                .or_insert(0);
             if block.kind == PromptPartKind::Compaction {
                 *entry = *bytes;
             } else {
@@ -372,9 +415,8 @@ impl Collector {
                 let entry = by_text
                     .entry((block.kind, block.detail.clone()))
                     .or_default();
-                if block.kind == PromptPartKind::Compaction {
-                    *entry = text.clone();
-                } else if entry.is_empty() {
+                // A compaction replaces everything before it.
+                if block.kind == PromptPartKind::Compaction || entry.is_empty() {
                     *entry = text.clone();
                 } else {
                     entry.push_str("\n\n");
@@ -403,6 +445,32 @@ const INTERESTING: &[&str] = &["session_meta", "world_state", "response_item", "
 /// The Prompt parts a rollout describes, sized at Codex's own four bytes to
 /// a token. A line that does not parse — the one Codex is still writing —
 /// is skipped.
+/// Feed every newline-terminated line into `collector` and return the bytes
+/// consumed. A trailing line without its newline is the one Codex is still
+/// writing; it is left for the next read rather than dropped for good.
+fn feed_complete_lines(mut reader: impl BufRead, collector: &mut Collector) -> u64 {
+    let mut consumed = 0;
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        match reader.read_until(b'\n', &mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) if line.last() != Some(&b'\n') => break,
+            Ok(read) => consumed += read as u64,
+        }
+        let Ok(text) = std::str::from_utf8(&line) else {
+            continue;
+        };
+        if !INTERESTING.iter().any(|kind| text.contains(kind)) {
+            continue;
+        }
+        if let Ok(record) = serde_json::from_str::<Value>(text) {
+            collector.line(&record);
+        }
+    }
+    consumed
+}
+
 pub(crate) fn prompt_parts_from_rollout(reader: impl BufRead, with_text: bool) -> Vec<PromptPart> {
     let mut collector = Collector::new(with_text);
     for line in reader.lines().map_while(Result::ok) {
@@ -431,6 +499,34 @@ mod tests {
 
     fn parts_with_text() -> Vec<PromptPart> {
         prompt_parts_from_rollout(Cursor::new(FIXTURE), true)
+    }
+
+    /// Reading a growing file in pieces, a half-written line included, ends
+    /// where one read of the finished file does.
+    #[test]
+    fn the_cache_reads_a_growing_rollout_incrementally() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rollout.jsonl");
+        let cache = RolloutCache::default();
+        let split = FIXTURE.len() / 2;
+        std::fs::write(&path, &FIXTURE.as_bytes()[..split]).unwrap();
+        cache.prompt_parts(&path).unwrap();
+
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        std::io::Write::write_all(&mut file, &FIXTURE.as_bytes()[split..]).unwrap();
+        assert_eq!(cache.prompt_parts(&path).unwrap(), parts());
+        // Nothing new: answered from the cache, still the same.
+        assert_eq!(cache.prompt_parts(&path).unwrap(), parts());
+
+        // Rewritten shorter: parsed again from the start.
+        std::fs::write(&path, "").unwrap();
+        assert_eq!(
+            cache.prompt_parts(&path).unwrap(),
+            prompt_parts_from_rollout(Cursor::new(""), false)
+        );
     }
 
     #[test]

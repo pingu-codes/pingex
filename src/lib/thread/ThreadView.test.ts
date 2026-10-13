@@ -100,6 +100,18 @@ vi.mock("$lib/services/api", () => ({
       isDefault: true,
     },
   ]),
+  listHarnessModels: vi.fn().mockResolvedValue([
+    {
+      id: "gpt-5.2-codex",
+      model: "gpt-5.2-codex",
+      displayName: "GPT-5.2 Codex",
+      description: "",
+      hidden: false,
+      supportedReasoningEfforts: [{ reasoningEffort: "high", description: "" }],
+      defaultReasoningEffort: "high",
+      isDefault: true,
+    },
+  ]),
   listProjectFiles: mocks.listProjectFiles,
   listSubagents: vi.fn().mockResolvedValue([]),
   listAgentRuns: vi.fn().mockResolvedValue([]),
@@ -215,7 +227,8 @@ describe("ThreadView completed work", () => {
 
     expect(trigger).toHaveAccessibleName("Worked for 24s");
     expect(screen.getByText("Final answer")).toBeVisible();
-    expect(screen.getByText("Private work summary")).not.toBeVisible();
+    // Folded work is not just hidden but unmounted until opened.
+    expect(screen.queryByText("Private work summary")).not.toBeInTheDocument();
 
     await user.click(trigger);
     expect(screen.getByText("Private work summary")).toBeVisible();
@@ -247,7 +260,7 @@ describe("ThreadView completed work", () => {
 
     expect(screen.getByText("I'll ground this in the current router test")).toBeVisible();
     expect(screen.getByText("Final answer")).toBeVisible();
-    expect(screen.getByText("Private work summary")).not.toBeVisible();
+    expect(screen.queryByText("Private work summary")).not.toBeInTheDocument();
     expect(trigger).toHaveAccessibleName("Worked for 24s");
   });
 
@@ -290,7 +303,9 @@ describe("ThreadView in-progress work", () => {
     });
     render(ThreadView, { threadId: "thread-1", cwd: "/projects/example" });
     const trigger = await screen.findByRole("button", { name: "Worked" });
-    expect(screen.getByRole("button", { name: "Read /repo/listing.rs completed", hidden: true })).not.toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Read /repo/listing.rs completed", hidden: true }),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Agent Inspect handlers Running" })).toBeVisible();
 
     const emit = (method: string, params: Record<string, unknown>) => {
@@ -308,7 +323,7 @@ describe("ThreadView in-progress work", () => {
     });
     expect(await screen.findByText("cargo test", { selector: "code" })).toBeVisible();
     emit("item/completed", { item: { id: "message", type: "agentMessage", text: "Tests are running" } });
-    await waitFor(() => expect(screen.getByText("cargo test", { selector: "code" })).not.toBeVisible());
+    await waitFor(() => expect(screen.queryByText("cargo test", { selector: "code" })).not.toBeInTheDocument());
     expect(screen.getByText("Tests are running")).toBeVisible();
 
     emit("item/started", {
@@ -334,8 +349,8 @@ describe("ThreadView in-progress work", () => {
     });
 
     expect(trigger).toHaveAccessibleName("Worked");
-    expect(screen.getByText("Earlier work summary")).not.toBeVisible();
-    expect(screen.getByText("cargo fmt", { selector: "code" })).not.toBeVisible();
+    expect(screen.queryByText("Earlier work summary")).not.toBeInTheDocument();
+    expect(screen.queryByText("cargo fmt", { selector: "code" })).not.toBeInTheDocument();
     expect(screen.getByText("Now running tests")).toBeVisible();
     expect(screen.getByText("cargo test", { selector: "code" })).toBeVisible();
   });
@@ -362,8 +377,8 @@ describe("ThreadView in-progress work", () => {
     render(ThreadView, { threadId: "thread-1", cwd: "/projects/example" });
 
     expect(await screen.findByText("src/a.ts")).toBeVisible();
-    expect(screen.getByText("+const a = 1;")).not.toBeVisible();
-    expect(screen.getByText("+const b = 2;")).not.toBeVisible();
+    expect(screen.queryByText("+const a = 1;")).not.toBeInTheDocument();
+    expect(screen.queryByText("+const b = 2;")).not.toBeInTheDocument();
   });
 
   it("keeps showing work after a preamble message finishes streaming", async () => {
@@ -850,7 +865,7 @@ describe("ThreadView context meter and compaction", () => {
     );
 
     expect(screen.getByText("Context compacted")).toBeVisible();
-    expect(screen.getByText("Private work summary")).not.toBeVisible();
+    expect(screen.queryByText("Private work summary")).not.toBeInTheDocument();
   });
 });
 
@@ -1494,7 +1509,9 @@ describe("ThreadView /goal", () => {
     const user = userEvent.setup();
     await user.type(renderDraft(), "/goal ship the auth refactor{Enter}");
 
-    await waitFor(() => expect(mocks.requestAutoName).toHaveBeenCalledWith("thread-2", "seed", "ship the auth refactor"));
+    await waitFor(() =>
+      expect(mocks.requestAutoName).toHaveBeenCalledWith("thread-2", "seed", "ship the auth refactor"),
+    );
   });
 
   it("turns a bare /goal into goal mode without creating a thread", async () => {

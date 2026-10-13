@@ -339,7 +339,10 @@ export function threadImageSrc(path: string): Promise<string | null> {
   if (!isTauri()) return Promise.resolve(null);
   let src = threadImageSrcs.get(path);
   if (!src) {
-    src = commands.allowThreadImage(path).then((local) => convertFileSrc(local), () => null);
+    src = commands.allowThreadImage(path).then(
+      (local) => convertFileSrc(local),
+      () => null,
+    );
     threadImageSrcs.set(path, src);
   }
   return src;
@@ -422,8 +425,7 @@ export async function startThread(
 /** The models a harness offers. Codex answers `model/list`; Claude has a fixed alias list. */
 export async function listHarnessModels(harness: HarnessKind): Promise<Model[]> {
   if (!isTauri()) return previewModels;
-  const response = await (commands.listHarnessModels(harness) as Promise<{ data?: Model[] }>);
-  return response.data ?? [];
+  return normalizeModels((await (commands.listHarnessModels(harness) as Promise<{ data?: ModelWire[] }>)).data);
 }
 
 export interface ClaudeStatus {
@@ -725,9 +727,18 @@ function previewLayout(): SidebarLayout {
   return previewData.sidebarLayout;
 }
 
+/** The fields of Codex's `thread/list` entries the archive view reads. */
+type ArchivedThreadWire = {
+  id?: string;
+  name?: string | null;
+  preview?: string | null;
+  cwd?: string;
+  updatedAt?: number;
+};
+
 export async function listArchivedThreads(): Promise<ArchivedThread[]> {
   if (!isTauri()) return previewArchived;
-  const response = await (commands.listArchivedThreads() as Promise<{ data?: any[] }>);
+  const response = await (commands.listArchivedThreads() as Promise<{ data?: ArchivedThreadWire[] }>);
   return (response.data ?? []).map((thread) => ({
     id: thread.id ?? "",
     title: (thread.name || thread.preview || "Untitled thread").split("\n")[0].slice(0, 80),
@@ -745,24 +756,29 @@ export async function unarchiveThread(threadId: string): Promise<BootstrapData> 
   return commands.unarchiveThread(threadId);
 }
 
-export async function listModels(): Promise<Model[]> {
-  if (!isTauri()) return previewModels;
-  const response = await (commands.listModels() as Promise<{
-    data?: (Model & {
-      serviceTiers?: Model["speedTiers"];
-      additionalSpeedTiers?: string[];
-      defaultServiceTier?: string | null;
-    })[];
-  }>);
-  return (response.data ?? []).map(({ serviceTiers, additionalSpeedTiers, defaultServiceTier, ...model }) => ({
+/** A `model/list` entry before the speed fields are given neutral names. */
+type ModelWire = Model & {
+  serviceTiers?: Model["speedTiers"];
+  additionalSpeedTiers?: string[];
+  defaultServiceTier?: string | null;
+};
+
+function normalizeModels(data: ModelWire[] | undefined): Model[] {
+  return (data ?? []).map(({ serviceTiers, additionalSpeedTiers, defaultServiceTier, ...model }) => ({
     ...model,
     speedTiers:
+      model.speedTiers ??
       serviceTiers ??
       additionalSpeedTiers
         ?.filter((tier) => tier === "fast")
         .map(() => ({ id: "priority", name: "Fast", description: "Faster responses" })),
-    defaultSpeedTier: defaultServiceTier,
+    defaultSpeedTier: model.defaultSpeedTier ?? defaultServiceTier,
   }));
+}
+
+export async function listModels(): Promise<Model[]> {
+  if (!isTauri()) return previewModels;
+  return normalizeModels((await (commands.listModels() as Promise<{ data?: ModelWire[] }>)).data);
 }
 
 export async function readAccountRateLimits(): Promise<AccountRateLimits> {
@@ -1681,9 +1697,9 @@ export async function handoffCopy(text: string): Promise<void> {
   await commands.handoffCopy(text);
 }
 
-export async function handoffLaunchTerminal(command: string): Promise<void> {
+export async function handoffLaunchTerminal(threadId: string, cwd: string): Promise<void> {
   if (!isTauri()) return;
-  await commands.handoffLaunchTerminal(command);
+  await commands.handoffLaunchTerminal(threadId, cwd);
 }
 
 export async function remotePairingStart(): Promise<PairingInfo> {

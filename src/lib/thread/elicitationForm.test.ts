@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { buildContent, formFields, isComplete } from "$lib/thread/elicitationForm";
 import type { McpElicitationSchema } from "$lib/types";

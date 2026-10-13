@@ -1,5 +1,6 @@
 use serde::Serialize;
 use std::path::Path;
+use std::sync::Arc;
 
 use crate::util::walk::{walker, MAX_WALKED_FILES};
 
@@ -65,7 +66,57 @@ pub(crate) fn score(query: &str, candidate: &str) -> Option<i64> {
 /// Walk `root` respecting .gitignore (via the `ignore` crate) and return the
 /// best-matching files and folders for `query`, sorted by descending score.
 pub(crate) fn search_files(root: &Path, query: &str, limit: usize) -> Vec<FileHit> {
-    let mut hits: Vec<FileHit> = Vec::new();
+    let mut hits: Vec<FileHit> = walked_entries(root)
+        .iter()
+        .filter_map(|entry| {
+            Some(FileHit {
+                score: score(query, &entry.path)?,
+                path: entry.path.clone(),
+                file_name: entry.file_name.clone(),
+                is_dir: entry.is_dir,
+            })
+        })
+        .collect();
+    hits.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.path.cmp(&b.path)));
+    hits.truncate(limit);
+    hits
+}
+
+/// One mention target found by the walk.
+struct WalkedEntry {
+    path: String,
+    file_name: String,
+    is_dir: bool,
+}
+
+/// How long a walk answers searches. The picker searches on every pause in
+/// typing; each walk reads up to `MAX_WALKED_FILES` entries and parses every
+/// .gitignore on the way, which takes seconds over the WSL share. A file made
+/// a moment ago shows up once this lapses.
+const WALK_TTL: std::time::Duration = std::time::Duration::from_secs(5);
+
+type WalkCache =
+    std::collections::HashMap<std::path::PathBuf, (std::time::Instant, Arc<Vec<WalkedEntry>>)>;
+
+fn walked_entries(root: &Path) -> Arc<Vec<WalkedEntry>> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<WalkCache>> = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    let now = std::time::Instant::now();
+    if let Ok(mut cache) = cache.lock() {
+        cache.retain(|_, (at, _)| now.duration_since(*at) < WALK_TTL);
+        if let Some((_, entries)) = cache.get(root) {
+            return entries.clone();
+        }
+    }
+    let entries = Arc::new(walk_entries(root));
+    if let Ok(mut cache) = cache.lock() {
+        cache.insert(root.to_path_buf(), (now, entries.clone()));
+    }
+    entries
+}
+
+fn walk_entries(root: &Path) -> Vec<WalkedEntry> {
+    let mut entries = Vec::new();
     let mut walked = 0usize;
     for entry in walker(root) {
         let Ok(entry) = entry else { continue };
@@ -81,21 +132,13 @@ pub(crate) fn search_files(root: &Path, query: &str, limit: usize) -> Vec<FileHi
         let Ok(relative) = entry.path().strip_prefix(root) else {
             continue;
         };
-        let relative = crate::util::walk::relative_path(relative);
-        let Some(match_score) = score(query, &relative) else {
-            continue;
-        };
-        let file_name = entry.file_name().to_string_lossy().to_string();
-        hits.push(FileHit {
-            path: relative,
-            file_name,
-            score: match_score,
+        entries.push(WalkedEntry {
+            path: crate::util::walk::relative_path(relative),
+            file_name: entry.file_name().to_string_lossy().to_string(),
             is_dir,
         });
     }
-    hits.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.path.cmp(&b.path)));
-    hits.truncate(limit);
-    hits
+    entries
 }
 
 /// Walk `root` respecting .gitignore and return every file's path relative to

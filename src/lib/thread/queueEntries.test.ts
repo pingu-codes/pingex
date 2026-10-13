@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { isClientQueued, isLocalOnly, localId, mergeQueue, pendingId } from "$lib/thread/queueEntries";
 import type { QueuedSubmission } from "$lib/types";

@@ -17,7 +17,8 @@
       "!deno.lock",
       "!src-tauri/icons",
       "!src/lib/bindings.ts",
-      "!.claude/worktrees"
+      "!.claude/worktrees",
+      "!architecture-review"
     ]
   },
   "formatter": {
@@ -37,6 +38,16 @@
     }
   },
   "overrides": [
+    {
+      "includes": ["scripts/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    },
     {
       "includes": ["**/*.svelte"],
       "linter": {

@@ -141,6 +141,7 @@ pub(crate) async fn start_review(
 /// simple; both given means clear.)
 #[tauri::command]
 #[specta::specta]
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn thread_goal_set(
     thread_id: String,
     objective: Option<String>,
@@ -390,8 +391,10 @@ pub(crate) async fn list_harness_models(
         return Ok(Json(crate::claude::driver::models()));
     }
     let ctx = state.ctx(&window);
+    // The same listing as `list_models`, so the composer can ask for any
+    // harness's models through this one command.
     ctx.session
-        .send(&app, requests::model_list(100, false))
+        .send(&app, requests::model_list(100, true))
         .await
         .map(Json)
 }
@@ -405,11 +408,9 @@ pub(crate) async fn read_claude_status(
 ) -> Result<crate::claude::driver::ClaudeStatus, String> {
     let ctx = state.ctx(&window);
     let runtime = ctx.claude.runtime();
-    Ok(
-        tauri::async_runtime::spawn_blocking(move || crate::claude::driver::status(&runtime))
-            .await
-            .map_err(|error| error.to_string())?,
-    )
+    tauri::async_runtime::spawn_blocking(move || crate::claude::driver::status(&runtime))
+        .await
+        .map_err(|error| error.to_string())
 }
 
 /// Replace the thread's durable history with the prefix before `before_turn_id`

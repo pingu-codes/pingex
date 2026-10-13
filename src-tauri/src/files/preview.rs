@@ -175,7 +175,7 @@ fn is_image_path(path: &str) -> bool {
 /// the local path to hand to `convertFileSrc`. The static asset scope only
 /// covers `$HOME`, while agents often write screenshots to `/tmp`, and a WSL
 /// path is only reachable through its `\\wsl.localhost` share.
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn allow_thread_image(
     path: String,

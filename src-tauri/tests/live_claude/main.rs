@@ -205,6 +205,30 @@ fn init_reports_a_logged_in_session() {
     claude.expect_success(0, "the canary turn");
 }
 
+/// Changing effort on an idle thread restarts the CLI under the same session
+/// (`ClaudeDriver::ensure_process`), since `--effort` is fixed at spawn. The
+/// process resumed at the new effort must still have the conversation.
+#[test]
+fn a_session_resumed_at_another_effort_keeps_its_context() {
+    let setup = live!();
+    let claude = harness::spawn(setup, "default");
+    claude.send_prompt("Remember the codeword OTTER-5521. Reply with exactly OK.");
+    claude.expect_success(0, "the first turn");
+    let session = claude.session_id.clone();
+    drop(claude);
+
+    let claude = harness::resume_with_effort(setup, session.clone(), "high");
+    claude.send_prompt("What was the codeword? Reply with the codeword only.");
+    let (_, init) = claude.expect_frame(0, "system", "resumed init");
+    assert_eq!(init["session_id"], session);
+    let (_, result) = claude.expect_success(0, "the turn at the new effort");
+    let text = result["result"].as_str().unwrap_or_default();
+    assert!(
+        text.contains("OTTER-5521"),
+        "context lost on restart: {result}"
+    );
+}
+
 /// A plain prompt round-trips: the turn ends in a successful `result`
 /// carrying the model's text.
 #[test]

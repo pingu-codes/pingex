@@ -10,7 +10,9 @@ use std::path::Path;
 use toml_edit::{Array, DocumentMut, Item, Table};
 
 use super::McpServerSummary;
-use crate::settings::codex_config::{read_doc, write_doc};
+use crate::settings::codex_config::edit_doc;
+#[cfg(test)]
+use crate::settings::codex_config::read_doc;
 
 pub(crate) fn validate_server_name(name: &str) -> Result<(), String> {
     let trimmed = name.trim();
@@ -207,14 +209,13 @@ pub(crate) fn set_enabled_in_doc(
     Ok(())
 }
 
-/// Load the document for a home, ready to edit.
-pub(crate) fn load(codex_home: &Path) -> Result<DocumentMut, String> {
-    read_doc(codex_home)
-}
-
-/// Persist an edited document back to the home.
-pub(crate) fn save(codex_home: &Path, doc: &DocumentMut) -> Result<(), String> {
-    write_doc(codex_home, doc)
+/// Edit a home's document and persist it, serialized with every other
+/// `config.toml` editor.
+pub(crate) fn edit<T>(
+    codex_home: &Path,
+    edit: impl FnOnce(&mut DocumentMut) -> Result<T, String>,
+) -> Result<T, String> {
+    edit_doc(codex_home, edit)
 }
 
 /// Extract redacted summaries for every `[mcp_servers.*]` entry, sorted by name.

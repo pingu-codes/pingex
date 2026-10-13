@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import type { StatusFile } from "$lib/types";
 import { groupStatusFiles, selectionAfterRefresh } from "./gitStatusFiles";

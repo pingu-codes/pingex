@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { filterSkills, skillHint, skillLabel } from "$lib/composer/skills";
 import type { SkillSummary } from "$lib/types";

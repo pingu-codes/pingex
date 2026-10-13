@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { freshPlanPrompt } from "$lib/thread/planHandoff";
 
@@ -23,7 +24,7 @@ describe("freshPlanPrompt", () => {
  */
 describe("plan handoff fixture", () => {
   it("matches the checked-in golden file (rerun with -u to regenerate)", async () => {
-    // Spelled out so the linter does not read it as a template string.
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: "${PLAN}" is the literal placeholder the golden file records.
     const generated = `${JSON.stringify({ freshPlanPrompt: freshPlanPrompt("${PLAN}") }, null, 2)}\n`;
     await expect(generated).toMatchFileSnapshot("../../../tests/fixtures/protocol/plan-handoff.json");
   });

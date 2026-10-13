@@ -28,6 +28,9 @@ let pairing = $state<PairingInfo | null>(null);
 let pairingClaimed = $state(false);
 let pairingError = $state<string | null>(null);
 let pairingTimer: ReturnType<typeof setInterval> | null = null;
+// Bumped whenever polling must stop (section hidden, unmounted, reset), so a
+// `remotePairingStart` still in flight does not start a timer nobody clears.
+let pairingRun = 0;
 
 let refreshing = $state(false);
 let actionError = $state<string | null>(null);
@@ -51,7 +54,10 @@ $effect(() => {
   } else {
     resetPairing();
   }
-  return () => stopPairingTimer();
+  return () => {
+    pairingRun++;
+    stopPairingTimer();
+  };
 });
 
 function resetPairing() {
@@ -59,6 +65,7 @@ function resetPairing() {
   pairing = null;
   pairingClaimed = false;
   pairingError = null;
+  pairingRun++;
   stopPairingTimer();
 }
 
@@ -67,8 +74,11 @@ async function connectDevice() {
   pairingError = null;
   pairingClaimed = false;
   pairing = null;
+  const run = ++pairingRun;
   try {
-    pairing = await remotePairingStart();
+    const started = await remotePairingStart();
+    if (run !== pairingRun) return;
+    pairing = started;
     stopPairingTimer();
     pairingTimer = setInterval(async () => {
       if (!pairing || pairingClaimed) return;

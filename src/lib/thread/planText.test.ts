@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import type { ThreadItem } from "$lib/types";
 import { planText } from "./planText";

@@ -23,6 +23,53 @@ pub(crate) enum HarnessKind {
     Claude,
 }
 
+/// Something a harness can do beyond the required core (`CONTEXT.md`). This
+/// is the declared half, fixed per harness; the frontend reads it (as the
+/// generated `HARNESS_CAPABILITIES`) instead of branching on the kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum Capability {
+    /// A thread-level objective the harness pursues across turns (`/goal`).
+    Goals,
+    /// Editing a sent message in place: the thread is reverted to before it.
+    Revert,
+    /// Named permission modes the harness switches between itself, plan
+    /// among them (Claude's default/acceptEdits/plan/bypassPermissions).
+    PermissionModes,
+    /// Sandbox and approval presets plus a per-turn collaboration mode
+    /// (default or plan) sent with full model settings (Codex).
+    CollaborationModes,
+    /// Tool calls report completion while the turn continues, so finished
+    /// work can fold before the turn ends.
+    LiveToolResults,
+}
+
+impl HarnessKind {
+    pub(crate) fn capabilities(self) -> &'static [Capability] {
+        use Capability::*;
+        match self {
+            HarnessKind::Codex => &[Goals, Revert, CollaborationModes],
+            HarnessKind::Claude => &[PermissionModes, LiveToolResults],
+        }
+    }
+}
+
+/// [`HarnessKind::capabilities`] for every harness, exported as a constant.
+#[derive(Debug, Clone, Serialize, Type)]
+pub(crate) struct HarnessCapabilities {
+    pub(crate) codex: Vec<Capability>,
+    pub(crate) claude: Vec<Capability>,
+}
+
+impl HarnessCapabilities {
+    pub(crate) fn declared() -> Self {
+        Self {
+            codex: HarnessKind::Codex.capabilities().to_vec(),
+            claude: HarnessKind::Claude.capabilities().to_vec(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SideRefusal {

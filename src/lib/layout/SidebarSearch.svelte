@@ -2,6 +2,7 @@
 import { Archive, MessageSquare, Search, X } from "@lucide/svelte";
 import { projectForDirectory } from "$lib/app/appData.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
+import { searchPrefs } from "$lib/layout/searchPrefs.svelte";
 import {
   countLabel,
   emptyGroup,
@@ -12,7 +13,6 @@ import {
   searchState,
 } from "$lib/layout/sidebarSearch";
 import { searchThreads } from "$lib/services/api";
-import { searchPrefs } from "$lib/layout/searchPrefs.svelte";
 import type { Project, ThreadSearchFilter, ThreadSearchItem } from "$lib/types";
 import { relativeTime } from "$lib/utils/time";
 

@@ -60,11 +60,23 @@ $effect(() => {
     });
 });
 
+// Poll one read at a time. Each `load` supersedes the one before it, so on a
+// fixed interval a read slower than the interval was always stale on arrival
+// and the answer never showed.
 $effect(() => {
   if (!pending || startingHere || !activeSideId) return;
   const id = activeSideId;
-  const timer = setInterval(() => void load(id, false), 1000);
-  return () => clearInterval(timer);
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout>;
+  const poll = async () => {
+    await load(id, false);
+    if (!stopped) timer = setTimeout(poll, 1000);
+  };
+  timer = setTimeout(poll, 1000);
+  return () => {
+    stopped = true;
+    clearTimeout(timer);
+  };
 });
 
 $effect(() => {

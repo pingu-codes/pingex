@@ -59,16 +59,27 @@ $effect(() => {
     usageFetchedFor = null;
     return;
   }
-  const now = Date.now();
-  if (usageFetchedFor === id && now - usageFetchedAt < USAGE_REFRESH_MS) return;
-  usageFetchedAt = now;
+  // Throttled with a trailing read: a change inside the window is deferred
+  // to its end rather than dropped, so a turn that finishes soon after the
+  // last read still shows its final cost.
+  const wait = usageFetchedFor === id ? usageFetchedAt + USAGE_REFRESH_MS - Date.now() : 0;
+  if (wait <= 0) {
+    fetchThreadUsage(id);
+    return;
+  }
+  const timer = setTimeout(() => fetchThreadUsage(id), wait);
+  return () => clearTimeout(timer);
+});
+
+function fetchThreadUsage(id: string) {
+  usageFetchedAt = Date.now();
   usageFetchedFor = id;
   readThreadUsage(id)
     .then((usage) => {
       if (threadId === id) threadUsage = usage;
     })
     .catch(() => {});
-});
+}
 
 /** What the context holds, by category: from the harness when it can say,
  *  else the ledger's estimate. Re-read whenever the token figures move. */

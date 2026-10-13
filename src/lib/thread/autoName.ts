@@ -1,4 +1,4 @@
-import { applyData } from "$lib/app/appData.svelte";
+import { applyTicketed, dataTicket } from "$lib/app/appData.svelte";
 import { autoNameThread } from "$lib/services/api";
 
 /** Which passes a thread has already had, so a re-render or a replayed event
@@ -25,8 +25,9 @@ export function requestAutoName(threadId: string, pass: Pass, seed?: string): vo
   passes.add(pass);
   done.set(threadId, passes);
 
+  const ticket = dataTicket();
   autoNameThread(threadId, seed)
-    .then((data) => data && applyData(data))
+    .then((data) => data && applyTicketed(data, ticket))
     .catch(() => {
       // A failed pass is not retried: the thread keeps its first-message title.
     });

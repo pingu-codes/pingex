@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
+import { tick } from "svelte";
 import { describe, expect, it, vi } from "vitest";
 import FloatingMenu from "$lib/thread/FloatingMenu.svelte";
 import type { FileUpdateChange } from "$lib/types";
@@ -33,7 +34,26 @@ function setup(overrides: Partial<Record<string, unknown>> = {}) {
   return handlers;
 }
 
+function pressEscape(): KeyboardEvent {
+  const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+  document.body.dispatchEvent(event);
+  return event;
+}
+
 describe("FloatingMenu", () => {
+  // The composer interrupts the running turn on an unclaimed Escape.
+  it("claims Escape only while its dropdown is open", async () => {
+    const user = userEvent.setup();
+    setup();
+    expect(pressEscape().defaultPrevented).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "Open in" }));
+    expect(screen.getByRole("menuitem", { name: "Zed" })).toBeInTheDocument();
+    expect(pressEscape().defaultPrevented).toBe(true);
+    await tick();
+    expect(screen.queryByRole("menuitem", { name: "Zed" })).not.toBeInTheDocument();
+  });
+
   it("opens the project in Finder or Zed from the Open in menu", async () => {
     const user = userEvent.setup();
     const { onOpenFinder, onOpenZed } = setup();

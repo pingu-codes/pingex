@@ -5,7 +5,6 @@
  */
 
 import { open } from "@tauri-apps/plugin-dialog";
-import { belongsToProfile } from "$lib/services/homeRouting";
 import { appData, refresh } from "$lib/app/appData.svelte";
 import { checkCodexVersion } from "$lib/app/codexVersion.svelte";
 import { closeAllDialogs } from "$lib/app/dialogs.svelte";
@@ -19,6 +18,7 @@ import {
   selectCodexHome,
   setCodexBinary,
 } from "$lib/services/api";
+import { belongsToProfile } from "$lib/services/homeRouting";
 import type { Host, LaunchState } from "$lib/types";
 
 export const launch = $state<{
@@ -144,8 +144,14 @@ export async function switchHome(): Promise<void> {
 export async function init(): Promise<void> {
   // Best effort: no distributions simply means no host picker.
   listWslDistros()
-    .then((distros) => (launch.distros = distros))
-    .catch(() => (launch.distros = []));
+    // Braced: an arrow returning the assignment trips Svelte's
+    // `assignment_value_stale` (the value is not the stored proxy).
+    .then((distros) => {
+      launch.distros = distros;
+    })
+    .catch(() => {
+      launch.distros = [];
+    });
   try {
     launch.state = await readLaunchState();
     if (launch.state.needsPicker) {

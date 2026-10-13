@@ -1,13 +1,12 @@
 //! Integration preferences are resolved by Codex; only the selected config layer is edited.
 use super::{app_server::parse_skill_entries, IntegrationsList, McpServerSummary, PluginSummary};
-use crate::settings::codex_config::read_doc;
+use crate::settings::codex_config::{edit_doc, read_doc};
 use crate::{
     codex::{compat::Feature, requests},
     AppState, HomeContext,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::io::Write;
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -194,9 +193,9 @@ pub(super) async fn read(
         }
     }
     let req = if force {
-        requests::skills_list_force(&[cwd.clone()])
+        requests::skills_list_force(std::slice::from_ref(&cwd))
     } else {
-        requests::skills_list(&[cwd.clone()])
+        requests::skills_list(std::slice::from_ref(&cwd))
     };
     // A failed request must not replace a previously loaded list with an empty success.
     let raw_skills = ctx.session.send(app, req).await?;
@@ -451,36 +450,9 @@ fn edit_path(doc: &mut DocumentMut, path: &[&str], value: Option<bool>) -> Resul
 }
 
 fn write_override(directory: &Path, path: &[&str], enabled: Option<bool>) -> Result<(), String> {
-    // Serialize this command's read/modify/write operations across windows.
-    static EDIT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _guard = EDIT_LOCK
-        .lock()
-        .map_err(|_| "Integration writer is unavailable.")?;
-    let mut doc = read_doc(directory)?;
-    edit_path(&mut doc, path, enabled)?;
-    std::fs::create_dir_all(directory).map_err(|e| e.to_string())?;
-    let file = directory.join("config.toml");
-    // Follow an existing config symlink, just as Codex's own editor does.
-    let target = if file.exists() {
-        file.canonicalize().map_err(|e| e.to_string())?
-    } else {
-        file
-    };
-    let mut temporary =
-        tempfile::NamedTempFile::new_in(target.parent().ok_or("Config has no parent.")?)
-            .map_err(|e| e.to_string())?;
-    if let Ok(metadata) = std::fs::metadata(&target) {
-        temporary
-            .as_file()
-            .set_permissions(metadata.permissions())
-            .map_err(|e| e.to_string())?;
-    }
-    temporary
-        .write_all(doc.to_string().as_bytes())
-        .map_err(|e| e.to_string())?;
-    temporary.as_file().sync_all().map_err(|e| e.to_string())?;
-    temporary.persist(&target).map_err(|e| e.to_string())?;
-    Ok(())
+    // Serialized with every other config.toml editor; follows a symlinked
+    // config just as Codex's own editor does.
+    edit_doc(directory, |doc| edit_path(doc, path, enabled))
 }
 
 #[tauri::command]

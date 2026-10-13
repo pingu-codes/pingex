@@ -111,12 +111,13 @@ pub(crate) fn write_agent_settings(path: &Path, settings: &AgentSettings) -> Res
     if !AGENT_SANDBOXES.contains(&settings.sandbox.as_str()) {
         return Err(format!("Unknown agent sandbox: {}", settings.sandbox));
     }
-    let mut overrides = read_overrides(path);
-    overrides.app_subagents = Some(settings.enabled);
-    overrides.app_subagent_sandbox = Some(settings.sandbox.clone());
-    overrides.app_subagent_max_concurrent = Some(settings.max_concurrent.max(1) as u32);
-    overrides.app_subagent_timeout_seconds = Some(settings.timeout_seconds.max(1));
-    write_overrides(path, &overrides)
+    update_overrides(path, |overrides| {
+        overrides.app_subagents = Some(settings.enabled);
+        overrides.app_subagent_sandbox = Some(settings.sandbox.clone());
+        overrides.app_subagent_max_concurrent = Some(settings.max_concurrent.max(1) as u32);
+        overrides.app_subagent_timeout_seconds = Some(settings.timeout_seconds.max(1));
+        Ok(())
+    })
 }
 
 /// How thread auto-naming is configured, with the defaults already applied.
@@ -181,12 +182,36 @@ pub(crate) fn read_overrides(path: &Path) -> RuntimeOverrides {
 }
 
 pub(crate) fn write_overrides(path: &Path, overrides: &RuntimeOverrides) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("Could not create settings directory: {error}"))?;
-    }
     let text = serde_json::to_string_pretty(overrides).map_err(|error| error.to_string())?;
-    fs::write(path, text).map_err(|error| format!("Could not save settings: {error}"))
+    crate::util::fs::write_atomic(path, text.as_bytes())
+        .map_err(|error| format!("Could not save settings: {error}"))
+}
+
+/// Read, change and write back the settings file under one process-wide lock,
+/// so concurrent saves from two windows cannot drop each other's change.
+/// Unlike [`read_overrides`], an unreadable file is an error here: starting
+/// from defaults would silently erase every saved setting on the next save.
+pub(crate) fn update_overrides<T>(
+    path: &Path,
+    update: impl FnOnce(&mut RuntimeOverrides) -> Result<T, String>,
+) -> Result<T, String> {
+    static WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = WRITE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut overrides = match fs::read_to_string(path) {
+        Ok(text) => serde_json::from_str(&text).map_err(|error| {
+            format!(
+                "{} is not valid settings JSON ({error}). Fix or delete it, then try again.",
+                path.display()
+            )
+        })?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => RuntimeOverrides::default(),
+        Err(error) => return Err(format!("Could not read settings: {error}")),
+    };
+    let result = update(&mut overrides)?;
+    write_overrides(path, &overrides)?;
+    Ok(result)
 }
 
 /// Remember `home` on `host` as the most recently used Codex home. Moves an
@@ -199,30 +224,32 @@ pub(crate) fn record_recent_home(
     host: &Host,
     now: i64,
 ) -> Result<(), String> {
-    let mut overrides = read_overrides(path);
-    overrides
-        .recent_homes
-        .retain(|entry| !(entry.path == home && &entry.host == host));
-    overrides.recent_homes.insert(
-        0,
-        RecentHome {
-            path: home.to_string(),
-            last_used: now,
-            host: host.clone(),
-        },
-    );
-    overrides.recent_homes.truncate(MAX_RECENT_HOMES);
-    write_overrides(path, &overrides)
+    update_overrides(path, |overrides| {
+        overrides
+            .recent_homes
+            .retain(|entry| !(entry.path == home && &entry.host == host));
+        overrides.recent_homes.insert(
+            0,
+            RecentHome {
+                path: home.to_string(),
+                last_used: now,
+                host: host.clone(),
+            },
+        );
+        overrides.recent_homes.truncate(MAX_RECENT_HOMES);
+        Ok(())
+    })
 }
 
 /// Drop `home` on `host` from the recents list. Only forgets the entry — the
 /// folder on disk is untouched.
 pub(crate) fn forget_recent_home(path: &Path, home: &str, host: &Host) -> Result<(), String> {
-    let mut overrides = read_overrides(path);
-    overrides
-        .recent_homes
-        .retain(|entry| !(entry.path == home && &entry.host == host));
-    write_overrides(path, &overrides)
+    update_overrides(path, |overrides| {
+        overrides
+            .recent_homes
+            .retain(|entry| !(entry.path == home && &entry.host == host));
+        Ok(())
+    })
 }
 
 /// The persisted quick-chat shortcut, or the documented default when unset.
@@ -237,11 +264,12 @@ pub(crate) fn read_quick_shortcut(path: &Path) -> String {
 /// Persist the quick-chat shortcut while preserving the other overrides.
 /// `None` clears it back to the default.
 pub(crate) fn write_quick_shortcut(path: &Path, accelerator: Option<String>) -> Result<(), String> {
-    let mut overrides = read_overrides(path);
-    overrides.quick_shortcut = accelerator
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    write_overrides(path, &overrides)
+    update_overrides(path, |overrides| {
+        overrides.quick_shortcut = accelerator
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        Ok(())
+    })
 }
 
 #[cfg(test)]
@@ -453,6 +481,19 @@ mod tests {
         let path = directory.path().join("settings.json");
         fs::write(&path, "not-json").unwrap();
         assert_eq!(read_overrides(&path), RuntimeOverrides::default());
+    }
+
+    #[test]
+    fn saving_over_a_corrupt_settings_file_refuses_instead_of_resetting() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+        fs::write(&path, r#"{"codexHome": "/mine", "#).unwrap();
+        let error = write_quick_shortcut(&path, Some("CmdOrCtrl+K".into())).unwrap_err();
+        assert!(error.contains("not valid settings JSON"), "{error}");
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            r#"{"codexHome": "/mine", "#
+        );
     }
 
     #[test]

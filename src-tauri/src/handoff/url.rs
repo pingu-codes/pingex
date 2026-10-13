@@ -173,6 +173,9 @@ pub(crate) fn build_resume_command_on(
     thread_id: &str,
     cwd: &str,
 ) -> String {
+    if cfg!(windows) && *host == Host::Native {
+        return build_cmd_resume_command(codex_home, codex_binary, thread_id, cwd);
+    }
     let binary = if codex_binary == "codex" {
         "codex".to_string()
     } else {
@@ -192,6 +195,24 @@ pub(crate) fn build_resume_command_on(
             shell_double_quote(&inner)
         ),
     }
+}
+
+/// The resume command for a native Windows home, in `cmd.exe` syntax: the
+/// terminal handoff runs it with `cmd /K`, where the POSIX `VAR='…' cmd` form
+/// fails with "'CODEX_HOME' is not recognized". Windows paths cannot contain
+/// `"`, so plain double quotes are enough.
+pub(super) fn build_cmd_resume_command(
+    codex_home: &str,
+    codex_binary: &str,
+    thread_id: &str,
+    cwd: &str,
+) -> String {
+    let binary = if codex_binary == "codex" {
+        "codex".to_string()
+    } else {
+        format!("\"{codex_binary}\"")
+    };
+    format!("set \"CODEX_HOME={codex_home}\" && {binary} resume \"{thread_id}\" --cd \"{cwd}\"")
 }
 
 /// Double-quote a value for `cmd.exe` and PowerShell, where single quotes

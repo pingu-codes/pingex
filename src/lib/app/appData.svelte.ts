@@ -106,6 +106,42 @@ function insertOptimisticThread(target: BootstrapData, summary: ThreadSummary) {
   project.threads.splice(index === -1 ? project.threads.length : index, 0, summary);
 }
 
+/**
+ * Sidebar data arrives from many requests at once: refreshes after events,
+ * action results, auto-naming. Each takes a ticket when it starts, and a
+ * response older than one already applied is dropped, so a slow refresh can
+ * no longer undo a project that was just added. A dropped action result may
+ * still hold a change the applied one predates, so it triggers one fresh
+ * read to converge.
+ */
+let dataRequested = 0;
+let dataApplied = 0;
+
+/** Take a ticket for a request about to replace the sidebar data. */
+export function dataTicket(): number {
+  return ++dataRequested;
+}
+
+/** Apply `next` unless a request that started later already landed. */
+export function applyTicketed(next: BootstrapData, ticket: number, reconcile = true): boolean {
+  if (ticket < dataApplied) {
+    if (reconcile) void quietRefresh();
+    return false;
+  }
+  dataApplied = ticket;
+  applyData(next);
+  return true;
+}
+
+/** `applyData(await request)`, in request order. Pass the promise straight
+ *  from the call so the ticket is taken as the request starts. */
+export async function applyFresh(request: Promise<BootstrapData>): Promise<BootstrapData> {
+  const ticket = dataTicket();
+  const next = await request;
+  applyTicketed(next, ticket);
+  return next;
+}
+
 export function applyData(next: BootstrapData): void {
   for (const [id, summary] of optimisticThreads) {
     if (next.projects.some((project) => project.threads.some((thread) => thread.id === id))) {
@@ -122,6 +158,13 @@ export function applyData(next: BootstrapData): void {
     }
   }
   appData.data = next;
+}
+
+/** Stop showing a thread that was never persisted (deleted or archived before
+ *  bootstrap reported it). Without this, `applyData` keeps re-inserting it. */
+export function forgetOptimisticThread(id: string): void {
+  optimisticThreads.delete(id);
+  optimisticSubagents.delete(id);
 }
 
 /** Register a brand-new thread so the sidebar shows it before it persists. */
@@ -192,7 +235,7 @@ export async function refresh(): Promise<void> {
   appData.loading = true;
   appData.error = null;
   try {
-    applyData(await bootstrap());
+    await applyFresh(bootstrap());
     // Questions the app never got to answer only exist in the database, so the
     // sidebar has to be told about them explicitly.
     threadsWithUnansweredQuestions()
@@ -215,8 +258,10 @@ export async function refresh(): Promise<void> {
 
 /** Refresh without the spinner; used after background changes. */
 export async function quietRefresh(): Promise<void> {
+  const ticket = dataTicket();
   try {
-    applyData(await bootstrap());
+    // A stale refresh needs no follow-up: a newer read already landed.
+    applyTicketed(await bootstrap(), ticket, false);
   } catch {
     // Sidebar refresh after thread creation is best-effort.
   }
@@ -226,7 +271,7 @@ export async function addProject(): Promise<void> {
   if (!isTauri()) return;
   await openDialog<true, { submit: (path: string, host: Host | null) => Promise<void> }>(AddProjectDialog, {
     submit: async (path, host) => {
-      applyData(await saveProject(path, host));
+      await applyFresh(saveProject(path, host));
     },
   });
 }

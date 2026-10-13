@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
+import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Sidebar from "$lib/layout/Sidebar.svelte";
 import { sidebarPrefs } from "$lib/layout/sidebarPrefs.svelte";
@@ -507,7 +508,12 @@ describe("Sidebar", () => {
       await user.pointer({ keys: "[MouseRight]", target: screen.getByText("Thread 2") });
       expect(screen.getByRole("menuitem", { name: "Unhide thread" })).toBeInTheDocument();
       expect(screen.queryByRole("menuitem", { name: "Hide threads below" })).not.toBeInTheDocument();
-      await user.keyboard("{Escape}");
+      // Claimed, so the composer does not also read it as "interrupt the turn".
+      const escapeKey = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+      document.body.dispatchEvent(escapeKey);
+      expect(escapeKey.defaultPrevented).toBe(true);
+      await tick();
+      expect(screen.queryByRole("menuitem", { name: "Unhide thread" })).not.toBeInTheDocument();
 
       await user.pointer({ keys: "[MouseRight]", target: screen.getByText("Thread 1") });
       await user.click(screen.getByRole("menuitem", { name: "Hide threads below" }));

@@ -59,9 +59,12 @@ $effect(() => {
   if (current) void load(current, DEFAULT_BYTES);
 });
 
+// Tracks only the selection: `load` reads `summary`, and the effect above
+// already reloads on a new summary, so tracking it here fetched twice.
 $effect(() => {
   forceLarge = false;
-  if (selected) void load(selected, DEFAULT_BYTES);
+  const path = selected;
+  if (path) untrack(() => void load(path, DEFAULT_BYTES));
   else diff = null;
 });
 

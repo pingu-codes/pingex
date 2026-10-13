@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use super::{files, MemoryStore, MemoryToggle};
-use crate::settings::codex_config::{read_doc, write_doc};
+use crate::settings::codex_config::{edit_doc, read_doc};
 use crate::util::host::Host;
 
 /// Store directories below the Codex home, with the title each is shown as.
@@ -105,15 +105,16 @@ pub(super) fn set_toggle(local_home: &Path, key: &str, value: bool) -> Result<()
         .map(|(table, key, ..)| (*table, *key))
         .find(|(table, name)| format!("{table}.{name}") == key)
         .ok_or_else(|| format!("{key} is not a Codex memory setting"))?;
-    let mut document = read_doc(local_home)?;
-    if document
-        .get(table)
-        .is_some_and(|item| !item.is_table_like())
-    {
-        return Err(format!("config.toml has a `{table}` that is not a table"));
-    }
-    document[table][key] = toml_edit::value(value);
-    write_doc(local_home, &document)
+    edit_doc(local_home, |document| {
+        if document
+            .get(table)
+            .is_some_and(|item| !item.is_table_like())
+        {
+            return Err(format!("config.toml has a `{table}` that is not a table"));
+        }
+        document[table][key] = toml_edit::value(value);
+        Ok(())
+    })
 }
 
 #[cfg(test)]

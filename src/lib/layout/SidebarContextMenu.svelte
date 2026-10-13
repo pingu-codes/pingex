@@ -44,7 +44,15 @@ const hiddenCount = (target: MenuTarget) =>
   target.kind === "project" ? target.project.threads.filter((thread) => thread.hidden).length : 0;
 </script>
 
-<svelte:window onkeydown={(event) => event.key === "Escape" && onClose()} />
+<!-- Capture phase + preventDefault: the composer reads an unclaimed Escape as
+     "interrupt the running turn". -->
+<svelte:window
+  onkeydowncapture={(event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    onClose();
+  }}
+/>
 
 <div
   class="fixed inset-0 z-40"

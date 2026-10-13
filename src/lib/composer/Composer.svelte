@@ -1,5 +1,4 @@
 <script lang="ts">
-import { CLAUDE_MODES, claudeModeFromPrefs, isClaudeMode, selectClaudeMode } from "$lib/composer/claudeModes";
 import { ArrowUp, Map as MapIcon, Paperclip, Square, Target } from "@lucide/svelte";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -10,6 +9,7 @@ import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import AdaptiveToolbar from "$lib/composer/AdaptiveToolbar.svelte";
 import ContextMeter from "$lib/composer/ContextMeter.svelte";
+import { CLAUDE_MODES, claudeModeFromPrefs, isClaudeMode, selectClaudeMode } from "$lib/composer/claudeModes";
 import {
   type AttachmentPart,
   buildGoalObjective,
@@ -32,14 +32,7 @@ import { fastModeState, fastTier } from "$lib/composer/fastMode";
 import HarnessMenu from "$lib/composer/HarnessMenu.svelte";
 import MentionPicker from "$lib/composer/MentionPicker.svelte";
 import ModelPopover from "$lib/composer/ModelPopover.svelte";
-import {
-  claudeModels as claudeModelList,
-  claudeModelsError as claudeModelListError,
-  ensureClaudeModels,
-  ensureModels,
-  models as modelList,
-  modelsError as modelListError,
-} from "$lib/composer/models.svelte";
+import { ensureHarnessModels as ensureModelsFor, harnessModels, harnessModelsError } from "$lib/composer/models.svelte";
 import PermissionsPopover from "$lib/composer/PermissionsPopover.svelte";
 import ReviewTargetPicker from "$lib/composer/ReviewTargetPicker.svelte";
 import { RichEditor } from "$lib/composer/richEditor.svelte";
@@ -63,6 +56,7 @@ import { openSettings, settingsNav } from "$lib/services/settingsNav.svelte";
 import type { ContextStats } from "$lib/thread/contextUsage";
 import { freshPlanPrompt } from "$lib/thread/planHandoff";
 import type { Model, ReviewTarget, SkillSummary, SubagentPolicy, TurnOptions, UserInputPart } from "$lib/types";
+import { can } from "$lib/utils/capabilities";
 import { clickOutside } from "$lib/utils/clickOutside";
 import { loadSize, resizeHandle } from "$lib/utils/resize";
 
@@ -386,12 +380,17 @@ $effect(() => {
  *  draft's chosen one, else Codex. */
 const harness = $derived<HarnessChoice>(threadHarness ?? prefs.harness ?? "codex");
 const claudeMode = $derived(claudeModeFromPrefs(prefs));
-const planMode = $derived(harness === "claude" ? claudeMode?.mode === "plan" : prefs.planMode);
-const models = $derived(harness === "claude" ? claudeModelList() : modelList());
-const modelsError = $derived(harness === "claude" ? claudeModelListError() : modelListError());
+/** The harness switches named permission modes itself (plan among them),
+ *  rather than taking presets plus a per-turn collaboration mode. */
+const permissionModes = $derived(can(harness, "permissionModes"));
+/** Plan or default is sent as a collaboration mode with every turn. */
+const collaborationModes = $derived(can(harness, "collaborationModes"));
+const planMode = $derived(permissionModes ? claudeMode?.mode === "plan" : prefs.planMode);
+const models = $derived(harnessModels(harness));
+const modelsError = $derived(harnessModelsError(harness));
 
 function ensureHarnessModels(): Promise<void> {
-  return harness === "claude" ? ensureClaudeModels() : ensureModels();
+  return ensureModelsFor(harness);
 }
 let popover = $state<"model" | "subagents" | "permissions" | null>(null);
 
@@ -448,7 +447,7 @@ const invalidReason = $derived.by(() => {
     return "Pick at least one subagent effort level";
   }
   if (!prefs.model) return "Choose a model";
-  if (harness === "claude" ? !isClaudeMode(claudeMode?.mode) : !prefs.permissionPreset) return "Choose a permission mode";
+  if (permissionModes ? !isClaudeMode(claudeMode?.mode) : !prefs.permissionPreset) return "Choose a permission mode";
   return null;
 });
 
@@ -503,7 +502,7 @@ function sendOptions(): TurnOptions | undefined {
     harness,
   );
   if (options && !supportsSpeed) delete options.speedTier;
-  if (harness !== "claude" && !options?.collaborationMode) {
+  if (collaborationModes && !options?.collaborationMode) {
     console.warn("composer: no model resolved; turn sent without an explicit collaboration mode");
   }
   if (!effectiveModel && !effectiveEffort) return options;
@@ -546,7 +545,7 @@ function chooseEffort(effort: string) {
 function choosePermission(id: string) {
   // No un-toggling back to "unset": a turn needs a preset, and sending is
   // blocked without one.
-  if (harness === "claude") {
+  if (permissionModes) {
     if (!isClaudeMode(id)) return;
     selectClaudeMode(prefs, id);
   } else prefs.permissionPreset = id;
@@ -589,7 +588,7 @@ function setAppSubagents(value: boolean | null) {
 }
 
 function togglePlanMode() {
-  if (harness === "claude") selectClaudeMode(prefs, planMode ? claudeMode?.exitPlanMode ?? "default" : "plan");
+  if (permissionModes) selectClaudeMode(prefs, planMode ? (claudeMode?.exitPlanMode ?? "default") : "plan");
   else prefs.planMode = !prefs.planMode;
   persist();
 }
@@ -602,7 +601,7 @@ let goalMode = $state(false);
 // had typed before is parked in `stashedParts` until the edit ends either way.
 let goalEditing = $state(false);
 let stashedParts: ComposerPart[] | null = null;
-const goalAvailable = $derived(Boolean(onGoal) && harness === "codex");
+const goalAvailable = $derived(Boolean(onGoal) && can(harness, "goals"));
 
 function toggleGoalMode() {
   if (goalEditing) {
@@ -651,7 +650,7 @@ const showPlanActions = $derived(
 /** Leaving plan mode to act on `plan`: the action bar only returns for a newer one. */
 function leavePlanMode() {
   dismissedPlan = plan;
-  if (harness === "claude") selectClaudeMode(prefs, claudeMode?.exitPlanMode ?? "default");
+  if (permissionModes) selectClaudeMode(prefs, claudeMode?.exitPlanMode ?? "default");
   else prefs.planMode = false;
   persist();
 }
@@ -661,7 +660,7 @@ function leavePlanMode() {
 export function syncPlanMode(on: boolean) {
   if (planMode === on) return;
   if (on) {
-    if (harness === "claude") selectClaudeMode(prefs, "plan");
+    if (permissionModes) selectClaudeMode(prefs, "plan");
     else prefs.planMode = true;
     persist();
   } else {
@@ -670,7 +669,7 @@ export function syncPlanMode(on: boolean) {
 }
 
 export function syncPermissionMode(mode: string) {
-  if (harness !== "claude" || !isClaudeMode(mode)) return;
+  if (!permissionModes || !isClaudeMode(mode)) return;
   selectClaudeMode(prefs, mode);
   if (mode !== "plan") dismissedPlan = plan;
   persist();
@@ -1019,7 +1018,7 @@ async function submitGoal(parts: ComposerPart[]) {
  *  stuck in plan mode. Bounded so a failing model fetch never blocks sending. */
 async function dispatchSend(sent: UserInputPart[], snapshot: ComposerPart[]) {
   if (!models && !prefs.model && !threadModel) {
-    await Promise.race([ensureModels(), new Promise((resolve) => setTimeout(resolve, 3000))]);
+    await Promise.race([ensureHarnessModels(), new Promise((resolve) => setTimeout(resolve, 3000))]);
   }
   let outcome: boolean | undefined;
   try {
@@ -1119,7 +1118,7 @@ function onPaste(event: ClipboardEvent) {
           onclick={implementPlan}
           class="shrink-0 rounded-full px-2.5 py-1 text-[11px] preset-filled-primary-500"
         >
-          {harness === "claude" ? `Implement with ${CLAUDE_MODES.find((mode) => mode.id === claudeMode?.exitPlanMode)?.label ?? "Default"}` : "Implement the plan"}
+          {permissionModes ? `Implement with ${CLAUDE_MODES.find((mode) => mode.id === claudeMode?.exitPlanMode)?.label ?? "Default"}` : "Implement the plan"}
         </button>
       </div>
     {/if}
@@ -1261,7 +1260,7 @@ function onPaste(event: ClipboardEvent) {
         </TooltipButton>
       {/snippet}
       {#snippet plan()}
-        {#if harness !== "claude"}
+        {#if collaborationModes}
           <TooltipButton
             label={prefs.planMode ? "Plan mode on" : "Toggle plan mode"}
             onclick={togglePlanMode}
@@ -1336,7 +1335,7 @@ function onPaste(event: ClipboardEvent) {
       {#snippet permissions()}
         <PermissionsPopover
           open={popover === "permissions"}
-          selectedId={harness === "claude" ? claudeMode?.mode ?? null : prefs.permissionPreset}
+          selectedId={permissionModes ? claudeMode?.mode ?? null : prefs.permissionPreset}
           onToggle={() => togglePopover("permissions")}
           harness={harness}
           onChoose={choosePermission}

@@ -1,5 +1,4 @@
 <script lang="ts">
-import { projectHostLabel } from "$lib/services/homeRouting";
 import {
   Bot,
   Brain,
@@ -48,6 +47,7 @@ import { accountUsage } from "$lib/services/accountUsage.svelte";
 import { setProjectExpanded, setSidebarFolderExpanded } from "$lib/services/api";
 import { activeTurns, approvals, unansweredQuestions, userInputRequests } from "$lib/services/codexEvents.svelte";
 import { remoteConnections } from "$lib/services/connections.svelte";
+import { projectHostLabel } from "$lib/services/homeRouting";
 import { toastError } from "$lib/toaster";
 import type {
   Account,

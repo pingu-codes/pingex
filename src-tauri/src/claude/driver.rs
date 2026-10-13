@@ -130,12 +130,17 @@ impl ThreadSink {
     }
 
     /// Push one neutral event out: to `harness:event`, and projected onto the
-    /// journal and `codex:event`.
+    /// journal and `codex:event`, under the turn running now.
     fn emit(&self, event: HarnessEvent) {
+        self.emit_in(self.turn_id(), event);
+    }
+
+    /// [`Self::emit`] under an explicit turn: a turn's closing events are
+    /// produced after the translator has already let go of its id.
+    fn emit_in(&self, turn_id: Option<String>, event: HarnessEvent) {
         if let HarnessEvent::PermissionModeChanged { mode } = &event {
             self.persist_mode(mode);
         }
-        let turn_id = self.turn_id();
         let seq = self.seq.fetch_add(1, Ordering::SeqCst);
         let _ = HarnessEventEnvelope {
             codex_home: self.home_key.clone(),
@@ -174,10 +179,10 @@ impl ThreadSink {
         }
     }
 
-    fn emit_all(&self, events: Vec<HarnessEvent>) {
+    fn emit_all(&self, turn_id: Option<String>, events: Vec<HarnessEvent>) {
         for event in events {
             let ended = matches!(event, HarnessEvent::TurnEnded { .. });
-            self.emit(event);
+            self.emit_in(turn_id.clone(), event);
             if ended {
                 self.deny_pending("Interrupted");
             }
@@ -192,13 +197,16 @@ impl ThreadSink {
             .and_then(|mut t| t.turn_id.take());
         self.deny_pending("Claude exited");
         if let Some(turn_id) = turn_id {
-            self.emit(HarnessEvent::TurnEnded {
-                turn_id,
-                stop_reason: crate::harness::StopReason::Error,
-                error: Some(reason.into()),
-                duration_ms: None,
-                usage: None,
-            });
+            self.emit_in(
+                Some(turn_id.clone()),
+                HarnessEvent::TurnEnded {
+                    turn_id,
+                    stop_reason: crate::harness::StopReason::Error,
+                    error: Some(reason.into()),
+                    duration_ms: None,
+                    usage: None,
+                },
+            );
         }
     }
 
@@ -263,11 +271,13 @@ impl FrameSink for ThreadSink {
             }
             return;
         }
-        let events = match self.translator.lock() {
-            Ok(mut translator) => translator.frame(frame),
-            Err(_) => Vec::new(),
+        // The turn as it stood before this frame: a `result` frame ends the
+        // turn inside `frame`, but its events still belong to it.
+        let (turn_id, events) = match self.translator.lock() {
+            Ok(mut translator) => translator.frame_in_turn(frame),
+            Err(_) => (None, Vec::new()),
         };
-        self.emit_all(events);
+        self.emit_all(turn_id, events);
     }
 
     fn on_control_request(&self, child: &Arc<ClaudeChild>, request_id: &str, request: &Value) {
@@ -354,6 +364,18 @@ struct ThreadProcess {
     sink: Arc<ThreadSink>,
     settings: Arc<Mutex<Settings>>,
     side_questions_unsupported: AtomicBool,
+}
+
+fn resolve_claude_binary(runtime: &ClaudeRuntime) -> Result<String, String> {
+    runtime
+        .host
+        .resolve_binary(&runtime.binary_str())
+        .ok_or_else(|| {
+            format!(
+                "{} Claude Code is needed for Claude threads.",
+                missing_claude_message(&runtime.host, &runtime.binary_str())
+            )
+        })
 }
 
 /// Where the driver finds its binary and config directory, and on which host
@@ -669,30 +691,38 @@ impl ClaudeDriver {
             .unwrap_or_default()
     }
 
-    fn resolve_binary(&self, runtime: &ClaudeRuntime) -> Result<String, String> {
-        runtime
-            .host
-            .resolve_binary(&runtime.binary_str())
-            .ok_or_else(|| {
-                format!(
-                    "{} Claude Code is needed for Claude threads.",
-                    missing_claude_message(&runtime.host, &runtime.binary_str())
-                )
-            })
-    }
-
-    fn spawn(
+    /// `has_history`: the journal holds turns for this thread, so its Claude
+    /// session must exist and be resumed.
+    async fn spawn(
         &self,
         app: &AppHandle,
         thread_id: &str,
         cwd: &str,
-        resume: bool,
+        has_history: bool,
         settings: &Settings,
     ) -> Result<Arc<ThreadProcess>, String> {
         let runtime = self.runtime();
-        let program = self.resolve_binary(&runtime)?;
-        let config_dir = super::sessions::config_path(&runtime.host, &runtime.config_dir_str())?;
-        let resume = super::sessions::should_resume(&runtime.host, &config_dir, thread_id, resume)?;
+        // Binary lookup, `~` expansion and the session probe all touch the
+        // host (login shells and the `\\wsl$` share on WSL), and this runs
+        // under the driver-wide start lock: keep them off the async worker.
+        let (program, config_dir, resume) = {
+            let runtime = runtime.clone();
+            let thread_id = thread_id.to_string();
+            tauri::async_runtime::spawn_blocking(move || -> Result<_, String> {
+                let program = resolve_claude_binary(&runtime)?;
+                let config_dir =
+                    super::sessions::config_path(&runtime.host, &runtime.config_dir_str())?;
+                let resume = super::sessions::should_resume(
+                    &runtime.host,
+                    &config_dir,
+                    &thread_id,
+                    has_history,
+                )?;
+                Ok((program, config_dir, resume))
+            })
+            .await
+            .map_err(|error| format!("Could not start Claude: {error}"))??
+        };
         let args = turn_args(
             settings.model.as_deref(),
             settings.effort.as_deref(),
@@ -755,12 +785,33 @@ impl ClaudeDriver {
     ) -> Result<Arc<ThreadProcess>, String> {
         let _starting = self.process_start.lock().await;
         if let Some(process) = self.reusable_process(thread_id).await {
-            drop(_starting);
+            // Refuse before touching anything: switching model or permission
+            // mode here would change the turn that is already running, even
+            // though `start_turn` then rejects this send.
+            if process.sink.turn_id().is_some() {
+                return Err("A turn is already running on this thread".into());
+            }
             let current = process
                 .settings
                 .lock()
                 .map(|s| s.clone())
                 .unwrap_or_default();
+            if current.effort != settings.effort {
+                // `--effort` is fixed when the CLI starts and there is no
+                // control request for it, so an idle process is restarted
+                // under the same session; the conversation resumes from its
+                // transcript, exactly as after an app restart.
+                process.sink.deny_pending("Restarting");
+                process.child.kill();
+                process.child.wait_closed().await;
+                let restarted = Settings {
+                    mode: settings.mode.clone().or(current.mode),
+                    exit_plan_mode: settings.exit_plan_mode.or(current.exit_plan_mode),
+                    ..settings.clone()
+                };
+                return self.spawn(app, thread_id, cwd, resume, &restarted).await;
+            }
+            drop(_starting);
             if current.model != settings.model {
                 process
                     .child
@@ -784,7 +835,7 @@ impl ClaudeDriver {
             }
             return Ok(process);
         }
-        self.spawn(app, thread_id, cwd, resume, settings)
+        self.spawn(app, thread_id, cwd, resume, settings).await
     }
 
     /// Native /btw uses the session's context without opening a chat turn.
@@ -815,7 +866,10 @@ impl ClaudeDriver {
                             mode: Some(saved_modes.mode.as_str().to_string()),
                             exit_plan_mode: Some(saved_modes.exit_plan_mode),
                         };
-                        (self.spawn(app, thread_id, cwd, resume, &settings)?, true)
+                        (
+                            self.spawn(app, thread_id, cwd, resume, &settings).await?,
+                            true,
+                        )
                     }
                 }
             };
@@ -876,6 +930,9 @@ impl ClaudeDriver {
         options: Option<&TurnOptions>,
     ) -> Result<String, String> {
         let settings = Settings::from_options(options);
+        // Read attachments before spawning or locking anything: a bad image
+        // fails the send up front instead of being dropped silently.
+        let (text, content) = user_content(input, &self.runtime().host)?;
         let process = self
             .ensure_process(app, thread_id, cwd, resume, &settings)
             .await?;
@@ -891,22 +948,6 @@ impl ClaudeDriver {
             return Err("A turn is already running on this thread".into());
         }
         let turn_id = uuid::Uuid::new_v4().to_string();
-        let text = input
-            .iter()
-            .filter(|part| str_at(part, "type") == Some("text"))
-            .filter_map(|part| str_at(part, "text"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let mut content: Vec<Value> = vec![json!({"type": "text", "text": text})];
-        for part in input {
-            if str_at(part, "type") == Some("image") {
-                if let Some(url) = str_at(part, "url").or_else(|| str_at(part, "path")) {
-                    if let Some(block) = image_block(url) {
-                        content.push(block);
-                    }
-                }
-            }
-        }
         let frame = json!({
             "type": "user",
             "session_id": "",
@@ -1078,7 +1119,7 @@ impl ClaudeDriver {
             .processes
             .lock()
             .ok()
-            .and_then(|processes| processes.get(thread_id).cloned());
+            .and_then(|mut processes| processes.remove(thread_id));
         if let Some(process) = removed {
             process.sink.deny_pending("Closed");
             process.child.kill();
@@ -1134,16 +1175,41 @@ pub fn turn_args(
     args
 }
 
-/// A local image as a base64 content block, when it can be read.
-fn image_block(path: &str) -> Option<Value> {
-    use std::io::Read;
-    let path = path.strip_prefix("file://").unwrap_or(path);
-    let mut bytes = Vec::new();
-    std::fs::File::open(path)
-        .ok()?
-        .read_to_end(&mut bytes)
-        .ok()?;
-    let media_type = match std::path::Path::new(path)
+/// The largest image sent inline; matches the composer's attachment cap.
+const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
+
+/// A turn's input as the CLI's `user` message content: the text parts joined
+/// into one block, then each image inline. Returns the joined text too, for
+/// the transcript. Images arrive as the composer's `localImage` (a host path
+/// of a staged file) or a protocol `image` with a `file://` url or path.
+fn user_content(input: &[Value], host: &Host) -> Result<(String, Vec<Value>), String> {
+    let text = input
+        .iter()
+        .filter(|part| str_at(part, "type") == Some("text"))
+        .filter_map(|part| str_at(part, "text"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut content = vec![json!({"type": "text", "text": text})];
+    for part in input {
+        if !matches!(str_at(part, "type"), Some("image" | "localImage")) {
+            continue;
+        }
+        let Some(path) = str_at(part, "path").or_else(|| str_at(part, "url")) else {
+            continue;
+        };
+        let path = path.strip_prefix("file://").unwrap_or(path);
+        content.push(image_block(&host.to_local(path))?);
+    }
+    Ok((text, content))
+}
+
+/// A local image as a base64 content block.
+fn image_block(path: &std::path::Path) -> Result<Value, String> {
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let media_type = match path
         .extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| ext.to_ascii_lowercase())
@@ -1153,9 +1219,21 @@ fn image_block(path: &str) -> Option<Value> {
         Some("jpg") | Some("jpeg") => "image/jpeg",
         Some("gif") => "image/gif",
         Some("webp") => "image/webp",
-        _ => return None,
+        _ => {
+            return Err(format!(
+                "{name}: Claude accepts PNG, JPEG, GIF or WebP images"
+            ))
+        }
     };
-    Some(json!({
+    let size = std::fs::metadata(path)
+        .map_err(|error| format!("Could not read image {name}: {error}"))?
+        .len();
+    if size > MAX_IMAGE_BYTES {
+        return Err(format!("{name} is larger than 20 MB"));
+    }
+    let bytes =
+        std::fs::read(path).map_err(|error| format!("Could not read image {name}: {error}"))?;
+    Ok(json!({
         "type": "image",
         "source": {"type": "base64", "media_type": media_type, "data": base64_encode(&bytes)},
     }))
@@ -1163,7 +1241,7 @@ fn image_block(path: &str) -> Option<Value> {
 
 fn base64_encode(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let b = [
             chunk[0],
@@ -1269,6 +1347,43 @@ mod tests {
                 "{mode}"
             );
         }
+    }
+
+    #[test]
+    fn user_content_inlines_the_composers_local_images() {
+        let dir = tempfile::tempdir().unwrap();
+        let image = dir.path().join("shot.PNG");
+        std::fs::write(&image, b"hi").unwrap();
+        let input = [
+            json!({"type": "text", "text": "look"}),
+            json!({"type": "localImage", "path": image.to_string_lossy()}),
+            json!({"type": "text", "text": "here"}),
+        ];
+        let (text, content) = user_content(&input, &Host::Native).unwrap();
+        assert_eq!(text, "look\nhere");
+        assert_eq!(content.len(), 2);
+        assert_eq!(content[1]["source"]["media_type"], "image/png");
+        assert_eq!(content[1]["source"]["data"], "aGk=");
+    }
+
+    #[test]
+    fn user_content_refuses_images_it_cannot_send() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("gone.png");
+        let error = user_content(
+            &[json!({"type": "localImage", "path": missing.to_string_lossy()})],
+            &Host::Native,
+        )
+        .unwrap_err();
+        assert!(error.contains("gone.png"), "{error}");
+        let bmp = dir.path().join("old.bmp");
+        std::fs::write(&bmp, b"x").unwrap();
+        let error = user_content(
+            &[json!({"type": "image", "url": format!("file://{}", bmp.display())})],
+            &Host::Native,
+        )
+        .unwrap_err();
+        assert!(error.contains("PNG, JPEG"), "{error}");
     }
 
     #[test]

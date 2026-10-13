@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { isRetryableError, reviewTransition, threadIdOf, turnEnd } from "$lib/services/turnLifecycle";
 import { fakeEvent } from "$lib/testing/codexEvents";

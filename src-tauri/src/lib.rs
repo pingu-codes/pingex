@@ -510,6 +510,11 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         // One TS type per struct; phased mode overflows the stack in rc.25 and
         // unified mode cannot express `skip_serializing_if`, so we do not use it.
         .disable_serde_phases()
+        .typ::<harness::Capability>()
+        .constant(
+            "HARNESS_CAPABILITIES",
+            harness::HarnessCapabilities::declared(),
+        )
         .commands(tauri_specta::collect_commands![
             // Projects and the bootstrap payload
             profiles::bootstrap_profile,

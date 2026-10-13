@@ -55,9 +55,9 @@ pub(crate) use harness::{
     set_harness_thread_archived, thread_harness, touch_harness_thread, HarnessThread,
 };
 pub(crate) use items::{
-    copy_thread_items, delete_thread_items, mark_turn_complete, read_complete_turns,
-    read_running_turns, read_thread_items, record_thread_item, record_turn_start,
-    retain_thread_turns, JournaledItem,
+    copy_thread_items, delete_thread_items, has_thread_items, mark_turn_complete,
+    read_complete_turns, read_running_turns, read_thread_items, record_thread_item,
+    record_turn_start, retain_thread_turns, JournaledItem,
 };
 pub(crate) use project_expansion::{read_project_expansion, set_project_expanded};
 pub(crate) use projects::{read_store, write_store, Store, StoredProject};

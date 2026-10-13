@@ -31,7 +31,12 @@ fn pipe_to(program: &str, args: &[&str], text: &str) -> Result<(), String> {
 
 /// Pipe `text` into a clipboard tool's stdin, with extra environment variables
 /// set on the child process.
-fn pipe_to_with_env(program: &str, args: &[&str], env: &[(&str, &str)], text: &str) -> Result<(), String> {
+fn pipe_to_with_env(
+    program: &str,
+    args: &[&str],
+    env: &[(&str, &str)],
+    text: &str,
+) -> Result<(), String> {
     let mut child = Command::new(program)
         .args(args)
         .envs(env.iter().copied())
@@ -61,7 +66,12 @@ pub(crate) fn copy_to_clipboard(text: &str) -> Result<(), String> {
         // register the pasteboard content under a legacy non-UTF-8 string
         // type, which other apps then read back mojibake'd. Force a UTF-8
         // locale so it commits to a UTF-8 pasteboard representation.
-        return pipe_to_with_env("pbcopy", &[], &[("LANG", "en_US.UTF-8"), ("LC_ALL", "en_US.UTF-8")], text);
+        return pipe_to_with_env(
+            "pbcopy",
+            &[],
+            &[("LANG", "en_US.UTF-8"), ("LC_ALL", "en_US.UTF-8")],
+            text,
+        );
     }
     if cfg!(windows) {
         return pipe_to("clip.exe", &[], text);

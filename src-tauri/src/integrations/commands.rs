@@ -11,8 +11,8 @@ use tauri::{AppHandle, State};
 
 use super::app_server::reload_mcp_config;
 use super::config_doc::{
-    load, remove_server_from_doc, rename_server_in_doc, save, set_enabled_in_doc,
-    summarize_mcp_servers, upsert_http_server, upsert_stdio_server, validate_server_name,
+    edit, remove_server_from_doc, rename_server_in_doc, set_enabled_in_doc, summarize_mcp_servers,
+    upsert_http_server, upsert_stdio_server, validate_server_name,
 };
 use super::IntegrationsList;
 use crate::AppState;
@@ -102,49 +102,45 @@ pub(crate) async fn save_mcp_server(
     let name = server.name;
     validate_server_name(&name)?;
     let home = ctx.runtime().local_home();
-    let mut doc = load(&home)?;
-
-    // Rename first so every later edit targets the entry under its final key,
-    // and so a name collision fails before anything is written to disk.
-    match server.previous_name.as_deref() {
-        Some(previous) => rename_server_in_doc(&mut doc, previous, &name)?,
-        None => {
-            if summarize_mcp_servers(&doc)
-                .iter()
-                .any(|existing| existing.name == name)
-            {
-                return Err(format!("An MCP server named '{name}' already exists"));
+    edit(&home, |doc| {
+        // Rename first so every later edit targets the entry under its final key,
+        // and so a name collision fails before anything is written to disk.
+        match server.previous_name.as_deref() {
+            Some(previous) => rename_server_in_doc(doc, previous, &name)?,
+            None => {
+                if summarize_mcp_servers(doc)
+                    .iter()
+                    .any(|existing| existing.name == name)
+                {
+                    return Err(format!("An MCP server named '{name}' already exists"));
+                }
             }
         }
-    }
 
-    let command = server
-        .command
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    let url = server
-        .url
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    match (command, url) {
-        (Some(command), _) => upsert_stdio_server(
-            &mut doc,
-            &name,
-            &command,
-            &server.args,
-            &server.env,
-            server.env_keys.as_deref(),
-        )?,
-        (None, Some(url)) => upsert_http_server(
-            &mut doc,
-            &name,
-            &url,
-            server.bearer_token_env_var.as_deref(),
-        )?,
-        (None, None) => return Err("Provide a command (stdio) or a URL (http)".to_string()),
-    }
-
-    save(&home, &doc)?;
+        let command = server
+            .command
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let url = server
+            .url
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        match (command, url) {
+            (Some(command), _) => upsert_stdio_server(
+                doc,
+                &name,
+                &command,
+                &server.args,
+                &server.env,
+                server.env_keys.as_deref(),
+            )?,
+            (None, Some(url)) => {
+                upsert_http_server(doc, &name, &url, server.bearer_token_env_var.as_deref())?
+            }
+            (None, None) => return Err("Provide a command (stdio) or a URL (http)".to_string()),
+        }
+        Ok(())
+    })?;
     reload(&app, &ctx).await;
     // Re-read so the returned list reflects exactly what is on disk (redacted).
     build_list(&app, &ctx, Vec::new()).await
@@ -160,9 +156,7 @@ pub(crate) async fn remove_mcp_server(
 ) -> Result<IntegrationsList, String> {
     let ctx = state.ctx(&window);
     let home = ctx.runtime().local_home();
-    let mut doc = load(&home)?;
-    remove_server_from_doc(&mut doc, &name)?;
-    save(&home, &doc)?;
+    edit(&home, |doc| remove_server_from_doc(doc, &name))?;
     reload(&app, &ctx).await;
     build_list(&app, &ctx, Vec::new()).await
 }
@@ -178,9 +172,7 @@ pub(crate) async fn set_mcp_enabled(
 ) -> Result<IntegrationsList, String> {
     let ctx = state.ctx(&window);
     let home = ctx.runtime().local_home();
-    let mut doc = load(&home)?;
-    set_enabled_in_doc(&mut doc, &name, enabled)?;
-    save(&home, &doc)?;
+    edit(&home, |doc| set_enabled_in_doc(doc, &name, enabled))?;
     reload(&app, &ctx).await;
     build_list(&app, &ctx, Vec::new()).await
 }

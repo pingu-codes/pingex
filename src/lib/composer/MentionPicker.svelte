@@ -34,6 +34,8 @@ $effect(() => {
         failed = false;
       }
     } catch {
+      // A failed search for an older query must not blank newer results.
+      if (currentQuery !== query) return;
       failed = true;
       results = [];
     }

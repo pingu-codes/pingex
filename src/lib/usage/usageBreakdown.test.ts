@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import type { CategoryTokens, ModelUsage, PromptPart } from "$lib/types";
 import {
@@ -90,7 +91,14 @@ describe("ranges and labels", () => {
 
 describe("promptPartRows", () => {
   const parts: PromptPart[] = [
-    { kind: "tools", label: "Tool definitions and other", tokens: 2_000, source: "estimated", detail: null, text: null },
+    {
+      kind: "tools",
+      label: "Tool definitions and other",
+      tokens: 2_000,
+      source: "estimated",
+      detail: null,
+      text: null,
+    },
     { kind: "agentsMd", label: "AGENTS.md", tokens: 1_000, source: "estimated", detail: "/repo", text: null },
     {
       kind: "baseInstructions",

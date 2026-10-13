@@ -4,6 +4,7 @@ import DiffBlock from "$lib/components/DiffBlock.svelte";
 import { respondApproval, respondServerRequest } from "$lib/services/api";
 import { type Approval, removeApproval } from "$lib/services/codexEvents.svelte";
 import { permissionLines } from "$lib/thread/permissions";
+import { harnessName } from "$lib/utils/capabilities";
 
 let { approval }: { approval: Approval } = $props();
 
@@ -20,13 +21,14 @@ const TITLES = {
  *  not start one; the payload is the input, not a command line. */
 const stdin = $derived(approval.kind === "command" && approval.approvalKind === "writeStdin");
 const HARNESS_TITLES = {
-  command: "Claude wants to run a command",
-  fileChange: "Claude wants to edit files",
-  permissions: "Claude wants to use a tool",
+  command: "wants to run a command",
+  fileChange: "wants to edit files",
+  permissions: "wants to use a tool",
 } as const;
+// `harness` is set on a request from a non-Codex harness; name whichever it is.
 const title = $derived(
-  approval.harness === "claude"
-    ? `${HARNESS_TITLES[approval.kind]}${approval.kind === "permissions" && approval.title ? `: ${approval.title}` : ""}`
+  approval.harness
+    ? `${harnessName(approval.harness)} ${HARNESS_TITLES[approval.kind]}${approval.kind === "permissions" && approval.title ? `: ${approval.title}` : ""}`
     : stdin
       ? "Codex wants to send input to the running command"
       : TITLES[approval.kind],

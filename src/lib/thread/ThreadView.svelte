@@ -2,6 +2,7 @@
 import { ArrowDown, ChevronRight, Gauge, Pause, Pencil, Play, Target, X } from "@lucide/svelte";
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
 import { onDestroy, tick, untrack } from "svelte";
+import { SvelteSet } from "svelte/reactivity";
 import { nameNewThread } from "$lib/app/appData.svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
@@ -90,6 +91,7 @@ import type {
   UserInputPart,
   WorktreeBranchRequest,
 } from "$lib/types";
+import { can } from "$lib/utils/capabilities";
 import CreateWorktreeDialog from "$lib/worktrees/CreateWorktreeDialog.svelte";
 import { tempWorktreeLocation } from "$lib/worktrees/worktrees";
 
@@ -174,6 +176,12 @@ $effect(() => {
   composer.syncPermissionMode(mode);
 });
 const thread = $derived(session.thread);
+/** Folded "Worked" segments the user has opened, by `workKey`. Skeleton's
+ *  Collapsible keeps closed content mounted, and a long thread's folded work
+ *  (markdown, command output, highlighted diffs) is most of its DOM, so it is
+ *  only rendered while open. */
+const openWork = new SvelteSet<string>();
+const workKey = (turnId: string, items: { id: string }[]) => `${turnId}:${items[0]?.id ?? ""}`;
 const liveThreadId = $derived(session.id);
 const activeTurn = $derived(session.activeTurn);
 const loading = $derived(session.loading);
@@ -1080,43 +1088,6 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
 
 <div class="flex h-full">
 <div class="relative flex h-full min-w-0 flex-1 flex-col">
-  {#if thread && liveThreadId}
-    <FloatingMenu
-      plan={latestPlan}
-      outputs={outputChanges}
-      sources={sourceQueries}
-      sideQuestionCount={sideQuestions.filter((entry) => entry.parentThreadId === liveThreadId).length}
-      subagents={subagentDetails}
-      processes={processes.list}
-      currentThreadId={liveThreadId}
-      {contextStats}
-      costUsd={estimateCost(tokenUsage, activeModel)}
-      onOpenFinder={() => revealInFinder(thread?.cwd || cwd).catch(() => {})}
-      onOpenZed={() => openInZed(thread?.cwd || cwd).catch((cause) => (session.streamError = cause instanceof Error ? cause.message : String(cause)))}
-      onShowPlan={() => (panelView = latestPlan ? { kind: "plan", text: latestPlan } : panelView)}
-      onShowSources={() => (panelView = { kind: "sources", queries: sourceQueries })}
-      onShowSideQuestions={() => (panelView = { kind: "side" })}
-      onShowDiff={(path) => {
-        workingDiff = null;
-        panelView = { kind: "diffs", focusPath: path };
-      }}
-      gitChanges={gitChanges}
-      onShowChanges={(path) => {
-        refreshGitChanges();
-        panelView = { kind: "changes", focusPath: path };
-      }}
-      onShowFiles={() => (panelView = { kind: "files" })}
-      onShowMessageLog={() => (panelView = { kind: "messageLog" })}
-      onShowStatus={() => (panelView = { kind: "status" })}
-      onOpenSubagent={(agent) => (onOpenSubagent ? onOpenSubagent(agent) : onSelectThread?.(agent.id))}
-      onStopSubagent={async (agent) => {
-        if (!agent.runId) return;
-        await killAgentRun(agent.runId).catch(() => {});
-        session.refreshSubagents();
-      }}
-      onOpenProcess={(process) => (panelView = { kind: "process", processKey: process.key })}
-    />
-  {/if}
   {#if cwdMismatch}
     <div class="mx-auto w-full max-w-3xl px-6 pt-4">
       <div class="card preset-tonal-warning px-3 py-2 text-xs leading-5">
@@ -1126,6 +1097,46 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
     </div>
   {/if}
   <div class="relative flex min-h-0 flex-1 flex-col">
+    <!-- Inside the transcript area, not the whole column: anchored to
+         `bottom-4` of the column, the open overview sat over the composer and
+         swallowed clicks on Stop/Send. -->
+    {#if thread && liveThreadId}
+      <FloatingMenu
+        plan={latestPlan}
+        outputs={outputChanges}
+        sources={sourceQueries}
+        sideQuestionCount={sideQuestions.filter((entry) => entry.parentThreadId === liveThreadId).length}
+        subagents={subagentDetails}
+        processes={processes.list}
+        currentThreadId={liveThreadId}
+        {contextStats}
+        costUsd={estimateCost(tokenUsage, activeModel)}
+        onOpenFinder={() => revealInFinder(thread?.cwd || cwd).catch(() => {})}
+        onOpenZed={() => openInZed(thread?.cwd || cwd).catch((cause) => (session.streamError = cause instanceof Error ? cause.message : String(cause)))}
+        onShowPlan={() => (panelView = latestPlan ? { kind: "plan", text: latestPlan } : panelView)}
+        onShowSources={() => (panelView = { kind: "sources", queries: sourceQueries })}
+        onShowSideQuestions={() => (panelView = { kind: "side" })}
+        onShowDiff={(path) => {
+          workingDiff = null;
+          panelView = { kind: "diffs", focusPath: path };
+        }}
+        gitChanges={gitChanges}
+        onShowChanges={(path) => {
+          refreshGitChanges();
+          panelView = { kind: "changes", focusPath: path };
+        }}
+        onShowFiles={() => (panelView = { kind: "files" })}
+        onShowMessageLog={() => (panelView = { kind: "messageLog" })}
+        onShowStatus={() => (panelView = { kind: "status" })}
+        onOpenSubagent={(agent) => (onOpenSubagent ? onOpenSubagent(agent) : onSelectThread?.(agent.id))}
+        onStopSubagent={async (agent) => {
+          if (!agent.runId) return;
+          await killAgentRun(agent.runId).catch(() => {});
+          session.refreshSubagents();
+        }}
+        onOpenProcess={(process) => (panelView = { kind: "process", processKey: process.key })}
+      />
+    {/if}
     <div
       class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
       bind:this={scroller}
@@ -1156,7 +1167,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
               <UserMessageBubble
                 {item}
                 cwd={thread?.cwd || cwd}
-                editable={!!liveThreadId && !turn.id.startsWith("local-") && !activeTurn && thread?.harness !== "claude"}
+                editable={!!liveThreadId && !turn.id.startsWith("local-") && !activeTurn && can(thread?.harness, "revert")}
                 versions={versionsForTurn(
                   isPendingEditTurn(liveThreadId, turnIndex, threadBranches) ? "" : turn.id,
                   threadBranches,
@@ -1189,18 +1200,25 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
                   {/if}
                 {/each}
               {:else}
+                {@const key = workKey(turn.id, segment.items)}
                 <div>
-                  <Collapsible class="min-w-0 items-stretch">
+                  <Collapsible
+                    class="min-w-0 items-stretch"
+                    open={openWork.has(key)}
+                    onOpenChange={({ open }) => (open ? openWork.add(key) : openWork.delete(key))}
+                  >
                     <Collapsible.Trigger class="group flex items-center gap-1 text-sm text-surface-500 hover:text-surface-700-300">
                       <span>{segment === firstWork && turn.status !== "inProgress" ? workedLabel(turn) : "Worked"}</span>
                       <ChevronRight size={14} class="transition group-data-[state=open]:rotate-90" />
                     </Collapsible.Trigger>
                     <Collapsible.Content>
-                      <div class="mt-3 space-y-4 border-l-2 border-surface-200-800 pl-4">
-                        {#each segment.items as item (item.id)}
-                          <WorkItem {item} {collapseDiffs} subagents={subagentDetails} />
-                        {/each}
-                      </div>
+                      {#if openWork.has(key)}
+                        <div class="mt-3 space-y-4 border-l-2 border-surface-200-800 pl-4">
+                          {#each segment.items as item (item.id)}
+                            <WorkItem {item} {collapseDiffs} subagents={subagentDetails} />
+                          {/each}
+                        </div>
+                      {/if}
                     </Collapsible.Content>
                   </Collapsible>
                   <hr class="mt-3 border-surface-200-800" />

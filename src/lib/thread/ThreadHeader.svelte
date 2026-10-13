@@ -72,7 +72,7 @@ async function openContinueInTerminal() {
       dir: cwd,
       command,
       copy: handoffCopy,
-      launch: handoffLaunchTerminal,
+      launch: () => handoffLaunchTerminal(threadId, cwd),
     });
   } catch (cause) {
     onError(cause instanceof Error ? cause.message : String(cause));
@@ -130,7 +130,16 @@ function openMoveToWorktree() {
 }
 </script>
 
-<svelte:window onclick={closeMenu} />
+<!-- Capture phase + preventDefault: the composer reads an unclaimed Escape as
+     "interrupt the running turn". -->
+<svelte:window
+  onclick={closeMenu}
+  onkeydowncapture={(event) => {
+    if (event.key !== "Escape" || !menuOpen) return;
+    event.preventDefault();
+    closeMenu();
+  }}
+/>
 
 <div class="flex items-center gap-2">
   <!-- home › repository › branch/worktree -->

@@ -220,6 +220,10 @@ export class ThreadSession {
   /** Bumped by every deliberate goal write, so the async fetch in `load()`
    *  can tell when its result has been overtaken and must be dropped. */
   #goalEpoch = 0;
+  #subagentsRequest = 0;
+  /** Thread events seen while `load` reads the transcript, replayed onto the
+   *  snapshot it returns; `applied` marks those the old transcript took. */
+  #loadBuffer: { event: CodexEvent; applied: boolean }[] | null = null;
 
   /** Set the goal. All writes go through here so they invalidate any
    *  still-in-flight `getThreadGoal` from `load()`. */
@@ -281,6 +285,7 @@ export class ThreadSession {
         if (!this.disposed && this.#goalEpoch === goalEpoch) this.goal = current;
       })
       .catch(() => {});
+    this.#loadBuffer = [];
     try {
       // The cached detail is keyed by the summary's `updated_at`, which does not
       // move while a turn runs — for a working thread it is stale by construction.
@@ -291,6 +296,8 @@ export class ThreadSession {
       // as working forever — nothing can complete it, so show it as what it is.
       if (!activeTurns.list.includes(id)) finalizeRunningTurns(detail.turns, "interrupted");
       this.thread = detail;
+      // Through the state proxy, not the raw object it now wraps.
+      this.#replayLoadBuffer(this.thread);
       this.runningSpeedTier = detail.speedTier;
       this.subagentModelPolicy = detail.subagentModelPolicy ?? null;
       this.subagentReasoningEffortPolicy = detail.subagentReasoningEffortPolicy ?? null;
@@ -302,9 +309,30 @@ export class ThreadSession {
       if (this.disposed) return;
       this.error = cause instanceof Error ? cause.message : String(cause);
     } finally {
+      this.#loadBuffer = null;
       if (!this.disposed) this.loading = false;
     }
     this.queue.maybeDrain();
+  }
+
+  /**
+   * Apply what streamed during the read to the snapshot it produced. Without
+   * this a thread opened mid-turn lost those deltas for good (reasoning is
+   * never repaired, since `item/completed` carries an empty summary), and a
+   * turn that ended during the read was finalized as interrupted. Deltas are
+   * plain appends, so one for an item the snapshot already holds is skipped:
+   * the snapshot has that text, and adding it again would duplicate it.
+   */
+  #replayLoadBuffer(detail: ThreadDetail) {
+    const buffered = this.#loadBuffer ?? [];
+    this.#loadBuffer = null;
+    if (buffered.length === 0) return;
+    const known = new Set(detail.turns.flatMap((turn) => turn.items.map((item) => item.id)));
+    for (const { event, applied } of buffered) {
+      const itemId = (event.params as { itemId?: unknown } | undefined)?.itemId;
+      if (/delta$/i.test(event.method) && typeof itemId === "string" && known.has(itemId)) continue;
+      this.#applyToThread(detail, event, !applied);
+    }
   }
 
   /** The draft became a real thread: run under its id from here on. */
@@ -462,18 +490,24 @@ export class ThreadSession {
   async refreshSubagents(): Promise<void> {
     const id = this.id;
     if (!id) return;
+    // One spawn triggers several refreshes (item started, child thread
+    // started, item completed); only the newest may land, or a slow older
+    // listing overwrites a fresher one.
+    const request = ++this.#subagentsRequest;
+    const current = () => request === this.#subagentsRequest && id === this.id;
     void (async () => {
       try {
-        setAgentRuns(id, await listAgentRuns(id));
+        const runs = await listAgentRuns(id);
+        if (current()) setAgentRuns(id, runs);
       } catch {
         // Leave whatever the store already had rather than blanking the menu.
       }
     })();
     try {
       const codex = await listSubagents(id);
-      if (id === this.id) this.subagents = codex;
+      if (current()) this.subagents = codex;
     } catch {
-      if (id === this.id) this.subagents = [];
+      // Same: a failed refresh keeps the last good list.
     }
   }
 
@@ -561,6 +595,7 @@ export class ThreadSession {
       return;
     }
     const thread = this.thread;
+    this.#loadBuffer?.push({ event, applied: thread !== null });
     if (!thread) return;
     if (method === "turn/started") {
       this.notice = null;
@@ -572,7 +607,20 @@ export class ThreadSession {
       const completedId = turnIdOf(params);
       if (completedId) ensureTurn(thread.turns, completedId);
     }
+    this.#applyToThread(thread, event, true);
+  }
+
+  /** Fold one event into `thread`; `effects` also runs what follows from it
+   *  (notices, cache invalidation, auto-naming, draining), which a replay of
+   *  an event the session already handled must not repeat. */
+  #applyToThread(thread: ThreadDetail, event: CodexEvent, effects: boolean) {
+    const id = this.id;
+    const { params } = event;
     const outcome = applyThreadEvent(thread, event);
+    if (!effects || !id) {
+      this.revision++;
+      return;
+    }
     if (outcome.streamError) this.streamError = outcome.streamError;
     if (outcome.notice) this.notice = outcome.notice;
     // The buffering notice describes an ongoing stall; once the stall ends — or

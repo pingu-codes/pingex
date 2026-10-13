@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { filterBranches, filterCommits, filterModes, REVIEW_MODES } from "$lib/composer/reviewTargets";
 import type { GitBranch, GitCommit } from "$lib/types";

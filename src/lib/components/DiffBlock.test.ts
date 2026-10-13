@@ -21,7 +21,7 @@ describe("DiffBlock", () => {
 
     expect(screen.getByText("+new", { exact: false })).toBeVisible();
     await user.click(triggerFor("small.ts"));
-    expect(screen.getByText("+new", { exact: false })).not.toBeVisible();
+    expect(screen.queryByText("+new", { exact: false })).not.toBeInTheDocument();
     await user.click(triggerFor("small.ts"));
     expect(screen.getByText("+new", { exact: false })).toBeVisible();
   });
@@ -31,7 +31,7 @@ describe("DiffBlock", () => {
     const lines = Array.from({ length: 240 }, (_, index) => `+line-${index + 1}`);
     render(DiffBlock, { change: change("large.ts", lines.join("\n")) });
 
-    expect(screen.getByText("+line-1", { exact: true })).not.toBeVisible();
+    expect(screen.queryByText("+line-1", { exact: true })).not.toBeInTheDocument();
     await user.click(triggerFor("large.ts"));
     expect(screen.getByText("+line-200", { exact: true })).toBeVisible();
     expect(screen.queryByText("+line-201", { exact: true })).not.toBeInTheDocument();
@@ -45,7 +45,7 @@ describe("DiffBlock", () => {
     const user = userEvent.setup();
     render(DiffBlock, { change: change("small.ts", "@@ -1 +1 @@\n-old\n+new"), autoCollapse: true });
 
-    expect(screen.getByText("+new", { exact: false })).not.toBeVisible();
+    expect(screen.queryByText("+new", { exact: false })).not.toBeInTheDocument();
     await user.click(triggerFor("small.ts"));
     expect(screen.getByText("+new", { exact: false })).toBeVisible();
   });
@@ -57,7 +57,7 @@ describe("DiffBlock", () => {
     });
     expect(screen.getByText("+new", { exact: false })).toBeVisible();
     await untouched.rerender({ change: change("untouched.ts", "@@ -1 +1 @@\n-old\n+new"), autoCollapse: true });
-    await waitFor(() => expect(screen.getByText("+new", { exact: false })).not.toBeVisible());
+    await waitFor(() => expect(screen.queryByText("+new", { exact: false })).not.toBeInTheDocument());
     untouched.unmount();
 
     const user = userEvent.setup();
@@ -69,5 +69,16 @@ describe("DiffBlock", () => {
     await user.click(triggerFor("toggled.ts"));
     await toggled.rerender({ change: change("toggled.ts", "@@ -1 +1 @@\n-old\n+kept"), autoCollapse: true });
     expect(screen.getByText("+kept", { exact: false })).toBeVisible();
+  });
+
+  it("caps a one-line diff by size, not just line count", async () => {
+    const user = userEvent.setup();
+    const minified = `+${"x".repeat(300_000)}`;
+    const { container } = render(DiffBlock, { change: change("bundle.min.js", minified) });
+
+    await user.click(triggerFor("bundle.min.js"));
+    const shown = container.querySelector("code")?.textContent ?? "";
+    expect(shown.length).toBeLessThanOrEqual(100_000);
+    expect(screen.getByRole("button", { name: "Show the full diff" })).toBeInTheDocument();
   });
 });

@@ -15,14 +15,23 @@ pub(crate) fn handoff_command(
     window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> String {
-    let ctx = state.ctx(&window);
+    resume_command(&state, &window, &thread_id, &cwd)
+}
+
+fn resume_command(
+    state: &AppState,
+    window: &crate::HomeWindow,
+    thread_id: &str,
+    cwd: &str,
+) -> String {
+    let ctx = state.ctx(window);
     let runtime = ctx.runtime();
     build_resume_command_on(
         &runtime.host,
         &runtime.codex_home_str(),
         &runtime.codex_binary_str(),
-        &thread_id,
-        &cwd,
+        thread_id,
+        cwd,
     )
 }
 
@@ -48,26 +57,44 @@ pub(crate) fn handoff_thread_link(
 }
 
 /// Copy text to the system clipboard.
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn handoff_copy(text: String) -> Result<(), String> {
     copy_to_clipboard(&text)
 }
 
-/// Open a terminal and run the handoff command.
-#[tauri::command]
+/// Open a terminal and run the handoff command for a thread. The command is
+/// built here rather than taken from the webview, so a script injected into
+/// rendered content cannot use this to run arbitrary shell.
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn handoff_launch_terminal(
-    command: String,
+    thread_id: String,
+    cwd: String,
     window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    let command = resume_command(&state, &window, &thread_id, &cwd);
     launch_terminal(&state.ctx(&window).host(), &command)
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::url::{build_resume_command, build_thread_link};
+
+    #[test]
+    fn a_native_windows_command_is_cmd_syntax() {
+        let command = super::super::url::build_cmd_resume_command(
+            r"C:\Users\me\.codex",
+            r"C:\Tools\codex.exe",
+            "id1",
+            r"C:\repo\a b",
+        );
+        assert_eq!(
+            command,
+            r#"set "CODEX_HOME=C:\Users\me\.codex" && "C:\Tools\codex.exe" resume "id1" --cd "C:\repo\a b""#
+        );
+    }
 
     #[test]
     fn builds_resume_command_with_quoting() {

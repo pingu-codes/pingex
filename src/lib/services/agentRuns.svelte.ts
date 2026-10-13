@@ -233,7 +233,11 @@ function runByChildThreadId(threadId: string): AgentRun | null {
 }
 
 function setActivity(runId: string, label: string, restart: boolean): void {
-  const since = restart ? Date.now() : (agentActivity.byRun[runId]?.since ?? Date.now());
+  const current = agentActivity.byRun[runId];
+  // Every streamed token maps to the same "writing…"; rewriting it would
+  // invalidate every agent card once per token for no visible change.
+  if (!restart && current?.label === label) return;
+  const since = restart ? Date.now() : (current?.since ?? Date.now());
   agentActivity.byRun[runId] = { label, since };
   syncTicker();
 }
