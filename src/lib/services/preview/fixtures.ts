@@ -2,7 +2,6 @@ import type {
   AccountRateLimits,
   AgentRun,
   AgentSettings,
-  ArchivedThread,
   BootstrapData,
   CategoryTokens,
   ConfigSetting,
@@ -45,6 +44,7 @@ import type {
   WorktreeEntry,
 } from "$lib/types";
 import { basename } from "$lib/utils/path";
+import { threadSummary, worktreeEntry } from "./factories";
 
 let previewCounter = 100;
 
@@ -91,36 +91,8 @@ export const previewData: BootstrapData = {
         },
       ],
       threads: [
-        {
-          id: "1",
-          cwd: "",
-          title: "Custom frontend skeleton",
-          updatedAt: Date.now() / 1000,
-          status: "idle",
-          pinned: false,
-          parentThreadId: null,
-          agentNickname: null,
-          agentRole: null,
-          projectId: null,
-          subagentCount: 2,
-          hidden: false,
-          sectionId: "section-focus",
-        },
-        {
-          id: "2",
-          cwd: "",
-          title: "Tauri app-server bridge",
-          updatedAt: Date.now() / 1000 - 4800,
-          status: "idle",
-          pinned: false,
-          parentThreadId: null,
-          agentNickname: null,
-          agentRole: null,
-          projectId: null,
-          sectionId: null,
-          subagentCount: 0,
-          hidden: false,
-        },
+        threadSummary({ id: "1", title: "Custom frontend skeleton", subagentCount: 2, sectionId: "section-focus" }),
+        threadSummary({ id: "2", title: "Tauri app-server bridge", updatedAt: Date.now() / 1000 - 4800 }),
       ],
     },
     {
@@ -134,38 +106,21 @@ export const previewData: BootstrapData = {
       pinned: false,
       expanded: true,
       threads: [
-        {
+        threadSummary({
           id: "3",
-          cwd: "",
           title: "Improve analysis console",
           updatedAt: Date.now() / 1000 - 86400,
-          status: "idle",
-          pinned: false,
-          parentThreadId: null,
-          agentNickname: null,
-          agentRole: null,
-          projectId: null,
-          subagentCount: 0,
-          hidden: false,
           sectionId: "section-focus",
-        },
+        }),
         // Enough threads to push this project past the sidebar's per-project cap
         // so the "Show N more" control is exercisable in preview.
-        ...Array.from({ length: 18 }, (_, index) => ({
-          id: `arctic-${index + 1}`,
-          cwd: "",
-          title: `Ice core batch ${index + 1}`,
-          updatedAt: Date.now() / 1000 - 90000 - index * 3600,
-          status: "idle" as const,
-          pinned: false,
-          parentThreadId: null,
-          agentNickname: null,
-          agentRole: null,
-          projectId: null,
-          sectionId: null,
-          subagentCount: 0,
-          hidden: false,
-        })),
+        ...Array.from({ length: 18 }, (_, index) =>
+          threadSummary({
+            id: `arctic-${index + 1}`,
+            title: `Ice core batch ${index + 1}`,
+            updatedAt: Date.now() / 1000 - 90000 - index * 3600,
+          }),
+        ),
       ],
     },
     {
@@ -186,36 +141,27 @@ export const previewData: BootstrapData = {
   ],
   threadBranches: [],
   subagents: [
-    {
+    threadSummary({
       id: "agent-1",
       parentThreadId: "1",
       cwd: "/Users/ciaran/Projects/codex-custom",
       title: "Inspect composer state",
       updatedAt: Date.now() / 1000 - 30,
       status: "active",
-      pinned: false,
-      projectId: null,
-      sectionId: null,
       agentNickname: "Scout",
       agentRole: "researcher",
       subagentCount: 1,
-      hidden: false,
-    },
-    {
+    }),
+    threadSummary({
       id: "agent-2",
       parentThreadId: "agent-1",
       cwd: "/Users/ciaran/Projects/codex-custom",
       title: "Review UI behavior",
       updatedAt: Date.now() / 1000 - 15,
       status: "completed",
-      pinned: false,
-      projectId: null,
-      sectionId: null,
       agentNickname: "Reviewer",
       agentRole: "reviewer",
-      subagentCount: 0,
-      hidden: false,
-    },
+    }),
   ],
   sections: [
     { id: "section-focus", name: "This week", icon: null, color: "#f59e0b" },
@@ -252,7 +198,7 @@ export function previewSort(): BootstrapData {
   return previewData;
 }
 
-export const previewPixel =
+const previewPixel =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
 const previewLongDiff = [
@@ -362,36 +308,20 @@ export const previewThread: ThreadDetail = {
   ],
 };
 
-export const previewArchived: ArchivedThread[] = [
-  {
-    id: "archived-1",
-    title: "Old research thread",
-    cwd: "/Users/ciaran/Projects/codex-custom",
-    updatedAt: Date.now() / 1000 - 86400 * 12,
-  },
-];
-
 // --- History search and pagination (feature 11) ---
 
 const now = () => Date.now() / 1000;
 
 // A larger archived corpus so `Load more` and result counts are exercisable in
 // the browser preview and Playwright without a live Codex home.
-export const previewArchivedThreads: ThreadSummary[] = Array.from({ length: 14 }, (_, index) => ({
-  id: `archived-${index + 1}`,
-  cwd: index % 2 ? "/Users/ciaran/Projects/arctic-explorer" : "/Users/ciaran/Projects/codex-custom",
-  title: index === 0 ? "Old research thread" : `Archived exploration ${index + 1}: search index and pagination notes`,
-  updatedAt: now() - 86400 * (index + 2),
-  status: "idle",
-  pinned: false,
-  parentThreadId: null,
-  agentNickname: null,
-  agentRole: null,
-  projectId: null,
-  sectionId: null,
-  subagentCount: 0,
-  hidden: false,
-}));
+const previewArchivedThreads: ThreadSummary[] = Array.from({ length: 14 }, (_, index) =>
+  threadSummary({
+    id: `archived-${index + 1}`,
+    cwd: index % 2 ? "/Users/ciaran/Projects/arctic-explorer" : "/Users/ciaran/Projects/codex-custom",
+    title: index === 0 ? "Old research thread" : `Archived exploration ${index + 1}: search index and pagination notes`,
+    updatedAt: now() - 86400 * (index + 2),
+  }),
+);
 
 // The search index mirrors active (from previewData) and archived threads.
 const previewSearchIndex: ThreadSearchItem[] = [
@@ -416,6 +346,17 @@ const previewSearchIndex: ThreadSearchItem[] = [
 ];
 
 const SEARCH_PAGE = 20;
+
+/** Move an archived thread back into its project, as `thread/unarchive` does. */
+export function previewUnarchive(threadId: string): void {
+  const index = previewArchivedThreads.findIndex((thread) => thread.id === threadId);
+  if (index < 0) return;
+  const [thread] = previewArchivedThreads.splice(index, 1);
+  const project = previewData.projects.find((project) => project.path === thread.cwd);
+  project?.threads.push({ ...thread, cwd: "", updatedAt: now() });
+  const indexed = previewSearchIndex.find((item) => item.id === threadId);
+  if (indexed) indexed.archived = false;
+}
 
 export function previewSearchThreads(
   query: string,
@@ -506,7 +447,7 @@ export const previewModels: Model[] = [
   },
 ];
 
-export const previewQueues = new Map<string, QueuedSubmission[]>();
+const previewQueues = new Map<string, QueuedSubmission[]>();
 
 export function previewQueue(threadId: string): QueuedSubmission[] {
   let queue = previewQueues.get(threadId);
@@ -934,7 +875,7 @@ export const previewConfigSettings: ConfigSetting[] = [
 ];
 
 // Keyed by project path so the browser preview can serve per-repo Git data.
-export const previewRepoInfo: Record<string, GitRepoInfo> = {
+const previewRepoInfo: Record<string, GitRepoInfo> = {
   "/Users/ciaran/Projects/codex-custom": {
     dir: "/Users/ciaran/Projects/codex-custom",
     isGitRepo: true,
@@ -1011,86 +952,43 @@ export const previewGitStatus: GitStatus = {
 };
 
 export const previewWorktrees: WorktreeEntry[] = [
-  {
+  worktreeEntry({
     path: "/Users/ciaran/Projects/codex-custom",
     head: "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
     branch: "main",
-    detached: false,
-    bare: false,
-    locked: false,
-    lockReason: null,
-    prunable: false,
-    prunableReason: null,
     isMain: true,
-    isCodexManaged: false,
-    missingDir: false,
-    branchCheckedOutElsewhere: false,
     upstream: "origin/main",
     ahead: 2,
-    behind: 0,
     status: { staged: 1, unstaged: 3, untracked: 2, conflicted: 0 },
-    state: null,
-  },
-  {
+  }),
+  worktreeEntry({
     path: "/Users/ciaran/.codex/worktrees/0357/search-ranking",
     head: "9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e",
     branch: "search-ranking",
-    detached: false,
-    bare: false,
-    locked: false,
-    lockReason: null,
-    prunable: false,
-    prunableReason: null,
-    isMain: false,
     isCodexManaged: true,
-    missingDir: false,
-    branchCheckedOutElsewhere: false,
-    upstream: null,
     ahead: 5,
     behind: 1,
-    status: { staged: 0, unstaged: 0, untracked: 0, conflicted: 0 },
-    state: null,
-  },
-  {
+  }),
+  worktreeEntry({
     path: "/Users/ciaran/Projects/experiments/detached-review",
     head: "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c",
     branch: null,
     detached: true,
-    bare: false,
     locked: true,
     lockReason: "reviewing a release build",
-    prunable: false,
-    prunableReason: null,
-    isMain: false,
-    isCodexManaged: false,
-    missingDir: false,
-    branchCheckedOutElsewhere: false,
-    upstream: null,
-    ahead: 0,
-    behind: 0,
     status: { staged: 0, unstaged: 1, untracked: 0, conflicted: 0 },
     state: "detached",
-  },
-  {
+  }),
+  worktreeEntry({
     path: "/Users/ciaran/Projects/experiments/gone",
     head: "0000000000000000000000000000000000000000",
     branch: "stale-feature",
-    detached: false,
-    bare: false,
-    locked: false,
-    lockReason: null,
     prunable: true,
     prunableReason: "gitdir file points to non-existent location",
-    isMain: false,
-    isCodexManaged: false,
     missingDir: true,
-    branchCheckedOutElsewhere: false,
-    upstream: null,
-    ahead: 0,
-    behind: 0,
     status: null,
     state: "missingDir",
-  },
+  }),
 ];
 
 export const previewCommits: GitCommit[] = [

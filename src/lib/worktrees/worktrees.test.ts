@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import type { Project, WorktreeEntry } from "$lib/types";
+import { worktreeEntry } from "$lib/services/preview/factories";
+import type { Project } from "$lib/types";
 import {
   adoptableWorktrees,
   aheadBehindLabel,
@@ -13,30 +14,6 @@ import {
   worktreeCards,
   worktreeProblem,
 } from "$lib/worktrees/worktrees";
-
-function entry(overrides: Partial<WorktreeEntry> = {}): WorktreeEntry {
-  return {
-    path: "/repo/wt",
-    head: "abcdef1234567890",
-    branch: "feature",
-    detached: false,
-    bare: false,
-    locked: false,
-    lockReason: null,
-    prunable: false,
-    prunableReason: null,
-    isMain: false,
-    isCodexManaged: false,
-    missingDir: false,
-    branchCheckedOutElsewhere: false,
-    upstream: null,
-    ahead: 0,
-    behind: 0,
-    status: { staged: 0, unstaged: 0, untracked: 0, conflicted: 0 },
-    state: null,
-    ...overrides,
-  };
-}
 
 describe("worktree helpers", () => {
   it("strips the remote from a remote-tracking branch name", () => {
@@ -70,11 +47,11 @@ describe("worktree helpers", () => {
   });
 
   it("gives each acceptance state a distinct problem message", () => {
-    expect(worktreeProblem(entry())).toBeNull();
-    expect(worktreeProblem(entry({ missingDir: true }))).toMatch(/missing/i);
-    expect(worktreeProblem(entry({ detached: true, branch: null }))).toMatch(/detached/i);
-    expect(worktreeProblem(entry({ branchCheckedOutElsewhere: true }))).toMatch(/another worktree/i);
-    expect(worktreeProblem(entry({ prunable: true, prunableReason: "gitdir gone" }))).toMatch(/stale/i);
+    expect(worktreeProblem(worktreeEntry())).toBeNull();
+    expect(worktreeProblem(worktreeEntry({ missingDir: true }))).toMatch(/missing/i);
+    expect(worktreeProblem(worktreeEntry({ detached: true, branch: null }))).toMatch(/detached/i);
+    expect(worktreeProblem(worktreeEntry({ branchCheckedOutElsewhere: true }))).toMatch(/another worktree/i);
+    expect(worktreeProblem(worktreeEntry({ prunable: true, prunableReason: "gitdir gone" }))).toMatch(/stale/i);
   });
 
   it("counts threads whose cwd lives under the worktree path", () => {
@@ -144,7 +121,10 @@ describe("worktree helpers", () => {
 
   it("builds card models with branch labels for detached HEAD", () => {
     const cards = worktreeCards(
-      [entry({ path: "/repo/main", isMain: true, branch: "main", ahead: 3 }), entry({ detached: true, branch: null })],
+      [
+        worktreeEntry({ path: "/repo/main", isMain: true, branch: "main", ahead: 3 }),
+        worktreeEntry({ detached: true, branch: null }),
+      ],
       [],
     );
     expect(cards[0].displayName).toBe("main");
@@ -156,12 +136,12 @@ describe("worktree helpers", () => {
   it("offers only linked, present, permanent worktrees not yet in the sidebar", () => {
     const listed = { path: "/repo/listed/" } as Project;
     const entries = [
-      entry({ path: "/repo", isMain: true }),
-      entry({ path: "/repo/gone", missingDir: true }),
-      entry({ path: "/repo/stale", prunable: true }),
-      entry({ path: "/home/.codex/worktrees-tmp/repo/tmp" }),
-      entry({ path: "/repo/listed" }),
-      entry({ path: "/repo/feature" }),
+      worktreeEntry({ path: "/repo", isMain: true }),
+      worktreeEntry({ path: "/repo/gone", missingDir: true }),
+      worktreeEntry({ path: "/repo/stale", prunable: true }),
+      worktreeEntry({ path: "/home/.codex/worktrees-tmp/repo/tmp" }),
+      worktreeEntry({ path: "/repo/listed" }),
+      worktreeEntry({ path: "/repo/feature" }),
     ];
     expect(adoptableWorktrees(entries, [listed]).map((e) => e.path)).toEqual(["/repo/feature"]);
   });

@@ -40,18 +40,3 @@ pub(crate) async fn kill_agent_run(
     supervisor::kill(&app, &ctx.home_key, &run, Some("stopped from the app")).await;
     Ok(())
 }
-
-/// The thread id to open when the user clicks into an agent.
-#[tauri::command]
-#[specta::specta]
-pub(crate) async fn open_agent_thread(
-    run_id: String,
-    window: crate::HomeWindow,
-    state: State<'_, AppState>,
-) -> Result<Option<String>, String> {
-    Ok(
-        storage::read_agent_run(&state.ctx(&window).database(), &run_id)
-            .await?
-            .and_then(|run| run.child_thread_id),
-    )
-}

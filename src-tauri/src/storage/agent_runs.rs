@@ -144,6 +144,7 @@ pub(crate) async fn read_agent_runs(
     .await
 }
 
+#[cfg(test)]
 pub(crate) async fn read_agent_run(
     database: &Database,
     run_id: &str,

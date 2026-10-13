@@ -113,8 +113,22 @@ export const authRecovery = $state<{ byThread: Record<string, { provider: string
  */
 export const unansweredQuestions = $state<{ list: string[] }>({ list: [] });
 
-export function markUnanswered(threadId: string) {
+function markUnanswered(threadId: string) {
   if (!unansweredQuestions.list.includes(threadId)) unansweredQuestions.list.push(threadId);
+}
+
+/** Mark the thread as holding an open question and persist the question. The
+ *  request itself dies with the harness process, so this is the only copy that
+ *  survives the app exiting unanswered. */
+function persistQuestion(
+  context: { threadId: string; turnId: string; itemId: string; afterItemId?: string },
+  questions: UserInputQuestion[],
+) {
+  markUnanswered(context.threadId);
+  void recordUserInputRequest({
+    ...context,
+    item: { type: "userInputAnswered", id: context.itemId, questions, answers: {}, unanswered: true },
+  }).catch(() => {});
 }
 
 export function clearUnanswered(threadId: string) {
@@ -370,26 +384,12 @@ function onServerRequest(payload: CodexServerRequestEvent) {
         questions: params.questions ?? [],
       };
       userInputRequests.list.push(request);
-      // The request itself dies with the app-server, so persist the question now:
-      // it is the only copy that survives the app exiting unanswered. The
-      // backend stamps afterItemId with the id of the item that preceded this
-      // question in the real stream order, so it can be spliced back into the
-      // right spot (rather than appended to the end) after a restart.
+      // The backend stamps afterItemId with the id of the item that preceded
+      // this question in the real stream order, so it can be spliced back into
+      // the right spot (rather than appended to the end) after a restart.
       if (request.threadId && request.turnId && request.itemId) {
-        markUnanswered(request.threadId);
-        void recordUserInputRequest({
-          threadId: request.threadId,
-          turnId: request.turnId,
-          itemId: request.itemId,
-          afterItemId: params.afterItemId ?? undefined,
-          item: {
-            type: "userInputAnswered",
-            id: request.itemId,
-            questions: request.questions,
-            answers: {},
-            unanswered: true,
-          },
-        }).catch(() => {});
+        const { threadId, turnId, itemId } = request;
+        persistQuestion({ threadId, turnId, itemId, afterItemId: params.afterItemId ?? undefined }, request.questions);
       }
       break;
     }
@@ -409,18 +409,12 @@ function onServerRequest(payload: CodexServerRequestEvent) {
  * card their tool kind suggests; questions go where Codex's questions go,
  * persisted the same way so an unanswered one survives a reload.
  */
-export function onHarnessRequest(payload: HarnessRequestEnvelope) {
+function onHarnessRequest(payload: HarnessRequestEnvelope) {
   const { requestId, threadId, turnId, itemId, request, harness } = payload;
   if (request.type === "user_input") {
     const questions = (request.questions ?? []) as UserInputQuestion[];
     userInputRequests.list.push({ requestId, threadId, turnId, itemId, questions });
-    markUnanswered(threadId);
-    void recordUserInputRequest({
-      threadId,
-      turnId,
-      itemId,
-      item: { type: "userInputAnswered", id: itemId, questions, answers: {}, unanswered: true },
-    }).catch(() => {});
+    persistQuestion({ threadId, turnId, itemId }, questions);
     return;
   }
   const kind: Approval["kind"] =
@@ -450,6 +444,18 @@ export function onHarnessRequest(payload: HarnessRequestEnvelope) {
 
 let started = false;
 
+/** Listen to a backend event tagged with the Home it belongs to: drop it when
+ *  it is meant for a window on another account, else hand it on with its ids
+ *  scoped to the Profile. */
+function listenScoped<T extends { codexHome: string }>(
+  event: { listen: (handler: (event: { payload: T }) => void) => Promise<() => void> },
+  handler: (payload: T) => void,
+): Promise<() => void> {
+  return event.listen(({ payload }) => {
+    if (eventMatchesHome(payload.codexHome)) handler(scopeEvent(payload.codexHome, payload));
+  });
+}
+
 export async function startCodexListeners(): Promise<void> {
   if (started || !isTauri()) return;
   started = true;
@@ -458,35 +464,19 @@ export async function startCodexListeners(): Promise<void> {
   const attached: (() => void)[] = [];
   try {
     // Backend events are broadcast to every window and tagged with the home
-    // they belong to; drop what is meant for a window on another account.
+    // they belong to; `listenScoped` drops what is meant for another one.
     //
     // The generated payload leaves structured fields (`item`, `turn`, ...) as
     // `unknown`; this is the one place they are asserted to be the hand-written
     // shapes in `$lib/types` the reducers read.
     attached.push(
-      await events.codexEvent.listen(({ payload }) => {
-        if (!eventMatchesHome(payload.codexHome)) return;
-        dispatch(scopeEvent(payload.codexHome, payload) as CodexEvent, payload.codexHome);
-      }),
+      await listenScoped(events.codexEvent, (payload) => dispatch(payload as CodexEvent, payload.codexHome)),
     );
     attached.push(
-      await events.codexServerRequest.listen(({ payload }) => {
-        if (!eventMatchesHome(payload.codexHome)) return;
-        onServerRequest(scopeEvent(payload.codexHome, payload) as CodexServerRequestEvent);
-      }),
+      await listenScoped(events.codexServerRequest, (payload) => onServerRequest(payload as CodexServerRequestEvent)),
     );
-    attached.push(
-      await events.harnessRequest.listen(({ payload }) => {
-        if (!eventMatchesHome(payload.codexHome)) return;
-        onHarnessRequest(scopeEvent(payload.codexHome, payload));
-      }),
-    );
-    attached.push(
-      await events.codexAgentRun.listen(({ payload }) => {
-        if (!eventMatchesHome(payload.codexHome)) return;
-        applyAgentRunEvent(scopeEvent(payload.codexHome, payload));
-      }),
-    );
+    attached.push(await listenScoped(events.harnessRequest, onHarnessRequest));
+    attached.push(await listenScoped(events.codexAgentRun, applyAgentRunEvent));
     attached.push(
       await events.codexDisconnected.listen(({ payload }) => {
         if (!eventMatchesHome(payload?.codexHome)) return;

@@ -604,13 +604,6 @@ pub fn queue_reorder(thread_id: &str, queued_submission_ids: &[String]) -> Reque
     )
 }
 
-pub fn queue_start(thread_id: &str, queued_submission_id: Option<&str>) -> Request {
-    request(
-        "thread/queue/start",
-        json!({"threadId": thread_id, "queuedSubmissionId": queued_submission_id}),
-    )
-}
-
 #[cfg(test)]
 mod goal_tests {
     use super::*;

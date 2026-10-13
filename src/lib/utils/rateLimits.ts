@@ -1,7 +1,7 @@
 import type { RateLimitSnapshot, RateLimitWindow } from "$lib/types";
 
 /** A rate-limit window shaped for display. */
-export interface UsageWindow {
+interface UsageWindow {
   /** "5h", "Weekly", "Monthly", … derived from the window length. */
   label: string;
   usedPercent: number;

@@ -7,7 +7,7 @@
 
 import { basename, trimSlash } from "$lib/utils/path";
 
-export type MentionSegment = { type: "text"; text: string } | { type: "mention"; name: string; path: string };
+type MentionSegment = { type: "text"; text: string } | { type: "mention"; name: string; path: string };
 
 const LINK = /\[([^\]\n]+)\]\(([^()\s]+)\)/g;
 

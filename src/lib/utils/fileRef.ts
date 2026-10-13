@@ -51,7 +51,7 @@ function lineOrNull(value: number | undefined): number | null {
 }
 
 /** `decodeURIComponent` that leaves a malformed escape alone. */
-export function safeDecode(path: string): string {
+function safeDecode(path: string): string {
   try {
     return decodeURIComponent(path);
   } catch {

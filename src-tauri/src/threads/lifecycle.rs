@@ -10,14 +10,10 @@ use tauri::{AppHandle, State};
 
 use crate::codex::compat::{method_unsupported, Feature};
 use crate::codex::requests;
-use crate::projects::{bootstrap_cached, bootstrap_inner, thread_search_row, BootstrapData};
+use crate::projects::{bootstrap_cached, bootstrap_inner, BootstrapData};
 use crate::storage;
-use crate::util::json::arr_or_empty;
 use crate::util::json::Json;
 use crate::AppState;
-
-/// How many archived threads the archive view loads at once.
-const ARCHIVED_PAGE: usize = 200;
 
 #[tauri::command]
 #[specta::specta]
@@ -330,36 +326,6 @@ async fn delete_one_thread(
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn list_archived_threads(
-    app: AppHandle,
-    window: crate::HomeWindow,
-    state: State<'_, AppState>,
-) -> Result<Json, String> {
-    let ctx = state.ctx(&window);
-    let response = ctx
-        .session
-        .send(
-            &app,
-            requests::thread_list(ARCHIVED_PAGE as u32, None, None, true),
-        )
-        .await?;
-    index_archived_search(&ctx, &response).await;
-    Ok(Json(response))
-}
-
-/// Mirror an archived `thread/list` response into the local search index so
-/// archived history is searchable alongside active threads. Best-effort: a
-/// failure here must not stop the archive view from rendering.
-async fn index_archived_search(ctx: &crate::HomeContext, response: &Value) {
-    let rows: Vec<_> = arr_or_empty(response, "data")
-        .iter()
-        .filter_map(|thread| thread_search_row(thread, true))
-        .collect();
-    let _ = storage::upsert_thread_search(&ctx.database(), &rows).await;
-}
-
-#[tauri::command]
-#[specta::specta]
 pub(crate) async fn list_models(
     app: AppHandle,
     window: crate::HomeWindow,
@@ -395,20 +361,6 @@ pub(crate) async fn list_harness_models(
         .send(&app, requests::model_list(100, true))
         .await
         .map(Json)
-}
-
-/// Whether a usable `claude` binary is installed for this home.
-#[tauri::command]
-#[specta::specta]
-pub(crate) async fn read_claude_status(
-    window: crate::HomeWindow,
-    state: State<'_, AppState>,
-) -> Result<crate::claude::driver::ClaudeStatus, String> {
-    let ctx = state.ctx(&window);
-    let runtime = ctx.claude.runtime();
-    tauri::async_runtime::spawn_blocking(move || crate::claude::driver::status(&runtime))
-        .await
-        .map_err(|error| error.to_string())
 }
 
 /// Replace the thread's durable history with the prefix before `before_turn_id`

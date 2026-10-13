@@ -59,7 +59,7 @@ export function processByKey(key: string): RunningProcess | null {
   return processes.list.find((process) => process.key === key) ?? null;
 }
 
-export function processesFor(threadId: string | null | undefined): RunningProcess[] {
+function processesFor(threadId: string | null | undefined): RunningProcess[] {
   return threadId ? processes.list.filter((process) => process.threadId === threadId) : [];
 }
 

@@ -1,36 +1,12 @@
 import { render, screen, waitFor } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { WorktreeEntry } from "$lib/types";
+import { worktreeEntry } from "$lib/services/preview/factories";
 import AddWorktreeDialog from "$lib/worktrees/AddWorktreeDialog.svelte";
-
-function entry(overrides: Partial<WorktreeEntry> = {}): WorktreeEntry {
-  return {
-    path: "/repo/wt-feature",
-    head: "abcdef1",
-    branch: "feature",
-    detached: false,
-    bare: false,
-    locked: false,
-    lockReason: null,
-    prunable: false,
-    prunableReason: null,
-    isMain: false,
-    isCodexManaged: false,
-    missingDir: false,
-    branchCheckedOutElsewhere: false,
-    upstream: null,
-    ahead: 0,
-    behind: 0,
-    status: { staged: 0, unstaged: 0, untracked: 0, conflicted: 0 },
-    state: null,
-    ...overrides,
-  };
-}
 
 vi.mock("$lib/services/api", () => ({
   isTauri: () => false,
-  gitWorktrees: vi.fn(async () => [entry({ path: "/repo", branch: "main", isMain: true }), entry()]),
+  gitWorktrees: vi.fn(async () => [worktreeEntry({ path: "/repo", branch: "main", isMain: true }), worktreeEntry()]),
 }));
 
 describe("AddWorktreeDialog", () => {

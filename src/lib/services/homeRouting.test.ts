@@ -11,6 +11,9 @@ import {
   setHomeSelection,
 } from "./homeRouting";
 
+// Outside Tauri the proxy hands every command to the browser preview.
+vi.mock("$lib/services/tauri", () => ({ isTauri: () => true }));
+
 function home(key: string, host: Host, harness: "codex" | "claude", cwd: string): HomeSnapshot {
   const data: BootstrapData = {
     codexHome: "/config",

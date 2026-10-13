@@ -395,21 +395,6 @@ pub(crate) fn write_agent_settings(
     Ok(agent_payload(prefs::read_agent_settings(&path)))
 }
 
-/// Probe a candidate Codex CLI without saving it, so the picker and the
-/// settings form can show "found at …" as the user types.
-#[tauri::command(async)]
-#[specta::specta]
-pub(crate) fn check_codex_binary(
-    path: Option<String>,
-    host: Option<Host>,
-    window: crate::HomeWindow,
-    state: State<'_, AppState>,
-) -> binary::BinaryStatus {
-    let runtime = state.ctx(&window).runtime();
-    let candidate = normalize_override(path).unwrap_or_else(|| runtime.codex_binary_str());
-    binary::status_on(&host.unwrap_or(runtime.host), &candidate)
-}
-
 /// The WSL distributions installed on this machine, for the host pickers.
 /// Empty off Windows.
 #[tauri::command(async)]

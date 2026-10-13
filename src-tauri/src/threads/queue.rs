@@ -141,22 +141,6 @@ pub(crate) async fn queue_reorder(
         .map(Json)
 }
 
-#[tauri::command]
-#[specta::specta]
-pub(crate) async fn queue_start(
-    thread_id: String,
-    queued_submission_id: Option<String>,
-    app: AppHandle,
-    window: crate::HomeWindow,
-    state: State<'_, AppState>,
-) -> Result<Json, String> {
-    let ctx = state.ctx(&window);
-    let request = requests::queue_start(&thread_id, queued_submission_id.as_deref());
-    queue_request(&app, &ctx, &thread_id, request)
-        .await
-        .map(Json)
-}
-
 #[cfg(test)]
 mod tests {
     use super::classify;
