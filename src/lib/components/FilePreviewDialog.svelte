@@ -15,7 +15,9 @@ import { copyText, openInZed, revealInFinder } from "$lib/services/api";
 import type { FilePreview } from "$lib/types";
 import { languageForPath } from "$lib/utils/codeLanguage";
 import { fileIconFor } from "$lib/utils/fileIcons";
+import { formatBytes } from "$lib/utils/format";
 import { relativeMentionPath } from "$lib/utils/mentions";
+import { basename } from "$lib/utils/path";
 import CodeView from "./CodeView.svelte";
 
 let {
@@ -36,7 +38,7 @@ let {
   close: DialogClose<void>;
 } = $props();
 
-const name = $derived(path.split(/[/\\]/).pop() || path);
+const name = $derived(basename(path));
 const fileIcon = $derived(fileIconFor(name));
 const relative = $derived(cwd ? relativeMentionPath(path, cwd) : path);
 /** Hide the second copy button when it would put the same text on the clipboard. */
@@ -62,9 +64,7 @@ const reason = $derived(
 const notes = $derived.by(() => {
   const list: string[] = [];
   if (preview.truncated)
-    list.push(
-      `Showing the first ${Math.round(preview.text.length / 1024)} KB of ${Math.round(preview.bytes / 1024)} KB.`,
-    );
+    list.push(`Showing the first ${formatBytes(preview.text.length)} of ${formatBytes(preview.bytes)}.`);
   if (line !== null && lineCount > 0 && line > lineCount) list.push(`Line ${line} is past the previewed region.`);
   return list;
 });

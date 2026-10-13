@@ -3,6 +3,7 @@ import { Minus, Plus, Undo2 } from "@lucide/svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import type { StatusFile } from "$lib/types";
 import { fileIconFor } from "$lib/utils/fileIcons";
+import { basename } from "$lib/utils/path";
 import { changeLabel, groupStatusFiles, type Selection, type StatusRow, type StatusSection } from "./gitStatusFiles";
 
 let {
@@ -32,10 +33,6 @@ const sections: { key: StatusSection; title: string }[] = [
   { key: "unstaged", title: "Changes" },
   { key: "untracked", title: "Untracked" },
 ];
-
-function basename(path: string): string {
-  return path.split("/").pop() ?? path;
-}
 
 function isSelected(row: StatusRow): boolean {
   return !!selected && selected.path === row.path && selected.section === row.section;

@@ -20,6 +20,7 @@ import {
 } from "$lib/services/api";
 import { loadConnections, reloadConnections, remoteConnections } from "$lib/services/connections.svelte";
 import type { PairingInfo, RemoteConnection } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 
 let { active = false }: { active?: boolean } = $props();
 
@@ -95,7 +96,7 @@ async function connectDevice() {
       }
     }, 3000);
   } catch (cause) {
-    pairingError = cause instanceof Error ? cause.message : String(cause);
+    pairingError = errorMessage(cause);
   }
 }
 
@@ -105,7 +106,7 @@ async function refresh() {
   try {
     await reloadConnections();
   } catch (cause) {
-    actionError = cause instanceof Error ? cause.message : String(cause);
+    actionError = errorMessage(cause);
   } finally {
     refreshing = false;
   }
@@ -130,7 +131,7 @@ async function commitRename(connection: RemoteConnection) {
     await renameConnection(connection.clientId, next);
     await reloadConnections();
   } catch (cause) {
-    actionError = cause instanceof Error ? cause.message : String(cause);
+    actionError = errorMessage(cause);
   }
 }
 
@@ -141,7 +142,7 @@ async function disconnect(connection: RemoteConnection) {
     await disconnectConnection(connection.clientId);
     await reloadConnections();
   } catch (cause) {
-    actionError = cause instanceof Error ? cause.message : String(cause);
+    actionError = errorMessage(cause);
   } finally {
     busyId = null;
   }
@@ -155,7 +156,7 @@ async function revoke(connection: RemoteConnection) {
     await revokeConnection(connection.clientId);
     await reloadConnections();
   } catch (cause) {
-    actionError = cause instanceof Error ? cause.message : String(cause);
+    actionError = errorMessage(cause);
   } finally {
     busyId = null;
   }

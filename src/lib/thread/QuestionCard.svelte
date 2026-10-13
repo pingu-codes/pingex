@@ -3,6 +3,7 @@ import { Check, MessageCircleQuestion, TriangleAlert } from "@lucide/svelte";
 import { respondUserInput } from "$lib/services/api";
 import { clearUnanswered, removeUserInputRequest, type UserInputRequest } from "$lib/services/codexEvents.svelte";
 import type { ThreadItem } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 
 let {
   request,
@@ -90,7 +91,7 @@ async function submit() {
     if (request.requestId !== null) removeUserInputRequest(request.requestId);
   } catch (cause) {
     // Kept on screen with the answers intact, so Send can simply be retried.
-    submitError = `Could not send the answer: ${cause instanceof Error ? cause.message : String(cause)}`;
+    submitError = `Could not send the answer: ${errorMessage(cause)}`;
   } finally {
     submitting = false;
   }

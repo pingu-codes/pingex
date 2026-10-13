@@ -202,8 +202,8 @@ describe("FloatingMenu", () => {
     });
 
     const row = screen.getByRole("button", { name: "Show usage" });
-    expect(row).toHaveTextContent("42K / 200K · 16%");
-    expect(row).toHaveTextContent("120.6K · ≈$0.42");
+    expect(row).toHaveTextContent("42k / 200k · 16%");
+    expect(row).toHaveTextContent("121k · ≈$0.42");
     expect(screen.queryByText("Thread tokens")).not.toBeInTheDocument();
     await user.click(row);
     expect(onShowStatus).toHaveBeenCalledOnce();

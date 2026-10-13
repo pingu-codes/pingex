@@ -7,8 +7,8 @@
 <script lang="ts">
 import { ChevronDown } from "@lucide/svelte";
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
-import { formatTokens } from "$lib/thread/contextUsage";
 import type { PromptPart } from "$lib/types";
+import { formatTokens } from "$lib/utils/format";
 
 let { parts }: { parts: PromptPart[] } = $props();
 

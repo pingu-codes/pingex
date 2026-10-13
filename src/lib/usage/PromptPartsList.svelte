@@ -8,9 +8,9 @@
 <script lang="ts">
 import { ChevronRight } from "@lucide/svelte";
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
-import { formatTokens } from "$lib/thread/contextUsage";
 import type { PromptPart } from "$lib/types";
 import { approx, promptPartRows } from "$lib/usage/usageBreakdown";
+import { formatTokens } from "$lib/utils/format";
 
 let {
   parts,

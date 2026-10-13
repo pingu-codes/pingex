@@ -5,9 +5,9 @@
   message sizes.
 -->
 <script lang="ts">
-import { formatTokens } from "$lib/thread/contextUsage";
 import type { CategoryTokens } from "$lib/types";
 import { approx, segmentsFor } from "$lib/usage/usageBreakdown";
+import { formatTokens } from "$lib/utils/format";
 
 let {
   categories,

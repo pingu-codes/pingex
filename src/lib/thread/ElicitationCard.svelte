@@ -4,6 +4,7 @@ import { untrack } from "svelte";
 import { respondServerRequest } from "$lib/services/api";
 import { type Elicitation, removeElicitation } from "$lib/services/codexEvents.svelte";
 import { buildContent, formFields, initialValues, isComplete } from "$lib/thread/elicitationForm";
+import { errorMessage } from "$lib/utils/errors";
 
 let { elicitation }: { elicitation: Elicitation } = $props();
 
@@ -39,7 +40,7 @@ async function respond(action: "accept" | "decline" | "cancel") {
     // and removing the card left the turn hanging with nothing to retry.
     removeElicitation(elicitation.requestId);
   } catch (cause) {
-    respondError = `Could not reply: ${cause instanceof Error ? cause.message : String(cause)}`;
+    respondError = `Could not reply: ${errorMessage(cause)}`;
   } finally {
     submitting = false;
   }

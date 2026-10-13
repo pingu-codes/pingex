@@ -17,6 +17,7 @@ import {
 } from "$lib/services/api";
 import { type CodexEvent, setThreadHandler } from "$lib/services/codexEvents.svelte";
 import type { CommitResult, FileDiff, GitContext, SyncResult } from "$lib/types";
+import { formatBytes } from "$lib/utils/format";
 import { highlightAs } from "$lib/utils/markdown";
 import { gitStatusCache, refreshGitStatus } from "$lib/worktrees/gitStatus.svelte";
 import { aheadBehindLabel } from "$lib/worktrees/worktrees";
@@ -285,7 +286,7 @@ async function switchBranch() {
               <pre class="diff-block max-h-[32rem] overflow-auto px-3 py-2.5 font-mono text-[11px] leading-5"><code class="hljs">{@html rendered}</code></pre>
             </div>
             {#if diff.truncated}
-              <p class="mt-1 text-[11px] text-surface-500">Showing the first {Math.round(diff.bytes / 1024)} KB.</p>
+              <p class="mt-1 text-[11px] text-surface-500">Showing the first {formatBytes(diff.bytes)}.</p>
             {/if}
           {/if}
         {/if}

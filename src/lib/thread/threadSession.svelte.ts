@@ -8,6 +8,7 @@
  * one event handler per thread, so what happens to a thread when an event
  * arrives is decided in exactly one place regardless of what is on screen.
  */
+
 import { setAgentRuns } from "$lib/services/agentRuns.svelte";
 import {
   compactThread,
@@ -40,6 +41,7 @@ import type {
   TurnOptions,
   UserInputPart,
 } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 
 /** Notices for a model/effort change made mid-turn. */
 export const LIVE_SETTINGS_APPLIED = "Switched the running turn to the new settings.";
@@ -151,7 +153,7 @@ export class ThreadSession {
         return turn;
       } catch (cause) {
         if (this.operation === operation && !this.disposed) {
-          this.streamError = cause instanceof Error ? cause.message : String(cause);
+          this.streamError = errorMessage(cause);
         }
         return null;
       }
@@ -176,7 +178,7 @@ export class ThreadSession {
     } catch (cause) {
       if (this.operation === operation && !this.disposed) {
         this.endCompaction();
-        this.streamError = cause instanceof Error ? cause.message : String(cause);
+        this.streamError = errorMessage(cause);
       }
     } finally {
       this.finishOperation(operation);
@@ -207,11 +209,7 @@ export class ThreadSession {
       await invalidateThreadCache(id).catch(() => {});
     } catch (cause) {
       if (this.operation === operation && !this.disposed) {
-        this.streamError = isRevertUnsupported(cause)
-          ? UNDO_UNAVAILABLE
-          : cause instanceof Error
-            ? cause.message
-            : String(cause);
+        this.streamError = isRevertUnsupported(cause) ? UNDO_UNAVAILABLE : errorMessage(cause);
       }
     } finally {
       this.finishOperation(operation);
@@ -307,7 +305,7 @@ export class ThreadSession {
       this.queue.syncFromServer();
     } catch (cause) {
       if (this.disposed) return;
-      this.error = cause instanceof Error ? cause.message : String(cause);
+      this.error = errorMessage(cause);
     } finally {
       this.#loadBuffer = null;
       if (!this.disposed) this.loading = false;
@@ -411,7 +409,7 @@ export class ThreadSession {
       return true;
     } catch (cause) {
       thread.turns = thread.turns.filter((candidate) => candidate.id !== localTurnId);
-      this.streamError = cause instanceof Error ? cause.message : String(cause);
+      this.streamError = errorMessage(cause);
       return false;
     } finally {
       this.pendingTurnStart = null;
@@ -428,8 +426,7 @@ export class ThreadSession {
       try {
         await interruptTurn(this.id, turn.id);
       } catch (cause) {
-        if (!this.disposed && !this.disconnectedState)
-          this.streamError = cause instanceof Error ? cause.message : String(cause);
+        if (!this.disposed && !this.disconnectedState) this.streamError = errorMessage(cause);
       }
       return;
     }
@@ -448,7 +445,7 @@ export class ThreadSession {
       if (!this.id || !active || active.id.startsWith("local-")) return;
     }
     interruptTurn(id, active.id).catch((cause) => {
-      this.streamError = cause instanceof Error ? cause.message : String(cause);
+      this.streamError = errorMessage(cause);
     });
   }
 
@@ -477,7 +474,7 @@ export class ThreadSession {
         this.notice = applied ? LIVE_SETTINGS_APPLIED : nextTurn;
       } catch (cause) {
         if (isTurnSettingsUnsupported(cause)) this.notice = nextTurn;
-        else toastError(cause instanceof Error ? cause.message : String(cause));
+        else toastError(errorMessage(cause));
       }
     });
     return this.settingsUpdate;

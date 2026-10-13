@@ -3,6 +3,7 @@ import { FolderGit2, Layers3 } from "@lucide/svelte";
 import { type DialogClose, submitState } from "$lib/app/dialogs.svelte";
 import DialogShell from "$lib/components/DialogShell.svelte";
 import type { CreateWorkspaceInput, Project, WorkspaceMemberInput } from "$lib/types";
+import { basename } from "$lib/utils/path";
 
 let {
   projects,
@@ -44,10 +45,6 @@ const choices = $derived(
 );
 const selectedChoices = $derived(choices.filter((project) => selected[project.path]));
 const canCreate = $derived(name.trim().length > 0 && selectedChoices.length >= 2 && !action.busy);
-
-function basename(path: string) {
-  return path.split("/").filter(Boolean).at(-1) || "project";
-}
 
 function defaultAlias(project: Project) {
   const base = basename(project.path).replace(/[^A-Za-z0-9._-]+/g, "-") || "project";

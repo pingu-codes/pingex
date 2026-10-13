@@ -1,4 +1,5 @@
 import type { MemoryEntry, MemoryHome, MemoryStore } from "$lib/types";
+import { relativeTime } from "$lib/utils/format";
 
 /** A store with only the entries a search matched, and whether anything did. */
 export type FilteredStore = MemoryStore & { total: number };
@@ -75,19 +76,9 @@ export function isMarkdown(path: string): boolean {
   return /\.(md|markdown)$/i.test(path);
 }
 
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 /** "3m ago", "5h ago", "4d ago", or a date past a month. */
 export function formatAge(seconds: number | null, now = Date.now()): string {
   if (seconds == null) return "";
-  const elapsed = Math.max(0, now / 1000 - seconds);
-  if (elapsed < 60) return "just now";
-  if (elapsed < 3600) return `${Math.floor(elapsed / 60)}m ago`;
-  if (elapsed < 86400) return `${Math.floor(elapsed / 3600)}h ago`;
-  if (elapsed < 86400 * 30) return `${Math.floor(elapsed / 86400)}d ago`;
-  return new Date(seconds * 1000).toLocaleDateString();
+  if (now / 1000 - seconds >= 86400 * 30) return new Date(seconds * 1000).toLocaleDateString();
+  return relativeTime(seconds, { granularity: "minute", suffix: " ago", now: now / 1000 });
 }

@@ -8,7 +8,9 @@ import TooltipButton from "$lib/components/TooltipButton.svelte";
 import { filterBranches } from "$lib/composer/reviewTargets";
 import { gitBranches, gitRecentCommits, isTauri } from "$lib/services/api";
 import type { GitBranch as Branch, GitCommit, WorktreeBranchRequest } from "$lib/types";
-import { folderName, stripRemotePrefix } from "$lib/worktrees/worktrees";
+import { errorMessage } from "$lib/utils/errors";
+import { basename, trimSlash } from "$lib/utils/path";
+import { stripRemotePrefix } from "$lib/worktrees/worktrees";
 
 let {
   codexHome = null,
@@ -45,7 +47,7 @@ onMount(() => {
       commits = recent;
     })
     .catch((cause) => {
-      loadError = cause instanceof Error ? cause.message : String(cause);
+      loadError = errorMessage(cause);
     });
 });
 
@@ -100,8 +102,8 @@ const slug = (value: string) =>
 const suggestedName = $derived(mode === "new" ? branchName : (existingRequest?.name ?? ""));
 const defaultLocation = $derived.by(() => {
   const name = slug(suggestedName) || "worktree";
-  const home = (codexHome ?? "~/.codex").replace(/\/+$/, "");
-  return `${home}/worktrees/${folderName(repoDir) || "repository"}/${name}`;
+  const home = trimSlash(codexHome ?? "~/.codex");
+  return `${home}/worktrees/${basename(repoDir) || "repository"}/${name}`;
 });
 
 $effect(() => {

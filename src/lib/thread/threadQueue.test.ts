@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { QueuedSubmission, TurnOptions, UserInputPart } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 
 const mocks = vi.hoisted(() => ({
   queueAdd: vi.fn(),
@@ -10,8 +11,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("$lib/services/api", () => ({
-  isQueueUnsupported: (cause: unknown) =>
-    (cause instanceof Error ? cause.message : String(cause)).startsWith("codex-queue-unsupported"),
+  isQueueUnsupported: (cause: unknown) => errorMessage(cause).startsWith("codex-queue-unsupported"),
   queueAdd: mocks.queueAdd,
   queueDelete: mocks.queueDelete,
   queueList: mocks.queueList,

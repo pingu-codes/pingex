@@ -28,9 +28,9 @@ import { Portal, Tooltip } from "@skeletonlabs/skeleton-svelte";
 import { openHomeWindow, readHomeOverview, readUsageBreakdown } from "$lib/services/api";
 import { openSettings } from "$lib/services/settingsNav.svelte";
 import { isTauri } from "$lib/services/tauri";
-import { formatTokensShort } from "$lib/thread/contextUsage";
 import type { HomeOverview, MenuTarget, Project, ThreadSummary, UsageBreakdown } from "$lib/types";
 import { costFor, costLabel, rangeSince } from "$lib/usage/usageBreakdown";
+import { formatTokensShort, relativeTime } from "$lib/utils/format";
 import BranchChip from "$lib/worktrees/BranchChip.svelte";
 
 type HomeAction = "reveal" | "rename" | "togglePin" | "toggleArchive" | "remove";
@@ -111,13 +111,6 @@ $effect(() => {
 });
 
 const target = (project: Project): MenuTarget => ({ kind: "project", project });
-
-const relativeTime = (timestamp: number) => {
-  const days = Math.floor((Date.now() / 1000 - timestamp) / 86400);
-  if (days <= 0) return "Today";
-  if (days === 1) return "Yesterday";
-  return `${days}d ago`;
-};
 </script>
 
 {#snippet iconAction(label: string, onclick: () => void, danger = false)}
@@ -350,7 +343,7 @@ const relativeTime = (timestamp: number) => {
             <Star size={13} class="shrink-0 fill-warning-500 text-warning-500" />
             <span class="min-w-0 flex-1 truncate text-sm">{entry.thread.title}</span>
             <span class="shrink-0 text-[11px] text-surface-500">{entry.project.name}</span>
-            <span class="shrink-0 text-[11px] text-surface-500">{relativeTime(entry.thread.updatedAt)}</span>
+            <span class="shrink-0 text-[11px] text-surface-500">{relativeTime(entry.thread.updatedAt, { suffix: " ago" })}</span>
           </button>
         {/each}
       </div>

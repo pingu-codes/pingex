@@ -5,6 +5,7 @@ import DialogShell from "$lib/components/DialogShell.svelte";
 import { gitWorktreeHandoffPreflight } from "$lib/services/api";
 import { dirName } from "$lib/thread/handoff";
 import type { WorktreeHandoffPreflight } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 
 let {
   worktreePath,
@@ -59,7 +60,7 @@ $effect(() => {
       if (id === request) preflight = result;
     })
     .catch((cause) => {
-      if (id === request) checkError = cause instanceof Error ? cause.message : String(cause);
+      if (id === request) checkError = errorMessage(cause);
     })
     .finally(() => {
       if (id === request) checking = false;

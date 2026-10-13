@@ -15,11 +15,12 @@ import {
   readThreadUsage,
   readUsageBreakdown,
 } from "$lib/services/api";
-import { type ContextStats, formatTokens } from "$lib/thread/contextUsage";
+import type { ContextStats } from "$lib/thread/contextUsage";
 import type { ContextComposition, ThreadUsage } from "$lib/types";
 import PromptPartsList from "$lib/usage/PromptPartsList.svelte";
 import UsageBreakdownBar from "$lib/usage/UsageBreakdownBar.svelte";
 import UsageSummary from "$lib/usage/UsageSummary.svelte";
+import { formatTokens } from "$lib/utils/format";
 import { usageWindows } from "$lib/utils/rateLimits";
 
 let {

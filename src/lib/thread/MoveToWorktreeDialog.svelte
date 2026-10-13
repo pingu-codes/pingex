@@ -6,6 +6,8 @@ import DialogShell from "$lib/components/DialogShell.svelte";
 import { gitWorktrees } from "$lib/services/api";
 import { dirName } from "$lib/thread/handoff";
 import type { WorktreeEntry } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
+import { trimSlash } from "$lib/utils/path";
 
 let {
   repoDir,
@@ -26,11 +28,9 @@ let loadError = $state<string | null>(null);
 let selected = $state<string | null>(null);
 const action = submitState();
 
-const normalize = (value: string) => value.replace(/\/+$/, "");
-
 // Offer every usable worktree except the one this thread already runs in.
 const options = $derived(
-  worktrees.filter((entry) => !entry.missingDir && normalize(entry.path) !== normalize(currentCwd)),
+  worktrees.filter((entry) => !entry.missingDir && trimSlash(entry.path) !== trimSlash(currentCwd)),
 );
 
 onMount(() => {
@@ -39,7 +39,7 @@ onMount(() => {
       worktrees = entries;
     })
     .catch((cause) => {
-      loadError = cause instanceof Error ? cause.message : String(cause);
+      loadError = errorMessage(cause);
     })
     .finally(() => {
       loading = false;

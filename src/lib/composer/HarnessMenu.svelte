@@ -3,6 +3,7 @@ import { Bot, Check, ChevronDown } from "@lucide/svelte";
 import { Menu, Portal } from "@skeletonlabs/skeleton-svelte";
 import type { HarnessChoice } from "$lib/composer/composerPrefs.svelte";
 import { availableHomes, chooseDefaultHome, currentHomeKey } from "$lib/services/homeRouting";
+import { errorMessage } from "$lib/utils/errors";
 
 let { harness, onChoose }: { harness: HarnessChoice; onChoose: (next: HarnessChoice) => void } = $props();
 
@@ -21,7 +22,7 @@ async function chooseHome(id: string, next: HarnessChoice) {
     onChoose(next);
     error = null;
   } catch (cause) {
-    error = cause instanceof Error ? cause.message : String(cause);
+    error = errorMessage(cause);
   }
 }
 </script>

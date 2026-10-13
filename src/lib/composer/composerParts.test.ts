@@ -4,7 +4,6 @@ import {
   type AttachmentPart,
   buildGoalObjective,
   buildTurnInput,
-  formatSize,
   hasSendableContent,
   normaliseParts,
 } from "$lib/composer/composerParts";
@@ -111,14 +110,6 @@ describe("hasSendableContent", () => {
     expect(hasSendableContent([readyAttachment({ state: "staging" })])).toBe(false);
     expect(hasSendableContent([readyAttachment()])).toBe(true);
     expect(hasSendableContent([{ type: "mention", name: "a", path: "/a" }])).toBe(true);
-  });
-});
-
-describe("formatSize", () => {
-  it("formats bytes, kilobytes, and megabytes", () => {
-    expect(formatSize(512)).toBe("512 B");
-    expect(formatSize(2048)).toBe("2 KB");
-    expect(formatSize(3_500_000)).toBe("3.3 MB");
   });
 });
 

@@ -130,6 +130,7 @@ import type {
   WorktreeEntry,
   WorktreeHandoffPreflight,
 } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 
 export { isTauri } from "$lib/services/tauri";
 
@@ -834,7 +835,7 @@ export async function readUsageBreakdown(scope: UsageScope, since: number | null
 export const CONTEXT_BREAKDOWN_UNSUPPORTED = "harness-unsupported:context_breakdown";
 
 export function isContextBreakdownUnsupported(cause: unknown): boolean {
-  const message = cause instanceof Error ? cause.message : String(cause);
+  const message = errorMessage(cause);
   return message.startsWith(CONTEXT_BREAKDOWN_UNSUPPORTED);
 }
 
@@ -853,7 +854,7 @@ export async function readContextBreakdown(threadId: string): Promise<ContextCom
 export const PROMPT_TEXT_UNSUPPORTED = "harness-unsupported:prompt_parts_text";
 
 export function isPromptPartsTextUnsupported(cause: unknown): boolean {
-  const message = cause instanceof Error ? cause.message : String(cause);
+  const message = errorMessage(cause);
   return message.startsWith(PROMPT_TEXT_UNSUPPORTED);
 }
 
@@ -875,7 +876,7 @@ export const QUEUE_UNSUPPORTED = "codex-queue-unsupported";
 /** Whether a rejected queue call means "this Codex cannot queue at all", as
  *  opposed to an ordinary failure of a queue that does work. */
 export function isQueueUnsupported(cause: unknown): boolean {
-  const message = cause instanceof Error ? cause.message : String(cause);
+  const message = errorMessage(cause);
   return message.startsWith(QUEUE_UNSUPPORTED);
 }
 
@@ -885,7 +886,7 @@ export function isQueueUnsupported(cause: unknown): boolean {
 export const REVERT_UNSUPPORTED = "codex-revert-unsupported";
 
 export function isRevertUnsupported(cause: unknown): boolean {
-  const message = cause instanceof Error ? cause.message : String(cause);
+  const message = errorMessage(cause);
   return message.startsWith(REVERT_UNSUPPORTED);
 }
 
@@ -896,7 +897,7 @@ export const TURN_SETTINGS_UNSUPPORTED = "codex-turn-settings-unsupported";
 export const LIVE_SPEED_UNSUPPORTED = "codex-live-speed-unsupported";
 
 export function isTurnSettingsUnsupported(cause: unknown): boolean {
-  const message = cause instanceof Error ? cause.message : String(cause);
+  const message = errorMessage(cause);
   return message.startsWith(TURN_SETTINGS_UNSUPPORTED) || message.startsWith(LIVE_SPEED_UNSUPPORTED);
 }
 

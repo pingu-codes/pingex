@@ -5,11 +5,13 @@
  * revealed rather than previewed, and doing the work first means the dialog is
  * a pure renderer with no loading state of its own.
  */
+
 import { openDialog } from "$lib/app/dialogs.svelte";
 import { currentProject, selectedThreadInfo } from "$lib/app/navigation.svelte";
 import FilePreviewDialog from "$lib/components/FilePreviewDialog.svelte";
 import { readFilePreview, revealInFinder } from "$lib/services/api";
 import type { FilePreview } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 import type { FileRef } from "$lib/utils/fileRef";
 
 /**
@@ -33,7 +35,7 @@ export async function openFilePreview(ref: FileRef, cwd?: string | null): Promis
       bytes: 0,
       truncated: false,
       problem: "unreadable",
-      detail: cause instanceof Error ? cause.message : String(cause),
+      detail: errorMessage(cause),
     };
   }
 

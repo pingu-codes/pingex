@@ -53,6 +53,7 @@ import {
 } from "$lib/services/api";
 import { mcpStatus as mcpStatusEvents, skillsStatus } from "$lib/services/codexEvents.svelte";
 import type { IntegrationsList, McpServerStatus, McpServerSummary, SkillSummary } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 import { renderMarkdown } from "$lib/utils/markdown";
 
 let {
@@ -130,7 +131,7 @@ async function load(forceReload = false) {
     const next = await listIntegrations(projectPath ? [projectPath] : [], forceReload);
     if (generation === loadGeneration) data = retainFailedInventory(data, next);
   } catch (cause) {
-    if (generation === loadGeneration) loadError = cause instanceof Error ? cause.message : String(cause);
+    if (generation === loadGeneration) loadError = errorMessage(cause);
   } finally {
     if (generation === loadGeneration) loading = false;
   }
@@ -169,7 +170,7 @@ async function refreshStatus() {
     const next = await listMcpServerStatus();
     if (generation === statusGeneration) statuses = next;
   } catch (cause) {
-    if (generation === statusGeneration) actionError = cause instanceof Error ? cause.message : String(cause);
+    if (generation === statusGeneration) actionError = errorMessage(cause);
   } finally {
     if (generation === statusGeneration) checking = false;
   }
@@ -223,7 +224,7 @@ async function changeSetting(kind: "mcp" | "plugin", id: string, value: string) 
     apply(next);
     await refreshStatus();
   } catch (cause) {
-    actionError = cause instanceof Error ? cause.message : String(cause);
+    actionError = errorMessage(cause);
   } finally {
     updating = false;
   }
@@ -266,7 +267,7 @@ async function toggleEnabled(server: McpServerSummary) {
     // The backend reloaded Codex's config; pick up the resulting state.
     await refreshStatus();
   } catch (cause) {
-    actionError = cause instanceof Error ? cause.message : String(cause);
+    actionError = errorMessage(cause);
   }
 }
 
@@ -283,7 +284,7 @@ async function signIn(server: McpServerSummary) {
     await refreshStatus();
   } catch (cause) {
     delete signingIn[server.name];
-    actionError = cause instanceof Error ? cause.message : String(cause);
+    actionError = errorMessage(cause);
   }
 }
 
@@ -294,7 +295,7 @@ async function toggleSkill(skill: SkillSummary) {
     skillsStatus.nonce += 1;
     // The notification reloads Codex's effective state in both views.
   } catch (cause) {
-    actionError = cause instanceof Error ? cause.message : String(cause);
+    actionError = errorMessage(cause);
   }
 }
 
@@ -307,7 +308,7 @@ async function toggleSkillView(skill: SkillSummary) {
     skillText[skill.path] = await readSkill(skill.path);
   } catch (cause) {
     delete skillOpen[skill.path];
-    actionError = cause instanceof Error ? cause.message : String(cause);
+    actionError = errorMessage(cause);
   }
 }
 
@@ -319,7 +320,7 @@ async function doDeleteSkill(skill: SkillSummary) {
     delete skillOpen[skill.path];
     delete skillText[skill.path];
   } catch (cause) {
-    actionError = cause instanceof Error ? cause.message : String(cause);
+    actionError = errorMessage(cause);
   }
 }
 
@@ -356,7 +357,7 @@ async function saveSkillForm(event: SubmitEvent) {
         document.getElementById(`skill-row-${encodeURIComponent(created.path)}`)?.scrollIntoView({ block: "nearest" }),
       );
   } catch (cause) {
-    skillFormError = cause instanceof Error ? cause.message : String(cause);
+    skillFormError = errorMessage(cause);
   } finally {
     skillSaving = false;
   }
@@ -458,7 +459,7 @@ async function saveForm(event: SubmitEvent) {
     editing = null;
     await refreshStatus();
   } catch (cause) {
-    formError = cause instanceof Error ? cause.message : String(cause);
+    formError = errorMessage(cause);
   } finally {
     saving = false;
   }
@@ -472,7 +473,7 @@ async function doRemove(name: string) {
     delete expanded[name];
     await refreshStatus();
   } catch (cause) {
-    actionError = cause instanceof Error ? cause.message : String(cause);
+    actionError = errorMessage(cause);
   }
 }
 

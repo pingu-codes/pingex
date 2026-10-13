@@ -20,6 +20,7 @@ import {
 } from "$lib/services/api";
 import { belongsToProfile } from "$lib/services/homeRouting";
 import type { Host, LaunchState } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 
 export const launch = $state<{
   /** "loading" while we read launch state, "picker" to choose a Codex home
@@ -86,7 +87,7 @@ export async function chooseHome(path: string, host: Host | null = null): Promis
     launch.state = await selectCodexHome(path, host);
     await boot();
   } catch (cause) {
-    launch.error = cause instanceof Error ? cause.message : String(cause);
+    launch.error = errorMessage(cause);
   } finally {
     launch.busy = false;
   }
@@ -121,7 +122,7 @@ export async function removeHome(path: string, host: Host | null = null): Promis
   try {
     launch.state = await removeRecentHome(path, host);
   } catch (cause) {
-    launch.error = cause instanceof Error ? cause.message : String(cause);
+    launch.error = errorMessage(cause);
   }
 }
 
@@ -159,7 +160,7 @@ export async function init(): Promise<void> {
       return;
     }
   } catch (cause) {
-    appData.error = cause instanceof Error ? cause.message : String(cause);
+    appData.error = errorMessage(cause);
   }
   await boot();
 }

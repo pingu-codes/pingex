@@ -7,6 +7,8 @@ A mirror codex source code can be found at `../codex-mirror`
 ## Frontend Best Practices
 
 We use "Skeleton" as a component / styling library. Before creating a new component always check if it already exists in Skeleton.
+Skeleton's docs are vendored at `llms/skeleton.txt` (790 KB): `grep -n` it for
+the component name, then `Read` that range. Never read it whole.
 
 ## Supported Codex versions
 

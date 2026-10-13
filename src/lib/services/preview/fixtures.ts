@@ -44,6 +44,7 @@ import type {
   WorkspaceSearchResults,
   WorktreeEntry,
 } from "$lib/types";
+import { basename } from "$lib/utils/path";
 
 let previewCounter = 100;
 
@@ -226,7 +227,7 @@ export const previewData: BootstrapData = {
 
 export function previewAddWorktreeProject(path: string): BootstrapData {
   if (!previewData.projects.some((project) => project.path === path)) {
-    const name = path.replace(/\/+$/, "").split("/").pop() ?? path;
+    const name = basename(path);
     previewData.projects.push({
       name: `${name}-permanent-worktree`,
       path,

@@ -45,7 +45,7 @@ import ElicitationCard from "$lib/thread/ElicitationCard.svelte";
 import FloatingMenu from "$lib/thread/FloatingMenu.svelte";
 import { collectFileChanges } from "$lib/thread/fileChanges";
 import GoalBudgetDialog from "$lib/thread/GoalBudgetDialog.svelte";
-import { formatTokens, parseTokenBudget } from "$lib/thread/goalBudget";
+import { parseTokenBudget } from "$lib/thread/goalBudget";
 import { cwdBelongsTo } from "$lib/thread/handoff";
 import { messageText, messageTitle } from "$lib/thread/messageText";
 import { groupForTurn, isPendingEditTurn, versionsForTurn } from "$lib/thread/messageVersions";
@@ -92,6 +92,8 @@ import type {
   WorktreeBranchRequest,
 } from "$lib/types";
 import { can } from "$lib/utils/capabilities";
+import { errorMessage } from "$lib/utils/errors";
+import { formatTokensShort } from "$lib/utils/format";
 import CreateWorktreeDialog from "$lib/worktrees/CreateWorktreeDialog.svelte";
 import { tempWorktreeLocation } from "$lib/worktrees/worktrees";
 
@@ -155,6 +157,8 @@ $effect(() => {
   });
 });
 onDestroy(() => releaseSession(untrack(() => session)));
+/** Show a failed action's error on the thread. */
+const fail = (cause: unknown) => (session.streamError = errorMessage(cause));
 // Sends that bypass the composer's text (a stranded answer, a steer, a drain
 // that lost its options) still run with the composer's choices.
 $effect(() => {
@@ -256,7 +260,7 @@ function toggleSystemPromptInThread() {
     .catch((cause) => {
       if (systemPromptPartsFor !== id) return;
       if (!isPromptPartsTextUnsupported(cause)) {
-        session.streamError = cause instanceof Error ? cause.message : String(cause);
+        fail(cause);
       }
       showSystemPromptInThread = false;
       systemPromptPartsFor = null;
@@ -490,7 +494,7 @@ async function send(input: UserInputPart[], options?: TurnOptions): Promise<bool
       const text = messageText(input);
       if (text.trim()) requestAutoName(id, "seed", text);
     } catch (cause) {
-      session.streamError = cause instanceof Error ? cause.message : String(cause);
+      fail(cause);
       return false;
     } finally {
       session.starting = false;
@@ -532,7 +536,7 @@ async function submitEdit(turn: Turn, parts: UserInputPart[]) {
     }
     onSelectVersion?.(forked.id);
   } catch (cause) {
-    session.streamError = cause instanceof Error ? cause.message : String(cause);
+    fail(cause);
   } finally {
     session.starting = false;
   }
@@ -659,7 +663,7 @@ function refreshGitChanges(immediate = false) {
       } catch (cause) {
         if (id !== gitChangesRequest) return;
         gitChanges = null;
-        gitChangesError = cause instanceof Error ? cause.message : String(cause);
+        gitChangesError = errorMessage(cause);
       } finally {
         if (id === gitChangesRequest) gitChangesLoading = false;
       }
@@ -725,7 +729,7 @@ async function startPlanThread(input: UserInputPart[], options?: TurnOptions) {
     const plan = messageText(input);
     if (plan.trim()) requestAutoName(created.id, "seed", plan);
   } catch (cause) {
-    session.streamError = cause instanceof Error ? cause.message : String(cause);
+    fail(cause);
   } finally {
     session.starting = false;
   }
@@ -761,7 +765,7 @@ async function showWorkingDiff() {
     }));
     panelView = { kind: "diffs" };
   } catch (cause) {
-    session.streamError = cause instanceof Error ? cause.message : String(cause);
+    fail(cause);
   }
 }
 
@@ -884,7 +888,7 @@ async function goalCommand(argument: string, typed = "") {
           : "No goal is set — /goal <objective> sets one.";
       }
     } catch (cause) {
-      failCommand("goal", typed, cause instanceof Error ? cause.message : String(cause));
+      failCommand("goal", typed, errorMessage(cause));
     }
     return;
   }
@@ -900,7 +904,7 @@ async function goalBudgetCommand(argument: string, typed = "") {
   }
   if (!argument) {
     session.notice = goal.tokenBudget
-      ? `Goal budget: ${formatTokens(goal.tokensUsed)} of ${formatTokens(goal.tokenBudget)} tokens used.`
+      ? `Goal budget: ${formatTokensShort(goal.tokensUsed)} of ${formatTokensShort(goal.tokenBudget)} tokens used.`
       : "The goal has no budget — /goal budget 500k caps it.";
     return;
   }
@@ -918,10 +922,10 @@ async function applyGoalBudget(tokens: number | null): Promise<boolean> {
   try {
     const set = await setThreadGoalBudget(liveThreadId, tokens);
     session.setGoal({ ...goal, ...set, objective: set.objective || goal.objective });
-    session.notice = tokens === null ? "Goal budget lifted." : `Goal budget set: ${formatTokens(tokens)} tokens.`;
+    session.notice = tokens === null ? "Goal budget lifted." : `Goal budget set: ${formatTokensShort(tokens)} tokens.`;
     return true;
   } catch (cause) {
-    toastError(cause instanceof Error ? cause.message : String(cause));
+    toastError(errorMessage(cause));
     return false;
   }
 }
@@ -972,7 +976,7 @@ async function setGoal(objective: string, edit = false): Promise<boolean> {
     }
     return true;
   } catch (cause) {
-    session.streamError = cause instanceof Error ? cause.message : String(cause);
+    fail(cause);
     return false;
   } finally {
     if (fresh) session.starting = false;
@@ -986,7 +990,7 @@ async function toggleGoal() {
   try {
     session.setGoal({ ...goal, ...(await setThreadGoalStatus(liveThreadId, status)), objective: goal.objective });
   } catch (cause) {
-    toastError(cause instanceof Error ? cause.message : String(cause));
+    toastError(errorMessage(cause));
   }
 }
 
@@ -996,7 +1000,7 @@ async function clearGoal() {
     await clearThreadGoal(liveThreadId);
     session.setGoal(null);
   } catch (cause) {
-    toastError(cause instanceof Error ? cause.message : String(cause));
+    toastError(errorMessage(cause));
   }
 }
 
@@ -1047,7 +1051,7 @@ async function copyLastResponse() {
     await copyText(last.text);
     session.notice = "Copied the last response as markdown.";
   } catch (cause) {
-    session.streamError = cause instanceof Error ? cause.message : String(cause);
+    fail(cause);
   }
 }
 
@@ -1068,7 +1072,7 @@ async function exportConversation() {
     await copyText(sections.join("\n\n"));
     session.notice = "Copied the conversation as markdown.";
   } catch (cause) {
-    session.streamError = cause instanceof Error ? cause.message : String(cause);
+    fail(cause);
   }
 }
 
@@ -1080,9 +1084,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
   session.subagentModelPolicy = modelPolicy;
   session.subagentReasoningEffortPolicy = effortPolicy;
   if (!liveThreadId) return;
-  updateSubagentPolicy(liveThreadId, modelPolicy, effortPolicy).catch((cause) => {
-    session.streamError = cause instanceof Error ? cause.message : String(cause);
-  });
+  updateSubagentPolicy(liveThreadId, modelPolicy, effortPolicy).catch(fail);
 }
 </script>
 
@@ -1112,7 +1114,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
         {contextStats}
         costUsd={estimateCost(tokenUsage, activeModel)}
         onOpenFinder={() => revealInFinder(thread?.cwd || cwd).catch(() => {})}
-        onOpenZed={() => openInZed(thread?.cwd || cwd).catch((cause) => (session.streamError = cause instanceof Error ? cause.message : String(cause)))}
+        onOpenZed={() => openInZed(thread?.cwd || cwd).catch(fail)}
         onShowPlan={() => (panelView = latestPlan ? { kind: "plan", text: latestPlan } : panelView)}
         onShowSources={() => (panelView = { kind: "sources", queries: sourceQueries })}
         onShowSideQuestions={() => (panelView = { kind: "side" })}
@@ -1320,7 +1322,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
                 style="width: {share * 100}%"
               ></span>
             </span>
-            {formatTokens(goal.tokensUsed)} / {formatTokens(goal.tokenBudget)}
+            {formatTokensShort(goal.tokensUsed)} / {formatTokensShort(goal.tokenBudget)}
           </span>
         {/if}
         {#if goal.status === "budgetLimited"}
@@ -1479,9 +1481,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
     onToggleSystemPromptInThread={toggleSystemPromptInThread}
     onStopProcessTurn={(process) => {
       if (process.turnId && process.threadId) {
-        interruptTurn(process.threadId, process.turnId).catch((cause) => {
-          session.streamError = cause instanceof Error ? cause.message : String(cause);
-        });
+        interruptTurn(process.threadId, process.turnId).catch(fail);
       }
     }}
   />

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BASELINE_TOKENS, contextStats, formatTokens, formatTokensShort } from "$lib/thread/contextUsage";
+import { BASELINE_TOKENS, contextStats } from "$lib/thread/contextUsage";
 import type { ThreadTokenUsage } from "$lib/types";
 
 function usage(lastTotal: number, contextWindow: number | null, sessionTotal = lastTotal): ThreadTokenUsage {
@@ -53,17 +53,5 @@ describe("contextStats", () => {
     const stats = contextStats(usage(60_000, 200_000, 350_000));
     expect(stats.usedTokens).toBe(60_000);
     expect(stats.sessionTotalTokens).toBe(350_000);
-  });
-});
-
-describe("token formatting", () => {
-  it("groups thousands", () => {
-    expect(formatTokens(272_000)).toBe("272,000");
-  });
-
-  it("abbreviates large counts", () => {
-    expect(formatTokensShort(840)).toBe("840");
-    expect(formatTokensShort(128_000)).toBe("128K");
-    expect(formatTokensShort(1_250_000)).toBe("1.3M");
   });
 });

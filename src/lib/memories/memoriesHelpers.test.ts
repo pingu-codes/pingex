@@ -6,7 +6,6 @@ import {
   filterMemories,
   findEntry,
   formatAge,
-  formatBytes,
   isMarkdown,
   stripFrontmatter,
 } from "$lib/memories/memoriesHelpers";
@@ -95,9 +94,7 @@ describe("stripFrontmatter", () => {
 });
 
 describe("formatting", () => {
-  it("formats sizes, ages and file types", () => {
-    expect(formatBytes(512)).toBe("512 B");
-    expect(formatBytes(2048)).toBe("2.0 KB");
+  it("formats ages and file types", () => {
     const now = 1_000_000_000_000;
     expect(formatAge(now / 1000 - 30, now)).toBe("just now");
     expect(formatAge(now / 1000 - 7200, now)).toBe("2h ago");

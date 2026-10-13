@@ -17,6 +17,7 @@ import { startConnectionsWatch } from "$lib/services/connections.svelte";
 import { belongsToProfile, identity, scopedId, setHomeSelection } from "$lib/services/homeRouting";
 import { toastError } from "$lib/toaster";
 import type { HandoffOpen } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 import { installExternalLinkHandler } from "$lib/utils/externalLinks";
 import { refreshAllGitStatus, refreshGitStatus } from "$lib/worktrees/gitStatus.svelte";
 
@@ -32,9 +33,7 @@ async function openThreadFromQuick(threadId: string) {
 
 export function startApp(): void {
   setHomeSelection(() => view);
-  startCodexListeners().catch((cause) =>
-    toastError(`Could not listen for Codex events: ${cause instanceof Error ? cause.message : String(cause)}`),
-  );
+  startCodexListeners().catch((cause) => toastError(`Could not listen for Codex events: ${errorMessage(cause)}`));
   // Open links (markdown output, etc.) in the default browser rather than
   // navigating the app webview and stranding the user with no way back. A link
   // that names a local file opens the preview modal instead of Finder.

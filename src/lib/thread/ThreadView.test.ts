@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appData, trackNewThread } from "$lib/app/appData.svelte";
 import { loadPrefs, savePrefs } from "$lib/composer/composerPrefs.svelte";
 import type { BootstrapData, ThreadDetail, Turn } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 
 type ThreadEventHandler = (event: { method: string; params: Record<string, unknown> }) => void;
 
@@ -117,10 +118,8 @@ vi.mock("$lib/services/api", () => ({
   listAgentRuns: vi.fn().mockResolvedValue([]),
   killAgentRun: vi.fn().mockResolvedValue(undefined),
   openInZed: vi.fn(),
-  isQueueUnsupported: (cause: unknown) =>
-    (cause instanceof Error ? cause.message : String(cause)).startsWith("codex-queue-unsupported"),
-  isRevertUnsupported: (cause: unknown) =>
-    (cause instanceof Error ? cause.message : String(cause)).startsWith("codex-revert-unsupported"),
+  isQueueUnsupported: (cause: unknown) => errorMessage(cause).startsWith("codex-queue-unsupported"),
+  isRevertUnsupported: (cause: unknown) => errorMessage(cause).startsWith("codex-revert-unsupported"),
   queueAdd: mocks.queueAdd,
   queueDelete: mocks.queueDelete,
   queueList: mocks.queueList,

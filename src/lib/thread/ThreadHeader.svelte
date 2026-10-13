@@ -14,6 +14,7 @@ import HandoffConfirmDialog from "$lib/thread/HandoffConfirmDialog.svelte";
 import HandoffToLocalDialog from "$lib/thread/HandoffToLocalDialog.svelte";
 import { canHandoff, dirName, shortHomeName } from "$lib/thread/handoff";
 import MoveToWorktreeDialog from "$lib/thread/MoveToWorktreeDialog.svelte";
+import { errorMessage } from "$lib/utils/errors";
 import { ensureGitStatus, gitStatusCache, refreshGitStatus } from "$lib/worktrees/gitStatus.svelte";
 import { isTempWorktreePath } from "$lib/worktrees/worktrees";
 
@@ -75,7 +76,7 @@ async function openContinueInTerminal() {
       launch: () => handoffLaunchTerminal(threadId, cwd),
     });
   } catch (cause) {
-    onError(cause instanceof Error ? cause.message : String(cause));
+    onError(errorMessage(cause));
   }
 }
 
@@ -88,7 +89,7 @@ async function copyThreadLink() {
     linkCopied = true;
     setTimeout(() => (linkCopied = false), 1500);
   } catch (cause) {
-    onError(cause instanceof Error ? cause.message : String(cause));
+    onError(errorMessage(cause));
   }
 }
 

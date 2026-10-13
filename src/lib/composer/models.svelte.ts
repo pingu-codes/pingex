@@ -4,6 +4,7 @@ import type { HarnessChoice } from "$lib/composer/composerPrefs.svelte";
 import { listHarnessModels } from "$lib/services/api";
 import { currentHomeKey } from "$lib/services/homeRouting";
 import type { Model } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 
 type Entry = { models: Model[] | null; error: string | null };
 const entries = $state<Record<string, Entry>>({});
@@ -31,7 +32,7 @@ function ensure(harness: HarnessChoice): Promise<void> {
     try {
       entries[key] = { models: await listHarnessModels(harness), error: null };
     } catch (cause) {
-      entries[key] = { models: [], error: cause instanceof Error ? cause.message : String(cause) };
+      entries[key] = { models: [], error: errorMessage(cause) };
     } finally {
       inFlight.delete(key);
     }

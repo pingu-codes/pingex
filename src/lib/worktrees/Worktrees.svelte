@@ -34,6 +34,7 @@ import {
 import { type CodexEvent, setThreadHandler } from "$lib/services/codexEvents.svelte";
 import HandoffToLocalDialog from "$lib/thread/HandoffToLocalDialog.svelte";
 import type { GitRepoInfo, Project, WorktreeBranchRequest, WorktreeEntry } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 import CreateWorktreeDialog from "$lib/worktrees/CreateWorktreeDialog.svelte";
 import { refreshGitStatus } from "$lib/worktrees/gitStatus.svelte";
 import RemoveWorktreeDialog from "$lib/worktrees/RemoveWorktreeDialog.svelte";
@@ -87,7 +88,7 @@ async function load() {
     entries = worktrees;
     repoInfo = info;
   } catch (cause) {
-    error = cause instanceof Error ? cause.message : String(cause);
+    error = errorMessage(cause);
   } finally {
     loading = false;
   }
@@ -109,7 +110,7 @@ async function runAction(fn: () => Promise<void>) {
     await load();
     void refreshGitStatus(repoDir);
   } catch (cause) {
-    actionError = cause instanceof Error ? cause.message : String(cause);
+    actionError = errorMessage(cause);
   }
 }
 

@@ -60,20 +60,3 @@ export function contextStats(usage: ThreadTokenUsage): ContextStats {
   stats.percentUsed = 100 - stats.percentRemaining;
   return stats;
 }
-
-/** Thousands-separated token count, e.g. `128,000`. */
-export function formatTokens(tokens: number): string {
-  return Math.round(tokens).toLocaleString("en-US");
-}
-
-/** Compact token count for tight spaces, e.g. `1.2M`, `128K`, `840`. */
-export function formatTokensShort(tokens: number): string {
-  const value = Math.round(tokens);
-  if (Math.abs(value) >= 1_000_000) return `${trimZero(value / 1_000_000)}M`;
-  if (Math.abs(value) >= 1_000) return `${trimZero(value / 1_000)}K`;
-  return String(value);
-}
-
-function trimZero(value: number): string {
-  return value.toFixed(1).replace(/\.0$/, "");
-}

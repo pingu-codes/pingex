@@ -40,6 +40,7 @@ import {
 } from "$lib/thread/turnSegments";
 import WorkItem from "$lib/thread/WorkItem.svelte";
 import type { BootstrapData, SideQuestion, ThreadDetail, Turn } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 
 let {
   parentThreadId,
@@ -174,7 +175,7 @@ async function load(id: string) {
     if (!activeTurns.list.includes(id)) finalizeRunningTurns(detail.turns, "interrupted");
     sideThread = detail;
   } catch (cause) {
-    if (id === activeSideId) sideError = cause instanceof Error ? cause.message : String(cause);
+    if (id === activeSideId) sideError = errorMessage(cause);
   } finally {
     if (id === activeSideId) sideLoading = false;
   }
@@ -252,7 +253,7 @@ async function ask() {
     }
   } catch (cause) {
     if (sideThread) sideThread.turns = sideThread.turns.filter((candidate) => candidate.id !== localTurnId);
-    sideError = cause instanceof Error ? cause.message : String(cause);
+    sideError = errorMessage(cause);
   } finally {
     pendingTurnStart = null;
     starting = false;
@@ -277,7 +278,7 @@ async function stop() {
   try {
     await interruptTurn(id, target.id);
   } catch (cause) {
-    sideError = cause instanceof Error ? cause.message : String(cause);
+    sideError = errorMessage(cause);
   }
   // Stop is final: if no `turn/completed` confirms it, end the turn locally so
   // the composer comes back.
@@ -298,7 +299,7 @@ async function deleteSide(entry: SideQuestion) {
       sideThread = null;
     }
   } catch (cause) {
-    sideError = cause instanceof Error ? cause.message : String(cause);
+    sideError = errorMessage(cause);
   }
 }
 

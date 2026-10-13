@@ -1,7 +1,8 @@
 <script lang="ts">
 import type { DialogClose } from "$lib/app/dialogs.svelte";
 import DialogShell from "$lib/components/DialogShell.svelte";
-import { BUDGET_PRESETS, formatTokens, parseTokenBudget } from "$lib/thread/goalBudget";
+import { BUDGET_PRESETS, parseTokenBudget } from "$lib/thread/goalBudget";
+import { formatTokensShort } from "$lib/utils/format";
 
 let {
   current,
@@ -17,7 +18,7 @@ let {
 } = $props();
 
 // svelte-ignore state_referenced_locally
-let text = $state(current ? formatTokens(current) : "");
+let text = $state(current ? formatTokensShort(current) : "");
 const parsed = $derived(parseTokenBudget(text));
 const invalid = $derived(text.trim() !== "" && parsed === null);
 
@@ -29,7 +30,7 @@ function save() {
 <DialogShell title="Goal budget" onClose={() => close()}>
   <p class="mt-3 text-sm leading-6 text-surface-600-400">
     Codex pauses the goal once it has spent this many tokens. Used so far:
-    <span class="font-medium text-surface-900-100">{formatTokens(used)}</span>.
+    <span class="font-medium text-surface-900-100">{formatTokensShort(used)}</span>.
   </p>
   <form
     class="mt-3 space-y-2"
@@ -55,9 +56,9 @@ function save() {
         <button
           type="button"
           class="chip {parsed === preset ? 'preset-filled-primary-500' : 'preset-tonal'}"
-          onclick={() => (text = formatTokens(preset))}
+          onclick={() => (text = formatTokensShort(preset))}
         >
-          {formatTokens(preset)}
+          {formatTokensShort(preset)}
         </button>
       {/each}
     </div>

@@ -11,6 +11,7 @@ import type { ThreadItem, UserInputPart } from "$lib/types";
 import { copyPlainOrMarkdown } from "$lib/utils/copy";
 import { fileIconFor, iconForPath } from "$lib/utils/fileIcons";
 import { resolveMentionPath, splitMentions } from "$lib/utils/mentions";
+import { basename } from "$lib/utils/path";
 
 let {
   item,
@@ -104,8 +105,6 @@ $effect(() => {
   void draft;
   autogrow();
 });
-
-const basename = (path: string) => path.split("/").pop() || path;
 
 const localImageSrc = (part: UserInputPart) =>
   isTauri() && part.path && !failedImages.includes(part.path) ? convertFileSrc(part.path) : null;

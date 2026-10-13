@@ -38,10 +38,12 @@ import {
 } from "$lib/services/api";
 import type { GitContext, Project, ProjectSource, WorkspaceSearchResults } from "$lib/types";
 import UsageSummary from "$lib/usage/UsageSummary.svelte";
-import { relativeTime } from "$lib/utils/time";
+import { errorMessage } from "$lib/utils/errors";
+import { relativeTime } from "$lib/utils/format";
+import { basename } from "$lib/utils/path";
 import { ensureGitStatus, gitStatusCache } from "$lib/worktrees/gitStatus.svelte";
 import Worktrees from "$lib/worktrees/Worktrees.svelte";
-import { aheadBehindLabel, folderName, isDirty, statusSummary } from "$lib/worktrees/worktrees";
+import { aheadBehindLabel, isDirty, statusSummary } from "$lib/worktrees/worktrees";
 import { debounce, emptyStateLabel, isEmptyResults } from "./workspaceSearch";
 
 let {
@@ -94,7 +96,7 @@ async function loadContext() {
     context = await gitContext(project.path);
     contextError = null;
   } catch (cause) {
-    contextError = cause instanceof Error ? cause.message : String(cause);
+    contextError = errorMessage(cause);
   }
 }
 
@@ -152,7 +154,7 @@ const saveInstructions = debounce((path: string, text: string) => {
   saveProjectInstructions(path, text)
     .catch((cause) => {
       // Said out loud: "Saving…" vanishing used to read as saved.
-      instructionsError = `Not saved: ${cause instanceof Error ? cause.message : String(cause)}`;
+      instructionsError = `Not saved: ${errorMessage(cause)}`;
     })
     .finally(() => {
       instructionSaves--;
@@ -168,7 +170,7 @@ async function attach(path: string, kind: "folder" | "file") {
   try {
     sources = await addProjectSource(project.path, path, kind);
   } catch (cause) {
-    sourceError = cause instanceof Error ? cause.message : String(cause);
+    sourceError = errorMessage(cause);
   }
 }
 
@@ -202,7 +204,7 @@ async function removeSource(id: string) {
   try {
     sources = await removeProjectSource(id, project.path);
   } catch (cause) {
-    sourceError = cause instanceof Error ? cause.message : String(cause);
+    sourceError = errorMessage(cause);
   }
 }
 
@@ -248,7 +250,7 @@ function openFile(path: string) {
   void revealInFinder(`${project.path}/${path}`);
 }
 
-const sourceName = (source: ProjectSource) => source.sourcePath.split("/").pop() || source.sourcePath;
+const sourceName = (source: ProjectSource) => basename(source.sourcePath);
 </script>
 
 <div class="h-full overflow-y-auto">
@@ -278,7 +280,7 @@ const sourceName = (source: ProjectSource) => source.sourcePath.split("/").pop()
       <div class="mt-4 flex items-center gap-2 rounded-lg border border-primary-500/30 bg-primary-500/10 px-3 py-2 text-xs">
         <FolderGit2 size={14} class="shrink-0 text-primary-500" />
         <span class="min-w-0 flex-1 truncate">
-          This is a worktree of <span class="font-mono" title={context.parentPath}>{folderName(context.parentPath)}</span>
+          This is a worktree of <span class="font-mono" title={context.parentPath}>{basename(context.parentPath)}</span>
         </span>
         {#if onOpenProjectPath}
           <button type="button" onclick={() => onOpenProjectPath?.(context!.parentPath!, "worktrees")} class="btn btn-sm preset-tonal">Open repository</button>
@@ -392,7 +394,7 @@ const sourceName = (source: ProjectSource) => source.sourcePath.split("/").pop()
               <Worktrees
                 embedded
                 {repoDir}
-                repoName={folderName(repoDir)}
+                repoName={basename(repoDir)}
                 {projects}
                 {codexHome}
                 onOpenInApp={(path) => onOpenInApp?.(path)}

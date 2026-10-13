@@ -65,10 +65,12 @@ import type {
   ThreadSummary,
 } from "$lib/types";
 import { dragRegion } from "$lib/utils/dragRegion";
-import { relativeTime } from "$lib/utils/time";
+import { errorMessage } from "$lib/utils/errors";
+import { relativeTime } from "$lib/utils/format";
+import { basename } from "$lib/utils/path";
 import BranchChip from "$lib/worktrees/BranchChip.svelte";
 import { ensureGitStatus, gitStatusCache } from "$lib/worktrees/gitStatus.svelte";
-import { folderName, isTempWorktreePath } from "$lib/worktrees/worktrees";
+import { isTempWorktreePath } from "$lib/worktrees/worktrees";
 
 let {
   projects,
@@ -293,7 +295,7 @@ const dropClass = (ref: SidebarItemRef) => (dnd.over?.rowId === rowId(ref) ? `dr
 function persistFolderExpansion(folder: SidebarFolder, expanded: boolean) {
   folder.expanded = expanded;
   void setSidebarFolderExpanded(folder.id, expanded).catch((cause) => {
-    toastError(`Could not save folder expansion: ${cause instanceof Error ? cause.message : String(cause)}`);
+    toastError(`Could not save folder expansion: ${errorMessage(cause)}`);
   });
 }
 const folderTarget = (folder: SidebarFolder, project: Project | null): MenuTarget => ({
@@ -381,7 +383,7 @@ const projectTarget = (project: Project): MenuTarget => ({ kind: "project", proj
 function persistProjectExpansion(project: Project, expanded: boolean) {
   project.expanded = expanded;
   void setProjectExpanded(project.path, expanded).catch((cause) => {
-    toastError(`Could not save project expansion: ${cause instanceof Error ? cause.message : String(cause)}`);
+    toastError(`Could not save project expansion: ${errorMessage(cause)}`);
   });
 }
 
@@ -439,7 +441,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
       {#if isTempWorktreePath(thread.cwd ?? "")}
         <span
           class="grid shrink-0 place-items-center text-surface-500"
-          title="Runs in the temporary worktree {folderName(thread.cwd ?? '')}"
+          title="Runs in the temporary worktree {basename(thread.cwd ?? '')}"
         >
           <GitBranch size={10} />
         </span>

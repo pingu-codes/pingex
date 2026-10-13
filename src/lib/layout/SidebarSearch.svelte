@@ -14,7 +14,9 @@ import {
 } from "$lib/layout/sidebarSearch";
 import { searchThreads } from "$lib/services/api";
 import type { Project, ThreadSearchFilter, ThreadSearchItem } from "$lib/types";
-import { relativeTime } from "$lib/utils/time";
+import { errorMessage } from "$lib/utils/errors";
+import { relativeTime } from "$lib/utils/format";
+import { basename } from "$lib/utils/path";
 
 let {
   projects,
@@ -51,7 +53,7 @@ const chipLabel = $derived(scoped ? filterChipLabel(currentProjectName) : null);
 const uiState = $derived(searchState({ query, active, archived, error, loading }));
 
 function projectNameFor(cwd: string): string {
-  return projectForDirectory(projects, cwd)?.name ?? cwd.split("/").filter(Boolean).pop() ?? cwd;
+  return projectForDirectory(projects, cwd)?.name ?? basename(cwd);
 }
 
 function filterFor(isArchived: boolean): ThreadSearchFilter {
@@ -89,7 +91,7 @@ async function runInitial() {
     };
   } catch (cause) {
     if (mine !== generation) return;
-    error = cause instanceof Error ? cause.message : String(cause);
+    error = errorMessage(cause);
   } finally {
     if (mine === generation) loading = false;
   }
@@ -114,7 +116,7 @@ async function loadMore(isArchived: boolean) {
     else active = next;
   } catch (cause) {
     if (mine !== generation) return;
-    error = cause instanceof Error ? cause.message : String(cause);
+    error = errorMessage(cause);
     if (isArchived) archived = { ...archived, loading: false };
     else active = { ...active, loading: false };
   }

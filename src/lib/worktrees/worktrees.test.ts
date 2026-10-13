@@ -4,7 +4,6 @@ import type { Project, WorktreeEntry } from "$lib/types";
 import {
   adoptableWorktrees,
   aheadBehindLabel,
-  folderName,
   isDirty,
   isTempWorktreePath,
   statusSummary,
@@ -47,9 +46,7 @@ describe("worktree helpers", () => {
     expect(stripRemotePrefix("/odd")).toBe("/odd");
   });
 
-  it("derives folder names and status summaries", () => {
-    expect(folderName("/a/b/c/")).toBe("c");
-    expect(folderName("/a/b/c")).toBe("c");
+  it("derives status summaries", () => {
     expect(statusSummary(null)).toBe("Status unavailable");
     expect(statusSummary({ staged: 0, unstaged: 0, untracked: 0, conflicted: 0 })).toBe("Clean");
     expect(statusSummary({ staged: 1, unstaged: 2, untracked: 0, conflicted: 1 })).toBe("3 changed · 1 conflict");

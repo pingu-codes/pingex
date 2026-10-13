@@ -14,6 +14,8 @@ import {
 import { hostFromOption, hostKey, hostLabel, NATIVE_HOST, sameHost } from "$lib/app/host";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import type { Host, LaunchState } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
+import { relativeTime } from "$lib/utils/format";
 
 let {
   launchState,
@@ -63,7 +65,7 @@ async function saveBinary() {
     editingBinary = false;
     binaryPath = "";
   } catch (cause) {
-    binaryError = cause instanceof Error ? cause.message : String(cause);
+    binaryError = errorMessage(cause);
   } finally {
     savingBinary = false;
   }
@@ -143,14 +145,6 @@ const options = $derived.by(() => {
 
 const isCurrent = (option: HomeOption) =>
   option.path === launchState.codexHome && sameHost(option.host, launchState.host);
-
-const relativeTime = (timestamp: number | null) => {
-  if (timestamp === null) return null;
-  const days = Math.floor((Date.now() / 1000 - timestamp) / 86400);
-  if (days <= 0) return "Today";
-  if (days === 1) return "Yesterday";
-  return `${days}d ago`;
-};
 </script>
 
 <div class="grid h-full place-items-center overflow-y-auto bg-surface-50-950 text-surface-950-50" data-testid="home-picker">
@@ -201,8 +195,8 @@ const relativeTime = (timestamp: number | null) => {
               <div class="text-[11px] text-surface-500">
                 {#if !option.exists}
                   Not found on disk
-                {:else if relativeTime(option.lastUsed)}
-                  Last used {relativeTime(option.lastUsed)}
+                {:else if option.lastUsed !== null}
+                  Last used {relativeTime(option.lastUsed, { suffix: " ago" })}
                 {:else}
                   ~/.codex
                 {/if}

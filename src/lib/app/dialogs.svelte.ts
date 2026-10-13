@@ -5,7 +5,9 @@
  * is open and any component can raise one without threading props through the
  * tree.
  */
+
 import type { Component } from "svelte";
+import { errorMessage } from "$lib/utils/errors";
 
 /** Every dialog receives this; calling it dismisses the dialog and resolves
  *  the promise `openDialog` returned. No argument means "dismissed". */
@@ -83,7 +85,7 @@ export function submitState() {
         await action();
         return true;
       } catch (cause) {
-        error = cause instanceof Error ? cause.message : String(cause);
+        error = errorMessage(cause);
         return false;
       } finally {
         busy = false;

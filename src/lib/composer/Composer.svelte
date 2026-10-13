@@ -58,6 +58,7 @@ import { freshPlanPrompt } from "$lib/thread/planHandoff";
 import type { Model, ReviewTarget, SkillSummary, SubagentPolicy, TurnOptions, UserInputPart } from "$lib/types";
 import { can } from "$lib/utils/capabilities";
 import { clickOutside } from "$lib/utils/clickOutside";
+import { basename } from "$lib/utils/path";
 import { loadSize, resizeHandle } from "$lib/utils/resize";
 
 let {
@@ -817,7 +818,6 @@ const sources = new Map<string, StageSource>();
 let dragOver = $state(false);
 
 const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "heic", "svg"];
-const basename = (path: string) => path.split(/[/\\]/).pop() || path;
 function guessKind(filename: string, mime = ""): "image" | "file" {
   if (mime.startsWith("image/")) return "image";
   const dot = filename.lastIndexOf(".");

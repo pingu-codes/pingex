@@ -3,7 +3,8 @@ import { AlertTriangle } from "@lucide/svelte";
 import type { DialogClose } from "$lib/app/dialogs.svelte";
 import DialogShell from "$lib/components/DialogShell.svelte";
 import type { WorktreeEntry } from "$lib/types";
-import { folderName, isDirty } from "$lib/worktrees/worktrees";
+import { basename } from "$lib/utils/path";
+import { isDirty } from "$lib/worktrees/worktrees";
 
 let {
   entry,
@@ -18,7 +19,7 @@ let {
 
 let typed = $state("");
 
-const name = $derived(folderName(entry.path));
+const name = $derived(basename(entry.path));
 const dirty = $derived(isDirty(entry.status));
 // A clean worktree removes without ceremony; a dirty one force-removes only
 // after the user retypes its folder name, so it can never happen by a stray click.

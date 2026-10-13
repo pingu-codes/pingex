@@ -2,6 +2,9 @@
  * Git mutations fail with a `<kind>: <message>` string (see
  * `src-tauri/src/git/run.rs`). The kind picks a hint; the message is shown.
  */
+
+import { errorMessage } from "$lib/utils/errors";
+
 export type GitErrorKind =
   | "auth"
   | "nonFastForward"
@@ -29,7 +32,7 @@ const KINDS: GitErrorKind[] = [
 ];
 
 export function parseGitError(cause: unknown): GitError {
-  const raw = cause instanceof Error ? cause.message : String(cause ?? "");
+  const raw = errorMessage(cause ?? "");
   const [first, ...rest] = raw.split("\n");
   const match = /^([a-zA-Z]+): (.*)$/.exec(first);
   const kind = match && (KINDS as string[]).includes(match[1]) ? (match[1] as GitErrorKind) : "other";

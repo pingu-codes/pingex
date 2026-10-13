@@ -5,11 +5,11 @@
  * same chips the composer showed when the message was sent.
  */
 
+import { basename, trimSlash } from "$lib/utils/path";
+
 export type MentionSegment = { type: "text"; text: string } | { type: "mention"; name: string; path: string };
 
 const LINK = /\[([^\]\n]+)\]\(([^()\s]+)\)/g;
-
-const basename = (path: string) => path.replace(/\/+$/, "").split("/").pop() ?? path;
 
 /**
  * A markdown link is only treated as a mention when its label is exactly the
@@ -43,12 +43,12 @@ export const hasMentions = (text: string): boolean => splitMentions(text).some((
 /** Resolves a mention path against the thread's cwd so it can be revealed. */
 export function resolveMentionPath(path: string, cwd: string): string {
   if (path.startsWith("/") || !cwd) return path;
-  return `${cwd.replace(/\/+$/, "")}/${path}`;
+  return `${trimSlash(cwd)}/${path}`;
 }
 
 /** Inverse of `resolveMentionPath`: the cwd-relative form Codex itself writes. */
 export function relativeMentionPath(path: string, cwd: string): string {
-  const root = cwd.replace(/\/+$/, "");
+  const root = trimSlash(cwd);
   return root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
 }
 

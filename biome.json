@@ -17,8 +17,7 @@
       "!deno.lock",
       "!src-tauri/icons",
       "!src/lib/bindings.ts",
-      "!.claude/worktrees",
-      "!architecture-review"
+      "!.claude/worktrees"
     ]
   },
   "formatter": {

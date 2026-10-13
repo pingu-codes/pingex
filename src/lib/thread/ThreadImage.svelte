@@ -4,6 +4,7 @@
 // (browser preview, deleted file, not an image).
 import { Image } from "@lucide/svelte";
 import { revealInFinder, threadImageSrc } from "$lib/services/api";
+import { basename } from "$lib/utils/path";
 
 let { path, label }: { path: string; label: string } = $props();
 
@@ -43,7 +44,7 @@ $effect(() => {
     >
       <img
         {src}
-        alt={path.split("/").pop() || path}
+        alt={basename(path)}
         loading="lazy"
         class={`block max-w-full object-contain ${expanded ? "" : "max-h-72"}`}
         onerror={() => (failed = true)}

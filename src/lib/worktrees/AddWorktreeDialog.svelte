@@ -7,7 +7,9 @@ import DialogShell from "$lib/components/DialogShell.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import { gitWorktrees, isTauri } from "$lib/services/api";
 import type { Project, WorktreeEntry } from "$lib/types";
-import { adoptableWorktrees, folderName } from "$lib/worktrees/worktrees";
+import { errorMessage } from "$lib/utils/errors";
+import { basename } from "$lib/utils/path";
+import { adoptableWorktrees } from "$lib/worktrees/worktrees";
 
 let {
   repoDir,
@@ -35,7 +37,7 @@ onMount(() => {
       entries = list;
     })
     .catch((cause) => {
-      loadError = cause instanceof Error ? cause.message : String(cause);
+      loadError = errorMessage(cause);
     })
     .finally(() => {
       loaded = true;
@@ -67,7 +69,7 @@ async function add() {
   {#snippet icon()}<FolderGit2 size={17} class="text-primary-500" />{/snippet}
 
   <p class="mt-3 text-xs text-surface-500">
-    Add a worktree that already exists for <span class="font-mono">{folderName(repoDir)}</span> to the sidebar.
+    Add a worktree that already exists for <span class="font-mono">{basename(repoDir)}</span> to the sidebar.
   </p>
 
   <div class="mt-3">
@@ -93,7 +95,7 @@ async function add() {
             class="flex w-full flex-col gap-0.5 rounded px-2 py-1.5 text-left {selectedPath === entry.path ? 'preset-tonal' : 'hover:preset-tonal'}"
           >
             <span class="flex items-center gap-2 text-sm">
-              <span class="min-w-0 flex-1 truncate font-medium">{folderName(entry.path)}</span>
+              <span class="min-w-0 flex-1 truncate font-medium">{basename(entry.path)}</span>
               <span class="inline-flex shrink-0 items-center gap-1 font-mono text-[11px] text-surface-500">
                 <GitBranch size={11} />{branchLabel(entry)}
               </span>

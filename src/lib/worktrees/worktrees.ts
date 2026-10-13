@@ -1,11 +1,5 @@
 import type { Project, StatusCounts, WorktreeEntry } from "$lib/types";
-
-/** The final path segment, used as a fallback display name. */
-export function folderName(path: string): string {
-  const trimmed = path.replace(/\/+$/, "");
-  const index = trimmed.lastIndexOf("/");
-  return index >= 0 ? trimmed.slice(index + 1) : trimmed;
-}
+import { basename, trimSlash } from "$lib/utils/path";
 
 /**
  * The local branch name a remote-tracking branch would check out as:
@@ -23,8 +17,8 @@ export function stripRemotePrefix(name: string): string {
  * `worktrees/<group>/<name>` two-level layout.
  */
 export function tempWorktreeLocation(codexHome: string, repoDir: string, name: string): string {
-  const home = codexHome.replace(/\/+$/, "");
-  return `${home}/worktrees-tmp/${folderName(repoDir)}/${name}`;
+  const home = trimSlash(codexHome);
+  return `${home}/worktrees-tmp/${basename(repoDir)}/${name}`;
 }
 
 /**
@@ -88,11 +82,11 @@ export interface WorktreeCard {
 
 /** Count active threads whose cwd lives inside a worktree path. */
 export function threadCountForPath(projects: Project[], path: string): number {
-  const normalized = path.replace(/\/+$/, "");
+  const normalized = trimSlash(path);
   let count = 0;
   for (const project of projects) {
     for (const thread of project.threads) {
-      const cwd = (thread.cwd || project.path).replace(/\/+$/, "");
+      const cwd = trimSlash(thread.cwd || project.path);
       if (cwd === normalized || cwd.startsWith(`${normalized}/`)) count += 1;
     }
   }
@@ -104,14 +98,14 @@ export function threadCountForPath(projects: Project[], path: string): number {
  * tree, still on disk, not temporary scaffolding, and not listed already.
  */
 export function adoptableWorktrees(entries: WorktreeEntry[], projects: Project[]): WorktreeEntry[] {
-  const listed = new Set(projects.map((project) => project.path.replace(/\/+$/, "")));
+  const listed = new Set(projects.map((project) => trimSlash(project.path)));
   return entries.filter(
     (entry) =>
       !entry.isMain &&
       !entry.missingDir &&
       !entry.prunable &&
       !isTempWorktreePath(entry.path) &&
-      !listed.has(entry.path.replace(/\/+$/, "")),
+      !listed.has(trimSlash(entry.path)),
   );
 }
 
@@ -119,7 +113,7 @@ export function adoptableWorktrees(entries: WorktreeEntry[], projects: Project[]
 export function worktreeCards(entries: WorktreeEntry[], projects: Project[]): WorktreeCard[] {
   return entries.map((entry) => ({
     entry,
-    displayName: folderName(entry.path),
+    displayName: basename(entry.path),
     branchLabel: entry.detached
       ? entry.head
         ? `detached @ ${entry.head.slice(0, 7)}`

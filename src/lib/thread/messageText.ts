@@ -10,8 +10,7 @@
 
 import type { UserInputPart } from "$lib/types";
 import { copyMentionPath, splitMentions } from "$lib/utils/mentions";
-
-const basename = (path: string) => path.replace(/\/+$/, "").split("/").pop() || path;
+import { basename } from "$lib/utils/path";
 
 /** Merges adjacent text parts into one run, leaving other parts untouched. */
 export function mergeTextParts(content: UserInputPart[]): UserInputPart[] {

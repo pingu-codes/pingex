@@ -1,6 +1,7 @@
 <script lang="ts">
 import { ChevronRight, Folder, FolderOpen } from "@lucide/svelte";
 import { listProjectFiles } from "$lib/services/api";
+import { errorMessage } from "$lib/utils/errors";
 import { fileIconFor } from "$lib/utils/fileIcons";
 
 let {
@@ -31,7 +32,7 @@ $effect(() => {
       if (target === root) paths = files;
     })
     .catch((cause) => {
-      if (target === root) error = cause instanceof Error ? cause.message : String(cause);
+      if (target === root) error = errorMessage(cause);
     });
 });
 

@@ -10,9 +10,11 @@
  * owner supplies `send`, `interrupt` and `idle`; nothing here knows about
  * components.
  */
+
 import { isQueueUnsupported, queueAdd, queueDelete, queueList, queueReorder, queueUpdate } from "$lib/services/api";
 import { isClientQueued, localId, mergeQueue, pendingId } from "$lib/thread/queueEntries";
 import type { QueuedSubmission, TurnOptions, UserInputPart } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 
 export interface QueueDeps {
   /** Thread the queue belongs to; `null` while it is still a draft, in which
@@ -84,7 +86,7 @@ export class ThreadQueue {
       // Other failures (a full queue, a lost thread) are worth a word, but as a
       // notice: nothing ended the turn, and the message is still going to send.
       if (!isQueueUnsupported(cause)) {
-        const message = cause instanceof Error ? cause.message : String(cause);
+        const message = errorMessage(cause);
         this.deps.onNotice(
           `Queued in this window only — Codex could not hold it (${message}). It will send when this turn finishes.`,
         );
@@ -122,9 +124,7 @@ export class ThreadQueue {
     try {
       await queueUpdate(threadId, entry.id, input);
     } catch (cause) {
-      this.deps.onError(
-        `Could not update the queued message: ${cause instanceof Error ? cause.message : String(cause)}`,
-      );
+      this.deps.onError(`Could not update the queued message: ${errorMessage(cause)}`);
     } finally {
       this.mutations--;
     }

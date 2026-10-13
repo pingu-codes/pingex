@@ -3,7 +3,8 @@ import { Archive, ArchiveRestore, ChevronDown } from "@lucide/svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import { listThreadsPage, unarchiveThread } from "$lib/services/api";
 import type { ArchivedThread, BootstrapData, ThreadSummary } from "$lib/types";
-import { relativeTime } from "$lib/utils/time";
+import { errorMessage } from "$lib/utils/errors";
+import { relativeTime } from "$lib/utils/format";
 
 let {
   onSelectArchived,
@@ -31,7 +32,7 @@ async function loadPage() {
     cursor = page.nextCursor;
     archivedError = null;
   } catch (cause) {
-    archivedError = cause instanceof Error ? cause.message : String(cause);
+    archivedError = errorMessage(cause);
     if (archived === null) archived = [];
   } finally {
     loadingMore = false;
@@ -53,7 +54,7 @@ async function unarchive(thread: ThreadSummary) {
     archived = (archived ?? []).filter((entry) => entry.id !== thread.id);
     onUnarchived?.(data);
   } catch (cause) {
-    archivedError = cause instanceof Error ? cause.message : String(cause);
+    archivedError = errorMessage(cause);
   }
 }
 </script>

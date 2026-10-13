@@ -8,7 +8,6 @@ import {
   filterMemories,
   findEntry,
   formatAge,
-  formatBytes,
   isMarkdown,
   stripFrontmatter,
 } from "$lib/memories/memoriesHelpers";
@@ -22,6 +21,8 @@ import {
 } from "$lib/services/api";
 import type { MemoryHome } from "$lib/types";
 import { copyCode } from "$lib/utils/copy";
+import { errorMessage } from "$lib/utils/errors";
+import { formatBytes } from "$lib/utils/format";
 import { renderMarkdown } from "$lib/utils/markdown";
 
 let homes = $state<MemoryHome[]>([]);
@@ -51,7 +52,7 @@ async function load() {
   try {
     apply(await listMemories(projectPaths()));
   } catch (cause) {
-    error = message(cause);
+    error = errorMessage(cause);
   } finally {
     loading = false;
   }
@@ -61,10 +62,6 @@ async function load() {
 function apply(next: MemoryHome[]) {
   homes = next;
   if (!findEntry(next, selected?.homeId ?? null, selected?.path ?? null)) select(defaultEntry(next));
-}
-
-function message(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
 }
 
 function select(target: { homeId: string; path: string } | null) {
@@ -79,7 +76,7 @@ async function read(target: { homeId: string; path: string }) {
     const body = await readMemory(target.homeId, target.path);
     contents[target.path] = body;
   } catch (cause) {
-    error = message(cause);
+    error = errorMessage(cause);
   }
 }
 
@@ -109,7 +106,7 @@ async function save() {
     if (current?.entry.path === path) editing = false;
     apply(next);
   } catch (cause) {
-    error = message(cause);
+    error = errorMessage(cause);
   } finally {
     saving = false;
   }
@@ -131,7 +128,7 @@ async function remove() {
     }
     apply(next);
   } catch (cause) {
-    error = message(cause);
+    error = errorMessage(cause);
   }
 }
 
@@ -140,7 +137,7 @@ async function toggle(home: MemoryHome, key: string, value: boolean) {
   try {
     apply(await setMemoryToggle(home.homeId, key, value, projectPaths()));
   } catch (cause) {
-    error = message(cause);
+    error = errorMessage(cause);
   }
 }
 

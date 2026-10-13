@@ -38,6 +38,7 @@ import {
   reviewSubmit,
 } from "$lib/services/api";
 import type { PendingComment, PrDetail, PrFile, PrFreshness, ProviderStatus, PrSummary } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 
 let {
   repoDir,
@@ -90,7 +91,7 @@ async function loadProvider() {
       prs = await reviewListPrs(repoDir);
     }
   } catch (cause) {
-    error = cause instanceof Error ? cause.message : String(cause);
+    error = errorMessage(cause);
   } finally {
     loading = false;
   }
@@ -119,7 +120,7 @@ async function openPr(number: number) {
     freshness = null;
     await restoreDraft(number, next.headSha, run);
   } catch (cause) {
-    if (run === openRun) error = cause instanceof Error ? cause.message : String(cause);
+    if (run === openRun) error = errorMessage(cause);
   } finally {
     if (run === openRun) loading = false;
   }
@@ -140,7 +141,7 @@ async function openLocal() {
     pending = [];
     reviewStarted = false;
   } catch (cause) {
-    if (run === openRun) error = cause instanceof Error ? cause.message : String(cause);
+    if (run === openRun) error = errorMessage(cause);
   } finally {
     if (run === openRun) loading = false;
   }
@@ -237,7 +238,7 @@ async function submitReview(event: string, body: string) {
     reviewStarted = false;
     await openPr(number);
   } catch (cause) {
-    actionError = cause instanceof Error ? cause.message : String(cause);
+    actionError = errorMessage(cause);
   } finally {
     busy = false;
   }
@@ -254,7 +255,7 @@ async function reply(commentId: number, body: string): Promise<boolean> {
     await openPr(number);
     return true;
   } catch (cause) {
-    actionError = cause instanceof Error ? cause.message : String(cause);
+    actionError = errorMessage(cause);
     return false;
   } finally {
     busy = false;
@@ -269,7 +270,7 @@ async function resolve(threadId: string) {
     await reviewResolveThread(repoDir, threadId);
     await openPr(detail.summary.number);
   } catch (cause) {
-    actionError = cause instanceof Error ? cause.message : String(cause);
+    actionError = errorMessage(cause);
   } finally {
     busy = false;
   }

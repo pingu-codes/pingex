@@ -1,6 +1,7 @@
 import { readAccountRateLimits } from "$lib/services/api";
 import { currentHomeKey } from "$lib/services/homeRouting";
 import type { RateLimitSnapshot } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 import { mergeSnapshot } from "$lib/utils/rateLimits";
 
 type Usage = { snapshot: RateLimitSnapshot | null; byLimitId: Record<string, RateLimitSnapshot>; error: string | null };
@@ -51,6 +52,6 @@ export async function refreshAccountUsage(): Promise<void> {
       if (snapshot.limitId) usage.byLimitId[snapshot.limitId] = snapshot;
     }
   } catch (cause) {
-    usageFor(key).error = cause instanceof Error ? cause.message : String(cause);
+    usageFor(key).error = errorMessage(cause);
   }
 }

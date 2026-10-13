@@ -7,7 +7,9 @@
  * input. On a large file that is a multi-second main-thread freeze, so a name
  * this app cannot highlight must come back as `plaintext` instead.
  */
+
 import hljs from "highlight.js/lib/common";
+import { basename } from "$lib/utils/path";
 
 /** Files whose whole name, not extension, names the language. */
 const BY_NAME: Record<string, string> = {
@@ -105,11 +107,6 @@ export function languageForPath(path: string): string {
 /** The last gate before `highlightAuto` — see the note at the top. */
 function registered(name: string | undefined): string {
   return name && hljs.getLanguage(name) ? name : "plaintext";
-}
-
-function basename(path: string): string {
-  const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-  return cut === -1 ? path : path.slice(cut + 1);
 }
 
 /** Exported for the test that pins every mapped name to a real grammar. */

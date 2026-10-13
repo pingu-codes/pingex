@@ -16,6 +16,7 @@ import {
 } from "$lib/services/api";
 import { seedActiveTurns, setUnansweredQuestions } from "$lib/services/codexEvents.svelte";
 import type { BootstrapData, Host, Project, SubagentDetail, ThreadSummary } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 
 export const appData = $state<{
   data: BootstrapData | null;
@@ -83,7 +84,7 @@ export function projectForCwd(cwd: string | null): Project | null {
 }
 
 export function fail(cause: unknown): void {
-  appData.error = cause instanceof Error ? cause.message : String(cause);
+  appData.error = errorMessage(cause);
 }
 
 /** The title a thread carries until it has a message to be named after. */

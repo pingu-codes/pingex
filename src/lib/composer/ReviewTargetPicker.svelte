@@ -17,6 +17,7 @@ import {
 } from "$lib/composer/reviewTargets";
 import { gitBranches, gitRecentCommits } from "$lib/services/api";
 import type { GitBranch, GitCommit, ReviewTarget } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 
 let {
   cwd,
@@ -62,7 +63,7 @@ async function load(mode: ReviewMode) {
     if (mode === "baseBranch") branches = await gitBranches(cwd);
     else commits = await gitRecentCommits(cwd, 50);
   } catch (cause) {
-    loadError = cause instanceof Error ? cause.message : String(cause);
+    loadError = errorMessage(cause);
   }
 }
 

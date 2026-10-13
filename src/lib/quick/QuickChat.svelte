@@ -9,6 +9,7 @@ import { type CodexEvent, setThreadHandler, startCodexListeners } from "$lib/ser
 import { requestAutoName } from "$lib/thread/autoName";
 import type { Model, Project } from "$lib/types";
 import { dragRegion } from "$lib/utils/dragRegion";
+import { errorMessage } from "$lib/utils/errors";
 
 let projects = $state<Project[]>([]);
 let models = $state<Model[] | null>(null);
@@ -38,7 +39,7 @@ async function prefetch() {
       selectedPath = projects[0]?.path ?? null;
     }
   } catch (cause) {
-    error = cause instanceof Error ? cause.message : String(cause);
+    error = errorMessage(cause);
   }
   try {
     const list = await listModels();
@@ -49,7 +50,7 @@ async function prefetch() {
       effort = preferred?.defaultReasoningEffort ?? null;
     }
   } catch (cause) {
-    modelsError = cause instanceof Error ? cause.message : String(cause);
+    modelsError = errorMessage(cause);
   }
 }
 
@@ -95,7 +96,7 @@ async function send() {
     requestAutoName(started.id, "seed", trimmed);
     text = "";
   } catch (cause) {
-    error = cause instanceof Error ? cause.message : String(cause);
+    error = errorMessage(cause);
     response = emptyQuickResponse();
     threadId = null;
   } finally {

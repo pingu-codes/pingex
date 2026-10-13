@@ -9,11 +9,11 @@ import { onMount } from "svelte";
 import { openThreadById } from "$lib/app/navigation.svelte";
 import { readUsageBreakdown } from "$lib/services/api";
 import { usageStatus } from "$lib/services/codexEvents.svelte";
-import { formatTokens, formatTokensShort } from "$lib/thread/contextUsage";
 import type { UsageBreakdown, UsageScope } from "$lib/types";
 import UsageBreakdownBar from "$lib/usage/UsageBreakdownBar.svelte";
 import { costFor, costLabel, rangeSince, USAGE_RANGES, type UsageRange } from "$lib/usage/usageBreakdown";
-import { relativeTime } from "$lib/utils/time";
+import { errorMessage } from "$lib/utils/errors";
+import { formatTokens, formatTokensShort, relativeTime } from "$lib/utils/format";
 
 let {
   scope,
@@ -40,7 +40,7 @@ async function load() {
     error = null;
   } catch (cause) {
     if (mine !== generation) return;
-    error = cause instanceof Error ? cause.message : String(cause);
+    error = errorMessage(cause);
   } finally {
     if (mine === generation) loading = false;
   }

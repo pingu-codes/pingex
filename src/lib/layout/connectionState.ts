@@ -1,4 +1,5 @@
 import type { RemoteConnection } from "$lib/types";
+import { relativeTime } from "$lib/utils/format";
 
 /**
  * Per-device health derived purely from `lastSeen`. The relay does not report a
@@ -49,11 +50,8 @@ export function healthDotClass(health: ConnectionHealth): string {
 
 export function lastSeenLabel(lastSeen: number | null | undefined, now = Date.now() / 1000): string {
   if (lastSeen == null) return "Never seen this session";
-  const age = Math.max(0, now - lastSeen);
-  if (age < 60) return "Active now";
-  if (age < 3600) return `Seen ${Math.floor(age / 60)}m ago`;
-  if (age < 86400) return `Seen ${Math.floor(age / 3600)}h ago`;
-  return `Seen ${Math.floor(age / 86400)}d ago`;
+  if (now - lastSeen < 60) return "Active now";
+  return `Seen ${relativeTime(lastSeen, { granularity: "minute", suffix: " ago", now })}`;
 }
 
 export function platformLabel(platform: string | null | undefined): string {

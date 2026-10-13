@@ -21,11 +21,13 @@ import UsageMeter from "$lib/layout/UsageMeter.svelte";
 import { accountUsage } from "$lib/services/accountUsage.svelte";
 import { elapsedLabel } from "$lib/services/agentRuns.svelte";
 import { processClock, type RunningProcess } from "$lib/services/processes.svelte";
-import { type ContextStats, formatTokensShort } from "$lib/thread/contextUsage";
+import type { ContextStats } from "$lib/thread/contextUsage";
 import { changeLabel } from "$lib/thread/fileChanges";
 import { formatCost } from "$lib/thread/usageCost";
 import type { ChangesSummary, FileUpdateChange, SubagentDetail } from "$lib/types";
 import { fileIconFor } from "$lib/utils/fileIcons";
+import { formatTokensShort } from "$lib/utils/format";
+import { basename } from "$lib/utils/path";
 
 let {
   plan,
@@ -93,7 +95,6 @@ const changeRows = $derived(gitChanges?.files ?? []);
 // button closes it, so opening plan/sources/side questions keeps it around.
 let panel = $state(true);
 
-const basename = (path: string) => path.split("/").pop() || path;
 const cost = $derived(formatCost(costUsd));
 // Named per-model buckets (e.g. Spark) sit alongside the account-wide limit.
 const extraLimits = $derived(

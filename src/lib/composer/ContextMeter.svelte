@@ -1,5 +1,6 @@
 <script lang="ts">
-import { type ContextStats, formatTokens, formatTokensShort } from "$lib/thread/contextUsage";
+import type { ContextStats } from "$lib/thread/contextUsage";
+import { formatTokens, formatTokensShort } from "$lib/utils/format";
 
 let {
   stats,

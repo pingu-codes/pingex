@@ -5,17 +5,18 @@
  * Internal to `RichEditor` (`richEditor.svelte.ts`): only that module and the
  * tests import from here. The parts model itself lives in `composerParts.ts`.
  */
+
 import {
   type AttachmentChipHandlers,
   type AttachmentPart,
   type ComposerPart,
   type DetectedQueries,
-  formatSize,
   normaliseParts,
 } from "$lib/composer/composerParts";
 import { detectSlashQuery } from "$lib/composer/slashCommands";
 import type { Mention } from "$lib/types";
 import { fileIconFor, fileIconSvg, iconForPath } from "$lib/utils/fileIcons";
+import { formatBytes } from "$lib/utils/format";
 
 const isBlock = (node: Node): boolean => /^(DIV|P)$/.test(node.nodeName);
 
@@ -286,7 +287,7 @@ function buildAttachmentChip(part: AttachmentPart, handlers: AttachmentChipHandl
   if (part.state === "ready") {
     const meta = document.createElement("span");
     meta.className = "shrink-0 text-[10px] text-surface-500";
-    meta.textContent = formatSize(part.size);
+    meta.textContent = formatBytes(part.size);
     chip.append(meta);
   }
 

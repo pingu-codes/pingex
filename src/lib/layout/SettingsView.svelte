@@ -47,6 +47,7 @@ import type { Account, AgentSettings, CodexServerInfo, ConfigSetting, HomeOvervi
 import { codexVersionFromUserAgent } from "$lib/types";
 import UsageSummary from "$lib/usage/UsageSummary.svelte";
 import { dragRegion } from "$lib/utils/dragRegion";
+import { errorMessage } from "$lib/utils/errors";
 
 let {
   account = null,
@@ -151,7 +152,7 @@ async function applyShortcut(accelerator: string) {
     quickShortcut = await setQuickShortcut(accelerator);
   } catch (cause) {
     quickShortcut = previous;
-    shortcutError = cause instanceof Error ? cause.message : String(cause);
+    shortcutError = errorMessage(cause);
   }
 }
 
@@ -198,7 +199,7 @@ $effect(() => {
       settingsCodexHost = hostToOption(settings.overrideCodexHost);
       settingsClaudeHost = hostToOption(settings.overrideClaudeHost);
     })
-    .catch((cause) => (generalError = cause instanceof Error ? cause.message : String(cause)));
+    .catch((cause) => (generalError = errorMessage(cause)));
   listWslDistros()
     .then((list) => (distros = list))
     .catch(() => (distros = []));
@@ -208,10 +209,10 @@ $effect(() => {
     .catch(() => (serverInfo = null));
   readConfigSettings()
     .then((settings) => (configSettings = settings))
-    .catch((cause) => (configError = cause instanceof Error ? cause.message : String(cause)));
+    .catch((cause) => (configError = errorMessage(cause)));
   readAgentSettings()
     .then((settings) => (agentSettings = settings))
-    .catch((cause) => (agentError = cause instanceof Error ? cause.message : String(cause)));
+    .catch((cause) => (agentError = errorMessage(cause)));
   readHomeOverview()
     .then((data) => (overview = data))
     .catch(() => (overview = null));
@@ -248,7 +249,7 @@ async function saveGeneral(event: SubmitEvent) {
     if (claudeConfigMoved) await loadProfile(false);
     generalSaved = true;
   } catch (cause) {
-    generalError = cause instanceof Error ? cause.message : String(cause);
+    generalError = errorMessage(cause);
   }
 }
 
@@ -277,7 +278,7 @@ async function saveAgents(patch: Partial<AgentSettings>) {
   try {
     agentSettings = await writeAgentSettings(next);
   } catch (cause) {
-    agentError = cause instanceof Error ? cause.message : String(cause);
+    agentError = errorMessage(cause);
     agentSettings = await readAgentSettings().catch(() => next);
   }
 }
@@ -287,7 +288,7 @@ async function setConfig(setting: ConfigSetting, value: string | null, unset: bo
   try {
     configSettings = await writeConfigSetting(setting.key, value, unset);
   } catch (cause) {
-    configError = cause instanceof Error ? cause.message : String(cause);
+    configError = errorMessage(cause);
   }
 }
 

@@ -1,4 +1,5 @@
 import type { Attachment } from "$lib/types";
+import { basename } from "$lib/utils/path";
 
 // Browser/Playwright staging: there is no native filesystem copy here, so we
 // fabricate the same metadata shape the Rust `stage_*` commands return. Image
@@ -18,8 +19,6 @@ function kindFor(name: string, mime: string): "image" | "file" {
   if (mime.startsWith("image/")) return "image";
   return IMAGE_EXTENSIONS.has(extensionOf(name)) ? "image" : "file";
 }
-
-const basename = (path: string) => path.split(/[/\\]/).pop() || path;
 
 /** Fabricate a staged attachment from a browser `File` (drag/drop, picker). */
 export function previewStageFile(file: File): Attachment {

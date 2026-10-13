@@ -3,8 +3,10 @@ import { ArrowLeft, FileDiff, RefreshCw } from "@lucide/svelte";
 import { untrack } from "svelte";
 import { gitFileDiff } from "$lib/services/api";
 import type { ChangedFile, ChangesSummary, FileDiff as FileDiffData } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 import { fileIconFor } from "$lib/utils/fileIcons";
 import { highlightAs } from "$lib/utils/markdown";
+import { basename } from "$lib/utils/path";
 
 let {
   cwd,
@@ -88,14 +90,10 @@ async function load(path: string, maxBytes: number) {
     diff = result;
   } catch (e) {
     if (id !== requestId) return;
-    diffError = e instanceof Error ? e.message : String(e);
+    diffError = errorMessage(e);
   } finally {
     if (id === requestId) diffLoading = false;
   }
-}
-
-function basename(path: string): string {
-  return path.split("/").pop() ?? path;
 }
 
 const statusLabel: Record<ChangedFile["status"], string> = {

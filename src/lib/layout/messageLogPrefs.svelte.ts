@@ -10,6 +10,7 @@ import { appendMessage } from "$lib/layout/messageLog";
 import { clearWireLog, readWireLog, setWireLogging } from "$lib/services/api";
 import { isTauri } from "$lib/services/tauri";
 import type { WireMessage } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 
 const STORAGE_KEY = "pingex-message-log-enabled";
 const LEGACY_STORAGE_KEY = "pingu-message-log-enabled";
@@ -57,7 +58,7 @@ class MessageLogStore {
         await this.refresh();
       }
     } catch (cause) {
-      this.error = cause instanceof Error ? cause.message : String(cause);
+      this.error = errorMessage(cause);
     }
   }
 
@@ -66,7 +67,7 @@ class MessageLogStore {
     try {
       this.messages = await readWireLog();
     } catch (cause) {
-      this.error = cause instanceof Error ? cause.message : String(cause);
+      this.error = errorMessage(cause);
     }
   }
 

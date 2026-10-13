@@ -19,14 +19,3 @@ export function parseTokenBudget(text: string): number | null {
   const tokens = Math.round(digits * scale);
   return tokens > 0 ? tokens : null;
 }
-
-/** `1234` → `1.2k`, `2500000` → `2.5M`; exact below a thousand. */
-export function formatTokens(tokens: number): string {
-  if (tokens >= 1_000_000) return `${trimZero(tokens / 1_000_000)}M`;
-  if (tokens >= 1_000) return `${trimZero(tokens / 1_000)}k`;
-  return String(tokens);
-}
-
-function trimZero(value: number): string {
-  return value.toFixed(value >= 100 ? 0 : 1).replace(/\.0$/, "");
-}

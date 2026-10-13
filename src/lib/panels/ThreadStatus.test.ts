@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import ThreadStatus from "$lib/panels/ThreadStatus.svelte";
 import type { ContextStats } from "$lib/thread/contextUsage";
 import type { ContextComposition, UsageBreakdown } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 
 const { readContextBreakdown, readUsageBreakdown, readThreadUsage } = vi.hoisted(() => ({
   readContextBreakdown: vi.fn(),
@@ -15,7 +16,7 @@ vi.mock("$lib/services/api", () => ({
   readUsageBreakdown,
   readThreadUsage,
   isContextBreakdownUnsupported: (cause: unknown) =>
-    String(cause instanceof Error ? cause.message : cause).startsWith("harness-unsupported:context_breakdown"),
+    errorMessage(cause).startsWith("harness-unsupported:context_breakdown"),
 }));
 
 vi.mock("$lib/services/accountUsage.svelte", () => ({

@@ -1,4 +1,5 @@
 import type { HandoffOpen } from "$lib/types";
+import { basename, trimSlash } from "$lib/utils/path";
 
 /**
  * Pure helpers shared by the thread-header Handoff menu and the incoming
@@ -9,16 +10,13 @@ import type { HandoffOpen } from "$lib/types";
 /** Short, human display name for a Codex home (the final path segment). */
 export function shortHomeName(home: string | null | undefined): string {
   if (!home) return "home";
-  const trimmed = home.replace(/\/+$/, "");
-  const segment = trimmed.split("/").pop();
-  return segment && segment.length > 0 ? segment : trimmed;
+  return basename(home);
 }
 
 /** Final path segment of a directory, for the breadcrumb branch/worktree slot. */
 export function dirName(path: string | null | undefined): string {
   if (!path) return "";
-  const trimmed = path.replace(/\/+$/, "");
-  return trimmed.split("/").pop() ?? trimmed;
+  return basename(path);
 }
 
 /**
@@ -29,9 +27,8 @@ export function dirName(path: string | null | undefined): string {
 export function cwdBelongsTo(threadCwd: string | null | undefined, requestedPath: string | null | undefined): boolean {
   if (!requestedPath) return true;
   if (!threadCwd) return false;
-  const normalize = (value: string) => value.replace(/\/+$/, "");
-  const cwd = normalize(threadCwd);
-  const requested = normalize(requestedPath);
+  const cwd = trimSlash(threadCwd);
+  const requested = trimSlash(requestedPath);
   return cwd === requested || cwd.startsWith(`${requested}/`);
 }
 
