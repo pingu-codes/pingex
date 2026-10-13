@@ -23,315 +23,152 @@ import {
   Trash2,
   X,
 } from "@lucide/svelte";
+import { Menu, Portal, type useMenu } from "@skeletonlabs/skeleton-svelte";
+import type { Component } from "svelte";
 import type { MenuAction, MenuTarget } from "$lib/types";
 
 let {
   menu,
+  target,
   sectionsSupported = false,
-  onAct,
-  onClose,
 }: {
-  menu: { x: number; y: number; target: MenuTarget };
+  /** The sidebar's row menu; its triggers live on the rows themselves. */
+  menu: ReturnType<typeof useMenu>;
+  /** The row the menu was last opened for. */
+  target: MenuTarget | null;
   /** Whether this Codex has thread sections; hides the section items otherwise. */
   sectionsSupported?: boolean;
-  onAct: (action: MenuAction) => void;
-  onClose: () => void;
 } = $props();
 
-const menuIsPinned = (target: MenuTarget) =>
-  target.kind === "project" ? target.project.pinned : target.kind === "thread" ? target.thread.pinned : false;
-const hiddenCount = (target: MenuTarget) =>
-  target.kind === "project" ? target.project.threads.filter((thread) => thread.hidden).length : 0;
+type Entry = {
+  action: MenuAction;
+  icon: Component<{ size?: number; class?: string }>;
+  label: string;
+  danger?: boolean;
+  title?: string;
+  show?: boolean;
+};
+
+function entries(target: MenuTarget): Entry[] {
+  if (target.kind === "folder") {
+    return [
+      { action: "newFolder", icon: FolderPlus, label: "New subfolder" },
+      { action: "rename", icon: Pencil, label: "Rename folder" },
+      {
+        action: "deleteFolder",
+        icon: Trash2,
+        label: "Delete folder",
+        danger: true,
+        title: "Its contents move up a level",
+      },
+    ];
+  }
+  if (target.kind === "section") {
+    return [
+      { action: "rename", icon: Pencil, label: "Rename section" },
+      { action: "deleteSection", icon: Trash2, label: "Delete section", danger: true },
+    ];
+  }
+  const project = target.project;
+  const multi = project.kind === "multiProject";
+  const pinned = target.kind === "project" ? project.pinned : target.thread.pinned;
+  const pin: Pick<Entry, "icon" | "label"> =
+    target.kind === "thread"
+      ? pinned
+        ? { icon: StarOff, label: "Unfavorite thread" }
+        : { icon: Star, label: "Favorite thread" }
+      : pinned
+        ? { icon: PinOff, label: `Unpin ${target.kind}` }
+        : { icon: Pin, label: `Pin ${target.kind}` };
+  // A workspace row can't be renamed or pinned; threads inside one can.
+  const workspaceRow = target.kind === "project" && multi;
+  const shared: Entry[] = [
+    { action: "reveal", icon: FolderOpen, label: "Open in Finder" },
+    { action: "rename", icon: Pencil, label: `Rename ${target.kind}`, show: !workspaceRow },
+    { action: "togglePin", ...pin, show: !workspaceRow },
+  ];
+  if (target.kind === "thread") {
+    const hidden = target.thread.hidden;
+    return [
+      ...shared,
+      hidden
+        ? { action: "toggleHidden", icon: Eye, label: "Unhide thread" }
+        : { action: "toggleHidden", icon: EyeOff, label: "Hide thread" },
+      {
+        action: "hideBelow",
+        icon: ArrowDownToLine,
+        label: "Hide threads below",
+        title: "Hide every thread listed after this one",
+        show: !hidden,
+      },
+      { action: "moveToWorkspace", icon: Layers3, label: "Move to workspace" },
+      { action: "moveToSection", icon: Bookmark, label: "Move to section", show: sectionsSupported },
+      { action: "createWorktree", icon: GitBranch, label: "Create worktree", show: !multi },
+      { action: "fork", icon: GitFork, label: "Fork thread" },
+      { action: "archive", icon: Archive, label: "Archive thread" },
+      { action: "delete", icon: Trash2, label: "Delete thread", danger: true },
+    ];
+  }
+  const hiddenCount = project.threads.filter((thread) => thread.hidden).length;
+  const reorderable = project.kind !== "worktree" && !multi;
+  return [
+    ...shared,
+    { action: "newFolder", icon: FolderPlus, label: "New thread folder" },
+    { action: "openDetails", icon: Settings2, label: multi ? "Workspace details" : "Project details" },
+    { action: "openGit", icon: GitBranch, label: "Git", show: !multi },
+    { action: "openWorktrees", icon: FolderGit2, label: "Worktrees", show: !multi },
+    {
+      action: "addWorktree",
+      icon: FolderGit2,
+      label: "Add worktree",
+      title: "Add an existing worktree of this repository to the sidebar",
+      show: project.kind === "folder",
+    },
+    {
+      action: "resetOrder",
+      icon: ListRestart,
+      label: "Reset thread order",
+      title: "Forget drag ordering: favorites first, then most recent",
+      show: !multi,
+    },
+    {
+      action: "unhideAll",
+      icon: Eye,
+      label: `Unhide ${hiddenCount} thread${hiddenCount === 1 ? "" : "s"}`,
+      show: !multi && hiddenCount > 0,
+    },
+    {
+      action: "toggleArchive",
+      icon: Archive,
+      label: project.kind === "worktree" ? "Hide worktree" : "Archive project",
+      show: !multi,
+    },
+    { action: "moveUp", icon: ArrowUp, label: "Move up", show: reorderable },
+    { action: "moveDown", icon: ArrowDown, label: "Move down", show: reorderable },
+    { action: "remove", icon: X, label: "Remove project", danger: true, show: reorderable },
+  ];
+}
+
+const visible = $derived(target ? entries(target).filter((entry) => entry.show !== false) : []);
 </script>
 
-<!-- Capture phase + preventDefault: the composer reads an unclaimed Escape as
-     "interrupt the running turn". -->
-<svelte:window
-  onkeydowncapture={(event) => {
-    if (event.key !== "Escape") return;
-    event.preventDefault();
-    onClose();
-  }}
-/>
-
-<div
-  class="fixed inset-0 z-40"
-  role="presentation"
-  onclick={onClose}
-  oncontextmenu={(event) => {
-    event.preventDefault();
-    onClose();
-  }}
-></div>
-<div
-  class="popover-card fixed z-50 w-[190px] select-none p-1"
-  style="left: {menu.x}px; top: {menu.y}px"
-  role="menu"
->
-  {#if menu.target.kind === "folder"}
-    <button
-      role="menuitem"
-      onclick={() => onAct("newFolder")}
-      class="menu-row"
-    >
-      <FolderPlus size={13} class="text-surface-500" />
-      New subfolder
-    </button>
-    <button
-      role="menuitem"
-      onclick={() => onAct("rename")}
-      class="menu-row"
-    >
-      <Pencil size={13} class="text-surface-500" />
-      Rename folder
-    </button>
-    <button
-      role="menuitem"
-      onclick={() => onAct("deleteFolder")}
-      class="menu-row text-error-500"
-      title="Its contents move up a level"
-    >
-      <Trash2 size={13} />
-      Delete folder
-    </button>
-  {:else if menu.target.kind === "section"}
-    <button
-      role="menuitem"
-      onclick={() => onAct("rename")}
-      class="menu-row"
-    >
-      <Pencil size={13} class="text-surface-500" />
-      Rename section
-    </button>
-    <button
-      role="menuitem"
-      onclick={() => onAct("deleteSection")}
-      class="menu-row text-error-500"
-    >
-      <Trash2 size={13} />
-      Delete section
-    </button>
-  {:else}
-  <button
-    role="menuitem"
-    onclick={() => onAct("reveal")}
-    class="menu-row"
-  >
-    <FolderOpen size={13} class="text-surface-500" />
-    Open in Finder
-  </button>
-  {#if menu.target.kind !== "project" || menu.target.project.kind !== "multiProject"}
-    <button
-      role="menuitem"
-      onclick={() => onAct("rename")}
-      class="menu-row"
-    >
-      <Pencil size={13} class="text-surface-500" />
-      Rename {menu.target.kind}
-    </button>
-    <button
-      role="menuitem"
-      onclick={() => onAct("togglePin")}
-      class="menu-row"
-    >
-      {#if menu.target.kind === "thread"}
-        {#if menuIsPinned(menu.target)}
-          <StarOff size={13} class="text-surface-500" />
-          Unfavorite thread
-        {:else}
-          <Star size={13} class="text-surface-500" />
-          Favorite thread
+<Menu.Provider value={menu}>
+  <Portal>
+    <Menu.Positioner>
+      <Menu.Content class="popover-card z-50 w-[190px] min-w-0 gap-0 select-none p-1 outline-none">
+        {#if menu().open}
+          {#each visible as entry (entry.action)}
+            <Menu.Item
+              value={entry.action}
+              title={entry.title}
+              class="menu-row cursor-pointer justify-start {entry.danger ? 'text-error-500' : ''}"
+            >
+              <entry.icon size={13} class={entry.danger ? "" : "text-surface-500"} />
+              <Menu.ItemText>{entry.label}</Menu.ItemText>
+            </Menu.Item>
+          {/each}
         {/if}
-      {:else if menuIsPinned(menu.target)}
-        <PinOff size={13} class="text-surface-500" />
-        Unpin {menu.target.kind}
-      {:else}
-        <Pin size={13} class="text-surface-500" />
-        Pin {menu.target.kind}
-      {/if}
-    </button>
-  {/if}
-  {#if menu.target.kind === "thread"}
-    <button
-      role="menuitem"
-      onclick={() => onAct("toggleHidden")}
-      class="menu-row"
-    >
-      {#if menu.target.thread.hidden}
-        <Eye size={13} class="text-surface-500" />
-        Unhide thread
-      {:else}
-        <EyeOff size={13} class="text-surface-500" />
-        Hide thread
-      {/if}
-    </button>
-    {#if !menu.target.thread.hidden}
-      <button
-        role="menuitem"
-        onclick={() => onAct("hideBelow")}
-        class="menu-row"
-        title="Hide every thread listed after this one"
-      >
-        <ArrowDownToLine size={13} class="text-surface-500" />
-        Hide threads below
-      </button>
-    {/if}
-  {/if}
-  {#if menu.target.kind === "project"}
-    <button
-      role="menuitem"
-      onclick={() => onAct("newFolder")}
-      class="menu-row"
-    >
-      <FolderPlus size={13} class="text-surface-500" />
-      New thread folder
-    </button>
-    <button
-      role="menuitem"
-      onclick={() => onAct("openDetails")}
-      class="menu-row"
-    >
-      <Settings2 size={13} class="text-surface-500" />
-      {menu.target.project.kind === "multiProject" ? "Workspace details" : "Project details"}
-    </button>
-    {#if menu.target.project.kind !== "multiProject"}
-      <button
-        role="menuitem"
-        onclick={() => onAct("openGit")}
-        class="menu-row"
-      >
-        <GitBranch size={13} class="text-surface-500" />
-        Git
-      </button>
-      <button
-        role="menuitem"
-        onclick={() => onAct("openWorktrees")}
-        class="menu-row"
-      >
-        <FolderGit2 size={13} class="text-surface-500" />
-        Worktrees
-      </button>
-    {/if}
-    {#if menu.target.project.kind === "folder"}
-      <button
-        role="menuitem"
-        onclick={() => onAct("addWorktree")}
-        class="menu-row"
-        title="Add an existing worktree of this repository to the sidebar"
-      >
-        <FolderGit2 size={13} class="text-surface-500" />
-        Add worktree
-      </button>
-    {/if}
-    {#if menu.target.project.kind !== "multiProject"}
-    <button
-      role="menuitem"
-      onclick={() => onAct("resetOrder")}
-      class="menu-row"
-      title="Forget drag ordering: favorites first, then most recent"
-    >
-      <ListRestart size={13} class="text-surface-500" />
-      Reset thread order
-    </button>
-    {#if hiddenCount(menu.target) > 0}
-      <button
-        role="menuitem"
-        onclick={() => onAct("unhideAll")}
-        class="menu-row"
-      >
-        <Eye size={13} class="text-surface-500" />
-        Unhide {hiddenCount(menu.target)} thread{hiddenCount(menu.target) === 1 ? "" : "s"}
-      </button>
-    {/if}
-    <button
-      role="menuitem"
-      onclick={() => onAct("toggleArchive")}
-      class="menu-row"
-    >
-      <Archive size={13} class="text-surface-500" />
-      {menu.target.project.kind === "worktree" ? "Hide worktree" : "Archive project"}
-    </button>
-    {/if}
-  {/if}
-  {#if menu.target.kind === "project" && menu.target.project.kind !== "worktree" && menu.target.project.kind !== "multiProject"}
-    <button
-      role="menuitem"
-      onclick={() => onAct("moveUp")}
-      class="menu-row"
-    >
-      <ArrowUp size={13} class="text-surface-500" />
-      Move up
-    </button>
-    <button
-      role="menuitem"
-      onclick={() => onAct("moveDown")}
-      class="menu-row"
-    >
-      <ArrowDown size={13} class="text-surface-500" />
-      Move down
-    </button>
-    <button
-      role="menuitem"
-      onclick={() => onAct("remove")}
-      class="menu-row text-error-500"
-    >
-      <X size={13} />
-      Remove project
-    </button>
-  {/if}
-  {#if menu.target.kind === "thread"}
-    <button
-      role="menuitem"
-      onclick={() => onAct("moveToWorkspace")}
-      class="menu-row"
-    >
-      <Layers3 size={13} class="text-surface-500" />
-      Move to workspace
-    </button>
-    {#if sectionsSupported}
-      <button
-        role="menuitem"
-        onclick={() => onAct("moveToSection")}
-        class="menu-row"
-      >
-        <Bookmark size={13} class="text-surface-500" />
-        Move to section
-      </button>
-    {/if}
-    {#if menu.target.project.kind !== "multiProject"}
-      <button
-        role="menuitem"
-        onclick={() => onAct("createWorktree")}
-        class="menu-row"
-      >
-        <GitBranch size={13} class="text-surface-500" />
-        Create worktree
-      </button>
-    {/if}
-    <button
-      role="menuitem"
-      onclick={() => onAct("fork")}
-      class="menu-row"
-    >
-      <GitFork size={13} class="text-surface-500" />
-      Fork thread
-    </button>
-    <button
-      role="menuitem"
-      onclick={() => onAct("archive")}
-      class="menu-row"
-    >
-      <Archive size={13} class="text-surface-500" />
-      Archive thread
-    </button>
-    <button
-      role="menuitem"
-      onclick={() => onAct("delete")}
-      class="menu-row text-error-500"
-    >
-      <Trash2 size={13} />
-      Delete thread
-    </button>
-  {/if}
-  {/if}
-</div>
+      </Menu.Content>
+    </Menu.Positioner>
+  </Portal>
+</Menu.Provider>

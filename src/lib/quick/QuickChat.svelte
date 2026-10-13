@@ -1,5 +1,6 @@
 <script lang="ts">
 import { ArrowUpRight, ChevronDown, Folder, Send } from "@lucide/svelte";
+import { Menu, Portal } from "@skeletonlabs/skeleton-svelte";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import ModelPopover from "$lib/composer/ModelPopover.svelte";
@@ -22,7 +23,6 @@ let sending = $state(false);
 let error = $state<string | null>(null);
 let threadId = $state<string | null>(null);
 let response = $state<QuickResponse>(emptyQuickResponse());
-let projectMenuOpen = $state(false);
 let modelMenuOpen = $state(false);
 let inputEl = $state<HTMLTextAreaElement | null>(null);
 
@@ -58,6 +58,12 @@ function chooseModel(model: Model) {
   modelId = model.id;
   effort = model.defaultReasoningEffort;
   modelMenuOpen = false;
+}
+
+function chooseProject(path: string) {
+  selectedPath = path;
+  // After the menu's own focus restore to its trigger, which runs in a microtask.
+  setTimeout(() => inputEl?.focus());
 }
 
 function reset() {
@@ -162,55 +168,41 @@ $effect(() => () => {
     use:dragRegion
   >
     <span class="text-[11px] font-medium text-surface-500">Quick chat</span>
-    <div class="relative">
-      <button
-        onclick={(event) => {
-          event.stopPropagation();
-          projectMenuOpen = !projectMenuOpen;
-          modelMenuOpen = false;
-        }}
+    <Menu positioning={{ placement: "bottom-end" }} onSelect={({ value }) => chooseProject(value)}>
+      <Menu.Trigger
         class="pill max-w-[220px]"
       >
         <Folder size={12} class="shrink-0" />
         <span class="truncate">{selectedProject?.name ?? "Select project"}</span>
         <ChevronDown size={11} class="shrink-0" />
-      </button>
-      {#if projectMenuOpen}
-        <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-        <div
-          class="popover-card absolute right-0 top-8 z-50 max-h-56 w-[240px] overflow-y-auto p-1"
-          onclick={(event) => event.stopPropagation()}
-        >
-          {#if projects.length === 0}
-            <p class="px-2 py-2 text-xs text-surface-500">No projects yet.</p>
-          {:else}
-            {#each projects as project (project.path)}
-              <button
-                onclick={() => {
-                  selectedPath = project.path;
-                  projectMenuOpen = false;
-                  focusInput();
-                }}
-                class="flex w-full flex-col rounded px-2 py-1.5 text-left hover:preset-tonal {project.path === selectedPath ? 'preset-tonal' : ''}"
-              >
-                <span class="truncate text-xs">{project.name}</span>
-                <span class="truncate text-[10px] text-surface-500">{project.path}</span>
-              </button>
-            {/each}
-          {/if}
-        </div>
-      {/if}
-    </div>
+      </Menu.Trigger>
+      <Portal>
+        <Menu.Positioner>
+          <Menu.Content
+            class="popover-card z-50 max-h-56 w-[240px] min-w-0 gap-0 overflow-y-auto p-1 outline-none"
+          >
+            {#if projects.length === 0}
+              <p class="px-2 py-2 text-xs text-surface-500">No projects yet.</p>
+            {:else}
+              {#each projects as project (project.path)}
+                <Menu.OptionItem
+                  type="radio"
+                  value={project.path}
+                  checked={project.path === selectedPath}
+                  class="flex w-full cursor-pointer flex-col items-stretch rounded px-2 py-1.5 text-left data-[state=checked]:preset-tonal"
+                >
+                  <Menu.ItemText class="w-full truncate text-xs">{project.name}</Menu.ItemText>
+                  <span class="w-full truncate text-[10px] text-surface-500">{project.path}</span>
+                </Menu.OptionItem>
+              {/each}
+            {/if}
+          </Menu.Content>
+        </Menu.Positioner>
+      </Portal>
+    </Menu>
   </header>
 
-  <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-  <div
-    class="flex min-h-0 flex-1 flex-col p-3"
-    onclick={() => {
-      projectMenuOpen = false;
-      modelMenuOpen = false;
-    }}
-  >
+  <div class="flex min-h-0 flex-1 flex-col p-3">
     <div class="relative flex-1">
       <textarea
         bind:this={inputEl}
@@ -244,10 +236,7 @@ $effect(() => () => {
         {effort}
         {effortOptions}
         label={modelLabel}
-        onToggle={() => {
-          modelMenuOpen = !modelMenuOpen;
-          projectMenuOpen = false;
-        }}
+        onToggle={() => (modelMenuOpen = !modelMenuOpen)}
         onChooseModel={chooseModel}
         onChooseEffort={(value) => (effort = value)}
       />

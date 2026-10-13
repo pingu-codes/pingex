@@ -262,6 +262,18 @@ describe("Composer", () => {
     expect(onInterrupt).toHaveBeenCalledOnce();
   });
 
+  it("closes a popover on Escape without interrupting the running turn", async () => {
+    const user = userEvent.setup();
+    const { onInterrupt } = setup({ busy: true });
+
+    await user.click(screen.getByRole("button", { name: "Set permissions level" }));
+    expect(await screen.findByRole("dialog", { name: "Permission options" })).toBeVisible();
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Permission options" })).toBeNull());
+    expect(onInterrupt).not.toHaveBeenCalled();
+  });
+
   it("selects a model and effort from the popover and sends them as turn options", async () => {
     const user = userEvent.setup();
     const { onSend, textarea } = setup();

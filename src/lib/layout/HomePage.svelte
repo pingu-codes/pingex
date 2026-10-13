@@ -24,7 +24,8 @@ import {
   Star,
   X,
 } from "@lucide/svelte";
-import { Portal, Tooltip } from "@skeletonlabs/skeleton-svelte";
+import { Collapsible } from "@skeletonlabs/skeleton-svelte";
+import TooltipButton from "$lib/components/TooltipButton.svelte";
 import { openHomeWindow, readHomeOverview, readUsageBreakdown } from "$lib/services/api";
 import { openSettings } from "$lib/services/settingsNav.svelte";
 import { isTauri } from "$lib/services/tauri";
@@ -72,7 +73,6 @@ const pinnedThreads = $derived(
 const threadCount = $derived(active.reduce((total, project) => total + project.threads.length, 0));
 const pinnedProjectCount = $derived(active.filter((project) => project.pinned).length);
 
-let hiddenOpen = $state(false);
 let overview = $state<HomeOverview | null>(null);
 let usage = $state<UsageBreakdown | null>(null);
 const usageCostSummary = $derived(usage ? costFor(usage.byModel, usage.reportedCostUsd) : null);
@@ -113,33 +113,17 @@ $effect(() => {
 const target = (project: Project): MenuTarget => ({ kind: "project", project });
 </script>
 
-{#snippet iconAction(label: string, onclick: () => void, danger = false)}
-  <Tooltip openDelay={350}>
-    <Tooltip.Trigger
-      {onclick}
-      aria-label={label}
-      class="btn-icon btn-icon-sm hover:preset-tonal {danger ? 'text-surface-500 hover:text-error-500' : 'text-surface-500'} opacity-0 transition focus:opacity-100 group-hover/row:opacity-100"
-    >
-      {#if label.startsWith("Unpin")}<PinOff size={14} />
-      {:else if label.startsWith("Pin")}<Pin size={14} />
-      {:else if label.startsWith("Rename")}<Pencil size={14} />
-      {:else if label.startsWith("Reveal")}<FolderOpen size={14} />
-      {:else if label.startsWith("Hide")}<EyeOff size={14} />
-      {:else if label.startsWith("Archive")}<Archive size={14} />
-      {:else if label.startsWith("Show") || label.startsWith("Restore")}<ArchiveRestore size={14} />
-      {:else if label.startsWith("New thread")}<SquarePen size={14} />
-      {:else if label.startsWith("Project details")}<Settings2 size={14} />
-      {:else}<X size={14} />{/if}
-    </Tooltip.Trigger>
-    <Portal>
-      <Tooltip.Positioner>
-        <Tooltip.Content class="card preset-filled z-50 px-2 py-1 text-xs shadow-lg">{label}</Tooltip.Content>
-      </Tooltip.Positioner>
-    </Portal>
-  </Tooltip>
+{#snippet iconAction(label: string, Icon: typeof X, onclick: () => void, danger = false)}
+  <TooltipButton
+    {label}
+    {onclick}
+    class="btn-icon btn-icon-sm hover:preset-tonal {danger ? 'text-surface-500 hover:text-error-500' : 'text-surface-500'} opacity-0 transition focus:opacity-100 group-hover/row:opacity-100"
+  >
+    <Icon size={14} />
+  </TooltipButton>
 {/snippet}
 
-{#snippet projectRow(project: Project, hideLabel: string)}
+{#snippet projectRow(project: Project, hideLabel: string, HideIcon: typeof X)}
   <div class="group/row flex items-center gap-3 panel-card px-3 py-2.5">
     {#if project.kind === "multiProject"}
       <Layers3 size={17} strokeWidth={1.7} class="shrink-0 text-primary-500" />
@@ -164,20 +148,20 @@ const target = (project: Project): MenuTarget => ({ kind: "project", project });
       </span>
     </div>
     <div class="hidden shrink-0 items-center group-hover/row:flex">
-      {@render iconAction("New thread", () => onNewThread(project))}
+      {@render iconAction("New thread", SquarePen, () => onNewThread(project))}
       {#if onOpenProject}
-        {@render iconAction(project.kind === "multiProject" ? "Workspace details" : "Project details", () => onOpenProject?.(project))}
+        {@render iconAction(project.kind === "multiProject" ? "Workspace details" : "Project details", Settings2, () => onOpenProject?.(project))}
       {/if}
       {#if project.kind !== "multiProject"}
-        {@render iconAction(project.pinned ? "Unpin project" : "Pin project", () => onMenuAction("togglePin", target(project)))}
-        {@render iconAction("Rename project", () => onMenuAction("rename", target(project)))}
+        {@render iconAction(project.pinned ? "Unpin project" : "Pin project", project.pinned ? PinOff : Pin, () => onMenuAction("togglePin", target(project)))}
+        {@render iconAction("Rename project", Pencil, () => onMenuAction("rename", target(project)))}
       {/if}
-      {@render iconAction("Reveal in Finder", () => onMenuAction("reveal", target(project)))}
+      {@render iconAction("Reveal in Finder", FolderOpen, () => onMenuAction("reveal", target(project)))}
       {#if project.kind !== "multiProject"}
-        {@render iconAction(hideLabel, () => onMenuAction("toggleArchive", target(project)))}
+        {@render iconAction(hideLabel, HideIcon, () => onMenuAction("toggleArchive", target(project)))}
       {/if}
       {#if project.kind === "folder"}
-        {@render iconAction("Remove project", () => onMenuAction("remove", target(project)), true)}
+        {@render iconAction("Remove project", X, () => onMenuAction("remove", target(project)), true)}
       {/if}
     </div>
   </div>
@@ -360,7 +344,7 @@ const target = (project: Project): MenuTarget => ({ kind: "project", project });
     {:else}
       <div class="mt-2 space-y-1.5">
         {#each folders as project (project.path)}
-          {@render projectRow(project, "Archive project")}
+          {@render projectRow(project, "Archive project", Archive)}
         {/each}
       </div>
     {/if}
@@ -372,7 +356,7 @@ const target = (project: Project): MenuTarget => ({ kind: "project", project });
       </p>
       <div class="mt-2 space-y-1.5">
         {#each worktrees as project (project.path)}
-          {@render projectRow(project, "Hide worktree")}
+          {@render projectRow(project, "Hide worktree", EyeOff)}
         {/each}
       </div>
     {/if}
@@ -382,22 +366,21 @@ const target = (project: Project): MenuTarget => ({ kind: "project", project });
       <p class="mt-1 text-xs text-surface-500">Writable shared hubs with isolated project members.</p>
       <div class="mt-2 space-y-1.5">
         {#each workspaces as project (project.path)}
-          {@render projectRow(project, "Archive workspace")}
+          {@render projectRow(project, "Archive workspace", Archive)}
         {/each}
       </div>
     {/if}
 
     {#if hidden.length > 0}
-      <button
-        onclick={() => (hiddenOpen = !hiddenOpen)}
-        class="mt-8 flex w-full items-center gap-2 text-left eyebrow hover:text-surface-700-300"
-      >
-        <span>Archived &amp; hidden</span>
-        <span class="rounded-full bg-surface-200-800 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal">{hidden.length}</span>
-        <ChevronDown size={12} class="transition {hiddenOpen ? '' : '-rotate-90'}" />
-      </button>
-      {#if hiddenOpen}
-        <div class="mt-2 space-y-1.5">
+      <Collapsible class="mt-8 items-stretch gap-0">
+        <Collapsible.Trigger
+          class="group flex w-full items-center gap-2 text-left eyebrow hover:text-surface-700-300"
+        >
+          <span>Archived &amp; hidden</span>
+          <span class="rounded-full bg-surface-200-800 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal">{hidden.length}</span>
+          <ChevronDown size={12} class="transition group-data-[state=closed]:-rotate-90" />
+        </Collapsible.Trigger>
+        <Collapsible.Content class="mt-2 space-y-1.5">
           {#each hidden as project (project.path)}
             <div class="group/row flex items-center gap-3 rounded-xl border border-surface-200-800 px-3 py-2.5 opacity-70 transition hover:opacity-100">
               {#if project.kind === "worktree"}
@@ -418,8 +401,8 @@ const target = (project: Project): MenuTarget => ({ kind: "project", project });
               </button>
             </div>
           {/each}
-        </div>
-      {/if}
+        </Collapsible.Content>
+      </Collapsible>
     {/if}
   </div>
 </div>

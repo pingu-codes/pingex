@@ -258,6 +258,23 @@ describe("Sidebar", () => {
     expect(screen.getByTitle("3 subagents")).toHaveTextContent("3");
   });
 
+  it("opens the same menu on right-click and retargets it to the row clicked", async () => {
+    const user = userEvent.setup();
+    const { onMenuAction, source } = setup();
+
+    await user.pointer({ keys: "[MouseRight]", target: screen.getByText(source.name) });
+    expect(screen.getByRole("menuitem", { name: "Rename project" })).toBeVisible();
+    await user.pointer({ keys: "[MouseRight]", target: screen.getByText(source.threads[0].title) });
+    expect(screen.queryByRole("menuitem", { name: "Rename project" })).toBeNull();
+    await user.click(screen.getByRole("menuitem", { name: "Rename thread" }));
+    expect(onMenuAction).toHaveBeenLastCalledWith("rename", expect.objectContaining({ kind: "thread" }));
+
+    await user.click(screen.getByRole("button", { name: "Thread menu" }));
+    expect(screen.getByRole("button", { name: "Thread menu" })).toHaveAttribute("aria-expanded", "true");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menuitem", { name: "Rename thread" })).toBeNull();
+  });
+
   it("routes rename and pin actions for the selected thread target", async () => {
     const user = userEvent.setup();
     const { onMenuAction, source } = setup();

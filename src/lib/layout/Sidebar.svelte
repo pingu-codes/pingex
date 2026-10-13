@@ -22,7 +22,7 @@ import {
   Star,
   Zap,
 } from "@lucide/svelte";
-import { Collapsible } from "@skeletonlabs/skeleton-svelte";
+import { Collapsible, useMenu } from "@skeletonlabs/skeleton-svelte";
 import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import ArchivedThreadsSection from "$lib/layout/ArchivedThreadsSection.svelte";
@@ -341,39 +341,56 @@ const threadActivity = (threadId: string): "waiting" | "working" | null => {
 const sideQuestionCount = (threadId: string) =>
   sideQuestions.filter((entry) => entry.parentThreadId === threadId).length;
 
-let menu = $state<{ x: number; y: number; target: MenuTarget } | null>(null);
+// Two row menus share one target and one item list: rows are context
+// triggers of one, ellipsis buttons triggers of the other. Zag only anchors a
+// menu that has context triggers at the pointer, so the button menu is kept
+// separate to anchor below its button. Triggers are keyed by `menuKey`, and
+// whichever fired last sets the target the items are built from.
+let menuTarget = $state<MenuTarget | null>(null);
+const menuId = $props.id();
+const rowMenuProps = (id: string) => ({
+  id,
+  onSelect: ({ value }: { value: string }) => {
+    if (menuTarget) onMenuAction(value as MenuAction, menuTarget);
+  },
+  positioning: { placement: "bottom-start" as const, gutter: 4 },
+});
+const contextMenu = useMenu(rowMenuProps(`${menuId}-context`));
+const buttonMenu = useMenu(rowMenuProps(`${menuId}-button`));
 
-const MENU_WIDTH = 190;
-
-function openMenuAt(x: number, y: number, target: MenuTarget) {
-  const height =
-    target.kind === "section" ? 80 : target.kind === "folder" ? 110 : target.kind === "project" ? 330 : 380;
-  menu = {
-    x: Math.min(x, window.innerWidth - MENU_WIDTH - 8),
-    y: Math.min(y, window.innerHeight - height - 8),
-    target,
-  };
+function menuKey(target: MenuTarget): string {
+  switch (target.kind) {
+    case "project":
+      return `project:${target.project.path}`;
+    case "thread":
+      return `thread:${target.thread.id}`;
+    case "section":
+      return `section:${target.section.id}`;
+    case "folder":
+      return `folder:${target.folder.id}`;
+  }
 }
 
-function onContextMenu(event: MouseEvent, target: MenuTarget) {
-  event.preventDefault();
-  event.stopPropagation();
-  openMenuAt(event.clientX, event.clientY, target);
+type Handler = ((event: Event) => void) | null | undefined;
+
+/** Zag's trigger props with `target` recorded before each opening event reaches the menu. */
+function aimedAt<Props extends object>(props: Props, target: MenuTarget, events: string[]): Props {
+  const aimed = { ...props } as Record<string, unknown>;
+  for (const name of events) {
+    const original = (props as Record<string, unknown>)[name] as Handler;
+    aimed[name] = (event: Event) => {
+      menuTarget = target;
+      original?.(event);
+    };
+  }
+  return aimed as Props;
 }
 
-function onEllipsis(event: MouseEvent, target: MenuTarget) {
-  event.preventDefault();
-  event.stopPropagation();
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-  openMenuAt(rect.left, rect.bottom + 4, target);
-}
+const contextMenuTrigger = (target: MenuTarget) =>
+  aimedAt(contextMenu().getContextTriggerProps({ value: menuKey(target) }), target, ["oncontextmenu", "onpointerdown"]);
 
-function act(action: MenuAction) {
-  if (!menu) return;
-  const target = menu.target;
-  menu = null;
-  onMenuAction(action, target);
-}
+const menuButton = (target: MenuTarget) =>
+  aimedAt(buttonMenu().getTriggerProps({ value: menuKey(target) }), target, ["onclick", "onkeydown"]);
 
 const connectedDevices = $derived(hasActiveConnection(remoteConnections.list));
 const onlineCount = $derived(activeConnectionCount(remoteConnections.list));
@@ -407,7 +424,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
   <div
     class="group/thread relative rounded-md {dropClass({ kind: 'item', id: thread.id })} {thread.hidden ? 'opacity-50' : ''}"
     role="presentation"
-    oncontextmenu={(event) => onContextMenu(event, threadTarget(project, thread))}
+    {...contextMenuTrigger(threadTarget(project, thread))}
     use:draggable={dragSource(project.path, { kind: "item", id: thread.id }, thread.title)}
   >
     <button
@@ -469,7 +486,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
     <button
       type="button"
       aria-label="Thread menu"
-      onclick={(event) => onEllipsis(event, threadTarget(project, thread))}
+      {...menuButton(threadTarget(project, thread))}
       class="absolute right-0.5 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded text-surface-500 opacity-0 transition hover:bg-surface-300-700 hover:text-surface-900-100 focus:opacity-100 group-hover/thread:opacity-100"
     >
       <Ellipsis size={13} />
@@ -481,7 +498,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
   <div
     class="group/folder relative flex items-center rounded-md {dropClass(folderRef(folder))}"
     role="presentation"
-    oncontextmenu={(event) => onContextMenu(event, folderTarget(folder, project))}
+    {...contextMenuTrigger(folderTarget(folder, project))}
     use:draggable={dragSource(project?.path ?? ROOT_SCOPE, folderRef(folder), folder.name)}
   >
     <Collapsible.Trigger class="group flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 pl-2 pr-7 text-left text-[13px] font-medium group-hover/folder:preset-tonal">
@@ -494,7 +511,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
     <button
       type="button"
       aria-label="Folder menu"
-      onclick={(event) => onEllipsis(event, folderTarget(folder, project))}
+      {...menuButton(folderTarget(folder, project))}
       class="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded text-surface-500 opacity-0 transition hover:bg-surface-300-700 hover:text-surface-900-100 focus:opacity-100 group-hover/folder:opacity-100"
     >
       <Ellipsis size={14} />
@@ -508,7 +525,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
       <div
         class="group/section relative mt-1 flex items-center"
         role="presentation"
-        oncontextmenu={(event) => onContextMenu(event, sectionTarget(group.section!))}
+        {...contextMenuTrigger(sectionTarget(group.section!))}
       >
         <div class="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-surface-500">
           <span class="size-1.5 shrink-0 rounded-full" style="background: {group.section.color ?? 'currentColor'}"></span>
@@ -517,7 +534,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
         <button
           type="button"
           aria-label="Section menu"
-          onclick={(event) => onEllipsis(event, sectionTarget(group.section!))}
+          {...menuButton(sectionTarget(group.section!))}
           class="grid size-5 shrink-0 place-items-center rounded text-surface-500 opacity-0 transition hover:bg-surface-300-700 hover:text-surface-900-100 focus:opacity-100 group-hover/section:opacity-100"
         >
           <Ellipsis size={12} />
@@ -554,7 +571,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
     <div
       class="group/project relative flex items-center rounded-md {dropClass({ kind: 'item', id: project.path })}"
       role="presentation"
-      oncontextmenu={(event) => onContextMenu(event, projectTarget(project))}
+      {...contextMenuTrigger(projectTarget(project))}
       use:draggable={dragSource(ROOT_SCOPE, { kind: "item", id: project.path }, project.name)}
     >
       <Collapsible.Trigger class="group flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 pl-2 pr-14 text-left text-[13px] font-medium group-hover/project:preset-tonal">
@@ -595,7 +612,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
       <button
         type="button"
         aria-label="Project menu"
-        onclick={(event) => onEllipsis(event, projectTarget(project))}
+        {...menuButton(projectTarget(project))}
         class="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded text-surface-500 opacity-0 transition hover:bg-surface-300-700 hover:text-surface-900-100 focus:opacity-100 group-hover/project:opacity-100"
       >
         <Ellipsis size={14} />
@@ -825,9 +842,8 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
   </div>
 {/if}
 
-{#if menu}
-  <SidebarContextMenu {menu} {sectionsSupported} onAct={act} onClose={() => (menu = null)} />
-{/if}
+<SidebarContextMenu menu={contextMenu} target={menuTarget} {sectionsSupported} />
+<SidebarContextMenu menu={buttonMenu} target={menuTarget} {sectionsSupported} />
 
 <style>
   :global(.drop-before) {

@@ -1041,7 +1041,6 @@ function onPaste(event: ClipboardEvent) {
 </script>
 
 <svelte:window
-  onclick={() => (popover = null)}
   onkeydown={(event) => {
     if (event.key !== "Escape" || event.defaultPrevented) return;
     // The Settings overlay owns Escape while open (it closes the panel); an
