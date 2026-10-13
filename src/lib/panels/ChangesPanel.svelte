@@ -1,7 +1,7 @@
 <script lang="ts">
 import { ArrowLeft, FileDiff, RefreshCw } from "@lucide/svelte";
 import { untrack } from "svelte";
-import { gitFileDiff } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import type { ChangedFile, ChangesSummary, FileDiff as FileDiffData } from "$lib/types";
 import { fileIconFor } from "$lib/utils/fileIcons";
 import { highlightDiff } from "$lib/utils/markdown";
@@ -43,7 +43,7 @@ const fileDiff = resource(
     const key = `${base}:${file.path}:${maxBytes}`;
     const cached = cache.get(key);
     if (cached) return cached;
-    const result = await gitFileDiff(cwd, base, file.path, file.status === "untracked", maxBytes);
+    const result = await commands.gitFileDiff(cwd, base, file.path, file.status === "untracked", maxBytes);
     if (cache.size > 50) cache.delete(cache.keys().next().value as string);
     cache.set(key, result);
     return result;

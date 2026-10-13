@@ -1,6 +1,6 @@
 <script lang="ts">
 import PickerList from "$lib/composer/PickerList.svelte";
-import { searchProjectFiles } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import type { FileHit, Mention } from "$lib/types";
 import { fileIconFor, folderIcon } from "$lib/utils/fileIcons";
 
@@ -28,7 +28,7 @@ $effect(() => {
   const currentQuery = query;
   const timer = setTimeout(async () => {
     try {
-      const hits = await searchProjectFiles(cwd, currentQuery, 12);
+      const hits = await commands.searchProjectFiles(cwd, currentQuery, 12);
       if (currentQuery === query) {
         results = hits;
         failed = false;

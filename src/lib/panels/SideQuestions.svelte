@@ -5,16 +5,7 @@ import { untrack } from "svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import TypingDots from "$lib/components/TypingDots.svelte";
 import NativeSideQuestions from "$lib/panels/NativeSideQuestions.svelte";
-import {
-  addSideQuestion,
-  forkThread,
-  interruptTurn,
-  invalidateThreadCache,
-  readThread,
-  removeSideQuestion,
-  sideQuestionMode,
-  startTurn,
-} from "$lib/services/api";
+import { forkThread, readThread, startTurn } from "$lib/services/api";
 import {
   activeTurns,
   approvals,
@@ -23,6 +14,7 @@ import {
   setThreadHandler,
   userInputRequests,
 } from "$lib/services/codexEvents.svelte";
+import { commands } from "$lib/services/homeRouting";
 import { threadIdOf } from "$lib/services/turnLifecycle";
 import ApprovalCard from "$lib/thread/ApprovalCard.svelte";
 import ElicitationCard from "$lib/thread/ElicitationCard.svelte";
@@ -82,7 +74,8 @@ $effect(() => {
   modeError = null;
   let current = true;
   if (parent)
-    sideQuestionMode(parent)
+    commands
+      .sideQuestionMode(parent)
       .then((value) => {
         if (current) mode = value;
       })
@@ -167,7 +160,7 @@ async function load(id: string) {
   try {
     // The cached detail is keyed by the summary's `updated_at`, which does not
     // move while a turn runs — for a working thread it is stale by construction.
-    if (activeTurns.list.includes(id)) await invalidateThreadCache(id).catch(() => {});
+    if (activeTurns.list.includes(id)) await commands.invalidateThreadCache(id).catch(() => {});
     const detail = await readThread(id);
     if (id !== activeSideId) return;
     // A turn left `inProgress` by a session that has since died would keep the
@@ -201,7 +194,7 @@ function handleEvent(event: CodexEvent) {
   if (outcome.streamError) sideError = outcome.streamError;
   if (outcome.turnCompleted) {
     clearTimeout(stopTimer);
-    if (activeSideId) invalidateThreadCache(activeSideId).catch(() => {});
+    if (activeSideId) commands.invalidateThreadCache(activeSideId).catch(() => {});
   }
 }
 
@@ -228,7 +221,7 @@ async function ask() {
       if (parent !== parentThreadId) {
         // The user moved to another thread meanwhile: file the question under
         // its own thread and let it run, without touching this panel.
-        onDataChanged(await addSideQuestion(parent, id, text, inherited.turns.length));
+        onDataChanged(await commands.addSideQuestion(parent, id, text, inherited.turns.length));
         void startTurn(id, [{ type: "text", text }]).catch(() => {});
         return;
       }
@@ -236,7 +229,7 @@ async function ask() {
       sideLoading = false;
       activeSideId = id;
       sideThread = { ...inherited, turns: [...inherited.turns] };
-      onDataChanged(await addSideQuestion(parent, id, text, inherited.turns.length));
+      onDataChanged(await commands.addSideQuestion(parent, id, text, inherited.turns.length));
     }
     sideThread?.turns.push({
       id: localTurnId,
@@ -276,7 +269,7 @@ async function stop() {
     if (id !== activeSideId || !target || target.id.startsWith("local-")) return;
   }
   try {
-    await interruptTurn(id, target.id);
+    await commands.interruptTurn(id, target.id);
   } catch (cause) {
     sideError = errorMessage(cause);
   }
@@ -286,13 +279,13 @@ async function stop() {
   stopTimer = setTimeout(() => {
     if (id !== activeSideId || !sideThread) return;
     finalizeRunningTurns(sideThread.turns, "interrupted");
-    invalidateThreadCache(id).catch(() => {});
+    commands.invalidateThreadCache(id).catch(() => {});
   }, STOP_GRACE_MS);
 }
 
 async function deleteSide(entry: SideQuestion) {
   try {
-    onDataChanged(await removeSideQuestion(entry.sideThreadId));
+    onDataChanged(await commands.removeSideQuestion(entry.sideThreadId));
     if (activeSideId === entry.sideThreadId) {
       clearTimeout(stopTimer);
       activeSideId = null;

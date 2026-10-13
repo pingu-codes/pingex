@@ -55,6 +55,7 @@ pub(crate) struct ProtocolClient {
 /// frontend from `last_seen`; the backend stays presentation-free.
 #[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
+#[serde(rename = "RemoteConnection")]
 pub(crate) struct Connection {
     pub(crate) client_id: String,
     pub(crate) name: String,

@@ -17,12 +17,21 @@ vi.mock("$lib/services/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("$lib/services/api")>()),
   readThread: mocks.readThread,
   startTurn: mocks.startTurn,
-  interruptTurn: mocks.interruptTurn,
   forkThread: mocks.forkThread,
-  addSideQuestion: mocks.addSideQuestion,
-  removeSideQuestion: mocks.removeSideQuestion,
-  invalidateThreadCache: mocks.invalidateThreadCache,
 }));
+vi.mock("$lib/services/homeRouting", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
+  return {
+    ...actual,
+    commands: {
+      ...actual.commands,
+      interruptTurn: mocks.interruptTurn,
+      addSideQuestion: mocks.addSideQuestion,
+      removeSideQuestion: mocks.removeSideQuestion,
+      invalidateThreadCache: mocks.invalidateThreadCache,
+    },
+  };
+});
 
 import SideQuestions from "$lib/panels/SideQuestions.svelte";
 import { activeTurns, approvals, previewEmit } from "$lib/services/codexEvents.svelte";

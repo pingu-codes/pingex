@@ -18,8 +18,14 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("$lib/services/api", async (original) => ({
   ...(await original<typeof import("$lib/services/api")>()),
-  ...mocks,
+  forkThread: mocks.forkThread,
+  readThread: mocks.readThread,
+  startTurn: mocks.startTurn,
 }));
+vi.mock("$lib/services/homeRouting", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
+  return { ...actual, commands: { ...actual.commands, ...mocks } };
+});
 
 import SideQuestions from "$lib/panels/SideQuestions.svelte";
 import { activeTurns } from "$lib/services/codexEvents.svelte";

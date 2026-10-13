@@ -89,6 +89,7 @@ pub(crate) async fn list_threads_page(
 
 #[derive(Default, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", default)]
+#[serde(rename = "ThreadSearchFilter")]
 pub(crate) struct SearchFilter {
     archived: bool,
     project_path: Option<String>,

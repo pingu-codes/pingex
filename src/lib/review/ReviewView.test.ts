@@ -2,14 +2,17 @@ import { render, screen, waitFor } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import ReviewView from "$lib/review/ReviewView.svelte";
-import { reviewLoadDraft, reviewPrDetail } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 
-vi.mock("$lib/services/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/services/api")>();
+vi.mock("$lib/services/homeRouting", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
   return {
     ...actual,
-    reviewPrDetail: vi.fn(actual.reviewPrDetail),
-    reviewLoadDraft: vi.fn(actual.reviewLoadDraft),
+    commands: {
+      ...actual.commands,
+      reviewPrDetail: vi.fn(actual.commands.reviewPrDetail),
+      reviewLoadDraft: vi.fn(actual.commands.reviewLoadDraft),
+    },
   };
 });
 
@@ -49,10 +52,10 @@ describe("ReviewView", () => {
 
   it("ignores a PR that finishes loading after the user opened another", async () => {
     const user = userEvent.setup();
-    vi.mocked(reviewLoadDraft).mockClear();
-    const actual = vi.mocked(reviewPrDetail).getMockImplementation()!;
+    vi.mocked(commands.reviewLoadDraft).mockClear();
+    const actual = vi.mocked(commands.reviewPrDetail).getMockImplementation()!;
     let releaseFirst!: () => void;
-    vi.mocked(reviewPrDetail).mockImplementationOnce(
+    vi.mocked(commands.reviewPrDetail).mockImplementationOnce(
       (repoDir, number) => new Promise((resolve) => (releaseFirst = () => resolve(actual(repoDir, number)))),
     );
     render(ReviewView, { repoDir: "/repo", repoName: "repo", onBack: vi.fn(), onAskCodex: vi.fn() });
@@ -60,11 +63,11 @@ describe("ReviewView", () => {
 
     await user.click(screen.getByText(/Add pull-request review view/));
     await user.click(screen.getByText(/Native git worktree service/));
-    await waitFor(() => expect(reviewLoadDraft).toHaveBeenCalledWith("github", "repo", 126));
+    await waitFor(() => expect(commands.reviewLoadDraft).toHaveBeenCalledWith("github", "repo", 126));
     releaseFirst();
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     // The stale PR's draft was never restored onto the PR now showing.
-    expect(reviewLoadDraft).not.toHaveBeenCalledWith("github", "repo", 128);
+    expect(commands.reviewLoadDraft).not.toHaveBeenCalledWith("github", "repo", 128);
   });
 });

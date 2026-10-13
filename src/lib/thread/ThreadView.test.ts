@@ -64,31 +64,11 @@ vi.mock("$lib/toaster", () => ({
 }));
 
 vi.mock("$lib/services/api", () => ({
-  sideQuestionMode: mocks.sideQuestionMode,
-  addNativeSideQuestion: mocks.addNativeSideQuestion,
-  readNativeSideQuestion: vi.fn().mockResolvedValue([]),
-  prepareNativeSideQuestion: mocks.prepareNativeSideQuestion,
-  answerNativeSideQuestion: mocks.answerNativeSideQuestion,
-  cancelNativeSideQuestion: vi.fn(),
-  addSideQuestion: vi.fn(),
-  compactThread: mocks.compactThread,
-  // The composer persists what is typed on a debounce; without these the timer
-  // fires into `undefined` and takes the worker down with it.
-  loadDraft: vi.fn().mockResolvedValue(null),
-  saveDraft: vi.fn().mockResolvedValue(undefined),
-  deleteDraft: vi.fn().mockResolvedValue(undefined),
-  gitRepoInfo: mocks.gitRepoInfo,
-  gitRecentCommits: mocks.gitRecentCommits,
-  gitBranches: mocks.gitBranches,
   startReview: mocks.startReview,
-  interruptTurn: mocks.interruptTurn,
   setThreadGoal: mocks.setThreadGoal,
   getThreadGoal: mocks.getThreadGoal,
   setThreadGoalStatus: vi.fn(),
   setThreadGoalBudget: mocks.setThreadGoalBudget,
-  clearThreadGoal: mocks.clearThreadGoal,
-  invalidateThreadCache: mocks.invalidateThreadCache,
-  isTauri: () => false,
   listModels: vi.fn().mockResolvedValue([
     {
       id: "gpt-5.2-codex",
@@ -113,30 +93,58 @@ vi.mock("$lib/services/api", () => ({
       isDefault: true,
     },
   ]),
-  listProjectFiles: mocks.listProjectFiles,
   listSubagents: vi.fn().mockResolvedValue([]),
-  listAgentRuns: vi.fn().mockResolvedValue([]),
-  killAgentRun: vi.fn().mockResolvedValue(undefined),
-  openInZed: vi.fn(),
   isQueueUnsupported: (cause: unknown) => errorMessage(cause).startsWith("codex-queue-unsupported"),
   isRevertUnsupported: (cause: unknown) => errorMessage(cause).startsWith("codex-revert-unsupported"),
   queueAdd: mocks.queueAdd,
   queueDelete: mocks.queueDelete,
   queueList: mocks.queueList,
   queueUpdate: mocks.queueUpdate,
-  queueReorder: mocks.queueReorder,
   readThread: mocks.readThread,
-  removeSideQuestion: vi.fn(),
   respondUserInput: vi.fn(),
-  revealInFinder: vi.fn(),
   revertThread: mocks.revertThread,
   forkThread: mocks.forkThread,
-  addThreadBranch: mocks.addThreadBranch,
-  setThreadBranchEditTurn: mocks.setThreadBranchEditTurn,
   startThread: mocks.startThread,
   startTurn: mocks.startTurn,
-  updateSubagentPolicy: vi.fn(),
 }));
+vi.mock("$lib/services/homeRouting", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
+  return {
+    ...actual,
+    commands: {
+      ...actual.commands,
+      sideQuestionMode: mocks.sideQuestionMode,
+      addNativeSideQuestion: mocks.addNativeSideQuestion,
+      readNativeSideQuestion: vi.fn().mockResolvedValue([]),
+      prepareNativeSideQuestion: mocks.prepareNativeSideQuestion,
+      answerNativeSideQuestion: mocks.answerNativeSideQuestion,
+      cancelNativeSideQuestion: vi.fn(),
+      addSideQuestion: vi.fn(),
+      compactThread: mocks.compactThread,
+      // The composer persists what is typed on a debounce; without these the timer
+      // fires into `undefined` and takes the worker down with it.
+      loadDraft: vi.fn().mockResolvedValue(null),
+      saveDraft: vi.fn().mockResolvedValue(undefined),
+      deleteDraft: vi.fn().mockResolvedValue(undefined),
+      gitRepoInfo: mocks.gitRepoInfo,
+      gitRecentCommits: mocks.gitRecentCommits,
+      gitBranches: mocks.gitBranches,
+      interruptTurn: mocks.interruptTurn,
+      threadGoalClear: mocks.clearThreadGoal,
+      invalidateThreadCache: mocks.invalidateThreadCache,
+      listProjectFiles: mocks.listProjectFiles,
+      listAgentRuns: vi.fn().mockResolvedValue([]),
+      killAgentRun: vi.fn().mockResolvedValue(undefined),
+      openInZed: vi.fn(),
+      queueReorder: mocks.queueReorder,
+      removeSideQuestion: vi.fn(),
+      revealInFinder: vi.fn(),
+      addThreadBranch: mocks.addThreadBranch,
+      setThreadBranchEditTurn: mocks.setThreadBranchEditTurn,
+      updateSubagentPolicy: vi.fn(),
+    },
+  };
+});
 
 // Only `openDialog` is stubbed: other consumers in this tree (worktree dialogs)
 // use the real dialog machinery.
@@ -1293,7 +1301,7 @@ describe("ThreadView /review", () => {
     await user.click(await screen.findByRole("option", { name: "Review against a base branch" }));
     await user.click(await screen.findByRole("option", { name: /origin\/main/ }));
 
-    expect(mocks.gitBranches).toHaveBeenCalledWith("/projects/example");
+    expect(mocks.gitBranches).toHaveBeenCalledWith("/projects/example", null);
     expect(mocks.startReview).toHaveBeenCalledWith("thread-1", {
       type: "baseBranch",
       branch: "origin/main",

@@ -1,16 +1,19 @@
 import { render, screen } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { copyText } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import WorkItem from "$lib/thread/WorkItem.svelte";
 import type { SubagentDetail, ThreadItem } from "$lib/types";
 
 const openSubagent = vi.fn();
 vi.mock("$lib/services/api", async (orig) => ({
   ...(await orig<object>()),
-  copyText: vi.fn(() => Promise.resolve()),
   threadImageSrc: vi.fn((path: string) => Promise.resolve(path.endsWith(".png") ? `asset://localhost${path}` : null)),
 }));
+vi.mock("$lib/services/homeRouting", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
+  return { ...actual, commands: { ...actual.commands, copyText: vi.fn(() => Promise.resolve(null)) } };
+});
 vi.mock("$lib/app/actions.svelte", () => ({ openSubagent: (agent: SubagentDetail) => openSubagent(agent) }));
 
 const agent: SubagentDetail = {
@@ -118,7 +121,7 @@ describe("WorkItem — command execution", () => {
     const user = userEvent.setup();
     render(WorkItem, { item });
     await user.click(screen.getByRole("button", { name: "Copy command" }));
-    expect(copyText).toHaveBeenCalledWith(command);
+    expect(commands.copyText).toHaveBeenCalledWith(command);
   });
 });
 
@@ -128,7 +131,7 @@ describe("async messages", () => {
     expect(screen.getByText("Async")).toBeVisible();
     expect(screen.getByText("A question")).toBeVisible();
     await userEvent.setup().click(screen.getByRole("button", { name: "Copy message" }));
-    expect(copyText).toHaveBeenCalledWith("A question");
+    expect(commands.copyText).toHaveBeenCalledWith("A question");
   });
   it.each([undefined, null, "sync"])("does not label delivery %s as async", (delivery) => {
     render(WorkItem, { item: { type: "agentMessage", id: "normal", delivery, text: "An update" } });

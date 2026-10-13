@@ -1,5 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { isTauri } from "$lib/services/api";
+import { isTauri } from "$lib/services/tauri";
 
 /**
  * Makes an element act like a native macOS titlebar: click-drag moves the

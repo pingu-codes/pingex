@@ -35,22 +35,9 @@ import ProfileHomes from "$lib/layout/ProfileHomes.svelte";
 import { filterSections, SETTINGS_SECTIONS } from "$lib/layout/settingsSections";
 import { sidebarPrefs } from "$lib/layout/sidebarPrefs.svelte";
 import { acceleratorFromEvent } from "$lib/quick/quickChat";
-import {
-  DEFAULT_QUICK_SHORTCUT,
-  getQuickShortcut,
-  isTauri,
-  readAgentSettings,
-  readCodexServerInfo,
-  readConfigSettings,
-  readHomeOverview,
-  readRuntimeSettings,
-  revealInFinder,
-  setQuickShortcut,
-  updateRuntimeSettings,
-  writeAgentSettings,
-  writeConfigSetting,
-} from "$lib/services/api";
-import { loadProfile } from "$lib/services/homeRouting";
+import { DEFAULT_QUICK_SHORTCUT, readCodexServerInfo } from "$lib/services/api";
+import { commands, loadProfile } from "$lib/services/homeRouting";
+import { isTauri } from "$lib/services/tauri";
 import type { Account, AgentSettings, CodexServerInfo, ConfigSetting, HomeOverview, RuntimeSettings } from "$lib/types";
 import UsageSummary from "$lib/usage/UsageSummary.svelte";
 import { dragRegion } from "$lib/utils/dragRegion";
@@ -159,7 +146,7 @@ async function applyShortcut(accelerator: string) {
   const previous = quickShortcut;
   shortcutError = null;
   try {
-    quickShortcut = await setQuickShortcut(accelerator);
+    quickShortcut = await commands.setQuickShortcut(accelerator);
   } catch (cause) {
     quickShortcut = previous;
     shortcutError = errorMessage(cause);
@@ -198,7 +185,8 @@ function settingsForSection(section: string): ConfigSetting[] {
 
 $effect(() => {
   generalError = null;
-  readRuntimeSettings()
+  commands
+    .readRuntimeSettings()
     .then((settings) => {
       runtimeSettings = settings;
       settingsHome = settings.overrideCodexHome ?? "";
@@ -214,18 +202,22 @@ $effect(() => {
   readCodexServerInfo()
     .then((info) => (serverInfo = info))
     .catch(() => (serverInfo = null));
-  readConfigSettings()
+  commands
+    .readConfigSettings()
     .then((settings) => (configSettings = settings))
     .catch((cause) => (configError = errorMessage(cause)));
-  readAgentSettings()
+  commands
+    .readAgentSettings()
     .then((settings) => (agentSettings = settings))
     .catch((cause) => (agentError = errorMessage(cause)));
-  readHomeOverview()
+  commands
+    .readHomeOverview()
     .then((data) => (overview = data))
     .catch(() => (overview = null));
   recording = false;
   shortcutError = null;
-  getQuickShortcut()
+  commands
+    .getQuickShortcut()
     .then((accelerator) => (quickShortcut = accelerator))
     .catch(() => (quickShortcut = DEFAULT_QUICK_SHORTCUT));
 });
@@ -241,7 +233,7 @@ async function saveGeneral(event: SubmitEvent) {
   generalError = null;
   generalSaved = false;
   try {
-    runtimeSettings = await updateRuntimeSettings(
+    runtimeSettings = await commands.updateRuntimeSettings(
       settingsHome.trim() || null,
       settingsBinary.trim() || null,
       settingsClaudeBinary.trim() || null,
@@ -283,17 +275,17 @@ async function saveAgents(patch: Partial<AgentSettings>) {
   // Show the new value straight away; a rejected save puts the stored one back.
   agentSettings = next;
   try {
-    agentSettings = await writeAgentSettings(next);
+    agentSettings = await commands.writeAgentSettings(next);
   } catch (cause) {
     agentError = errorMessage(cause);
-    agentSettings = await readAgentSettings().catch(() => next);
+    agentSettings = await commands.readAgentSettings().catch(() => next);
   }
 }
 
 async function setConfig(setting: ConfigSetting, value: string | null, unset: boolean) {
   configError = null;
   try {
-    configSettings = await writeConfigSetting(setting.key, value, unset);
+    configSettings = await commands.writeConfigSetting(setting.key, value, unset);
   } catch (cause) {
     configError = errorMessage(cause);
   }
@@ -302,7 +294,7 @@ async function setConfig(setting: ConfigSetting, value: string | null, unset: bo
 async function reveal(path: string | null | undefined) {
   if (!path) return;
   try {
-    await revealInFinder(path);
+    await commands.revealInFinder(path);
   } catch {
     // Reveal is best-effort.
   }

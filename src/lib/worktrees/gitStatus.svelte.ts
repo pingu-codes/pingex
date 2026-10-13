@@ -1,4 +1,4 @@
-import { gitStatus } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import type { GitStatus } from "$lib/types";
 
 /**
@@ -20,7 +20,7 @@ export async function refreshGitStatus(path: string): Promise<void> {
   if (!path || gitStatusCache.loading[path]) return;
   gitStatusCache.loading[path] = true;
   try {
-    gitStatusCache.byPath[path] = await gitStatus(path);
+    gitStatusCache.byPath[path] = await commands.gitStatus(path);
   } catch {
     // A non-git folder or read failure just leaves the chip hidden.
     gitStatusCache.byPath[path] = null;

@@ -9,9 +9,8 @@ const mocks = vi.hoisted(() => ({
   removeApproval: vi.fn(),
 }));
 
-vi.mock("$lib/services/api", () => ({
-  respondApproval: mocks.respondApproval,
-  respondServerRequest: mocks.respondServerRequest,
+vi.mock("$lib/services/homeRouting", () => ({
+  commands: { respondApproval: mocks.respondApproval, respondServerRequest: mocks.respondServerRequest },
 }));
 vi.mock("$lib/services/codexEvents.svelte", () => ({ removeApproval: mocks.removeApproval }));
 

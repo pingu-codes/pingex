@@ -1,8 +1,8 @@
-import { copyText } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 
 /** Copies `plain` by default, or `markdown` when the click was Shift-held. */
 export function copyPlainOrMarkdown(event: MouseEvent, plain: string, markdown: string) {
-  copyText(event.shiftKey ? markdown : plain).catch(() => {});
+  commands.copyText(event.shiftKey ? markdown : plain).catch(() => {});
 }
 
 /** Svelte action: delegated handler for the `.code-copy` buttons that
@@ -12,7 +12,7 @@ export function copyCode(node: HTMLElement) {
     const button = (event.target as HTMLElement).closest?.(".code-copy");
     if (!(button instanceof HTMLElement) || !node.contains(button)) return;
     const code = button.closest(".code-block")?.querySelector("pre code")?.textContent ?? "";
-    copyText(code).catch(() => {});
+    commands.copyText(code).catch(() => {});
     button.classList.add("copied");
     setTimeout(() => button.classList.remove("copied"), 1500);
   };

@@ -11,9 +11,8 @@ const { readContextBreakdown, readUsageBreakdown, readThreadUsage } = vi.hoisted
   readThreadUsage: vi.fn(),
 }));
 
+vi.mock("$lib/services/homeRouting", () => ({ commands: { readContextBreakdown, readUsageBreakdown } }));
 vi.mock("$lib/services/api", () => ({
-  readContextBreakdown,
-  readUsageBreakdown,
   readThreadUsage,
   isContextBreakdownUnsupported: (cause: unknown) =>
     errorMessage(cause).startsWith("harness-unsupported:context_breakdown"),
@@ -94,7 +93,7 @@ describe("ThreadStatus", () => {
     expect(composition).toHaveTextContent("System prompt");
     expect(composition).toHaveTextContent("≈ 12,000");
     expect(composition).toHaveTextContent("Tool use");
-    expect(readUsageBreakdown).toHaveBeenCalledWith({ kind: "thread", threadId: "t1" });
+    expect(readUsageBreakdown).toHaveBeenCalledWith({ kind: "thread", threadId: "t1" }, null);
 
     const spend = await screen.findByTestId("spend-by-category");
     await waitFor(() => expect(spend).toHaveTextContent("Spend by category"));

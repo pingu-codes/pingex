@@ -5,8 +5,10 @@ import type { ChangedFile, ChangesSummary, FileDiff } from "$lib/types";
 
 const gitFileDiff = vi.fn();
 
-vi.mock("$lib/services/api", () => ({
-  gitFileDiff: (...args: unknown[]) => gitFileDiff(...args),
+vi.mock("$lib/services/homeRouting", () => ({
+  commands: {
+    gitFileDiff: (...args: unknown[]) => gitFileDiff(...args),
+  },
 }));
 
 import ChangesPanel from "$lib/panels/ChangesPanel.svelte";

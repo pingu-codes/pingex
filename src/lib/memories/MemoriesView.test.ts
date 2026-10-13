@@ -12,10 +12,10 @@ const mocks = vi.hoisted(() => ({
   revealInFinder: vi.fn(),
 }));
 
-vi.mock("$lib/services/api", async (original) => ({
-  ...(await original<typeof import("$lib/services/api")>()),
-  ...mocks,
-}));
+vi.mock("$lib/services/homeRouting", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
+  return { ...actual, commands: { ...actual.commands, ...mocks } };
+});
 
 import MemoriesView from "$lib/memories/MemoriesView.svelte";
 

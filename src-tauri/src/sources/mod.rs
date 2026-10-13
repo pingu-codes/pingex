@@ -54,6 +54,7 @@ pub(crate) struct SearchGroup<T> {
 
 #[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
+#[serde(rename = "WorkspaceSearchResults")]
 pub(crate) struct WorkspaceResults {
     project_files: SearchGroup<FileMatch>,
     threads: SearchGroup<ThreadMatch>,

@@ -1,11 +1,18 @@
 <script lang="ts">
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { hostFromOption } from "$lib/app/host";
-import { commands, type HarnessKind } from "$lib/bindings";
+import { type HarnessKind, commands as nativeCommands } from "$lib/bindings";
 import HostSelect from "$lib/components/HostSelect.svelte";
-import { type ClaudeStatus, readHomeClaudeStatus } from "$lib/services/api";
-import { chooseDefaultHome, loadProfile, profileHomes, removeHome, updateHome } from "$lib/services/homeRouting";
+import {
+  chooseDefaultHome,
+  commands,
+  loadProfile,
+  profileHomes,
+  removeHome,
+  updateHome,
+} from "$lib/services/homeRouting";
 import { isTauri } from "$lib/services/tauri";
+import type { ClaudeStatus } from "$lib/types";
 import { submitState } from "$lib/utils/actionState.svelte";
 
 let harness = $state<HarnessKind>("codex");
@@ -43,7 +50,8 @@ $effect(() => {
   for (const id of claudeHomes) {
     if (probed.has(id)) continue;
     probed.add(id);
-    readHomeClaudeStatus(id)
+    commands
+      .readHomeClaudeStatus(id)
       .then((status) => logins.set(id, status))
       .catch(() => logins.set(id, null));
   }
@@ -65,7 +73,8 @@ async function saveEdit(id: string) {
   // A new config dir is a different login; drop the old badge and ask again.
   if (probed.has(id)) {
     logins.delete(id);
-    readHomeClaudeStatus(id)
+    commands
+      .readHomeClaudeStatus(id)
       .then((status) => logins.set(id, status))
       .catch(() => logins.set(id, null));
   }
@@ -78,7 +87,7 @@ async function remove(id: string) {
 
 async function add() {
   await action.run(async () => {
-    await commands.registerProfileHome(
+    await nativeCommands.registerProfileHome(
       harness,
       hostFromOption(host),
       configDir,

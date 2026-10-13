@@ -18,7 +18,7 @@ use super::run::{common_dir_of, lock_for_common_dir, redact_git_error, run_git, 
 use super::status::{read_repo_info, read_status};
 use super::types::{
     BranchRef, CommitInfo, CommitResult, GitContext, GitRepoInfo, GitStatus, SyncResult,
-    WorktreeAddRequest, WorktreeBranch, WorktreeEntry,
+    WorktreeAddRequest, WorktreeBranchRequest, WorktreeEntry,
 };
 use super::worktrees::read_worktrees;
 use crate::projects::worktrees::{is_temp_worktree_path, worktree_parent_project_on};
@@ -128,11 +128,11 @@ pub(crate) async fn git_worktree_add(
 
         let mut args: Vec<String> = vec!["worktree".into(), "add".into()];
         match &request.branch {
-            WorktreeBranch::Existing { name } => {
+            WorktreeBranchRequest::Existing { name } => {
                 args.push(request.path.clone());
                 args.push(name.clone());
             }
-            WorktreeBranch::New { name, base } => {
+            WorktreeBranchRequest::New { name, base } => {
                 args.push("-b".into());
                 args.push(name.clone());
                 args.push(request.path.clone());
@@ -140,7 +140,7 @@ pub(crate) async fn git_worktree_add(
                     args.push(base.to_string());
                 }
             }
-            WorktreeBranch::Tracking { name, remote_ref } => {
+            WorktreeBranchRequest::Tracking { name, remote_ref } => {
                 args.push("--track".into());
                 args.push("-b".into());
                 args.push(name.clone());

@@ -1,6 +1,6 @@
 <script lang="ts">
 import { ChevronRight, Folder, FolderOpen } from "@lucide/svelte";
-import { listProjectFiles } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import { errorMessage } from "$lib/utils/errors";
 import { fileIconFor } from "$lib/utils/fileIcons";
 
@@ -27,7 +27,8 @@ $effect(() => {
   paths = null;
   error = null;
   expanded = {};
-  listProjectFiles(target)
+  commands
+    .listProjectFiles(target)
     .then((files) => {
       if (target === root) paths = files;
     })

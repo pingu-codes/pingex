@@ -41,18 +41,10 @@ import SlashCommandPicker from "$lib/composer/SlashCommandPicker.svelte";
 import SubagentPolicyPopover from "$lib/composer/SubagentPolicyPopover.svelte";
 import { skillLabel } from "$lib/composer/skills";
 import { INIT_PROMPT, parseSlashCommand, type SlashCommand, type SlashCommandId } from "$lib/composer/slashCommands";
-import {
-  deleteDraft,
-  isTauri,
-  loadDraft,
-  removeStagedAttachment,
-  saveDraft,
-  stageAttachment,
-  stageBrowserFile,
-  stageClipboardImage,
-} from "$lib/services/api";
-import { threadHomeLabel } from "$lib/services/homeRouting";
+import { stageBrowserFile } from "$lib/services/api";
+import { commands, threadHomeLabel } from "$lib/services/homeRouting";
 import { openSettings, settingsNav } from "$lib/services/settingsNav.svelte";
+import { isTauri } from "$lib/services/tauri";
 import type { ContextStats } from "$lib/thread/contextUsage";
 import { freshPlanPrompt } from "$lib/thread/planHandoff";
 import type { Model, ReviewTarget, SkillSummary, SubagentPolicy, TurnOptions, UserInputPart } from "$lib/types";
@@ -161,7 +153,7 @@ const richEditor: RichEditor = new RichEditor({
   onChipRemoved: (chip) => {
     const attachmentId = chip.dataset.attachmentId;
     if (!attachmentId) return;
-    void removeStagedAttachment(attachmentId).catch(() => {});
+    void commands.removeStaged(attachmentId).catch(() => {});
     sources.delete(attachmentId);
   },
   pickerActive: () => pickerActive,
@@ -229,8 +221,8 @@ function serializeDraft(): string | null {
 function persistDraft(serialized: string | null) {
   if (!draftKey || serialized === lastSavedDraft) return;
   lastSavedDraft = serialized;
-  if (serialized === null) void deleteDraft(draftKey);
-  else void saveDraft(draftKey, serialized);
+  if (serialized === null) void commands.deleteDraft(draftKey);
+  else void commands.saveDraft(draftKey, serialized);
 }
 
 onMount(() => {
@@ -238,7 +230,7 @@ onMount(() => {
   (async () => {
     if (draftKey) {
       try {
-        const stored = await loadDraft(draftKey);
+        const stored = await commands.loadDraft(draftKey);
         const untouched = !richEditor.parts.some((part) => part.type !== "text" || part.text.length > 0);
         if (!cancelled && stored && untouched) {
           // The restored draft is the floor of the undo history, not an edit.
@@ -852,10 +844,10 @@ async function stageSource(clientId: string, source: StageSource, insert: boolea
   try {
     const staged =
       source.via === "path"
-        ? await stageAttachment(source.path)
+        ? await commands.stageAttachment(source.path)
         : source.via === "file"
           ? await stageBrowserFile(source.file)
-          : await stageClipboardImage(source.filename, source.mime, source.bytes);
+          : await commands.stageClipboardImage(source.filename, source.mime, source.bytes);
     const ready: AttachmentPart = {
       type: "attachment",
       id: staged.id,

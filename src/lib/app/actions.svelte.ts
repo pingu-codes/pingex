@@ -43,36 +43,8 @@ import {
   ROOT_SCOPE,
   refOf,
 } from "$lib/layout/sidebarTree";
-import {
-  addWorktreeProject,
-  applySessionFocus,
-  archiveThread,
-  createSidebarFolder,
-  createThreadSection,
-  createWorkspace,
-  deleteSidebarFolder,
-  deleteThread,
-  deleteThreadSection,
-  forkThread,
-  gitRepoInfo,
-  gitWorktreeAdd,
-  moveThreadToSection,
-  moveThreadToWorkspace,
-  placeSidebarItem,
-  removeProject,
-  renameProject,
-  renameSidebarFolder,
-  renameThread,
-  resetSidebarOrder,
-  revealInFinder,
-  saveDraft,
-  setProjectArchived,
-  setProjectPinned,
-  setThreadPinned,
-  setThreadsHidden,
-  updateThreadSection,
-  updateWorkspace,
-} from "$lib/services/api";
+import { forkThread, gitWorktreeAdd, updateWorkspace } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import type {
   CreateWorkspaceInput,
   MenuAction,
@@ -107,7 +79,7 @@ export function openSubagent(agent: SubagentDetail): void {
  *  prompt pre-filled in the composer (via the per-project draft). */
 export async function askCodexReview(cwd: string, prompt: string): Promise<void> {
   try {
-    await saveDraft(cwd, JSON.stringify([{ type: "text", text: prompt }]));
+    await commands.saveDraft(cwd, JSON.stringify([{ type: "text", text: prompt }]));
   } catch {
     // A failed draft save just leaves the composer empty; still open the thread.
   }
@@ -146,12 +118,12 @@ async function rename(target: MenuTarget) {
   try {
     await applyFresh(
       target.kind === "project"
-        ? renameProject(target.project.path, name)
+        ? commands.renameProject(target.project.path, name)
         : target.kind === "thread"
-          ? renameThread(target.thread.id, name)
+          ? commands.renameThread(target.thread.id, name)
           : target.kind === "folder"
-            ? renameSidebarFolder(target.folder.id, name)
-            : updateThreadSection(target.section.id, name, target.section.color ?? null),
+            ? commands.renameSidebarFolder(target.folder.id, name)
+            : commands.updateThreadSection(target.section.id, name, target.section.color ?? null),
     );
   } catch (cause) {
     fail(cause);
@@ -170,17 +142,17 @@ async function moveToSection(threadId: string, currentSectionId: string | null |
   });
   if (!choice) return;
   if (choice.kind === "existing") {
-    await applyFresh(moveThreadToSection(threadId, choice.section.id));
+    await applyFresh(commands.moveThreadToSection(threadId, choice.section.id));
     return;
   }
   if (choice.kind === "none") {
-    await applyFresh(moveThreadToSection(threadId, null));
+    await applyFresh(commands.moveThreadToSection(threadId, null));
     return;
   }
   const before = new Set((appData.data?.sections ?? []).map((section) => section.id));
-  const created = await applyFresh(createThreadSection(choice.name, choice.color));
+  const created = await applyFresh(commands.createThreadSection(choice.name, choice.color));
   const section = (created.sections ?? []).find((section) => !before.has(section.id));
-  if (section) await applyFresh(moveThreadToSection(threadId, section.id));
+  if (section) await applyFresh(commands.moveThreadToSection(threadId, section.id));
 }
 
 async function confirmDelete(target: MenuTarget) {
@@ -192,7 +164,7 @@ async function confirmDelete(target: MenuTarget) {
   });
   if (!confirmed) return;
   const ticket = dataTicket();
-  const deleted = await deleteThread(target.thread.id);
+  const deleted = await commands.deleteThread(target.thread.id);
   forgetOptimisticThread(target.thread.id);
   applyTicketed(deleted, ticket);
   clearThread(target.thread.id);
@@ -201,7 +173,7 @@ async function confirmDelete(target: MenuTarget) {
 async function moveToWorkspace(threadId: string) {
   const workspace = await openDialog(MoveToWorkspaceDialog, { workspaces: projects() });
   if (!workspace?.workspaceId) return;
-  const next = await applyFresh(moveThreadToWorkspace(threadId, workspace.workspaceId));
+  const next = await applyFresh(commands.moveThreadToWorkspace(threadId, workspace.workspaceId));
   setView({
     threadId,
     projectPath: (next.projects.find((project) => project.workspaceId === workspace.workspaceId) ?? workspace).path,
@@ -218,7 +190,7 @@ export async function newFolder(scope: string, parentId: string | null): Promise
   });
   if (!name) return;
   try {
-    await applyFresh(createSidebarFolder(scope, parentId, name));
+    await applyFresh(commands.createSidebarFolder(scope, parentId, name));
   } catch (cause) {
     fail(cause);
   }
@@ -236,7 +208,7 @@ export async function moveSidebarItem(
   const previousLayout = data.sidebarLayout;
   data.sidebarLayout = placeInLayout(previousLayout ?? emptyLayout(), scope, item, parentId, siblings);
   try {
-    await applyFresh(placeSidebarItem(scope, item, parentId, siblings));
+    await applyFresh(commands.placeSidebarItem(scope, item, parentId, siblings));
   } catch (cause) {
     data.sidebarLayout = previousLayout;
     fail(cause);
@@ -246,7 +218,7 @@ export async function moveSidebarItem(
 /** Forget the user's drag ordering in `scope` (`ROOT_SCOPE` for projects). */
 export async function resetOrder(scope: string): Promise<void> {
   try {
-    await applyFresh(resetSidebarOrder(scope));
+    await applyFresh(commands.resetSidebarOrder(scope));
   } catch (cause) {
     fail(cause);
   }
@@ -257,7 +229,7 @@ export async function focusSession(): Promise<void> {
   const plan = sessionFocusPlan(projects(), appData.data?.sidebarLayout ?? emptyLayout(), view.threadId);
   if (isEmptyPlan(plan)) return;
   try {
-    await applyFresh(applySessionFocus(plan.hide, plan.collapseProjects, plan.collapseFolders));
+    await applyFresh(commands.applySessionFocus(plan.hide, plan.collapseProjects, plan.collapseFolders));
   } catch (cause) {
     fail(cause);
   }
@@ -292,19 +264,19 @@ async function nudgeProject(project: Project, direction: -1 | 1) {
 
 /** Adopt an existing linked worktree of `project`'s repository. */
 async function addWorktreeFor(project: Project): Promise<void> {
-  const repoDir = (await gitRepoInfo(project.path).catch(() => null))?.root ?? project.path;
+  const repoDir = (await commands.gitRepoInfo(project.path).catch(() => null))?.root ?? project.path;
   openDialog(AddWorktreeDialog, {
     repoDir,
     projects: projects(),
     submit: async (path: string) => {
-      await applyFresh(addWorktreeProject(path));
+      await applyFresh(commands.addWorktreeProject(path));
     },
   });
 }
 
 /** Create a permanent worktree for the repository containing `dir`. */
 async function createWorktreeFor(dir: string): Promise<void> {
-  const repoDir = (await gitRepoInfo(dir).catch(() => null))?.root ?? dir;
+  const repoDir = (await commands.gitRepoInfo(dir).catch(() => null))?.root ?? dir;
   openDialog(CreateWorktreeDialog, {
     codexHome: codexHome(),
     repoDir,
@@ -330,7 +302,7 @@ export async function menuAction(action: MenuAction, target: MenuTarget): Promis
       return;
     }
     if (action === "deleteFolder") {
-      if (target.kind === "folder") await applyFresh(deleteSidebarFolder(target.folder.id));
+      if (target.kind === "folder") await applyFresh(commands.deleteSidebarFolder(target.folder.id));
       return;
     }
     if (target.kind === "folder") {
@@ -351,18 +323,19 @@ export async function menuAction(action: MenuAction, target: MenuTarget): Promis
     }
     if (action === "toggleArchive") {
       if (target.kind !== "project") return;
-      await applyFresh(setProjectArchived(target.project.path, !target.project.archived));
+      await applyFresh(commands.setProjectArchived(target.project.path, !target.project.archived));
       if (view.projectPath === target.project.path && !target.project.archived) goHome();
       return;
     }
     if (action === "remove") {
       if (target.kind !== "project") return;
-      await applyFresh(removeProject(target.project.path));
+      await applyFresh(commands.removeProject(target.project.path));
       if (view.projectPath === target.project.path) goHome();
       return;
     }
     if (action === "toggleHidden") {
-      if (target.kind === "thread") await applyFresh(setThreadsHidden([target.thread.id], !target.thread.hidden));
+      if (target.kind === "thread")
+        await applyFresh(commands.setThreadsHidden([target.thread.id], !target.thread.hidden));
       return;
     }
     if (action === "hideBelow") {
@@ -372,13 +345,13 @@ export async function menuAction(action: MenuAction, target: MenuTarget): Promis
       const ids = target.project.threads
         .filter((thread) => below.has(thread.id) && !thread.hidden && !thread.pinned)
         .map((thread) => thread.id);
-      if (ids.length > 0) await applyFresh(setThreadsHidden(ids, true));
+      if (ids.length > 0) await applyFresh(commands.setThreadsHidden(ids, true));
       return;
     }
     if (action === "unhideAll") {
       if (target.kind !== "project") return;
       const ids = target.project.threads.filter((thread) => thread.hidden).map((thread) => thread.id);
-      if (ids.length > 0) await applyFresh(setThreadsHidden(ids, false));
+      if (ids.length > 0) await applyFresh(commands.setThreadsHidden(ids, false));
       return;
     }
     if (action === "resetOrder") {
@@ -413,7 +386,7 @@ export async function menuAction(action: MenuAction, target: MenuTarget): Promis
       return;
     }
     if (action === "deleteSection") {
-      if (target.kind === "section") await applyFresh(deleteThreadSection(target.section.id));
+      if (target.kind === "section") await applyFresh(commands.deleteThreadSection(target.section.id));
       return;
     }
     if (target.kind === "section") {
@@ -421,7 +394,9 @@ export async function menuAction(action: MenuAction, target: MenuTarget): Promis
       return;
     }
     if (action === "reveal") {
-      await revealInFinder(target.kind === "project" ? target.project.path : target.thread.cwd || target.project.path);
+      await commands.revealInFinder(
+        target.kind === "project" ? target.project.path : target.thread.cwd || target.project.path,
+      );
       return;
     }
     if (action === "rename") {
@@ -431,7 +406,7 @@ export async function menuAction(action: MenuAction, target: MenuTarget): Promis
     if (action === "archive") {
       if (target.kind !== "thread") return;
       const ticket = dataTicket();
-      const archived = await archiveThread(target.thread.id);
+      const archived = await commands.archiveThread(target.thread.id);
       forgetOptimisticThread(target.thread.id);
       applyTicketed(archived, ticket);
       clearThread(target.thread.id);
@@ -442,9 +417,9 @@ export async function menuAction(action: MenuAction, target: MenuTarget): Promis
       return;
     }
     if (target.kind === "project") {
-      await applyFresh(setProjectPinned(target.project.path, !target.project.pinned));
+      await applyFresh(commands.setProjectPinned(target.project.path, !target.project.pinned));
     } else {
-      await applyFresh(setThreadPinned(target.thread.id, !target.thread.pinned));
+      await applyFresh(commands.setThreadPinned(target.thread.id, !target.thread.pinned));
     }
   } catch (cause) {
     fail(cause);
@@ -464,7 +439,7 @@ export function openWorkspaceDialog(workspace: Project | null = null): void {
     workspace,
     submit: async (input: CreateWorkspaceInput) => {
       const next = await applyFresh(
-        workspace?.workspaceId ? updateWorkspace(workspace.workspaceId, input) : createWorkspace(input),
+        workspace?.workspaceId ? updateWorkspace(workspace.workspaceId, input) : commands.createWorkspace(input),
       );
       const saved = workspace?.workspaceId
         ? next.projects.find((project) => project.workspaceId === workspace.workspaceId)

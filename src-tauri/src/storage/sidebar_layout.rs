@@ -15,6 +15,7 @@ use crate::util::id::unique_suffix;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
+#[serde(rename = "SidebarFolder")]
 pub(crate) struct StoredSidebarFolder {
     pub(crate) id: String,
     /// `""` for the top level, else the path of the project it lives in.
@@ -28,6 +29,7 @@ pub(crate) struct StoredSidebarFolder {
 /// Where one project (root scope) or thread (project scope) was placed.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
+#[serde(rename = "SidebarPlacement")]
 pub(crate) struct StoredPlacement {
     pub(crate) item_key: String,
     pub(crate) scope: String,
@@ -45,6 +47,7 @@ pub(crate) struct SidebarLayout {
 /// One entry of a parent's ordered children, as the frontend sends it back.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
+#[serde(rename = "SidebarItemRef")]
 pub(crate) struct SiblingRef {
     /// "folder" | "item".
     pub(crate) kind: String,

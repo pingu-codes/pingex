@@ -7,7 +7,7 @@
 
 import { listen } from "@tauri-apps/api/event";
 import { appendMessage } from "$lib/layout/messageLog";
-import { clearWireLog, readWireLog, setWireLogging } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import { isTauri } from "$lib/services/tauri";
 import type { WireMessage } from "$lib/types";
 import { errorMessage } from "$lib/utils/errors";
@@ -52,7 +52,7 @@ class MessageLogStore {
     this.error = null;
     if (!enabled) this.messages = [];
     try {
-      await setWireLogging(enabled);
+      await commands.setWireLogging(enabled);
       if (enabled) {
         await this.listenOnce();
         await this.refresh();
@@ -65,7 +65,7 @@ class MessageLogStore {
   /** Pull the backend buffer, which holds traffic from before this view opened. */
   async refresh(): Promise<void> {
     try {
-      this.messages = await readWireLog();
+      this.messages = await commands.readWireLog();
     } catch (cause) {
       this.error = errorMessage(cause);
     }
@@ -74,7 +74,7 @@ class MessageLogStore {
   async clear(): Promise<void> {
     this.messages = [];
     try {
-      await clearWireLog();
+      await commands.clearWireLog();
     } catch {
       // Clearing the view is what the user asked for; a failed backend clear
       // only means the next refresh brings the old messages back.

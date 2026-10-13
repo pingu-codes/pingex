@@ -19,20 +19,24 @@ const openInZed = vi.fn();
 const openExternalUrl = vi.fn();
 
 vi.mock("$lib/services/api", () => ({
-  listIntegrations: (...args: unknown[]) => listIntegrations(...args),
-  setIntegrationEnabled: (...args: unknown[]) => setIntegrationEnabled(...args),
   listMcpServerStatus: () => listMcpServerStatus(),
-  mcpOauthLogin: (name: string) => mcpOauthLogin(name),
-  setMcpEnabled: (name: string, enabled: boolean) => setMcpEnabled(name, enabled),
-  setSkillEnabled: (...args: unknown[]) => setSkillEnabled(...args),
-  removeMcpServer: (name: string) => removeMcpServer(name),
   saveMcpServer: (input: unknown) => saveMcpServer(input),
-  readSkill: (path: string) => readSkill(path),
   createSkill: (input: unknown) => createSkill(input),
-  deleteSkill: (path: string) => deleteSkill(path),
-  revealInFinder: (path: string) => revealInFinder(path),
-  openInZed: (path: string) => openInZed(path),
-  openExternalUrl: (url: string) => openExternalUrl(url),
+}));
+vi.mock("$lib/services/homeRouting", () => ({
+  commands: {
+    listIntegrations: (...args: unknown[]) => listIntegrations(...args),
+    setIntegrationEnabled: (...args: unknown[]) => setIntegrationEnabled(...args),
+    mcpOauthLogin: (name: string) => mcpOauthLogin(name),
+    setMcpEnabled: (name: string, enabled: boolean) => setMcpEnabled(name, enabled),
+    setSkillEnabled: (...args: unknown[]) => setSkillEnabled(...args),
+    removeMcpServer: (name: string) => removeMcpServer(name),
+    readSkill: (path: string) => readSkill(path),
+    deleteSkill: (path: string) => deleteSkill(path),
+    revealInFinder: (path: string) => revealInFinder(path),
+    openInZed: (path: string) => openInZed(path),
+    openExternalUrl: (url: string) => openExternalUrl(url),
+  },
 }));
 
 import IntegrationsSection from "$lib/integrations/IntegrationsSection.svelte";

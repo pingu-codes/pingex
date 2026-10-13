@@ -3,7 +3,8 @@ import { Check, ChevronLeft, ChevronRight, Copy, Pencil, Sparkles } from "@lucid
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { onDestroy } from "svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
-import { isTauri, revealInFinder } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
+import { isTauri } from "$lib/services/tauri";
 import { InlineEdit } from "$lib/thread/inlineEdit.svelte";
 import {
   editedParts,
@@ -78,7 +79,7 @@ const localImageSrc = (part: UserInputPart) =>
 {#snippet fileChip(name: string, path: string)}
   {@const glyph = iconForPath(name, path)}
   <button
-    onclick={() => path && revealInFinder(path).catch(() => {})}
+    onclick={() => path && commands.revealInFinder(path).catch(() => {})}
     title={path}
     class="inline-flex items-center gap-1.5 rounded-full bg-surface-200-800 px-2.5 py-1 align-baseline text-xs {path
       ? 'hover:preset-tonal'
@@ -144,7 +145,7 @@ const localImageSrc = (part: UserInputPart) =>
         {:else}
           {@const glyph = fileIconFor(basename(part.path))}
           <button
-            onclick={() => part.path && revealInFinder(part.path).catch(() => {})}
+            onclick={() => part.path && commands.revealInFinder(part.path).catch(() => {})}
             title={part.path}
             class="inline-flex items-center gap-1.5 rounded-full bg-surface-200-800 px-2.5 py-1 text-xs hover:preset-tonal"
           >

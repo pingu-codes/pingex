@@ -3,7 +3,7 @@ import { GitBranch, RefreshCw } from "@lucide/svelte";
 import { onMount } from "svelte";
 import type { DialogClose } from "$lib/app/dialogs.svelte";
 import DialogShell from "$lib/components/DialogShell.svelte";
-import { gitWorktrees } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import { dirName } from "$lib/thread/handoff";
 import type { WorktreeEntry } from "$lib/types";
 import { submitState } from "$lib/utils/actionState.svelte";
@@ -35,7 +35,8 @@ const options = $derived(
 );
 
 onMount(() => {
-  gitWorktrees(repoDir)
+  commands
+    .gitWorktrees(repoDir)
     .then((entries) => {
       worktrees = entries;
     })

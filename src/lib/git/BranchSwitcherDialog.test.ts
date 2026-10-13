@@ -6,16 +6,17 @@ import BranchSwitcherDialog from "./BranchSwitcherDialog.svelte";
 const checkout = vi.fn();
 const create = vi.fn();
 
-vi.mock("$lib/services/api", () => ({
-  isTauri: () => false,
-  gitBranches: vi.fn(async () => [
-    { name: "main", isRemote: false, isCurrent: true },
-    { name: "feature", isRemote: false, isCurrent: false },
-    { name: "origin/main", isRemote: true, isCurrent: false },
-    { name: "origin/remote-only", isRemote: true, isCurrent: false },
-  ]),
-  gitCheckoutBranch: (...args: unknown[]) => checkout(...args),
-  gitCreateBranch: (...args: unknown[]) => create(...args),
+vi.mock("$lib/services/homeRouting", () => ({
+  commands: {
+    gitBranches: vi.fn(async () => [
+      { name: "main", isRemote: false, isCurrent: true },
+      { name: "feature", isRemote: false, isCurrent: false },
+      { name: "origin/main", isRemote: true, isCurrent: false },
+      { name: "origin/remote-only", isRemote: true, isCurrent: false },
+    ]),
+    gitCheckoutBranch: (...args: unknown[]) => checkout(...args),
+    gitCreateBranch: (...args: unknown[]) => create(...args),
+  },
 }));
 
 beforeEach(() => {

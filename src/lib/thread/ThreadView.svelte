@@ -12,26 +12,9 @@ import Composer from "$lib/composer/Composer.svelte";
 import type { SlashCommandId } from "$lib/composer/slashCommands";
 import RightPanel, { type PanelView } from "$lib/panels/RightPanel.svelte";
 import { runAsSubagent, runsFor } from "$lib/services/agentRuns.svelte";
-import {
-  addThreadBranch,
-  copyText,
-  forkThread,
-  gitChangesSummary,
-  gitRepoInfo,
-  gitWorktreeAdd,
-  interruptTurn,
-  isPromptPartsTextUnsupported,
-  killAgentRun,
-  openInZed,
-  readPromptPartsText,
-  revealInFinder,
-  reviewLocalDiff,
-  setThreadBranchEditTurn,
-  startThread,
-  startTurn,
-  updateSubagentPolicy,
-} from "$lib/services/api";
+import { forkThread, gitWorktreeAdd, isPromptPartsTextUnsupported, startThread, startTurn } from "$lib/services/api";
 import { approvals, elicitations, turnPlans, userInputRequests } from "$lib/services/codexEvents.svelte";
+import { commands } from "$lib/services/homeRouting";
 import { processes } from "$lib/services/processes.svelte";
 import ApprovalCard from "$lib/thread/ApprovalCard.svelte";
 import { requestAutoName } from "$lib/thread/autoName";
@@ -213,7 +196,8 @@ function toggleSystemPromptInThread() {
   showSystemPromptInThread = true;
   if (systemPromptPartsFor === id && systemPromptParts) return;
   systemPromptPartsFor = id;
-  readPromptPartsText(id)
+  commands
+    .readPromptPartsText(id)
     .then((parts) => {
       if (systemPromptPartsFor === id) systemPromptParts = parts;
     })
@@ -239,7 +223,8 @@ const repoDir = $derived(repoInfo?.root ?? (projectPath || cwd));
 $effect(() => {
   if (threadId) return;
   const dir = projectPath || cwd;
-  gitRepoInfo(dir)
+  commands
+    .gitRepoInfo(dir)
     .then((info) => {
       repoInfo = info;
     })
@@ -389,7 +374,7 @@ async function submitEdit(turn: Turn, parts: UserInputPart[]) {
   session.starting = true;
   try {
     const forked = await forkThread(threadIdAtEdit, turn.id);
-    onDataChanged?.(await addThreadBranch(threadIdAtEdit, forked.id, turn.id, index));
+    onDataChanged?.(await commands.addThreadBranch(threadIdAtEdit, forked.id, turn.id, index));
     const forkSession = openSession(forked.id);
     try {
       await forkSession.load();
@@ -397,7 +382,7 @@ async function submitEdit(turn: Turn, parts: UserInputPart[]) {
       if (!sent) throw new Error(forkSession.streamError ?? "Could not send the edited message");
       const editTurnId = forkSession.thread?.turns.at(-1)?.id;
       if (editTurnId && !editTurnId.startsWith("local-")) {
-        setThreadBranchEditTurn(forked.id, editTurnId).catch(() => {});
+        commands.setThreadBranchEditTurn(forked.id, editTurnId).catch(() => {});
       }
     } finally {
       // Retained while its turn runs; the view that opens it takes it over.
@@ -524,7 +509,7 @@ function refreshGitChanges(immediate = false) {
       const id = ++gitChangesRequest;
       gitChangesLoading = true;
       try {
-        const summary = await gitChangesSummary(dir);
+        const summary = await commands.gitChangesSummary(dir);
         if (id !== gitChangesRequest) return;
         gitChanges = summary;
         gitChangesError = null;
@@ -622,7 +607,7 @@ async function showWorkingDiff() {
   const dir = thread?.cwd;
   if (!dir) return;
   try {
-    const files = await reviewLocalDiff(dir, "HEAD");
+    const files = await commands.reviewLocalDiff(dir, "HEAD", null);
     workingDiff = files.map((file) => ({
       path: file.path,
       kind: { type: diffKind(file.status), movePath: file.oldPath },
@@ -718,7 +703,7 @@ async function copyLastResponse() {
     return;
   }
   try {
-    await copyText(last.text);
+    await commands.copyText(last.text);
     session.notice = "Copied the last response as markdown.";
   } catch (cause) {
     fail(cause);
@@ -739,7 +724,7 @@ async function exportConversation() {
     return;
   }
   try {
-    await copyText(sections.join("\n\n"));
+    await commands.copyText(sections.join("\n\n"));
     session.notice = "Copied the conversation as markdown.";
   } catch (cause) {
     fail(cause);
@@ -750,7 +735,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
   session.subagentModelPolicy = modelPolicy;
   session.subagentReasoningEffortPolicy = effortPolicy;
   if (!liveThreadId) return;
-  updateSubagentPolicy(liveThreadId, modelPolicy, effortPolicy).catch(fail);
+  commands.updateSubagentPolicy(liveThreadId, modelPolicy, effortPolicy).catch(fail);
 }
 </script>
 
@@ -779,8 +764,8 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
         currentThreadId={liveThreadId}
         {contextStats}
         {costUsd}
-        onOpenFinder={() => revealInFinder(thread?.cwd || cwd).catch(() => {})}
-        onOpenZed={() => openInZed(thread?.cwd || cwd).catch(fail)}
+        onOpenFinder={() => commands.revealInFinder(thread?.cwd || cwd).catch(() => {})}
+        onOpenZed={() => commands.openInZed(thread?.cwd || cwd).catch(fail)}
         onShowPlan={() => (panelView = latestPlan ? { kind: "plan", text: latestPlan } : panelView)}
         onShowSources={() => (panelView = { kind: "sources", queries: sourceQueries })}
         onShowSideQuestions={() => (panelView = { kind: "side" })}
@@ -799,7 +784,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
         onOpenSubagent={(agent) => (onOpenSubagent ? onOpenSubagent(agent) : onSelectThread?.(agent.id))}
         onStopSubagent={async (agent) => {
           if (!agent.runId) return;
-          await killAgentRun(agent.runId).catch(() => {});
+          await commands.killAgentRun(agent.runId).catch(() => {});
           session.refreshSubagents();
         }}
         onOpenProcess={(process) => (panelView = { kind: "process", processKey: process.key })}
@@ -1071,7 +1056,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
     onToggleSystemPromptInThread={toggleSystemPromptInThread}
     onStopProcessTurn={(process) => {
       if (process.turnId && process.threadId) {
-        interruptTurn(process.threadId, process.turnId).catch(fail);
+        commands.interruptTurn(process.threadId, process.turnId).catch(fail);
       }
     }}
   />

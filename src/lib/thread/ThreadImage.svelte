@@ -3,7 +3,8 @@
 // caption. Falls back to the caption alone when the file cannot be loaded
 // (browser preview, deleted file, not an image).
 import { Image } from "@lucide/svelte";
-import { revealInFinder, threadImageSrc } from "$lib/services/api";
+import { threadImageSrc } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import { basename } from "$lib/utils/path";
 
 let { path, label }: { path: string; label: string } = $props();
@@ -27,7 +28,7 @@ $effect(() => {
     <Image size={12} class="shrink-0" />
     <button
       type="button"
-      onclick={() => revealInFinder(path).catch(() => {})}
+      onclick={() => commands.revealInFinder(path).catch(() => {})}
       title={path}
       class="min-w-0 truncate text-left font-mono text-[11px] hover:text-surface-700-300"
     >

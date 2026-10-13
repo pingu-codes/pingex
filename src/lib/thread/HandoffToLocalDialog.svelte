@@ -2,7 +2,7 @@
 import { ArrowLeftRight, ChevronDown, RefreshCw } from "@lucide/svelte";
 import type { DialogClose } from "$lib/app/dialogs.svelte";
 import DialogShell from "$lib/components/DialogShell.svelte";
-import { gitWorktreeHandoffPreflight } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import { dirName } from "$lib/thread/handoff";
 import type { WorktreeHandoffPreflight } from "$lib/types";
 import { submitState } from "$lib/utils/actionState.svelte";
@@ -56,7 +56,8 @@ $effect(() => {
   const id = ++request;
   checking = true;
   checkError = null;
-  gitWorktreeHandoffPreflight(worktreePath, dir)
+  commands
+    .gitWorktreeHandoffPreflight(worktreePath, dir)
     .then((result) => {
       if (id === request) preflight = result;
     })

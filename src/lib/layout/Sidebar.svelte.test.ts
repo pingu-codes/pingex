@@ -4,15 +4,15 @@ import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Sidebar from "$lib/layout/Sidebar.svelte";
 import { sidebarPrefs } from "$lib/layout/sidebarPrefs.svelte";
-import { setProjectExpanded } from "$lib/services/api";
 import { activeTurns, approvals, unansweredQuestions, userInputRequests } from "$lib/services/codexEvents.svelte";
+import { commands } from "$lib/services/homeRouting";
 import type { Project, SidebarLayout, SideQuestion, ThreadSection } from "$lib/types";
 import { gitStatusCache } from "$lib/worktrees/gitStatus.svelte";
 
-vi.mock("$lib/services/api", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("$lib/services/api")>()),
-  setProjectExpanded: vi.fn(() => Promise.resolve()),
-}));
+vi.mock("$lib/services/homeRouting", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
+  return { ...actual, commands: { ...actual.commands, setProjectExpanded: vi.fn(() => Promise.resolve(null)) } };
+});
 
 function project(pinned = false, threadPinned = false): Project {
   return {
@@ -111,7 +111,7 @@ describe("Sidebar", () => {
     unansweredQuestions.list = [];
     gitStatusCache.byPath = {};
     gitStatusCache.loading = {};
-    vi.mocked(setProjectExpanded).mockClear();
+    vi.mocked(commands.setProjectExpanded).mockClear();
   });
 
   it("shows a working indicator for threads with an active turn", () => {
@@ -211,7 +211,7 @@ describe("Sidebar", () => {
 
     await user.click(projectButton);
 
-    expect(setProjectExpanded).toHaveBeenCalledWith(source.path, false);
+    expect(commands.setProjectExpanded).toHaveBeenCalledWith(source.path, false);
   });
 
   it("exposes full project paths and thread names in tooltips", () => {

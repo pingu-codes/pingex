@@ -3,14 +3,8 @@ import { ArrowLeftRight, ChevronDown, Copy, GitBranch, Home, Link2, Send, Termin
 import { Menu, Portal } from "@skeletonlabs/skeleton-svelte";
 import { projects } from "$lib/app/appData.svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
-import {
-  forkThread,
-  gitWorktreeHandoff,
-  handoffCommand,
-  handoffCopy,
-  handoffLaunchTerminal,
-  handoffThreadLink,
-} from "$lib/services/api";
+import { forkThread } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import HandoffConfirmDialog from "$lib/thread/HandoffConfirmDialog.svelte";
 import HandoffToLocalDialog from "$lib/thread/HandoffToLocalDialog.svelte";
 import { canHandoff, dirName, shortHomeName } from "$lib/thread/handoff";
@@ -62,14 +56,14 @@ const disabledHint = $derived(
 async function openContinueInTerminal() {
   if (!threadId) return;
   try {
-    const command = await handoffCommand(threadId, cwd);
+    const command = await commands.handoffCommand(threadId, cwd);
     openDialog(HandoffConfirmDialog, {
       home,
       threadId,
       dir: cwd,
       command,
-      copy: handoffCopy,
-      launch: () => handoffLaunchTerminal(threadId, cwd),
+      copy: commands.copyText,
+      launch: () => commands.handoffLaunchTerminal(threadId, cwd),
     });
   } catch (cause) {
     onError(errorMessage(cause));
@@ -79,8 +73,8 @@ async function openContinueInTerminal() {
 async function copyThreadLink() {
   if (!threadId) return;
   try {
-    const link = await handoffThreadLink(threadId, cwd);
-    await handoffCopy(link);
+    const link = await commands.handoffThreadLink(threadId, cwd, null);
+    await commands.copyText(link);
     linkCopied.trigger();
   } catch (cause) {
     onError(errorMessage(cause));
@@ -101,7 +95,7 @@ function openHandoffToLocal() {
     targets,
     defaultTarget: repoDir,
     submit: async (targetDir: string, commitUncommitted: boolean, branchName: string | null) => {
-      await gitWorktreeHandoff(cwd, targetDir, commitUncommitted, branchName);
+      await commands.gitWorktreeHandoff(cwd, targetDir, commitUncommitted, branchName);
       refreshGitStatus(targetDir);
       const forked = await forkThread(thread, undefined, undefined, targetDir);
       onMovedToWorktree(forked.id);

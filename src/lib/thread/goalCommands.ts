@@ -1,13 +1,8 @@
 import { nameNewThread } from "$lib/app/appData.svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
 import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
-import {
-  clearThreadGoal,
-  getThreadGoal,
-  setThreadGoal,
-  setThreadGoalBudget,
-  setThreadGoalStatus,
-} from "$lib/services/api";
+import { getThreadGoal, setThreadGoal, setThreadGoalBudget, setThreadGoalStatus } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import { requestAutoName } from "$lib/thread/autoName";
 import GoalBudgetDialog from "$lib/thread/GoalBudgetDialog.svelte";
 import { parseTokenBudget } from "$lib/thread/goalBudget";
@@ -64,7 +59,7 @@ export function goalCommands(context: GoalContext) {
       }
       try {
         if (argument) {
-          await clearThreadGoal(current);
+          await commands.threadGoalClear(current);
           session.setGoal(null);
           session.notice = "Goal cleared.";
         } else {
@@ -195,7 +190,7 @@ export function goalCommands(context: GoalContext) {
     const session = context.session();
     if (!session.id) return;
     try {
-      await clearThreadGoal(session.id);
+      await commands.threadGoalClear(session.id);
       session.setGoal(null);
     } catch (cause) {
       toastError(errorMessage(cause));

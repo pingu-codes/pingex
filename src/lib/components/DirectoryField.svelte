@@ -2,7 +2,7 @@
 import { FolderOpen } from "@lucide/svelte";
 import { open as openFolderPicker } from "@tauri-apps/plugin-dialog";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
-import { isTauri } from "$lib/services/api";
+import { isTauri } from "$lib/services/tauri";
 
 // A path input with a native folder picker beside it. The picker only exists
 // in the desktop app, so the browser preview gets the plain input.

@@ -4,13 +4,13 @@ import { describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({
   handoffThreadLink: vi.fn(async () => "codex://thread/t-1"),
-  handoffCopy: vi.fn(async () => {}),
+  copyText: vi.fn(async () => null),
 }));
 
-vi.mock("$lib/services/api", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("$lib/services/api")>()),
-  ...api,
-}));
+vi.mock("$lib/services/homeRouting", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
+  return { ...actual, commands: { ...actual.commands, ...api } };
+});
 vi.mock("$lib/worktrees/gitStatus.svelte", () => ({
   ensureGitStatus: vi.fn(),
   refreshGitStatus: vi.fn(),
@@ -43,7 +43,7 @@ describe("ThreadHeader handoff menu", () => {
     setup();
     await user.click(screen.getByRole("button", { name: "Handoff" }));
     await user.click(await screen.findByRole("menuitem", { name: "Copy thread link" }));
-    await waitFor(() => expect(api.handoffCopy).toHaveBeenCalledWith("codex://thread/t-1"));
+    await waitFor(() => expect(api.copyText).toHaveBeenCalledWith("codex://thread/t-1"));
   });
 
   // The composer interrupts the running turn on an unclaimed Escape.

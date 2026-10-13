@@ -11,14 +11,9 @@ import {
   scopeLabel,
 } from "$lib/layout/connectionState";
 import RevokeConnectionDialog from "$lib/layout/RevokeConnectionDialog.svelte";
-import {
-  disconnectConnection,
-  remotePairingStart,
-  remotePairingStatus,
-  renameConnection,
-  revokeConnection,
-} from "$lib/services/api";
+import { remotePairingStart, remotePairingStatus } from "$lib/services/api";
 import { loadConnections, reloadConnections, remoteConnections } from "$lib/services/connections.svelte";
+import { commands } from "$lib/services/homeRouting";
 import type { PairingInfo, RemoteConnection } from "$lib/types";
 import { errorMessage } from "$lib/utils/errors";
 
@@ -128,7 +123,7 @@ async function commitRename(connection: RemoteConnection) {
   if (!next || next === connection.name) return;
   actionError = null;
   try {
-    await renameConnection(connection.clientId, next);
+    await commands.renameConnection(connection.clientId, next);
     await reloadConnections();
   } catch (cause) {
     actionError = errorMessage(cause);
@@ -139,7 +134,7 @@ async function disconnect(connection: RemoteConnection) {
   busyId = connection.clientId;
   actionError = null;
   try {
-    await disconnectConnection(connection.clientId);
+    await commands.disconnectConnection(connection.clientId);
     await reloadConnections();
   } catch (cause) {
     actionError = errorMessage(cause);
@@ -153,7 +148,7 @@ async function revoke(connection: RemoteConnection) {
   busyId = connection.clientId;
   actionError = null;
   try {
-    await revokeConnection(connection.clientId);
+    await commands.revokeConnection(connection.clientId);
     await reloadConnections();
   } catch (cause) {
     actionError = errorMessage(cause);

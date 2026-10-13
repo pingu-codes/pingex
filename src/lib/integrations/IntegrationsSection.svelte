@@ -39,23 +39,9 @@ import {
   toolsOf,
   validSkillName,
 } from "$lib/integrations/integrationsHelpers";
-import {
-  createSkill,
-  deleteSkill,
-  listIntegrations,
-  listMcpServerStatus,
-  mcpOauthLogin,
-  openExternalUrl,
-  openInZed,
-  readSkill,
-  removeMcpServer,
-  revealInFinder,
-  saveMcpServer,
-  setIntegrationEnabled,
-  setMcpEnabled,
-  setSkillEnabled,
-} from "$lib/services/api";
+import { createSkill, listMcpServerStatus, saveMcpServer } from "$lib/services/api";
 import { mcpStatus as mcpStatusEvents, skillsStatus } from "$lib/services/codexEvents.svelte";
+import { commands } from "$lib/services/homeRouting";
 import type { IntegrationsList, McpServerStatus, McpServerSummary, SkillSummary } from "$lib/types";
 import { submitState } from "$lib/utils/actionState.svelte";
 import { errorMessage } from "$lib/utils/errors";
@@ -81,7 +67,7 @@ let {
 // supersedes any read still in flight.
 const inventory: Resource<IntegrationsList | undefined, [forceReload?: boolean]> = resource(
   async (forceReload = false) => {
-    const next = await listIntegrations(projectPath ? [projectPath] : [], forceReload);
+    const next = await commands.listIntegrations(projectPath ? [projectPath] : [], forceReload);
     return retainFailedInventory(inventory.value ?? null, next);
   },
 );
@@ -207,7 +193,12 @@ function apply(next: IntegrationsList) {
 async function changeSetting(kind: "mcp" | "plugin", id: string, value: string) {
   const context = projectPath;
   await actions.run(async () => {
-    const next = await setIntegrationEnabled(kind, id, value === "inherit" ? null : value === "enabled", context);
+    const next = await commands.setIntegrationEnabled(
+      kind,
+      id,
+      value === "inherit" ? null : value === "enabled",
+      context,
+    );
     if (projectPath !== context) return;
     apply(next);
     await refreshStatus();
@@ -246,7 +237,7 @@ async function toggleEnabled(server: McpServerSummary) {
     return;
   }
   await actions.run(async () => {
-    apply(await setMcpEnabled(server.name, !server.enabled));
+    apply(await commands.setMcpEnabled(server.name, !server.enabled));
     // The backend reloaded Codex's config; pick up the resulting state.
     await refreshStatus();
   });
@@ -259,7 +250,7 @@ async function toggleEnabled(server: McpServerSummary) {
 async function signIn(server: McpServerSummary) {
   signingIn[server.name] = true;
   const started = await actions.run(async () => {
-    await mcpOauthLogin(server.name);
+    await commands.mcpOauthLogin(server.name);
     // In browser preview there is no completion event, so reflect it now.
     await refreshStatus();
   });
@@ -268,7 +259,7 @@ async function signIn(server: McpServerSummary) {
 
 async function toggleSkill(skill: SkillSummary) {
   await actions.run(async () => {
-    await setSkillEnabled(skill.name, !skill.enabled, skill.path);
+    await commands.setSkillEnabled(skill.name, !skill.enabled, skill.path);
     skillsStatus.nonce += 1;
     // The notification reloads Codex's effective state in both views.
   });
@@ -279,7 +270,7 @@ async function setSkillView(skill: SkillSummary, open: boolean) {
   if (!open || skillText[skill.path] != null) return;
   skillText[skill.path] = null;
   try {
-    skillText[skill.path] = await readSkill(skill.path);
+    skillText[skill.path] = await commands.readSkill(skill.path);
   } catch (cause) {
     delete skillOpen[skill.path];
     actions.error = errorMessage(cause);
@@ -288,7 +279,7 @@ async function setSkillView(skill: SkillSummary, open: boolean) {
 
 async function doDeleteSkill(skill: SkillSummary) {
   await actions.run(async () => {
-    apply(await deleteSkill(skill.path));
+    apply(await commands.deleteSkill(skill.path, null));
     confirmDeleteSkill = null;
     delete skillOpen[skill.path];
     delete skillText[skill.path];
@@ -428,7 +419,7 @@ async function saveForm(event: SubmitEvent) {
 
 async function doRemove(name: string) {
   await actions.run(async () => {
-    apply(await removeMcpServer(name));
+    apply(await commands.removeMcpServer(name));
     confirmRemove = null;
     delete expanded[name];
     await refreshStatus();
@@ -805,7 +796,7 @@ const matchCount = $derived(
                       <dt class="text-surface-500">{line.label}</dt>
                       <dd class="min-w-0 break-words text-surface-600-400">
                         {#if line.href}
-                          <button type="button" onclick={() => openExternalUrl(line.href ?? "")} class="inline-flex items-center gap-1 text-primary-500 hover:underline">
+                          <button type="button" onclick={() => commands.openExternalUrl(line.href ?? "")} class="inline-flex items-center gap-1 text-primary-500 hover:underline">
                             {line.value} <ExternalLink size={10} />
                           </button>
                         {:else}
@@ -946,10 +937,10 @@ const matchCount = $derived(
                   <ChevronRight size={12} class="transition-transform group-data-[state=open]:rotate-90" />
                   View SKILL.md
                 </Collapsible.Trigger>
-                <TooltipButton label="Reveal in Finder" type="button" onclick={() => revealInFinder(skill.path)} aria-label="Reveal {skill.name} in Finder" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
+                <TooltipButton label="Reveal in Finder" type="button" onclick={() => commands.revealInFinder(skill.path)} aria-label="Reveal {skill.name} in Finder" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
                   <FolderOpen size={13} />
                 </TooltipButton>
-                <TooltipButton label="Open in Zed" type="button" onclick={() => openInZed(skill.path)} aria-label="Open {skill.name} in Zed" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
+                <TooltipButton label="Open in Zed" type="button" onclick={() => commands.openInZed(skill.path)} aria-label="Open {skill.name} in Zed" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
                   <FileText size={13} />
                 </TooltipButton>
                 <span class="min-w-0 flex-1 truncate font-mono text-[10px] text-surface-500">{skill.path}</span>

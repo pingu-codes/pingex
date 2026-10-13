@@ -32,7 +32,7 @@ export function submitState(options: SubmitStateOptions = {}) {
     set error(value: string | null) {
       error = value;
     },
-    async run(action: () => Promise<void>): Promise<boolean> {
+    async run(action: () => Promise<unknown>): Promise<boolean> {
       if (exclusive && pending > 0) return false;
       pending += 1;
       error = null;

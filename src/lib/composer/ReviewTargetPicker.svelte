@@ -15,7 +15,7 @@ import {
   type ReviewMode,
   type ReviewModeOption,
 } from "$lib/composer/reviewTargets";
-import { gitBranches, gitRecentCommits } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import type { GitBranch, GitCommit, ReviewTarget } from "$lib/types";
 import { errorMessage } from "$lib/utils/errors";
 
@@ -60,8 +60,8 @@ function chooseMode(mode: ReviewModeOption) {
 
 async function load(mode: ReviewMode) {
   try {
-    if (mode === "baseBranch") branches = await gitBranches(cwd);
-    else commits = await gitRecentCommits(cwd, 50);
+    if (mode === "baseBranch") branches = await commands.gitBranches(cwd, null);
+    else commits = await commands.gitRecentCommits(cwd, 50);
   } catch (cause) {
     loadError = errorMessage(cause);
   }

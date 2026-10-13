@@ -1,8 +1,8 @@
 <script lang="ts">
 import { Check, ExternalLink, Plug } from "@lucide/svelte";
 import { untrack } from "svelte";
-import { respondServerRequest } from "$lib/services/api";
 import { type Elicitation, removeElicitation } from "$lib/services/codexEvents.svelte";
+import { commands } from "$lib/services/homeRouting";
 import { buildContent, formFields, initialValues, isComplete } from "$lib/thread/elicitationForm";
 import { submitState } from "$lib/utils/actionState.svelte";
 import { errorMessage } from "$lib/utils/errors";
@@ -28,7 +28,7 @@ function toggleOption(name: string, value: string) {
 
 async function respond(action: "accept" | "decline" | "cancel") {
   await reply.run(async () => {
-    await respondServerRequest(elicitation.requestId, {
+    await commands.respondServerRequest(elicitation.requestId, {
       action,
       content: action === "accept" ? buildContent(fields, values) : null,
       _meta: elicitation.meta ?? null,

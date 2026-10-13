@@ -57,7 +57,7 @@ import Sidebar from "$lib/layout/Sidebar.svelte";
 import MemoriesView from "$lib/memories/MemoriesView.svelte";
 import ProjectDetail from "$lib/panels/ProjectDetail.svelte";
 import ReviewView from "$lib/review/ReviewView.svelte";
-import { openHomeWindow, revealInFinder } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import { closeSettings, openSettings, settingsNav } from "$lib/services/settingsNav.svelte";
 import ToastHost from "$lib/ToastHost.svelte";
 import AuthRecoveryPill from "$lib/thread/AuthRecoveryPill.svelte";
@@ -98,7 +98,7 @@ init();
       onBrowse={browseForHome}
       onRemove={removeHome}
       onSetBinary={setBinary}
-      onOpenNewWindow={(path, host) => void openHomeWindow(path, host)}
+      onOpenNewWindow={(path, host) => void commands.openHomeWindow(path, host)}
     />
   </div>
 {:else if launch.phase === "loading"}
@@ -249,7 +249,7 @@ init();
             onNewThreadInDir={newThreadInDir}
             onManageWorkspace={openWorkspaceDialog}
             onOpenInApp={focusProjectPath}
-            onRevealInFinder={(path) => revealInFinder(path)}
+            onRevealInFinder={(path) => commands.revealInFinder(path)}
             onReview={() => openReview(detail)}
             onRenameProject={renameProjectAt}
             onOpenProjectPath={(path, tab) => {

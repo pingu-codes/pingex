@@ -25,17 +25,8 @@ import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import GitTab from "$lib/git/GitTab.svelte";
 import IntegrationsSection from "$lib/integrations/IntegrationsSection.svelte";
-import {
-  addProjectSource,
-  gitContext,
-  isTauri,
-  listProjectSources,
-  reindexSource,
-  removeProjectSource,
-  revealInFinder,
-  saveProjectInstructions,
-  searchWorkspace,
-} from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
+import { isTauri } from "$lib/services/tauri";
 import type { GitContext, Project, ProjectSource, WorkspaceSearchResults } from "$lib/types";
 import UsageSummary from "$lib/usage/UsageSummary.svelte";
 import { errorMessage } from "$lib/utils/errors";
@@ -93,7 +84,7 @@ const status = $derived(gitStatusCache.byPath[project.path] ?? null);
 async function loadContext() {
   if (isMultiProject) return;
   try {
-    context = await gitContext(project.path);
+    context = await commands.gitContext(project.path);
     contextError = null;
   } catch (cause) {
     contextError = errorMessage(cause);
@@ -142,7 +133,7 @@ $effect(() => {
 
 async function refreshSources() {
   try {
-    sources = await listProjectSources(project.path);
+    sources = await commands.listProjectSources(project.path);
   } catch {
     // A failed refresh leaves the last-known rows in place.
   }
@@ -151,7 +142,8 @@ async function refreshSources() {
 const saveInstructions = debounce((path: string, text: string) => {
   instructionSaves++;
   instructionsError = null;
-  saveProjectInstructions(path, text)
+  commands
+    .saveProjectInstructions(path, text)
     .catch((cause) => {
       // Said out loud: "Saving…" vanishing used to read as saved.
       instructionsError = `Not saved: ${errorMessage(cause)}`;
@@ -168,7 +160,7 @@ function onInstructionsInput(event: Event) {
 
 async function attach(path: string, kind: "folder" | "file") {
   try {
-    sources = await addProjectSource(project.path, path, kind);
+    sources = await commands.addProjectSource(project.path, path, kind);
   } catch (cause) {
     sourceError = errorMessage(cause);
   }
@@ -202,14 +194,14 @@ async function addFiles() {
 
 async function removeSource(id: string) {
   try {
-    sources = await removeProjectSource(id, project.path);
+    sources = await commands.removeProjectSource(id, project.path);
   } catch (cause) {
     sourceError = errorMessage(cause);
   }
 }
 
 async function retrySource(id: string) {
-  await reindexSource(id).catch(() => {});
+  await commands.reindexSource(id).catch(() => {});
   await refreshSources();
 }
 
@@ -224,7 +216,8 @@ const runSearch = debounce((value: string) => {
   }
   const token = ++generation;
   searching = true;
-  searchWorkspace(project.path, trimmed, null, token)
+  commands
+    .searchWorkspace(project.path, trimmed, null, token)
     .then((response) => {
       // Drop stale responses (a newer query has since been issued).
       if (response.generation === generation) results = response;
@@ -247,7 +240,7 @@ function fileTitle(path: string, line?: number | null): string {
 }
 
 function openFile(path: string) {
-  void revealInFinder(`${project.path}/${path}`);
+  void commands.revealInFinder(`${project.path}/${path}`);
 }
 
 const sourceName = (source: ProjectSource) => basename(source.sourcePath);

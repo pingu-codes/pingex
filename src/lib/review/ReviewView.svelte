@@ -24,19 +24,7 @@ import {
   reviewPrompt,
   staleBanner,
 } from "$lib/review/review";
-import {
-  reviewCheckFresh,
-  reviewDeleteDraft,
-  reviewListPrs,
-  reviewLoadDraft,
-  reviewLocalDiff,
-  reviewPrDetail,
-  reviewProviderStatus,
-  reviewReply,
-  reviewResolveThread,
-  reviewSaveDraft,
-  reviewSubmit,
-} from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import type { PendingComment, PrDetail, PrFile, PrFreshness, ProviderStatus, PrSummary } from "$lib/types";
 import { submitState } from "$lib/utils/actionState.svelte";
 import { errorMessage } from "$lib/utils/errors";
@@ -87,9 +75,9 @@ async function loadProvider() {
   loading = true;
   error = null;
   try {
-    provider = await reviewProviderStatus(repoDir);
+    provider = await commands.reviewProviderStatus(repoDir);
     if (provider.installed && provider.authenticated) {
-      prs = await reviewListPrs(repoDir);
+      prs = await commands.reviewListPrs(repoDir);
     }
   } catch (cause) {
     error = errorMessage(cause);
@@ -111,7 +99,7 @@ async function openPr(number: number) {
   error = null;
   action.error = null;
   try {
-    const next = await reviewPrDetail(repoDir, number);
+    const next = await commands.reviewPrDetail(repoDir, number);
     if (run !== openRun) return;
     detail = next;
     mode = "pr";
@@ -133,7 +121,7 @@ async function openLocal() {
   error = null;
   action.error = null;
   try {
-    const files = await reviewLocalDiff(repoDir, localBase);
+    const files = await commands.reviewLocalDiff(repoDir, localBase, null);
     if (run !== openRun) return;
     localFiles = files;
     mode = "local";
@@ -151,7 +139,7 @@ async function openLocal() {
 async function restoreDraft(number: number, headSha: string, run: number) {
   pending = [];
   try {
-    const draft = await reviewLoadDraft(PROVIDER, repoName, number);
+    const draft = await commands.reviewLoadDraft(PROVIDER, repoName, number);
     if (run !== openRun) return;
     if (draft && draft.headSha === headSha) {
       const parsed = JSON.parse(draft.payload) as { pending?: PendingComment[]; reviewStarted?: boolean };
@@ -166,7 +154,7 @@ async function restoreDraft(number: number, headSha: string, run: number) {
 async function persistDraft() {
   if (mode !== "pr" || !detail) return;
   const payload = JSON.stringify({ pending, reviewStarted });
-  await reviewSaveDraft(PROVIDER, repoName, detail.summary.number, detail.headSha, payload).catch(() => {});
+  await commands.reviewSaveDraft(PROVIDER, repoName, detail.summary.number, detail.headSha, payload).catch(() => {});
 }
 
 async function refresh() {
@@ -182,7 +170,12 @@ async function refresh() {
 async function checkFresh() {
   if (mode !== "pr" || !detail) return;
   try {
-    freshness = await reviewCheckFresh(repoDir, detail.summary.number, detail.headSha, detail.summary.updatedAt);
+    freshness = await commands.reviewCheckFresh(
+      repoDir,
+      detail.summary.number,
+      detail.headSha,
+      detail.summary.updatedAt,
+    );
   } catch {
     // Freshness is best-effort; a failure just leaves the banner hidden.
   }
@@ -230,8 +223,8 @@ async function submitReview(event: string, body: string) {
   const number = detail.summary.number;
   const run = openRun;
   await action.run(async () => {
-    await reviewSubmit(repoDir, number, event, body, pending);
-    await reviewDeleteDraft(PROVIDER, repoName, number).catch(() => {});
+    await commands.reviewSubmit(repoDir, number, event, body, pending);
+    await commands.reviewDeleteDraft(PROVIDER, repoName, number).catch(() => {});
     if (run !== openRun) return;
     pending = [];
     reviewStarted = false;
@@ -244,7 +237,7 @@ async function reply(commentId: number, body: string): Promise<boolean> {
   if (mode !== "pr" || !detail) return false;
   const number = detail.summary.number;
   return action.run(async () => {
-    await reviewReply(repoDir, number, commentId, body);
+    await commands.reviewReply(repoDir, number, commentId, body);
     await openPr(number);
   });
 }
@@ -252,7 +245,7 @@ async function reply(commentId: number, body: string): Promise<boolean> {
 async function resolve(threadId: string) {
   if (mode !== "pr" || !detail) return;
   await action.run(async () => {
-    await reviewResolveThread(repoDir, threadId);
+    await commands.reviewResolveThread(repoDir, threadId);
     // Refresh whichever PR is showing now.
     if (detail) await openPr(detail.summary.number);
   });

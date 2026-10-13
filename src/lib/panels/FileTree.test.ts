@@ -6,8 +6,10 @@ const mocks = vi.hoisted(() => ({
   listProjectFiles: vi.fn(),
 }));
 
-vi.mock("$lib/services/api", () => ({
-  listProjectFiles: mocks.listProjectFiles,
+vi.mock("$lib/services/homeRouting", () => ({
+  commands: {
+    listProjectFiles: mocks.listProjectFiles,
+  },
 }));
 
 import FileTree from "$lib/panels/FileTree.svelte";

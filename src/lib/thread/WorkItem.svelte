@@ -34,7 +34,7 @@ import {
   runAsSubagent,
   runForToolCall,
 } from "$lib/services/agentRuns.svelte";
-import { copyText, killAgentRun } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import { openSettings } from "$lib/services/settingsNav.svelte";
 import { statusTone } from "$lib/thread/agentStatus";
 import QuestionCard from "$lib/thread/QuestionCard.svelte";
@@ -78,7 +78,7 @@ const copiedCommand = flashFlag();
 
 /** Copies the command as the harness ran it, so it can be re-run verbatim. */
 function copyCommand() {
-  copyText(item.command ?? "").catch(() => {});
+  commands.copyText(item.command ?? "").catch(() => {});
   copiedCommand.trigger();
 }
 
@@ -465,7 +465,7 @@ const commandStatusClass = (item: ThreadItem) =>
       {#if isRunning(run)}
         <button
           type="button"
-          onclick={() => killAgentRun(run.runId)}
+          onclick={() => commands.killAgentRun(run.runId)}
           class="shrink-0 text-[10px] text-surface-500 hover:text-error-500"
         >
           Stop

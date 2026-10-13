@@ -1,8 +1,8 @@
 <script lang="ts">
 import { ShieldQuestion } from "@lucide/svelte";
 import DiffBlock from "$lib/components/DiffBlock.svelte";
-import { respondApproval, respondServerRequest } from "$lib/services/api";
 import { type Approval, removeApproval } from "$lib/services/codexEvents.svelte";
+import { commands } from "$lib/services/homeRouting";
 import { permissionLines } from "$lib/thread/permissions";
 import { submitState } from "$lib/utils/actionState.svelte";
 import { harnessName } from "$lib/utils/capabilities";
@@ -43,14 +43,14 @@ async function decide(decision: string) {
   await action.run(async () => {
     if (approval.options) {
       // Another harness: the option id is the whole answer.
-      await respondApproval(approval.requestId, decision);
+      await commands.respondApproval(approval.requestId, decision);
     } else if (approval.kind === "permissions") {
-      await respondServerRequest(approval.requestId, {
+      await commands.respondServerRequest(approval.requestId, {
         permissions: decision === "decline" ? {} : (approval.permissions ?? {}),
         scope: decision === "acceptForSession" ? "session" : "turn",
       });
     } else {
-      await respondApproval(approval.requestId, decision);
+      await commands.respondApproval(approval.requestId, decision);
     }
     removeApproval(approval.requestId);
   });

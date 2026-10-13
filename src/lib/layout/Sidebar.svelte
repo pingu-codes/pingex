@@ -44,10 +44,9 @@ import {
 } from "$lib/layout/sidebarTree";
 import UsageMeter from "$lib/layout/UsageMeter.svelte";
 import { accountUsage } from "$lib/services/accountUsage.svelte";
-import { setProjectExpanded, setSidebarFolderExpanded } from "$lib/services/api";
 import { activeTurns, approvals, unansweredQuestions, userInputRequests } from "$lib/services/codexEvents.svelte";
 import { remoteConnections } from "$lib/services/connections.svelte";
-import { projectHostLabel } from "$lib/services/homeRouting";
+import { commands, projectHostLabel } from "$lib/services/homeRouting";
 import { toastError } from "$lib/toaster";
 import type {
   Account,
@@ -294,7 +293,7 @@ const dropClass = (ref: SidebarItemRef) => (dnd.over?.rowId === rowId(ref) ? `dr
 
 function persistFolderExpansion(folder: SidebarFolder, expanded: boolean) {
   folder.expanded = expanded;
-  void setSidebarFolderExpanded(folder.id, expanded).catch((cause) => {
+  void commands.setSidebarFolderExpanded(folder.id, expanded).catch((cause) => {
     toastError(`Could not save folder expansion: ${errorMessage(cause)}`);
   });
 }
@@ -399,7 +398,7 @@ const projectTarget = (project: Project): MenuTarget => ({ kind: "project", proj
 
 function persistProjectExpansion(project: Project, expanded: boolean) {
   project.expanded = expanded;
-  void setProjectExpanded(project.path, expanded).catch((cause) => {
+  void commands.setProjectExpanded(project.path, expanded).catch((cause) => {
     toastError(`Could not save project expansion: ${errorMessage(cause)}`);
   });
 }

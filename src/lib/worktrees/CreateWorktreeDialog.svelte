@@ -6,7 +6,7 @@ import BranchList from "$lib/components/BranchList.svelte";
 import DialogShell from "$lib/components/DialogShell.svelte";
 import DirectoryField from "$lib/components/DirectoryField.svelte";
 import Segmented from "$lib/components/Segmented.svelte";
-import { gitBranches, gitRecentCommits } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import type { GitBranch as Branch, GitCommit, WorktreeBranchRequest } from "$lib/types";
 import { submitState } from "$lib/utils/actionState.svelte";
 import { basename, trimSlash } from "$lib/utils/path";
@@ -38,8 +38,8 @@ let locationTouched = $state(false);
 const refs = resource(
   async () => {
     const [branches, commits] = await Promise.all([
-      gitBranches(repoDir),
-      gitRecentCommits(repoDir, 20).catch(() => [] as GitCommit[]),
+      commands.gitBranches(repoDir, null),
+      commands.gitRecentCommits(repoDir, 20).catch(() => [] as GitCommit[]),
     ]);
     return { branches, commits };
   },

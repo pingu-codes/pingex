@@ -11,13 +11,9 @@
 
 import { setAgentRuns } from "$lib/services/agentRuns.svelte";
 import {
-  compactThread,
   getThreadGoal,
-  interruptTurn,
-  invalidateThreadCache,
   isRevertUnsupported,
   isTurnSettingsUnsupported,
-  listAgentRuns,
   listSubagents,
   readThread,
   revertThread,
@@ -26,6 +22,7 @@ import {
   updateTurnSettings,
 } from "$lib/services/api";
 import { activeTurns, type CodexEvent, threadTokenUsage } from "$lib/services/codexEvents.svelte";
+import { commands } from "$lib/services/homeRouting";
 import { requestAutoName } from "$lib/thread/autoName";
 import { ThreadQueue } from "$lib/thread/threadQueue.svelte";
 import { applyThreadEvent, BUFFERING_NOTICE, ensureTurn, finalizeRunningTurns } from "$lib/thread/threadStream";
@@ -199,7 +196,7 @@ export class ThreadSession {
       "compact",
       async () => {
         this.beginCompaction();
-        await compactThread(id);
+        await commands.compactThread(id);
       },
       (cause) => {
         this.endCompaction();
@@ -227,7 +224,7 @@ export class ThreadSession {
         if (!current()) return;
         thread.turns = kept;
         this.revision++;
-        await invalidateThreadCache(id).catch(() => {});
+        await commands.invalidateThreadCache(id).catch(() => {});
       },
       (cause) => (isRevertUnsupported(cause) ? UNDO_UNAVAILABLE : errorMessage(cause)),
     );
@@ -304,7 +301,7 @@ export class ThreadSession {
     try {
       // The cached detail is keyed by the summary's `updated_at`, which does not
       // move while a turn runs — for a working thread it is stale by construction.
-      if (activeTurns.list.includes(id)) await invalidateThreadCache(id).catch(() => {});
+      if (activeTurns.list.includes(id)) await commands.invalidateThreadCache(id).catch(() => {});
       const detail = await readThread(id);
       if (this.disposed) return;
       // A turn left `inProgress` by a session that has since died would render
@@ -441,7 +438,7 @@ export class ThreadSession {
       const turn = await review;
       if (!turn || this.disposed || this.disconnectedState || this.activeTurn?.id !== turn.id || !this.id) return;
       try {
-        await interruptTurn(this.id, turn.id);
+        await commands.interruptTurn(this.id, turn.id);
       } catch (cause) {
         if (!this.disposed && !this.disconnectedState) this.streamError = errorMessage(cause);
       }
@@ -461,7 +458,7 @@ export class ThreadSession {
       active = this.activeTurn;
       if (!this.id || !active || active.id.startsWith("local-")) return;
     }
-    interruptTurn(id, active.id).catch((cause) => {
+    commands.interruptTurn(id, active.id).catch((cause) => {
       this.streamError = errorMessage(cause);
     });
   }
@@ -511,7 +508,7 @@ export class ThreadSession {
     const current = () => request === this.#subagentsRequest && id === this.id;
     void (async () => {
       try {
-        const runs = await listAgentRuns(id);
+        const runs = await commands.listAgentRuns(id);
         if (current()) setAgentRuns(id, runs);
       } catch {
         // Leave whatever the store already had rather than blanking the menu.
@@ -599,7 +596,7 @@ export class ThreadSession {
       // Another client truncated this thread's history; the local transcript and
       // cache are both stale. Force a re-read on next load. Not while we are the
       // ones reverting — that path manages the transcript itself.
-      if (!this.starting) invalidateThreadCache(id).catch(() => {});
+      if (!this.starting) commands.invalidateThreadCache(id).catch(() => {});
       return;
     }
     if (method === "thread/settings/updated") {
@@ -647,7 +644,7 @@ export class ThreadSession {
       }
       // The detail cache still holds the transcript from before this turn; drop
       // it so a later read of this thread does not serve it back.
-      invalidateThreadCache(id).catch(() => {});
+      commands.invalidateThreadCache(id).catch(() => {});
       // The end of the opening turn is the first moment a title can reflect what
       // the thread actually turned out to be about, so re-name off the exchange.
       if (thread.turns.length === 1) requestAutoName(id, "reply");

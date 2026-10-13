@@ -18,9 +18,9 @@ let {
   dir: string;
   /** The `codex resume` invocation this handoff produces. */
   command: string;
-  copy: (command: string) => Promise<void>;
+  copy: (command: string) => Promise<unknown>;
   /** Runs the shown command; the backend rebuilds it from the thread. */
-  launch: () => Promise<void>;
+  launch: () => Promise<unknown>;
   close: DialogClose<true>;
 } = $props();
 

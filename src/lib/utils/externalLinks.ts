@@ -1,4 +1,4 @@
-import { openExternalUrl, revealInFinder } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import { type FileRef, parseFileRef } from "$lib/utils/fileRef";
 
 /** Anchors carrying one of these schemes are handed to the OS browser. */
@@ -8,7 +8,7 @@ const EXTERNAL_SCHEMES = ["http:", "https:", "mailto:"];
 type LinkHandlers = { onFilePath?: (ref: FileRef) => void };
 
 let installed = false;
-let handlers: Required<LinkHandlers> = { onFilePath: (ref) => void revealInFinder(ref.path).catch(() => {}) };
+let handlers: Required<LinkHandlers> = { onFilePath: (ref) => void commands.revealInFinder(ref.path).catch(() => {}) };
 
 /**
  * Install a document-level click interceptor so links rendered anywhere in the
@@ -62,7 +62,7 @@ export function installExternalLinkHandler(options: LinkHandlers = {}): void {
       return;
     }
     if (EXTERNAL_SCHEMES.includes(url.protocol)) {
-      openExternalUrl(url.href).catch(() => {});
+      commands.openExternalUrl(url.href).catch(() => {});
     } else if (url.protocol === "file:") {
       handlers.onFilePath(parseFileRef(url.pathname));
     }

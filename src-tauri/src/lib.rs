@@ -671,7 +671,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             // Handoff to a terminal or another Codex home
             handoff::commands::handoff_command,
             handoff::commands::handoff_thread_link,
-            handoff::commands::handoff_copy,
+            handoff::commands::copy_text,
             handoff::commands::handoff_launch_terminal,
             // Pull request review
             review::commands::review_provider_status,

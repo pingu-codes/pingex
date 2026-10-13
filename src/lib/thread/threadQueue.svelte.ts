@@ -11,7 +11,8 @@
  * components.
  */
 
-import { isQueueUnsupported, queueAdd, queueDelete, queueList, queueReorder, queueUpdate } from "$lib/services/api";
+import { isQueueUnsupported, queueAdd, queueDelete, queueList, queueUpdate } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import { isClientQueued, localId, mergeQueue, pendingId } from "$lib/thread/queueEntries";
 import type { QueuedSubmission, TurnOptions, UserInputPart } from "$lib/types";
 import { errorMessage } from "$lib/utils/errors";
@@ -138,7 +139,7 @@ export class ThreadQueue {
       this.mutations++;
       this.generation++;
       try {
-        await queueReorder(
+        await commands.queueReorder(
           threadId,
           this.entries.map((candidate) => candidate.id),
         );

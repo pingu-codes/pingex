@@ -50,7 +50,7 @@ export const commands = {
 	 *  `siblings` as the full order of that parent's children. The frontend owns
 	 *  the tree, so it sends the resulting order rather than an index.
 	 */
-	placeSidebarItem: (scope: string, item: SiblingRef, parentId: string | null, siblings: SiblingRef[], window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("place_sidebar_item", { scope, item, parentId, siblings, window }),
+	placeSidebarItem: (scope: string, item: SidebarItemRef, parentId: string | null, siblings: SidebarItemRef[], window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("place_sidebar_item", { scope, item, parentId, siblings, window }),
 	setThreadPinned: (threadId: string, pinned: boolean, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("set_thread_pinned", { threadId, pinned, window }),
 	/**  Fold `thread_ids` out of the sidebar, or bring them back. */
 	setThreadsHidden: (threadIds: string[], hidden: boolean, window: HomeRoute | null = null) => __TAURI_INVOKE<BootstrapData>("set_threads_hidden", { threadIds, hidden, window }),
@@ -74,7 +74,7 @@ export const commands = {
 	/**  Per-thread usage estimate: `account/usage/read` scoped by `threadId`. */
 	readThreadUsage: (threadId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("read_thread_usage", { threadId, window }),
 	/**  Token usage summed over `scope`, optionally since a unix time. */
-	readUsageBreakdown: (scope: UsageScopeArg, since: number | null, window: HomeRoute | null = null) => __TAURI_INVOKE<UsageBreakdown>("read_usage_breakdown", { scope, since, window }),
+	readUsageBreakdown: (scope: UsageScope, since: number | null, window: HomeRoute | null = null) => __TAURI_INVOKE<UsageBreakdown>("read_usage_breakdown", { scope, since, window }),
 	/**
 	 *  The composition of a thread's context with what its system prompt holds:
 	 *  exact from a live Claude process, or the ledger's estimate with the parts
@@ -183,7 +183,7 @@ export const commands = {
 	 *  by `section_id`. Empty — and `sections_supported` false — on a Codex
 	 *  without `threadSection/*`, in which case the sidebar offers none.
 	 */
-	sections: StoredThreadSection[],
+	sections: ThreadSection[],
 	sectionsSupported: boolean,
 	/**
 	 *  User-made sidebar folders and explicit orderings; the sidebar builds
@@ -396,8 +396,8 @@ export const commands = {
 	 *  default; otherwise `value` is written. Returns the refreshed settings list.
 	 */
 	writeConfigSetting: (key: string, value: string | null, unset: boolean | null, window: HomeRoute | null = null) => __TAURI_INVOKE<ConfigSetting[]>("write_config_setting", { key, value, unset, window }),
-	readAgentSettings: () => __TAURI_INVOKE<AgentSettingsPayload>("read_agent_settings"),
-	writeAgentSettings: (settings: AgentSettingsPayload) => __TAURI_INVOKE<AgentSettingsPayload>("write_agent_settings", { settings }),
+	readAgentSettings: () => __TAURI_INVOKE<AgentSettings>("read_agent_settings"),
+	writeAgentSettings: (settings: AgentSettings) => __TAURI_INVOKE<AgentSettings>("write_agent_settings", { settings }),
 	/**
 	 *  Every agent a thread has spawned, oldest first.
 	 * 
@@ -405,7 +405,7 @@ export const commands = {
 	 *  previous app launches are included; live state arrives separately on
 	 *  `codex:agentRun`.
 	 */
-	listAgentRuns: (threadId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<AgentRunRow[]>("list_agent_runs", { threadId, window }),
+	listAgentRuns: (threadId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<AgentRun[]>("list_agent_runs", { threadId, window }),
 	/**  Stop a running agent from the GUI. */
 	killAgentRun: (runId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("kill_agent_run", { runId, window }),
 	remotePairingStart: (window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("remote_pairing_start", { window }),
@@ -418,8 +418,8 @@ export const commands = {
 	gitRepoInfo: (dir: string, window: HomeRoute | null = null) => __TAURI_INVOKE<GitRepoInfo>("git_repo_info", { dir, window }),
 	gitStatus: (dir: string, window: HomeRoute | null = null) => __TAURI_INVOKE<GitStatus>("git_status", { dir, window }),
 	gitWorktrees: (repoDir: string, window: HomeRoute | null = null) => __TAURI_INVOKE<WorktreeEntry[]>("git_worktrees", { repoDir, window }),
-	gitRecentCommits: (dir: string, limit: number | null, window: HomeRoute | null = null) => __TAURI_INVOKE<CommitInfo[]>("git_recent_commits", { dir, limit, window }),
-	gitBranches: (dir: string, limit: number | null, window: HomeRoute | null = null) => __TAURI_INVOKE<BranchRef[]>("git_branches", { dir, limit, window }),
+	gitRecentCommits: (dir: string, limit: number | null, window: HomeRoute | null = null) => __TAURI_INVOKE<GitCommit[]>("git_recent_commits", { dir, limit, window }),
+	gitBranches: (dir: string, limit: number | null, window: HomeRoute | null = null) => __TAURI_INVOKE<GitBranch[]>("git_branches", { dir, limit, window }),
 	gitWorktreeAdd: (repoDir: string, request: WorktreeAddRequest, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("git_worktree_add", { repoDir, request, window }),
 	gitWorktreeRemove: (repoDir: string, path: string, force: boolean, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("git_worktree_remove", { repoDir, path, force, window }),
 	gitWorktreePrune: (repoDir: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("git_worktree_prune", { repoDir, window }),
@@ -427,7 +427,7 @@ export const commands = {
 	gitWorktreeUnlock: (repoDir: string, path: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("git_worktree_unlock", { repoDir, path, window }),
 	gitChangesSummary: (dir: string, window: HomeRoute | null = null) => __TAURI_INVOKE<ChangesSummary>("git_changes_summary", { dir, window }),
 	gitFileDiff: (dir: string, base: string, path: string, untracked: boolean, maxBytes: number | null, window: HomeRoute | null = null) => __TAURI_INVOKE<FileDiff>("git_file_diff", { dir, base, path, untracked, maxBytes, window }),
-	gitWorktreeHandoffPreflight: (worktreePath: string, targetDir: string, window: HomeRoute | null = null) => __TAURI_INVOKE<HandoffPreflight>("git_worktree_handoff_preflight", { worktreePath, targetDir, window }),
+	gitWorktreeHandoffPreflight: (worktreePath: string, targetDir: string, window: HomeRoute | null = null) => __TAURI_INVOKE<WorktreeHandoffPreflight>("git_worktree_handoff_preflight", { worktreePath, targetDir, window }),
 	/**
 	 *  Check the temporary worktree's branch out in `target_dir` and remove the
 	 *  worktree, so the thread can continue in the local checkout.
@@ -450,7 +450,7 @@ export const commands = {
 	/**  Build the shareable `codex://` link for the running home. */
 	handoffThreadLink: (threadId: string, cwd: string, label: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<string>("handoff_thread_link", { threadId, cwd, label, window }),
 	/**  Copy text to the system clipboard. */
-	handoffCopy: (text: string) => __TAURI_INVOKE<null>("handoff_copy", { text }),
+	copyText: (text: string) => __TAURI_INVOKE<null>("copy_text", { text }),
 	/**
 	 *  Open a terminal and run the handoff command for a thread. The command is
 	 *  built here rather than taken from the webview, so a script injected into
@@ -474,17 +474,17 @@ export const commands = {
 } | null>("review_load_draft", { provider, repo, prNumber, window }),
 	reviewDeleteDraft: (provider: string, repo: string, prNumber: number, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("review_delete_draft", { provider, repo, prNumber, window }),
 	saveProjectInstructions: (projectPath: string, instructions: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("save_project_instructions", { projectPath, instructions, window }),
-	listProjectSources: (projectPath: string, window: HomeRoute | null = null) => __TAURI_INVOKE<StoredProjectSource[]>("list_project_sources", { projectPath, window }),
-	addProjectSource: (projectPath: string, sourcePath: string, kind: string, window: HomeRoute | null = null) => __TAURI_INVOKE<StoredProjectSource[]>("add_project_source", { projectPath, sourcePath, kind, window }),
-	removeProjectSource: (id: string, projectPath: string, window: HomeRoute | null = null) => __TAURI_INVOKE<StoredProjectSource[]>("remove_project_source", { id, projectPath, window }),
+	listProjectSources: (projectPath: string, window: HomeRoute | null = null) => __TAURI_INVOKE<ProjectSource[]>("list_project_sources", { projectPath, window }),
+	addProjectSource: (projectPath: string, sourcePath: string, kind: string, window: HomeRoute | null = null) => __TAURI_INVOKE<ProjectSource[]>("add_project_source", { projectPath, sourcePath, kind, window }),
+	removeProjectSource: (id: string, projectPath: string, window: HomeRoute | null = null) => __TAURI_INVOKE<ProjectSource[]>("remove_project_source", { id, projectPath, window }),
 	reindexSource: (id: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("reindex_source", { id, window }),
-	searchWorkspace: (projectPath: string, query: string, cursor: string | null, generation: number | null, window: HomeRoute | null = null) => __TAURI_INVOKE<WorkspaceResults>("search_workspace", { projectPath, query, cursor, generation, window }),
-	listConnections: (window: HomeRoute | null = null) => __TAURI_INVOKE<Connection[]>("list_connections", { window }),
+	searchWorkspace: (projectPath: string, query: string, cursor: string | null, generation: number | null, window: HomeRoute | null = null) => __TAURI_INVOKE<WorkspaceSearchResults>("search_workspace", { projectPath, query, cursor, generation, window }),
+	listConnections: (window: HomeRoute | null = null) => __TAURI_INVOKE<RemoteConnection[]>("list_connections", { window }),
 	/**
 	 *  Re-poll the relay for fresh health. Identical to `list_connections` today;
 	 *  kept as a distinct command so the UI's "refresh" affordance reads clearly.
 	 */
-	refreshConnections: (window: HomeRoute | null = null) => __TAURI_INVOKE<Connection[]>("refresh_connections", { window }),
+	refreshConnections: (window: HomeRoute | null = null) => __TAURI_INVOKE<RemoteConnection[]>("refresh_connections", { window }),
 	renameConnection: (clientId: string, name: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("rename_connection", { clientId, name, window }),
 	/**
 	 *  Safe action: forget the local record. The credential is untouched, so an
@@ -565,7 +565,7 @@ export type AccountUpdatedParams = {
 };
 
 /**  One spawned agent, as the GUI sees it. */
-export type AgentRunRow = {
+export type AgentRun = {
 	runId: string,
 	parentThreadId: string,
 	parentTurnId: string,
@@ -584,16 +584,16 @@ export type AgentRunRow = {
 };
 
 /**  How app-owned subagents are configured, as the settings form sees them. */
-export type AgentSettingsPayload = {
+export type AgentSettings = {
 	enabled: boolean,
 	sandbox: string,
 	maxConcurrent: number,
 	timeoutSeconds: number,
 	/**
 	 *  The sandboxes the form may offer, so the choices live in one place.
-	 *  Ignored on the way back in (`default`, so the form may echo it).
+	 *  The form echoes them back; they are ignored on the way in.
 	 */
-	sandboxOptions?: string[],
+	sandboxOptions: string[],
 };
 
 /**
@@ -654,23 +654,13 @@ export type BootstrapData = {
 	 *  by `section_id`. Empty — and `sections_supported` false — on a Codex
 	 *  without `threadSection/*`, in which case the sidebar offers none.
 	 */
-	sections: StoredThreadSection[],
+	sections: ThreadSection[],
 	sectionsSupported: boolean,
 	/**
 	 *  User-made sidebar folders and explicit orderings; the sidebar builds
 	 *  its tree from these plus the flat project/thread lists.
 	 */
 	sidebarLayout: SidebarLayout,
-};
-
-/**
- *  One branch for the review target picker. Remote-tracking branches keep their
- *  remote prefix (`origin/main`), which is also what `git diff` expects.
- */
-export type BranchRef = {
-	name: string,
-	isRemote: boolean,
-	isCurrent: boolean,
 };
 
 /**
@@ -699,7 +689,7 @@ export type Capability =
  */
 "liveToolResults";
 
-export type CategoryTokensDto = {
+export type CategoryTokens = {
 	system: number,
 	skills: number,
 	user: number,
@@ -841,15 +831,6 @@ export type CommandApprovalParams = {
 	approvalId?: string | null,
 };
 
-/**  A recent commit for the base-revision picker and branch context. */
-export type CommitInfo = {
-	hash: string,
-	shortHash: string,
-	subject: string,
-	author: string,
-	timestamp: number,
-};
-
 /**  The commit `git_commit` produced, with whatever the hooks printed. */
 export type CommitResult = {
 	hash: string,
@@ -883,28 +864,8 @@ export type ConfigSetting = {
 	restartRequired: boolean,
 };
 
-/**
- *  A merged connection returned to the frontend. Health is derived on the
- *  frontend from `last_seen`; the backend stays presentation-free.
- */
-export type Connection = {
-	clientId: string,
-	name: string,
-	platform: string | null,
-	deviceModel: string | null,
-	appVersion: string | null,
-	pairedAt: number | null,
-	lastSeen: number | null,
-	scope: string | null,
-	/**
-	 *  `"protocol"` when the live relay still reports this device, `"local"`
-	 *  when it is only known from a recorded pairing claim.
-	 */
-	source: string,
-};
-
 export type ContextComposition = {
-	categories: CategoryTokensDto,
+	categories: CategoryTokens,
 	totalTokens: number,
 	contextWindow: number | null,
 	source: CompositionSource,
@@ -1029,6 +990,25 @@ export type FilePreview = {
 };
 
 /**
+ *  One branch for the review target picker. Remote-tracking branches keep their
+ *  remote prefix (`origin/main`), which is also what `git diff` expects.
+ */
+export type GitBranch = {
+	name: string,
+	isRemote: boolean,
+	isCurrent: boolean,
+};
+
+/**  A recent commit for the base-revision picker and branch context. */
+export type GitCommit = {
+	hash: string,
+	shortHash: string,
+	subject: string,
+	author: string,
+	timestamp: number,
+};
+
+/**
  *  What the project details page needs to know before showing git tabs:
  *  whether the folder is the main checkout, a linked worktree, or not a
  *  repository at all, plus the commit identity that would be used.
@@ -1086,14 +1066,6 @@ export type GitStatus = {
 	truncated: boolean,
 	/**  Milliseconds since the Unix epoch when this snapshot was taken. */
 	refreshedAt: number,
-};
-
-export type HandoffPreflight = {
-	branch: string | null,
-	worktreeDirty: boolean,
-	targetDirty: boolean,
-	/**  Blocking reason, in the words the dialog shows; `None` when ready. */
-	blocker: string | null,
 };
 
 /**
@@ -1373,7 +1345,7 @@ export type ModelReroutedParams = {
 export type ModelUsage = {
 	model: string | null,
 	harness: string,
-	tokens: UsageTokensDto,
+	tokens: UsageTokens,
 	costUsd: number | null,
 	turns: number,
 };
@@ -1568,7 +1540,7 @@ export type Project = {
 	/**  Free-form project instructions; empty string when none are stored. */
 	instructions: string,
 	/**  Attached, indexable folder/file sources for this project. */
-	sources: StoredProjectSource[],
+	sources: ProjectSource[],
 	members?: WorkspaceMember[],
 	/**
 	 *  When the project's newest thread was active, in Unix seconds, as the
@@ -1582,6 +1554,24 @@ export type Project = {
 export type ProjectChangedParams = {
 	projectId?: string | null,
 	changeType?: string | null,
+};
+
+/**
+ *  One attached source (a folder or a single file) that contributes its text
+ *  content to a project's searchable index.
+ */
+export type ProjectSource = {
+	id: string,
+	projectPath: string,
+	sourcePath: string,
+	/**  "folder" | "file". */
+	kind: string,
+	addedAt: number,
+	/**  "pending" | "indexed" | "error". */
+	status: string,
+	indexedAt: number | null,
+	docCount: number,
+	error: string | null,
 };
 
 export type PromptPart = {
@@ -1659,6 +1649,26 @@ export type RecentHomeInfo = {
 	exists: boolean,
 };
 
+/**
+ *  A merged connection returned to the frontend. Health is derived on the
+ *  frontend from `last_seen`; the backend stays presentation-free.
+ */
+export type RemoteConnection = {
+	clientId: string,
+	name: string,
+	platform: string | null,
+	deviceModel: string | null,
+	appVersion: string | null,
+	pairedAt: number | null,
+	lastSeen: number | null,
+	scope: string | null,
+	/**
+	 *  `"protocol"` when the live relay still reports this device, `"local"`
+	 *  when it is only known from a recorded pairing claim.
+	 */
+	source: string,
+};
+
 export type RemoteControlStatusChangedParams = {
 	status?: unknown,
 	serverName?: string | null,
@@ -1708,15 +1718,6 @@ export type SafetyBufferingUpdatedParams = {
 	showBufferingUi?: boolean | null,
 };
 
-export type SearchFilter = {
-	archived?: boolean,
-	projectPath?: string | null,
-	/**  Also scan journaled assistant message bodies. Off by default. */
-	searchAgentMessages?: boolean,
-	/**  Also scan journaled user message bodies. Off by default. */
-	searchUserMessages?: boolean,
-};
-
 export type SearchGroup<T> = {
 	items: T[],
 	nextCursor: string | null,
@@ -1753,13 +1754,6 @@ export type SettingSource =
 /**  Explicitly set in `config.toml`. */
 "config";
 
-/**  One entry of a parent's ordered children, as the frontend sends it back. */
-export type SiblingRef = {
-	/**  "folder" | "item". */
-	kind: string,
-	id: string,
-};
-
 export type SideExchange = {
 	id: string,
 	question: string,
@@ -1793,9 +1787,34 @@ export type SideRefusal = {
 	content: string,
 };
 
+export type SidebarFolder = {
+	id: string,
+	/**  `""` for the top level, else the path of the project it lives in. */
+	scope: string,
+	parentId: string | null,
+	name: string,
+	expanded: boolean,
+	ordinal: number,
+};
+
+/**  One entry of a parent's ordered children, as the frontend sends it back. */
+export type SidebarItemRef = {
+	/**  "folder" | "item". */
+	kind: string,
+	id: string,
+};
+
 export type SidebarLayout = {
-	folders: StoredSidebarFolder[],
-	placements: StoredPlacement[],
+	folders: SidebarFolder[],
+	placements: SidebarPlacement[],
+};
+
+/**  Where one project (root scope) or thread (project scope) was placed. */
+export type SidebarPlacement = {
+	itemKey: string,
+	scope: string,
+	parentId: string | null,
+	ordinal: number,
 };
 
 /**
@@ -1844,49 +1863,6 @@ export type StatusFile = {
 };
 
 export type StopReason = "end_turn" | "max_tokens" | "max_turn_requests" | "refusal" | "cancelled" | "error";
-
-/**  Where one project (root scope) or thread (project scope) was placed. */
-export type StoredPlacement = {
-	itemKey: string,
-	scope: string,
-	parentId: string | null,
-	ordinal: number,
-};
-
-/**
- *  One attached source (a folder or a single file) that contributes its text
- *  content to a project's searchable index.
- */
-export type StoredProjectSource = {
-	id: string,
-	projectPath: string,
-	sourcePath: string,
-	/**  "folder" | "file". */
-	kind: string,
-	addedAt: number,
-	/**  "pending" | "indexed" | "error". */
-	status: string,
-	indexedAt: number | null,
-	docCount: number,
-	error: string | null,
-};
-
-export type StoredSidebarFolder = {
-	id: string,
-	/**  `""` for the top level, else the path of the project it lives in. */
-	scope: string,
-	parentId: string | null,
-	name: string,
-	expanded: boolean,
-	ordinal: number,
-};
-
-export type StoredThreadSection = {
-	id: string,
-	name: string,
-	icon: string | null,
-	color: string | null,
-};
 
 export type SubagentDetail = {
 	id: string,
@@ -1989,6 +1965,15 @@ export type ThreadProjectUpdatedParams = {
 	projectId?: string | null,
 };
 
+export type ThreadSearchFilter = {
+	archived?: boolean,
+	projectPath?: string | null,
+	/**  Also scan journaled assistant message bodies. Off by default. */
+	searchAgentMessages?: boolean,
+	/**  Also scan journaled user message bodies. Off by default. */
+	searchUserMessages?: boolean,
+};
+
 export type ThreadSearchItem = {
 	id: string,
 	title: string,
@@ -2008,6 +1993,13 @@ export type ThreadSearchPage = {
 	nextCursor: string | null,
 	total: number,
 	generation: number,
+};
+
+export type ThreadSection = {
+	id: string,
+	name: string,
+	icon: string | null,
+	color: string | null,
 };
 
 export type ThreadSettingsUpdatedParams = {
@@ -2062,8 +2054,8 @@ export type ThreadTurnParams = {
 export type ThreadUsageSummary = {
 	threadId: string,
 	title: string | null,
-	tokens: UsageTokensDto,
-	categories: CategoryTokensDto,
+	tokens: UsageTokens,
+	categories: CategoryTokens,
 	costUsd: number | null,
 	lastAt: number,
 };
@@ -2162,8 +2154,8 @@ export type UpdateWorkspaceInput = {
 };
 
 export type UsageBreakdown = {
-	tokens: UsageTokensDto,
-	categories: CategoryTokensDto,
+	tokens: UsageTokens,
+	categories: CategoryTokens,
 	/**  Sum of what the harnesses reported; `None` when nothing was priced. */
 	reportedCostUsd: number | null,
 	/**  Whether some of the tokens carry no reported cost and need estimating. */
@@ -2175,9 +2167,9 @@ export type UsageBreakdown = {
 	context: ContextComposition | null,
 };
 
-export type UsageScopeArg = { kind: "thread"; threadId: string } | { kind: "project"; path: string } | { kind: "global" };
+export type UsageScope = { kind: "thread"; threadId: string } | { kind: "project"; path: string } | { kind: "global" };
 
-export type UsageTokensDto = {
+export type UsageTokens = {
 	inputTokens: number,
 	cachedInputTokens: number,
 	cacheWriteInputTokens: number,
@@ -2224,7 +2216,7 @@ export type WorkspaceMemberInput = {
 	isolated?: boolean,
 };
 
-export type WorkspaceResults = {
+export type WorkspaceSearchResults = {
 	projectFiles: SearchGroup<FileMatch>,
 	threads: SearchGroup<ThreadMatch>,
 	/**
@@ -2238,10 +2230,10 @@ export type WorkspaceResults = {
 
 export type WorktreeAddRequest = {
 	path: string,
-	branch: WorktreeBranch,
+	branch: WorktreeBranchRequest,
 };
 
-export type WorktreeBranch = 
+export type WorktreeBranchRequest = 
 /**  Check out an existing local branch. */
 { kind: "existing"; name: string } | 
 /**  Create a new branch, optionally from a base revision. */
@@ -2285,6 +2277,14 @@ export type WorktreeEntry = {
 	state: string | null,
 };
 
+export type WorktreeHandoffPreflight = {
+	branch: string | null,
+	worktreeDirty: boolean,
+	targetDirty: boolean,
+	/**  Blocking reason, in the words the dialog shows; `None` when ready. */
+	blocker: string | null,
+};
+
 /* Tauri Specta runtime */
 type EventEmit<T> = [T] extends [null] ? () => Promise<void> : (payload: T) => Promise<void>;
 
@@ -2309,4 +2309,4 @@ function makeEvent<T>(name: string, serialize?: (payload: T) => unknown, deseria
 
 
 /** Command argument names for explicit Home routing. */
-export const commandArguments = {"addNativeSideQuestion":["parentThreadId","sideThreadId","title","window"],"addProfileProject":["path","host"],"addProject":["path","window"],"addProjectSource":["projectPath","sourcePath","kind","window"],"addSideQuestion":["parentThreadId","sideThreadId","title","inheritedTurns","window"],"addThreadBranch":["parentThreadId","threadId","replacedTurnId","inheritedTurns","window"],"addWorktreeProject":["path","window"],"allowThreadImage":["path","window"],"answerNativeSideQuestion":["parentThreadId","sideThreadId","requestId","window"],"applySessionFocus":["hide","collapseProjects","collapseFolders","window"],"archiveThread":["threadId","window"],"autoNameThread":["threadId","seed","window"],"bootstrap":["window"],"bootstrapProfile":["refresh"],"cancelNativeSideQuestion":["parentThreadId","sideThreadId","requestId","window"],"clearWireLog":[],"compactThread":["threadId","window"],"createSidebarFolder":["scope","parentId","name","window"],"createSkill":["name","description","body","cwds","window"],"createThreadSection":["name","color","window"],"createWorkspace":["input","window"],"deleteDraft":["project","window"],"deleteMemory":["homeId","path","projects"],"deleteSidebarFolder":["id","window"],"deleteSkill":["path","cwds","window"],"deleteThread":["threadId","window"],"deleteThreadSection":["sectionId","window"],"disconnectConnection":["clientId","window"],"forkThread":["threadId","beforeTurnId","lastTurnId","cwd","window"],"getQuickShortcut":[],"gitBranches":["dir","limit","window"],"gitChangesSummary":["dir","window"],"gitCheckoutBranch":["dir","name","force","window"],"gitCommit":["dir","message","window"],"gitContext":["dir","window"],"gitCreateBranch":["dir","name","base","checkout","window"],"gitDiscard":["dir","paths","untrackedPaths","window"],"gitFetch":["dir","window"],"gitFileDiff":["dir","base","path","untracked","maxBytes","window"],"gitPull":["dir","window"],"gitPush":["dir","setUpstream","window"],"gitRecentCommits":["dir","limit","window"],"gitRepoInfo":["dir","window"],"gitStage":["dir","paths","window"],"gitStagedFileDiff":["dir","path","maxBytes","window"],"gitStatus":["dir","window"],"gitUnstage":["dir","paths","window"],"gitWorktreeAdd":["repoDir","request","window"],"gitWorktreeHandoff":["worktreePath","targetDir","commitUncommitted","branchName","window"],"gitWorktreeHandoffPreflight":["worktreePath","targetDir","window"],"gitWorktreeLock":["repoDir","path","reason","window"],"gitWorktreePrune":["repoDir","window"],"gitWorktreeRemove":["repoDir","path","force","window"],"gitWorktreeUnlock":["repoDir","path","window"],"gitWorktrees":["repoDir","window"],"handoffCommand":["threadId","cwd","window"],"handoffCopy":["text"],"handoffLaunchTerminal":["threadId","cwd","window"],"handoffThreadLink":["threadId","cwd","label","window"],"interruptTurn":["threadId","turnId","window"],"invalidateThreadCache":["threadId","window"],"killAgentRun":["runId","window"],"listAgentRuns":["threadId","window"],"listConnections":["window"],"listHarnessModels":["harness","window"],"listIntegrations":["cwds","forceReload","window"],"listMcpServerStatus":["window"],"listMemories":["projects"],"listModels":["window"],"listProjectFiles":["root","window"],"listProjectSources":["projectPath","window"],"listSkillsFor":["cwds","window"],"listSubagents":["threadId","window"],"listThreadsPage":["cursor","pageSize","archived","projectPath","window"],"listWslDistros":[],"loadDraft":["project","window"],"mcpOauthLogin":["name","window"],"moveThreadToSection":["threadId","sectionId","window"],"moveThreadToWorkspace":["threadId","workspaceId","window"],"openExternalUrl":["url"],"openHomeWindow":["path","host"],"openInZed":["path","window"],"placeSidebarItem":["scope","item","parentId","siblings","window"],"prepareNativeSideQuestion":["parentThreadId","sideThreadId","question","window"],"prepareProfileWorkspace":["sourceHomeKey","workspaceId","targetHomeKey"],"queueAdd":["threadId","input","clientUserMessageId","window"],"queueDelete":["threadId","queuedSubmissionId","window"],"queueList":["threadId","cursor","window"],"queueReorder":["threadId","queuedSubmissionIds","window"],"queueUpdate":["threadId","queuedSubmissionId","input","window"],"quickOpenFullThread":["threadId"],"readAccountRateLimits":["window"],"readAgentSettings":[],"readCodexServerInfo":["window"],"readConfigSettings":["window"],"readContextBreakdown":["threadId","window"],"readFilePreview":["path","maxBytes","window"],"readHomeClaudeStatus":["id"],"readHomeOverview":["window"],"readLaunchState":["window"],"readMemory":["homeId","path"],"readNativeSideQuestion":["parentThreadId","sideThreadId","window"],"readPromptPartsText":["threadId","window"],"readRuntimeSettings":["window"],"readSkill":["path","window"],"readThread":["threadId","window"],"readThreadUsage":["threadId","window"],"readUsageBreakdown":["scope","since","window"],"readWireLog":["window"],"recordUserInputRequest":["threadId","turnId","itemId","item","afterItemId","window"],"refreshConnections":["window"],"registerProfileHome":["harness","host","configDir","binary","label"],"reindexSource":["id","window"],"remotePairingStart":["window"],"remotePairingStatus":["pairingCode","window"],"removeMcpServer":["name","window"],"removeProfileHome":["id"],"removeProject":["path","window"],"removeProjectSource":["id","projectPath","window"],"removeRecentHome":["path","host","window"],"removeSideQuestion":["sideThreadId","window"],"removeStaged":["id","window"],"renameConnection":["clientId","name","window"],"renameProject":["path","name","window"],"renameSidebarFolder":["id","name","window"],"renameThread":["threadId","name","window"],"resetSidebarOrder":["scope","window"],"respondApproval":["requestId","decision","window"],"respondServerRequest":["requestId","result","window"],"respondUserInput":["requestId","answers","threadId","turnId","itemId","item","window"],"revealInFinder":["path","window"],"revertThread":["threadId","beforeTurnId","keptTurnIds","window"],"reviewCheckFresh":["repoDir","number","knownHead","knownUpdatedAt"],"reviewDeleteDraft":["provider","repo","prNumber","window"],"reviewListPrs":["repoDir"],"reviewLoadDraft":["provider","repo","prNumber","window"],"reviewLocalDiff":["repoDir","base","head","window"],"reviewPrDetail":["repoDir","number"],"reviewProviderStatus":["repoDir"],"reviewReply":["repoDir","number","commentId","body"],"reviewResolveThread":["repoDir","threadId"],"reviewSaveDraft":["provider","repo","prNumber","headSha","payload","window"],"reviewSubmit":["repoDir","number","event","body","comments"],"revokeConnection":["clientId","window"],"saveDraft":["project","content","window"],"saveMcpServer":["server","window"],"saveProjectInstructions":["projectPath","instructions","window"],"searchProjectFiles":["root","query","limit","window"],"searchThreads":["query","cursor","filter","generation","window"],"searchWorkspace":["projectPath","query","cursor","generation","window"],"selectCodexHome":["path","host","window"],"setCodexBinary":["path","window"],"setIntegrationEnabled":["kind","id","enabled","projectPath","window"],"setMcpEnabled":["name","enabled","window"],"setMemoryToggle":["homeId","key","value","projects"],"setProfileDefaultHome":["id"],"setProjectArchived":["path","archived","window"],"setProjectExpanded":["path","expanded","window"],"setProjectPinned":["path","pinned","window"],"setQuickShortcut":["accelerator"],"setSidebarFolderExpanded":["id","expanded","window"],"setSkillEnabled":["name","enabled","path","window"],"setThreadBranchEditTurn":["threadId","editTurnId","window"],"setThreadPinned":["threadId","pinned","window"],"setThreadsHidden":["threadIds","hidden","window"],"setWireLogging":["enabled","window"],"sideQuestionMode":["parentThreadId","window"],"stageAttachment":["sourcePath","window"],"stageClipboardImage":["filename","mime","bytes","window"],"startReview":["threadId","target","window"],"startThread":["cwd","workspaceId","appSubagents","harness","window"],"startTurn":["threadId","input","options","window"],"threadGoalClear":["threadId","window"],"threadGoalGet":["threadId","window"],"threadGoalSet":["threadId","objective","status","tokenBudget","clearTokenBudget","window"],"threadsWithActiveTurns":["window"],"threadsWithUnansweredQuestions":["window"],"unarchiveThread":["threadId","window"],"updateProfileHome":["id","configDir","binary","label"],"updateRuntimeSettings":["codexHome","codexBinary","claudeBinary","claudeConfigDir","codexHost","claudeHost","window"],"updateSubagentPolicy":["threadId","modelPolicy","reasoningEffortPolicy","window"],"updateThreadSection":["sectionId","name","color","window"],"updateTurnSettings":["threadId","turnId","model","effort","speedTier","window"],"updateWorkspace":["input","window"],"writeAgentSettings":["settings"],"writeConfigSetting":["key","value","unset","window"],"writeMemory":["homeId","path","contents","projects"]} as const;
+export const commandArguments = {"addNativeSideQuestion":["parentThreadId","sideThreadId","title","window"],"addProfileProject":["path","host"],"addProject":["path","window"],"addProjectSource":["projectPath","sourcePath","kind","window"],"addSideQuestion":["parentThreadId","sideThreadId","title","inheritedTurns","window"],"addThreadBranch":["parentThreadId","threadId","replacedTurnId","inheritedTurns","window"],"addWorktreeProject":["path","window"],"allowThreadImage":["path","window"],"answerNativeSideQuestion":["parentThreadId","sideThreadId","requestId","window"],"applySessionFocus":["hide","collapseProjects","collapseFolders","window"],"archiveThread":["threadId","window"],"autoNameThread":["threadId","seed","window"],"bootstrap":["window"],"bootstrapProfile":["refresh"],"cancelNativeSideQuestion":["parentThreadId","sideThreadId","requestId","window"],"clearWireLog":[],"compactThread":["threadId","window"],"copyText":["text"],"createSidebarFolder":["scope","parentId","name","window"],"createSkill":["name","description","body","cwds","window"],"createThreadSection":["name","color","window"],"createWorkspace":["input","window"],"deleteDraft":["project","window"],"deleteMemory":["homeId","path","projects"],"deleteSidebarFolder":["id","window"],"deleteSkill":["path","cwds","window"],"deleteThread":["threadId","window"],"deleteThreadSection":["sectionId","window"],"disconnectConnection":["clientId","window"],"forkThread":["threadId","beforeTurnId","lastTurnId","cwd","window"],"getQuickShortcut":[],"gitBranches":["dir","limit","window"],"gitChangesSummary":["dir","window"],"gitCheckoutBranch":["dir","name","force","window"],"gitCommit":["dir","message","window"],"gitContext":["dir","window"],"gitCreateBranch":["dir","name","base","checkout","window"],"gitDiscard":["dir","paths","untrackedPaths","window"],"gitFetch":["dir","window"],"gitFileDiff":["dir","base","path","untracked","maxBytes","window"],"gitPull":["dir","window"],"gitPush":["dir","setUpstream","window"],"gitRecentCommits":["dir","limit","window"],"gitRepoInfo":["dir","window"],"gitStage":["dir","paths","window"],"gitStagedFileDiff":["dir","path","maxBytes","window"],"gitStatus":["dir","window"],"gitUnstage":["dir","paths","window"],"gitWorktreeAdd":["repoDir","request","window"],"gitWorktreeHandoff":["worktreePath","targetDir","commitUncommitted","branchName","window"],"gitWorktreeHandoffPreflight":["worktreePath","targetDir","window"],"gitWorktreeLock":["repoDir","path","reason","window"],"gitWorktreePrune":["repoDir","window"],"gitWorktreeRemove":["repoDir","path","force","window"],"gitWorktreeUnlock":["repoDir","path","window"],"gitWorktrees":["repoDir","window"],"handoffCommand":["threadId","cwd","window"],"handoffLaunchTerminal":["threadId","cwd","window"],"handoffThreadLink":["threadId","cwd","label","window"],"interruptTurn":["threadId","turnId","window"],"invalidateThreadCache":["threadId","window"],"killAgentRun":["runId","window"],"listAgentRuns":["threadId","window"],"listConnections":["window"],"listHarnessModels":["harness","window"],"listIntegrations":["cwds","forceReload","window"],"listMcpServerStatus":["window"],"listMemories":["projects"],"listModels":["window"],"listProjectFiles":["root","window"],"listProjectSources":["projectPath","window"],"listSkillsFor":["cwds","window"],"listSubagents":["threadId","window"],"listThreadsPage":["cursor","pageSize","archived","projectPath","window"],"listWslDistros":[],"loadDraft":["project","window"],"mcpOauthLogin":["name","window"],"moveThreadToSection":["threadId","sectionId","window"],"moveThreadToWorkspace":["threadId","workspaceId","window"],"openExternalUrl":["url"],"openHomeWindow":["path","host"],"openInZed":["path","window"],"placeSidebarItem":["scope","item","parentId","siblings","window"],"prepareNativeSideQuestion":["parentThreadId","sideThreadId","question","window"],"prepareProfileWorkspace":["sourceHomeKey","workspaceId","targetHomeKey"],"queueAdd":["threadId","input","clientUserMessageId","window"],"queueDelete":["threadId","queuedSubmissionId","window"],"queueList":["threadId","cursor","window"],"queueReorder":["threadId","queuedSubmissionIds","window"],"queueUpdate":["threadId","queuedSubmissionId","input","window"],"quickOpenFullThread":["threadId"],"readAccountRateLimits":["window"],"readAgentSettings":[],"readCodexServerInfo":["window"],"readConfigSettings":["window"],"readContextBreakdown":["threadId","window"],"readFilePreview":["path","maxBytes","window"],"readHomeClaudeStatus":["id"],"readHomeOverview":["window"],"readLaunchState":["window"],"readMemory":["homeId","path"],"readNativeSideQuestion":["parentThreadId","sideThreadId","window"],"readPromptPartsText":["threadId","window"],"readRuntimeSettings":["window"],"readSkill":["path","window"],"readThread":["threadId","window"],"readThreadUsage":["threadId","window"],"readUsageBreakdown":["scope","since","window"],"readWireLog":["window"],"recordUserInputRequest":["threadId","turnId","itemId","item","afterItemId","window"],"refreshConnections":["window"],"registerProfileHome":["harness","host","configDir","binary","label"],"reindexSource":["id","window"],"remotePairingStart":["window"],"remotePairingStatus":["pairingCode","window"],"removeMcpServer":["name","window"],"removeProfileHome":["id"],"removeProject":["path","window"],"removeProjectSource":["id","projectPath","window"],"removeRecentHome":["path","host","window"],"removeSideQuestion":["sideThreadId","window"],"removeStaged":["id","window"],"renameConnection":["clientId","name","window"],"renameProject":["path","name","window"],"renameSidebarFolder":["id","name","window"],"renameThread":["threadId","name","window"],"resetSidebarOrder":["scope","window"],"respondApproval":["requestId","decision","window"],"respondServerRequest":["requestId","result","window"],"respondUserInput":["requestId","answers","threadId","turnId","itemId","item","window"],"revealInFinder":["path","window"],"revertThread":["threadId","beforeTurnId","keptTurnIds","window"],"reviewCheckFresh":["repoDir","number","knownHead","knownUpdatedAt"],"reviewDeleteDraft":["provider","repo","prNumber","window"],"reviewListPrs":["repoDir"],"reviewLoadDraft":["provider","repo","prNumber","window"],"reviewLocalDiff":["repoDir","base","head","window"],"reviewPrDetail":["repoDir","number"],"reviewProviderStatus":["repoDir"],"reviewReply":["repoDir","number","commentId","body"],"reviewResolveThread":["repoDir","threadId"],"reviewSaveDraft":["provider","repo","prNumber","headSha","payload","window"],"reviewSubmit":["repoDir","number","event","body","comments"],"revokeConnection":["clientId","window"],"saveDraft":["project","content","window"],"saveMcpServer":["server","window"],"saveProjectInstructions":["projectPath","instructions","window"],"searchProjectFiles":["root","query","limit","window"],"searchThreads":["query","cursor","filter","generation","window"],"searchWorkspace":["projectPath","query","cursor","generation","window"],"selectCodexHome":["path","host","window"],"setCodexBinary":["path","window"],"setIntegrationEnabled":["kind","id","enabled","projectPath","window"],"setMcpEnabled":["name","enabled","window"],"setMemoryToggle":["homeId","key","value","projects"],"setProfileDefaultHome":["id"],"setProjectArchived":["path","archived","window"],"setProjectExpanded":["path","expanded","window"],"setProjectPinned":["path","pinned","window"],"setQuickShortcut":["accelerator"],"setSidebarFolderExpanded":["id","expanded","window"],"setSkillEnabled":["name","enabled","path","window"],"setThreadBranchEditTurn":["threadId","editTurnId","window"],"setThreadPinned":["threadId","pinned","window"],"setThreadsHidden":["threadIds","hidden","window"],"setWireLogging":["enabled","window"],"sideQuestionMode":["parentThreadId","window"],"stageAttachment":["sourcePath","window"],"stageClipboardImage":["filename","mime","bytes","window"],"startReview":["threadId","target","window"],"startThread":["cwd","workspaceId","appSubagents","harness","window"],"startTurn":["threadId","input","options","window"],"threadGoalClear":["threadId","window"],"threadGoalGet":["threadId","window"],"threadGoalSet":["threadId","objective","status","tokenBudget","clearTokenBudget","window"],"threadsWithActiveTurns":["window"],"threadsWithUnansweredQuestions":["window"],"unarchiveThread":["threadId","window"],"updateProfileHome":["id","configDir","binary","label"],"updateRuntimeSettings":["codexHome","codexBinary","claudeBinary","claudeConfigDir","codexHost","claudeHost","window"],"updateSubagentPolicy":["threadId","modelPolicy","reasoningEffortPolicy","window"],"updateThreadSection":["sectionId","name","color","window"],"updateTurnSettings":["threadId","turnId","model","effort","speedTier","window"],"updateWorkspace":["input","window"],"writeAgentSettings":["settings"],"writeConfigSetting":["key","value","unset","window"],"writeMemory":["homeId","path","contents","projects"]} as const;

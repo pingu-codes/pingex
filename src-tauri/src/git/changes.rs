@@ -349,6 +349,7 @@ pub(crate) fn read_file_diff(
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
+#[serde(rename = "WorktreeHandoffPreflight")]
 pub(crate) struct HandoffPreflight {
     pub(crate) branch: Option<String>,
     pub(crate) worktree_dirty: bool,

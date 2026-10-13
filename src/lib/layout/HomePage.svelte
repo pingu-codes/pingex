@@ -26,7 +26,7 @@ import {
 } from "@lucide/svelte";
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
-import { openHomeWindow, readHomeOverview, readUsageBreakdown } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import { openSettings } from "$lib/services/settingsNav.svelte";
 import { isTauri } from "$lib/services/tauri";
 import type { HomeOverview, MenuTarget, Project, ThreadSummary, UsageBreakdown } from "$lib/types";
@@ -82,7 +82,8 @@ const usageCostEstimated = $derived(usageCostSummary?.estimated ?? false);
 // Last 30 days of spend across the Home. Best-effort, like the overview.
 $effect(() => {
   let cancelled = false;
-  readUsageBreakdown({ kind: "global" }, rangeSince("30d"))
+  commands
+    .readUsageBreakdown({ kind: "global" }, rangeSince("30d"))
     .then((result) => {
       if (!cancelled) usage = result;
     })
@@ -98,7 +99,8 @@ $effect(() => {
 // best-effort — failures leave the dashboard's config panels empty.
 $effect(() => {
   let cancelled = false;
-  readHomeOverview()
+  commands
+    .readHomeOverview()
     .then((result) => {
       if (!cancelled) overview = result;
     })
@@ -202,7 +204,7 @@ const target = (project: Project): MenuTarget => ({ kind: "project", project });
         {/if}
         {#if isTauri()}
           <!-- A second account side by side: a fresh window with its own picker. -->
-          <button onclick={() => void openHomeWindow()} class="btn btn-sm preset-tonal shrink-0" title="Open another window, e.g. for a second account">
+          <button onclick={() => void commands.openHomeWindow(null, null)} class="btn btn-sm preset-tonal shrink-0" title="Open another window, e.g. for a second account">
             <AppWindow size={14} />
             New window
           </button>

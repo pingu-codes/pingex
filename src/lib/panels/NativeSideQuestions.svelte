@@ -2,15 +2,7 @@
 import { ArrowUp, MessageCircleQuestion, Square, Trash2 } from "@lucide/svelte";
 import { onDestroy, untrack } from "svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
-import {
-  addNativeSideQuestion,
-  answerNativeSideQuestion,
-  cancelNativeSideQuestion,
-  prepareNativeSideQuestion,
-  readNativeSideQuestion,
-  removeSideQuestion,
-} from "$lib/services/api";
-import { identity, scopedId } from "$lib/services/homeRouting";
+import { commands, identity, scopedId } from "$lib/services/homeRouting";
 import type { BootstrapData, SideExchange, SideQuestion } from "$lib/types";
 import { renderMarkdown } from "$lib/utils/markdown";
 
@@ -93,7 +85,7 @@ async function load(id: string, showLoading = true) {
   const revision = ++readRevision;
   if (showLoading) loading = true;
   try {
-    const result = await readNativeSideQuestion(parentThreadId, id);
+    const result = await commands.readNativeSideQuestion(parentThreadId, id);
     if (mounted && activeSideId === id && revision === readRevision) exchanges = result;
   } catch (cause) {
     if (mounted && activeSideId === id && revision === readRevision) error = String(cause);
@@ -124,11 +116,11 @@ async function ask() {
         id = home ? scopedId(home, nativeId) : nativeId;
         originId = id;
         startingSideId = id;
-        const data = await addNativeSideQuestion(parent, id, text);
+        const data = await commands.addNativeSideQuestion(parent, id, text);
         onDataChanged(data);
         if (mounted && activeSideId === selectionAtStart) activeSideId = id;
       }
-      const request = await prepareNativeSideQuestion(parent, id, text);
+      const request = await commands.prepareNativeSideQuestion(parent, id, text);
       return { id, request };
     })(),
   };
@@ -154,8 +146,8 @@ async function ask() {
       ];
     }
     const result = operation.cancelled
-      ? await cancelNativeSideQuestion(parent, id, request)
-      : await answerNativeSideQuestion(parent, id, request);
+      ? await commands.cancelNativeSideQuestion(parent, id, request)
+      : await commands.answerNativeSideQuestion(parent, id, request);
     if (mounted && activeSideId === id) {
       readRevision++;
       exchanges = result;
@@ -163,7 +155,7 @@ async function ask() {
     }
   } catch (cause) {
     if (prepared) {
-      await cancelNativeSideQuestion(parent, prepared.id, prepared.request).catch(() => {});
+      await commands.cancelNativeSideQuestion(parent, prepared.id, prepared.request).catch(() => {});
     }
     if (mounted && (!activeSideId || activeSideId === (prepared?.id ?? originId))) {
       readRevision++;
@@ -192,7 +184,7 @@ async function stop() {
         ? { id: activeSideId, request: pending.id }
         : null;
     if (!target) return;
-    const result = await cancelNativeSideQuestion(parent, target.id, target.request);
+    const result = await commands.cancelNativeSideQuestion(parent, target.id, target.request);
     if (mounted && activeSideId === target.id) {
       readRevision++;
       exchanges = result;
@@ -204,7 +196,7 @@ async function stop() {
 
 async function remove(entry: SideQuestion) {
   try {
-    onDataChanged(await removeSideQuestion(entry.sideThreadId));
+    onDataChanged(await commands.removeSideQuestion(entry.sideThreadId));
     if (mounted && activeSideId === entry.sideThreadId) activeSideId = null;
   } catch (cause) {
     if (mounted) error = String(cause);

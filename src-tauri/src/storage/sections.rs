@@ -11,6 +11,7 @@ const SUPPORTED_KEY: &str = "thread_sections_supported";
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
+#[serde(rename = "ThreadSection")]
 pub(crate) struct StoredThreadSection {
     pub(crate) id: String,
     pub(crate) name: String,

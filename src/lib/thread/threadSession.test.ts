@@ -25,26 +25,35 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("$lib/services/api", () => ({
-  invalidateThreadCache: mocks.invalidateThreadCache,
   readThread: mocks.readThread,
   getThreadGoal: mocks.getThreadGoal,
   listSubagents: mocks.listSubagents,
-  listAgentRuns: mocks.listAgentRuns,
   startTurn: mocks.startTurn,
   startReview: mocks.startReview,
-  compactThread: mocks.compactThread,
   revertThread: mocks.revertThread,
   isRevertUnsupported: (cause: unknown) => String(cause).includes("unsupported"),
   updateTurnSettings: mocks.updateTurnSettings,
   isTurnSettingsUnsupported: (cause: unknown) => String(cause).includes("unsupported"),
-  interruptTurn: mocks.interruptTurn,
   isQueueUnsupported: () => true,
   queueAdd: mocks.queueAdd,
   queueDelete: mocks.queueDelete,
   queueList: mocks.queueList,
   queueUpdate: vi.fn(),
-  queueReorder: vi.fn(),
 }));
+vi.mock("$lib/services/homeRouting", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
+  return {
+    ...actual,
+    commands: {
+      ...actual.commands,
+      invalidateThreadCache: mocks.invalidateThreadCache,
+      listAgentRuns: mocks.listAgentRuns,
+      compactThread: mocks.compactThread,
+      interruptTurn: mocks.interruptTurn,
+      queueReorder: vi.fn(),
+    },
+  };
+});
 
 vi.mock("$lib/services/codexEvents.svelte", () => ({
   activeTurns: mocks.activeTurns,

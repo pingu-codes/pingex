@@ -16,8 +16,17 @@ vi.mock("$lib/services/api", () => ({
   queueDelete: mocks.queueDelete,
   queueList: mocks.queueList,
   queueUpdate: mocks.queueUpdate,
-  queueReorder: mocks.queueReorder,
 }));
+vi.mock("$lib/services/homeRouting", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
+  return {
+    ...actual,
+    commands: {
+      ...actual.commands,
+      queueReorder: mocks.queueReorder,
+    },
+  };
+});
 
 import { isLocalOnly } from "$lib/thread/queueEntries";
 import { ThreadQueue } from "$lib/thread/threadQueue.svelte";

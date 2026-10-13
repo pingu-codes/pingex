@@ -4,9 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 import { worktreeEntry } from "$lib/services/preview/factories";
 import AddWorktreeDialog from "$lib/worktrees/AddWorktreeDialog.svelte";
 
-vi.mock("$lib/services/api", () => ({
-  isTauri: () => false,
-  gitWorktrees: vi.fn(async () => [worktreeEntry({ path: "/repo", branch: "main", isMain: true }), worktreeEntry()]),
+vi.mock("$lib/services/homeRouting", () => ({
+  commands: {
+    gitWorktrees: vi.fn(async () => [worktreeEntry({ path: "/repo", branch: "main", isMain: true }), worktreeEntry()]),
+  },
 }));
 
 describe("AddWorktreeDialog", () => {

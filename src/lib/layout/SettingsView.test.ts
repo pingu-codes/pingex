@@ -2,11 +2,11 @@ import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import SettingsView from "$lib/layout/SettingsView.svelte";
-import { writeAgentSettings } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 
-vi.mock("$lib/services/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/services/api")>();
-  return { ...actual, writeAgentSettings: vi.fn(actual.writeAgentSettings) };
+vi.mock("$lib/services/homeRouting", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
+  return { ...actual, commands: { ...actual.commands, writeAgentSettings: vi.fn(actual.commands.writeAgentSettings) } };
 });
 
 function setup() {
@@ -82,7 +82,7 @@ describe("SettingsView", () => {
     await user.click(screen.getByRole("tab", { name: /Agent/ }));
     const enable = await screen.findByRole("checkbox", { name: /Run subagents as separate processes/ });
     if (!(enable as HTMLInputElement).checked) await user.click(enable);
-    vi.mocked(writeAgentSettings).mockClear();
+    vi.mocked(commands.writeAgentSettings).mockClear();
 
     const timeLimit = screen.getByRole("spinbutton", { name: "Agent time limit in seconds" }) as HTMLInputElement;
     const stored = timeLimit.value;
@@ -90,9 +90,9 @@ describe("SettingsView", () => {
     expect(timeLimit.value).toBe(stored);
     await fireEvent.change(timeLimit, { target: { value: "5" } });
     expect(timeLimit.value).toBe(stored);
-    expect(writeAgentSettings).not.toHaveBeenCalled();
+    expect(commands.writeAgentSettings).not.toHaveBeenCalled();
 
     await fireEvent.change(timeLimit, { target: { value: "600" } });
-    expect(writeAgentSettings).toHaveBeenCalledWith(expect.objectContaining({ timeoutSeconds: 600 }));
+    expect(commands.writeAgentSettings).toHaveBeenCalledWith(expect.objectContaining({ timeoutSeconds: 600 }));
   });
 });

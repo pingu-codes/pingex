@@ -59,7 +59,7 @@ pub(crate) fn handoff_thread_link(
 /// Copy text to the system clipboard.
 #[tauri::command(async)]
 #[specta::specta]
-pub(crate) fn handoff_copy(text: String) -> Result<(), String> {
+pub(crate) fn copy_text(text: String) -> Result<(), String> {
     copy_to_clipboard(&text)
 }
 

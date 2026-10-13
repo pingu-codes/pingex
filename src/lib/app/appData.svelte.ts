@@ -7,14 +7,9 @@
 import { checkCodexVersion } from "$lib/app/codexVersion.svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
 import AddProjectDialog from "$lib/layout/AddProjectDialog.svelte";
-import {
-  bootstrap,
-  isTauri,
-  saveProject,
-  threadsWithActiveTurns,
-  threadsWithUnansweredQuestions,
-} from "$lib/services/api";
 import { seedActiveTurns, setUnansweredQuestions } from "$lib/services/codexEvents.svelte";
+import { addProfileProject, commands } from "$lib/services/homeRouting";
+import { isTauri } from "$lib/services/tauri";
 import type { BootstrapData, Host, Project, SubagentDetail, ThreadSummary } from "$lib/types";
 import { errorMessage } from "$lib/utils/errors";
 
@@ -236,15 +231,17 @@ export async function refresh(): Promise<void> {
   appData.loading = true;
   appData.error = null;
   try {
-    await applyFresh(bootstrap());
+    await applyFresh(commands.bootstrap());
     // Questions the app never got to answer only exist in the database, so the
     // sidebar has to be told about them explicitly.
-    threadsWithUnansweredQuestions()
+    commands
+      .threadsWithUnansweredQuestions()
       .then(setUnansweredQuestions)
       .catch(() => {});
     // A turn that began before this webview loaded (a reload mid-turn) never
     // sends `turn/started` again; the backend still knows it is running.
-    threadsWithActiveTurns()
+    commands
+      .threadsWithActiveTurns()
       .then(seedActiveTurns)
       .catch(() => {});
     // The child is up by now, so this reads what it reported at `initialize`
@@ -262,7 +259,7 @@ export async function quietRefresh(): Promise<void> {
   const ticket = dataTicket();
   try {
     // A stale refresh needs no follow-up: a newer read already landed.
-    applyTicketed(await bootstrap(), ticket, false);
+    applyTicketed(await commands.bootstrap(), ticket, false);
   } catch {
     // Sidebar refresh after thread creation is best-effort.
   }
@@ -272,7 +269,7 @@ export async function addProject(): Promise<void> {
   if (!isTauri()) return;
   await openDialog<true, { submit: (path: string, host: Host | null) => Promise<void> }>(AddProjectDialog, {
     submit: async (path, host) => {
-      await applyFresh(saveProject(path, host));
+      await applyFresh(addProfileProject(path, host));
     },
   });
 }

@@ -5,8 +5,10 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import ModelPopover from "$lib/composer/ModelPopover.svelte";
 import { applyQuickEvent, emptyQuickResponse, type QuickResponse } from "$lib/quick/quickChat";
-import { bootstrap, isTauri, listModels, quickOpenFullThread, startThread, startTurn } from "$lib/services/api";
+import { listModels, startThread, startTurn } from "$lib/services/api";
 import { type CodexEvent, setThreadHandler, startCodexListeners } from "$lib/services/codexEvents.svelte";
+import { commands } from "$lib/services/homeRouting";
+import { isTauri } from "$lib/services/tauri";
 import { requestAutoName } from "$lib/thread/autoName";
 import type { Model, Project } from "$lib/types";
 import { dragRegion } from "$lib/utils/dragRegion";
@@ -33,7 +35,7 @@ const modelLabel = $derived(selectedModel?.displayName ?? "Model");
 
 async function prefetch() {
   try {
-    const data = await bootstrap();
+    const data = await commands.bootstrap();
     projects = data.projects.filter((project) => !project.archived);
     if (!selectedPath || !projects.some((project) => project.path === selectedPath)) {
       selectedPath = projects[0]?.path ?? null;
@@ -112,7 +114,7 @@ async function send() {
 
 async function openFull() {
   if (!threadId) return;
-  await quickOpenFullThread(threadId);
+  await commands.quickOpenFullThread(threadId);
   reset();
   text = "";
 }

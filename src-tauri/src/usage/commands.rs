@@ -9,7 +9,7 @@ use tauri::{AppHandle, State};
 
 use super::ledger::ContextSnapshot;
 use super::prompt_parts::{fit_parts, PromptPart, PromptPartKind};
-use crate::storage::{self, CategoryTokens, UsageScope, UsageTokens};
+use crate::storage::{self, CategoryTokens, UsageTokens};
 use crate::AppState;
 
 /// Prefix on the error `read_context_breakdown` returns when the thread's
@@ -28,24 +28,25 @@ pub(crate) const PROMPT_TEXT_UNSUPPORTED: &str = "harness-unsupported:prompt_par
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
-pub(crate) enum UsageScopeArg {
+pub(crate) enum UsageScope {
     Thread { thread_id: String },
     Project { path: String },
     Global,
 }
 
-impl From<UsageScopeArg> for UsageScope {
-    fn from(scope: UsageScopeArg) -> Self {
+impl From<UsageScope> for storage::UsageScope {
+    fn from(scope: UsageScope) -> Self {
         match scope {
-            UsageScopeArg::Thread { thread_id } => UsageScope::Thread(thread_id),
-            UsageScopeArg::Project { path } => UsageScope::Project(path),
-            UsageScopeArg::Global => UsageScope::Global,
+            UsageScope::Thread { thread_id } => storage::UsageScope::Thread(thread_id),
+            UsageScope::Project { path } => storage::UsageScope::Project(path),
+            UsageScope::Global => storage::UsageScope::Global,
         }
     }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
+#[serde(rename = "CategoryTokens")]
 pub(crate) struct CategoryTokensDto {
     pub system: u64,
     pub skills: u64,
@@ -72,6 +73,7 @@ impl From<CategoryTokens> for CategoryTokensDto {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
+#[serde(rename = "UsageTokens")]
 pub(crate) struct UsageTokensDto {
     pub input_tokens: u64,
     pub cached_input_tokens: u64,
@@ -186,7 +188,7 @@ pub(crate) struct UsageBreakdown {
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn read_usage_breakdown(
-    scope: UsageScopeArg,
+    scope: UsageScope,
     since: Option<i64>,
     app: AppHandle,
     window: crate::HomeWindow,
@@ -194,7 +196,7 @@ pub(crate) async fn read_usage_breakdown(
 ) -> Result<UsageBreakdown, String> {
     let ctx = state.ctx(&window);
     let thread_id = match &scope {
-        UsageScopeArg::Thread { thread_id } => Some(thread_id.clone()),
+        UsageScope::Thread { thread_id } => Some(thread_id.clone()),
         _ => None,
     };
     let stored = storage::read_usage_breakdown(&ctx.database(), &scope.into(), since).await?;

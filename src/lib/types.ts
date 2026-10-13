@@ -4,48 +4,19 @@
 // generated one (literal unions the Rust side stores as plain strings) or
 // describe Codex app-server JSON that has no Rust struct.
 import type {
-  AgentRunRow,
-  AgentSettingsPayload,
-  BranchRef,
   CodexNotification,
-  CommitInfo,
-  Connection,
   SubagentDetail as GenSubagentDetail,
   TurnOptions as GenTurnOptions,
-  HandoffPreflight,
   Project,
-  SearchFilter,
   ServerRequest,
-  SiblingRef,
-  StoredPlacement,
-  StoredProjectSource,
-  StoredSidebarFolder,
-  StoredThreadSection,
+  SidebarFolder,
+  ThreadSection,
   ThreadSummary,
-  WorkspaceResults,
-  WorktreeBranch,
 } from "$lib/bindings";
 
 // Every generated type under its own name; a local declaration of the same
-// name below takes precedence. Only the renamed ones are listed.
+// name below takes precedence.
 export type * from "$lib/bindings";
-export type {
-  CategoryTokensDto as CategoryTokens,
-  UsageScopeArg as UsageScope,
-  UsageTokensDto as UsageTokens,
-} from "$lib/bindings";
-
-export type ThreadSection = StoredThreadSection;
-
-export type ProjectSource = StoredProjectSource;
-
-export type WorkspaceSearchResults = WorkspaceResults;
-
-export type SidebarFolder = StoredSidebarFolder;
-
-export type SidebarPlacement = StoredPlacement;
-
-export type SidebarItemRef = SiblingRef;
 
 export type MenuTarget =
   | { kind: "project"; project: Project }
@@ -488,13 +459,6 @@ export type SubagentDetail = GenSubagentDetail & {
   runId?: string;
 };
 
-export type AgentRun = AgentRunRow;
-
-/** How app-owned subagents are configured globally. */
-export type AgentSettings = AgentSettingsPayload & {
-  sandboxOptions: string[];
-};
-
 export interface ArchivedThread {
   id: string;
   title: string;
@@ -517,12 +481,6 @@ export interface CodexServerInfo {
   codexHome?: string | null;
 }
 
-export type WorktreeHandoffPreflight = HandoffPreflight;
-
-export type GitCommit = CommitInfo;
-
-export type GitBranch = BranchRef;
-
 /**
  * What a `/review` turn should look at. Mirrors the app-server's `ReviewTarget`
  * and is forwarded to `review/start` untouched, so the member names have to
@@ -533,8 +491,6 @@ export type ReviewTarget =
   | { type: "baseBranch"; branch: string }
   | { type: "commit"; sha: string; title?: string | null }
   | { type: "custom"; instructions: string };
-
-export type WorktreeBranchRequest = WorktreeBranch;
 
 /** Payload of the `handoff://open` event when a `codex://` link is received. */
 export interface HandoffOpen {
@@ -560,10 +516,6 @@ export interface PairingInfo {
   manualPairingCode: string | null;
   expiresAt: number | null;
 }
-
-// --- Remote connections management ---
-
-export type RemoteConnection = Connection;
 
 // --- Integrations (MCP servers, skills, plugins) ---
 
@@ -660,10 +612,6 @@ export interface McpResourceTemplate {
   description?: string | null;
   mimeType?: string | null;
 }
-
-// --- History search and pagination (feature 11) ---
-
-export type ThreadSearchFilter = SearchFilter;
 
 // --- Codex events (typed once in `src-tauri/src/codex/events.rs`) ---
 

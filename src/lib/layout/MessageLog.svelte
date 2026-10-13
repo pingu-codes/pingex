@@ -10,7 +10,7 @@ import {
   messagesToText,
 } from "$lib/layout/messageLog";
 import { messageLog } from "$lib/layout/messageLogPrefs.svelte";
-import { copyText } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 
 let query = $state("");
 let direction = $state<DirectionFilter>("all");
@@ -63,7 +63,7 @@ const kindClass: Record<string, string> = {
       label="Copy the filtered messages"
       type="button"
       aria-label="Copy message log"
-      onclick={() => copyText(messagesToText(visible))}
+      onclick={() => commands.copyText(messagesToText(visible))}
       class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
     >
       <Copy size={14} />

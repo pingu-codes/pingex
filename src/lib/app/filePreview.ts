@@ -9,7 +9,7 @@
 import { openDialog } from "$lib/app/dialogs.svelte";
 import { currentProject, selectedThreadInfo } from "$lib/app/navigation.svelte";
 import FilePreviewDialog from "$lib/components/FilePreviewDialog.svelte";
-import { readFilePreview, revealInFinder } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import type { FilePreview } from "$lib/types";
 import { errorMessage } from "$lib/utils/errors";
 import type { FileRef } from "$lib/utils/fileRef";
@@ -25,7 +25,7 @@ export async function openFilePreview(ref: FileRef, cwd?: string | null): Promis
 
   let preview: FilePreview;
   try {
-    preview = await readFilePreview(ref.path);
+    preview = await commands.readFilePreview(ref.path, null);
   } catch (cause) {
     // The modal still opens and says what went wrong — dropping the click
     // silently is the behaviour this whole change exists to remove.
@@ -40,7 +40,7 @@ export async function openFilePreview(ref: FileRef, cwd?: string | null): Promis
   }
 
   if (preview.problem === "directory") {
-    await revealInFinder(preview.path).catch(() => {});
+    await commands.revealInFinder(preview.path).catch(() => {});
     return;
   }
 

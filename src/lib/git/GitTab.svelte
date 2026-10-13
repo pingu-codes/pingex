@@ -4,19 +4,8 @@ import { onMount, untrack } from "svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
 import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
-import {
-  gitCommit,
-  gitContext,
-  gitDiscard,
-  gitFetch,
-  gitFileDiff,
-  gitPull,
-  gitPush,
-  gitStage,
-  gitStagedFileDiff,
-  gitUnstage,
-} from "$lib/services/api";
 import { type CodexEvent, setThreadHandler } from "$lib/services/codexEvents.svelte";
+import { commands } from "$lib/services/homeRouting";
 import type { CommitResult, FileDiff, GitContext, SyncResult } from "$lib/types";
 import { formatBytes } from "$lib/utils/format";
 import { highlightDiff } from "$lib/utils/markdown";
@@ -48,8 +37,8 @@ let selected = $state<Selection | null>(null);
 const fileDiff = resource(
   (dir: string, current: Selection): Promise<FileDiff | null> =>
     current.section === "staged"
-      ? gitStagedFileDiff(dir, current.path)
-      : gitFileDiff(dir, "HEAD", current.path, current.section === "untracked"),
+      ? commands.gitStagedFileDiff(dir, current.path, null)
+      : commands.gitFileDiff(dir, "HEAD", current.path, current.section === "untracked", null),
   { initial: null, describe: (cause) => parseGitError(cause).message },
 );
 const diff = $derived(fileDiff.value);
@@ -110,7 +99,7 @@ const rendered = $derived(diff ? highlightDiff(diff.patch) : "");
 
 async function mutate(
   kind: NonNullable<typeof busy>,
-  work: () => Promise<void>,
+  work: () => Promise<unknown>,
   after: "status" | "context" = "status",
 ) {
   if (busy) return false;
@@ -119,7 +108,7 @@ async function mutate(
   try {
     await work();
     await refresh();
-    if (after === "context") onContextChanged?.(await gitContext(dir));
+    if (after === "context") onContextChanged?.(await commands.gitContext(dir));
     return true;
   } catch (cause) {
     actionError = parseGitError(cause);
@@ -129,8 +118,8 @@ async function mutate(
   }
 }
 
-const stage = (paths: string[]) => void mutate("files", () => gitStage(dir, paths));
-const unstage = (paths: string[]) => void mutate("files", () => gitUnstage(dir, paths));
+const stage = (paths: string[]) => void mutate("files", () => commands.gitStage(dir, paths));
+const unstage = (paths: string[]) => void mutate("files", () => commands.gitUnstage(dir, paths));
 
 async function discard(paths: string[], untrackedPaths: string[]) {
   const total = paths.length + untrackedPaths.length;
@@ -151,7 +140,7 @@ async function discard(paths: string[], untrackedPaths: string[]) {
     icon: Undo2,
     width: 440,
   });
-  if (confirmed) void mutate("files", () => gitDiscard(dir, paths, untrackedPaths));
+  if (confirmed) void mutate("files", () => commands.gitDiscard(dir, paths, untrackedPaths));
 }
 
 async function commit(message: string): Promise<boolean> {
@@ -159,9 +148,9 @@ async function commit(message: string): Promise<boolean> {
   busy = "commit";
   commitError = null;
   try {
-    lastCommit = await gitCommit(dir, message);
+    lastCommit = await commands.gitCommit(dir, message);
     await refresh();
-    onContextChanged?.(await gitContext(dir));
+    onContextChanged?.(await commands.gitContext(dir));
     return true;
   } catch (cause) {
     commitError = parseGitError(cause);
@@ -176,10 +165,10 @@ function sync(operation: SyncOperation) {
   const work = async () => {
     lastSync =
       operation === "fetch"
-        ? await gitFetch(dir)
+        ? await commands.gitFetch(dir)
         : operation === "pull"
-          ? await gitPull(dir)
-          : await gitPush(dir, operation === "publish");
+          ? await commands.gitPull(dir)
+          : await commands.gitPush(dir, operation === "publish");
   };
   void mutate(operation, work, "context");
 }
@@ -188,7 +177,7 @@ async function switchBranch() {
   const branch = await openDialog(BranchSwitcherDialog, { dir, currentBranch: status?.branch ?? context.branch });
   if (branch) {
     await refresh();
-    onContextChanged?.(await gitContext(dir));
+    onContextChanged?.(await commands.gitContext(dir));
   }
 }
 </script>

@@ -511,7 +511,8 @@ Branch `feat/claude-harness`, first slice, verified against Claude Code
   `rename_thread`, `archive_thread`, `delete_thread`,
   `threads_with_active_turns` do the right thing for a Claude thread.
   Codex-only verbs (queue, goals, subagents, auto-naming) answer without a
-  Codex round trip. New: `list_harness_models`, `read_claude_status`.
+  Codex round trip. New: `list_harness_models` and `read_home_claude_status`
+  (whether one Home's `claude` is installed and logged in).
 - Frontend: a harness chip on the draft composer (persisted in composer
   prefs, per project), Claude's model aliases and permission presets in the
   existing popovers, option buttons on the approval card, a "Claude" badge in

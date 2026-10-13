@@ -2,7 +2,7 @@
 import { Archive, ArchiveRestore, ChevronDown } from "@lucide/svelte";
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
-import { listThreadsPage, unarchiveThread } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import type { ArchivedThread, BootstrapData, ThreadSummary } from "$lib/types";
 import { errorMessage } from "$lib/utils/errors";
 import { relativeTime } from "$lib/utils/format";
@@ -27,7 +27,7 @@ let archivedError = $state<string | null>(null);
 async function loadPage() {
   loadingMore = true;
   try {
-    const page = await listThreadsPage(cursor, PAGE_SIZE, true, null);
+    const page = await commands.listThreadsPage(cursor, PAGE_SIZE, true, null);
     archived = [...(archived ?? []), ...page.items];
     cursor = page.nextCursor;
     archivedError = null;
@@ -49,7 +49,7 @@ function asArchivedThread(thread: ThreadSummary): ArchivedThread {
 
 async function unarchive(thread: ThreadSummary) {
   try {
-    const data = await unarchiveThread(thread.id);
+    const data = await commands.unarchiveThread(thread.id);
     archived = (archived ?? []).filter((entry) => entry.id !== thread.id);
     onUnarchived?.(data);
   } catch (cause) {

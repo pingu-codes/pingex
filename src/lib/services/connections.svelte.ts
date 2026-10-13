@@ -1,5 +1,5 @@
-import { listConnections, refreshConnections } from "$lib/services/api";
 import { setThreadHandler } from "$lib/services/codexEvents.svelte";
+import { commands } from "$lib/services/homeRouting";
 import type { RemoteConnection } from "$lib/types";
 
 /**
@@ -19,7 +19,7 @@ function setConnections(list: RemoteConnection[]): void {
 
 export async function loadConnections(): Promise<void> {
   try {
-    setConnections(await listConnections());
+    setConnections(await commands.listConnections());
   } catch {
     // The relay may be offline; keep the last-known list rather than blanking
     // the indicator.
@@ -27,7 +27,7 @@ export async function loadConnections(): Promise<void> {
 }
 
 export async function reloadConnections(): Promise<RemoteConnection[]> {
-  const list = await refreshConnections();
+  const list = await commands.refreshConnections();
   setConnections(list);
   return list;
 }

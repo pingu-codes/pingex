@@ -347,14 +347,14 @@ fn claude_home_label(config_dir: &str) -> String {
 /// How app-owned subagents are configured, as the settings form sees them.
 #[derive(serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
+#[serde(rename = "AgentSettings")]
 pub(crate) struct AgentSettingsPayload {
     pub(crate) enabled: bool,
     pub(crate) sandbox: String,
     pub(crate) max_concurrent: u32,
     pub(crate) timeout_seconds: u64,
     /// The sandboxes the form may offer, so the choices live in one place.
-    /// Ignored on the way back in (`default`, so the form may echo it).
-    #[serde(default)]
+    /// The form echoes them back; they are ignored on the way in.
     pub(crate) sandbox_options: Vec<String>,
 }
 

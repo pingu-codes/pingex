@@ -11,7 +11,7 @@
 import { Check, Copy, FolderOpen, SquareArrowOutUpRight } from "@lucide/svelte";
 import type { DialogClose } from "$lib/app/dialogs.svelte";
 import DialogShell from "$lib/components/DialogShell.svelte";
-import { copyText, openInZed, revealInFinder } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import type { FilePreview } from "$lib/types";
 import { languageForPath } from "$lib/utils/codeLanguage";
 import { fileIconFor } from "$lib/utils/fileIcons";
@@ -73,7 +73,7 @@ const notes = $derived.by(() => {
 const copied = flashKey<"absolute" | "relative">(1200);
 
 async function copy(which: "absolute" | "relative") {
-  await copyText(which === "absolute" ? path : relative);
+  await commands.copyText(which === "absolute" ? path : relative);
   copied.trigger(which);
 }
 </script>
@@ -122,7 +122,7 @@ async function copy(which: "absolute" | "relative") {
     {/if}
     <button
       type="button"
-      onclick={() => void revealInFinder(path).catch(() => {})}
+      onclick={() => void commands.revealInFinder(path).catch(() => {})}
       class="btn btn-sm gap-1.5 preset-tonal"
     >
       <FolderOpen size={13} />
@@ -130,7 +130,7 @@ async function copy(which: "absolute" | "relative") {
     </button>
     <button
       type="button"
-      onclick={() => void openInZed(path).catch(() => {})}
+      onclick={() => void commands.openInZed(path).catch(() => {})}
       class="btn btn-sm gap-1.5 preset-tonal"
     >
       <SquareArrowOutUpRight size={13} />

@@ -18,6 +18,7 @@ const SOURCE_COLUMNS: &str =
 /// content to a project's searchable index.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
+#[serde(rename = "ProjectSource")]
 pub(crate) struct StoredProjectSource {
     pub(crate) id: String,
     pub(crate) project_path: String,

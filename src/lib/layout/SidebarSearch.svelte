@@ -12,7 +12,7 @@ import {
   type SearchGroup,
   searchState,
 } from "$lib/layout/sidebarSearch";
-import { searchThreads } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import type { Project, ThreadSearchFilter, ThreadSearchItem } from "$lib/types";
 import { errorMessage } from "$lib/utils/errors";
 import { relativeTime } from "$lib/utils/format";
@@ -73,8 +73,8 @@ async function runInitial() {
   archived = { ...emptyGroup(), loading: true };
   try {
     const [activePage, archivedPage] = await Promise.all([
-      searchThreads(query, null, filterFor(false), mine),
-      searchThreads(query, null, filterFor(true), mine),
+      commands.searchThreads(query, null, filterFor(false), mine),
+      commands.searchThreads(query, null, filterFor(true), mine),
     ]);
     if (mine !== generation) return;
     active = {
@@ -104,7 +104,7 @@ async function loadMore(isArchived: boolean) {
   if (isArchived) archived = { ...archived, loading: true };
   else active = { ...active, loading: true };
   try {
-    const page = await searchThreads(query, group.cursor, filterFor(isArchived), mine);
+    const page = await commands.searchThreads(query, group.cursor, filterFor(isArchived), mine);
     if (mine !== generation) return;
     const next: SearchGroup = {
       items: [...group.items, ...page.items],

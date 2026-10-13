@@ -1,15 +1,15 @@
 <!--
   Cumulative token spend for one scope — a thread, a project, or the whole
   Home — by category, by model and (above thread scope) by thread. Reads the
-  ledger through `readUsageBreakdown` and re-reads, briefly debounced, when a
+  ledger through `commands.readUsageBreakdown` and re-reads, briefly debounced, when a
   usage report arrives; the aggregate can change on any thread's turn.
 -->
 <script lang="ts">
 import { onMount } from "svelte";
 import { openThreadById } from "$lib/app/navigation.svelte";
 import Segmented from "$lib/components/Segmented.svelte";
-import { readUsageBreakdown } from "$lib/services/api";
 import { usageStatus } from "$lib/services/codexEvents.svelte";
+import { commands } from "$lib/services/homeRouting";
 import type { UsageBreakdown, UsageScope } from "$lib/types";
 import UsageBreakdownBar from "$lib/usage/UsageBreakdownBar.svelte";
 import { costFor, costLabel, rangeSince, USAGE_RANGES, type UsageRange } from "$lib/usage/usageBreakdown";
@@ -28,7 +28,7 @@ let {
 let range = $state<UsageRange>("all");
 // Only the newest read lands: a slow one for the previous range must not
 // overwrite the current range's figures.
-const usage = resource(() => readUsageBreakdown(scope, rangeSince(range)));
+const usage = resource(() => commands.readUsageBreakdown(scope, rangeSince(range)));
 const breakdown = $derived<UsageBreakdown | null>(usage.value ?? null);
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 

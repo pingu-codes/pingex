@@ -22,17 +22,9 @@ import { Menu, Portal } from "@skeletonlabs/skeleton-svelte";
 import { onMount } from "svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
-import {
-  gitRepoInfo,
-  gitWorktreeAdd,
-  gitWorktreeHandoff,
-  gitWorktreeLock,
-  gitWorktreePrune,
-  gitWorktreeRemove,
-  gitWorktrees,
-  gitWorktreeUnlock,
-} from "$lib/services/api";
+import { gitWorktreeAdd } from "$lib/services/api";
 import { type CodexEvent, setThreadHandler } from "$lib/services/codexEvents.svelte";
+import { commands } from "$lib/services/homeRouting";
 import HandoffToLocalDialog from "$lib/thread/HandoffToLocalDialog.svelte";
 import type { GitRepoInfo, Project, WorktreeBranchRequest, WorktreeEntry } from "$lib/types";
 import { submitState } from "$lib/utils/actionState.svelte";
@@ -85,7 +77,7 @@ async function load() {
   loading = true;
   error = null;
   try {
-    const [worktrees, info] = await Promise.all([gitWorktrees(repoDir), gitRepoInfo(repoDir)]);
+    const [worktrees, info] = await Promise.all([commands.gitWorktrees(repoDir), commands.gitRepoInfo(repoDir)]);
     entries = worktrees;
     repoInfo = info;
   } catch (cause) {
@@ -103,7 +95,7 @@ onMount(() => {
   });
 });
 
-async function runAction(fn: () => Promise<void>) {
+async function runAction(fn: () => Promise<unknown>) {
   await actions.run(async () => {
     await fn();
     await load();
@@ -135,7 +127,7 @@ function handoffToLocal(entry: WorktreeEntry) {
     targets: [],
     defaultTarget: repoDir,
     submit: async (targetDir: string, commitUncommitted: boolean, branchName: string | null) => {
-      await gitWorktreeHandoff(entry.path, targetDir, commitUncommitted, branchName);
+      await commands.gitWorktreeHandoff(entry.path, targetDir, commitUncommitted, branchName);
       await load();
     },
   });
@@ -156,9 +148,9 @@ function menuItems(entry: WorktreeEntry) {
 
 function menuAction(entry: WorktreeEntry, action: string) {
   if (action === "rename") onRenameProject?.(entry.path);
-  else if (action === "unlock") void runAction(() => gitWorktreeUnlock(repoDir, entry.path));
-  else if (action === "lock") void runAction(() => gitWorktreeLock(repoDir, entry.path));
-  else if (action === "prune") void runAction(() => gitWorktreePrune(repoDir));
+  else if (action === "unlock") void runAction(() => commands.gitWorktreeUnlock(repoDir, entry.path));
+  else if (action === "lock") void runAction(() => commands.gitWorktreeLock(repoDir, entry.path, null));
+  else if (action === "prune") void runAction(() => commands.gitWorktreePrune(repoDir));
   else if (action === "handoff") handoffToLocal(entry);
   else if (action === "remove") void removeWorktree(entry);
 }
@@ -168,7 +160,7 @@ async function removeWorktree(entry: WorktreeEntry) {
     entry,
     threadCount: threadCountFor(entry.path),
   });
-  if (result) await runAction(() => gitWorktreeRemove(repoDir, entry.path, result.force));
+  if (result) await runAction(() => commands.gitWorktreeRemove(repoDir, entry.path, result.force));
 }
 </script>
 
@@ -190,7 +182,7 @@ async function removeWorktree(entry: WorktreeEntry) {
         <div class="min-w-0 flex-1 text-xs text-surface-500">Worktrees of <span class="font-mono">{repoName}</span></div>
       {/if}
       {#if hasStale}
-        <button onclick={() => runAction(() => gitWorktreePrune(repoDir))} class="btn btn-sm preset-tonal">
+        <button onclick={() => runAction(() => commands.gitWorktreePrune(repoDir))} class="btn btn-sm preset-tonal">
           <Trash2 size={14} />
           Prune stale
         </button>

@@ -691,7 +691,7 @@ export const previewCommands: PreviewCommands = {
     if (label) params.set("label", label);
     return `codex://threads/${threadId}?${params.toString()}`;
   },
-  async handoffCopy(text) {
+  async copyText(text) {
     await navigator.clipboard?.writeText(text).catch(() => {});
   },
   remotePairingStart: () => ({

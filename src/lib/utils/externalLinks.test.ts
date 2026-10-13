@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const openExternalUrl = vi.fn((_url: string) => Promise.resolve());
 const revealInFinder = vi.fn((_path: string) => Promise.resolve());
 
-vi.mock("$lib/services/api", () => ({
-  openExternalUrl: (url: string) => openExternalUrl(url),
-  revealInFinder: (path: string) => revealInFinder(path),
+vi.mock("$lib/services/homeRouting", () => ({
+  commands: {
+    openExternalUrl: (url: string) => openExternalUrl(url),
+    revealInFinder: (path: string) => revealInFinder(path),
+  },
 }));
 
 const { installExternalLinkHandler } = await import("./externalLinks");

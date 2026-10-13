@@ -5,7 +5,7 @@ import type { DialogClose } from "$lib/app/dialogs.svelte";
 import BranchList from "$lib/components/BranchList.svelte";
 import DialogShell from "$lib/components/DialogShell.svelte";
 import Segmented from "$lib/components/Segmented.svelte";
-import { gitBranches, gitCheckoutBranch, gitCreateBranch } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import type { GitBranch as Branch } from "$lib/types";
 import { submitState } from "$lib/utils/actionState.svelte";
 import { resource } from "$lib/utils/resource.svelte";
@@ -23,7 +23,7 @@ let {
   close: DialogClose<string>;
 } = $props();
 
-const listing = resource(() => gitBranches(dir), { describe: (cause) => parseGitError(cause).message });
+const listing = resource(() => commands.gitBranches(dir, null), { describe: (cause) => parseGitError(cause).message });
 const branches = $derived<Branch[]>(listing.value ?? []);
 let mode = $state<"switch" | "create">("switch");
 let newName = $state("");
@@ -48,7 +48,7 @@ async function switchTo(name: string, force: boolean) {
   dirtyRefusal = null;
   const ok = await action.run(async () => {
     try {
-      await gitCheckoutBranch(dir, name, force);
+      await commands.gitCheckoutBranch(dir, name, force);
     } catch (cause) {
       const error = parseGitError(cause);
       if (error.kind === "dirtyTree") dirtyRefusal = name;
@@ -65,10 +65,10 @@ async function switchTo(name: string, force: boolean) {
 async function trackRemote(remoteName: string) {
   const name = stripRemotePrefix(remoteName);
   if (!branches.some((branch) => !branch.isRemote && branch.name === name)) {
-    const created = await action.run(() => gitCreateBranch(dir, name, remoteName, false));
+    const created = await action.run(() => commands.gitCreateBranch(dir, name, remoteName, false));
     if (!created) return;
     // A failed re-read keeps the list as it was.
-    listing.set(await gitBranches(dir).catch(() => branches));
+    listing.set(await commands.gitBranches(dir, null).catch(() => branches));
   }
   await switchTo(name, false);
 }
@@ -76,7 +76,7 @@ async function trackRemote(remoteName: string) {
 async function create() {
   if (!canCreate) return;
   const name = newName.trim();
-  const ok = await action.run(() => gitCreateBranch(dir, name, base.trim() || null, checkoutNew));
+  const ok = await action.run(() => commands.gitCreateBranch(dir, name, base.trim() || null, checkoutNew));
   if (ok) close(checkoutNew ? name : (currentBranch ?? name));
 }
 </script>

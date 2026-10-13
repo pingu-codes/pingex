@@ -10,15 +10,8 @@ import { checkCodexVersion } from "$lib/app/codexVersion.svelte";
 import { closeAllDialogs } from "$lib/app/dialogs.svelte";
 import { goHome } from "$lib/app/navigation.svelte";
 import { refreshAccountUsage } from "$lib/services/accountUsage.svelte";
-import {
-  isTauri,
-  listWslDistros,
-  readLaunchState,
-  removeRecentHome,
-  selectCodexHome,
-  setCodexBinary,
-} from "$lib/services/api";
-import { belongsToProfile } from "$lib/services/homeRouting";
+import { belongsToProfile, commands } from "$lib/services/homeRouting";
+import { isTauri } from "$lib/services/tauri";
 import type { Host, LaunchState } from "$lib/types";
 import { errorMessage } from "$lib/utils/errors";
 
@@ -84,7 +77,7 @@ export async function chooseHome(path: string, host: Host | null = null): Promis
   launch.busy = true;
   launch.error = null;
   try {
-    launch.state = await selectCodexHome(path, host);
+    launch.state = await commands.selectCodexHome(path, host);
     await boot();
   } catch (cause) {
     launch.error = errorMessage(cause);
@@ -95,7 +88,7 @@ export async function chooseHome(path: string, host: Host | null = null): Promis
 
 /** Switch home for an incoming handoff; throws so the caller can report it. */
 export async function switchToHome(path: string, host: Host | null = null): Promise<void> {
-  launch.state = await selectCodexHome(path, host);
+  launch.state = await commands.selectCodexHome(path, host);
   await boot();
 }
 
@@ -110,7 +103,7 @@ export async function browseForHome(): Promise<string | null> {
 // Point the app at a Codex CLI from the picker. Throws so the picker can show
 // the failure inline; a success takes effect immediately (no restart).
 export async function setBinary(path: string): Promise<void> {
-  launch.state = await setCodexBinary(path);
+  launch.state = await commands.setCodexBinary(path);
   launch.error = null;
   // A different binary may be a different version.
   void checkCodexVersion();
@@ -120,7 +113,7 @@ export async function setBinary(path: string): Promise<void> {
 export async function removeHome(path: string, host: Host | null = null): Promise<void> {
   launch.error = null;
   try {
-    launch.state = await removeRecentHome(path, host);
+    launch.state = await commands.removeRecentHome(path, host);
   } catch (cause) {
     launch.error = errorMessage(cause);
   }
@@ -133,7 +126,7 @@ export async function switchHome(): Promise<void> {
   goHome();
   launch.error = null;
   try {
-    launch.state = await readLaunchState();
+    launch.state = await commands.readLaunchState();
   } catch {
     // Keep the last known launch state if the refresh fails.
   }
@@ -144,7 +137,8 @@ export async function switchHome(): Promise<void> {
 // show the picker first so Codex does not start against the wrong home.
 export async function init(): Promise<void> {
   // Best effort: no distributions simply means no host picker.
-  listWslDistros()
+  commands
+    .listWslDistros()
     // Braced: an arrow returning the assignment trips Svelte's
     // `assignment_value_stale` (the value is not the stored proxy).
     .then((distros) => {
@@ -154,7 +148,7 @@ export async function init(): Promise<void> {
       launch.distros = [];
     });
   try {
-    launch.state = await readLaunchState();
+    launch.state = await commands.readLaunchState();
     if (launch.state.needsPicker) {
       launch.phase = "picker";
       return;

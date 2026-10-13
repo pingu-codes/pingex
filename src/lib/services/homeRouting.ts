@@ -1,6 +1,6 @@
 import { SvelteMap } from "svelte/reactivity";
 import { hostKey, hostLabel, sameHost } from "$lib/app/host";
-import type { BootstrapData, HomeSnapshot, Host, ProfileBootstrap, UsageScopeArg } from "$lib/bindings";
+import type { BootstrapData, HomeSnapshot, Host, ProfileBootstrap, UsageScope } from "$lib/bindings";
 import { commandArguments, commands as nativeCommands } from "$lib/bindings";
 import { isTauri } from "$lib/services/tauri";
 
@@ -429,7 +429,7 @@ async function routeUsageBreakdown(call: Call): Promise<unknown> {
         ? homeForPath(scope.path)
         : selectedHome();
   if (!owner) throw new Error("Choose a Home for this project");
-  const nativeScope: UsageScopeArg =
+  const nativeScope: UsageScope =
     scope.kind === "thread"
       ? { kind: "thread", threadId: unwrap(scope.threadId) as string }
       : scope.kind === "project"

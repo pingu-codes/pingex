@@ -12,14 +12,7 @@ import {
   isMarkdown,
   stripFrontmatter,
 } from "$lib/memories/memoriesHelpers";
-import {
-  deleteMemory,
-  listMemories,
-  readMemory,
-  revealInFinder,
-  setMemoryToggle,
-  writeMemory,
-} from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import type { MemoryHome } from "$lib/types";
 import { copyCode } from "$lib/utils/copy";
 import { errorMessage } from "$lib/utils/errors";
@@ -51,7 +44,7 @@ async function load() {
   loading = true;
   error = null;
   try {
-    apply(await listMemories(projectPaths()));
+    apply(await commands.listMemories(projectPaths()));
   } catch (cause) {
     error = errorMessage(cause);
   } finally {
@@ -74,7 +67,7 @@ function select(target: { homeId: string; path: string } | null) {
 
 async function read(target: { homeId: string; path: string }) {
   try {
-    const body = await readMemory(target.homeId, target.path);
+    const body = await commands.readMemory(target.homeId, target.path);
     contents[target.path] = body;
   } catch (cause) {
     error = errorMessage(cause);
@@ -101,7 +94,7 @@ async function save() {
   saving = true;
   error = null;
   try {
-    const next = await writeMemory(homeId, path, text, projectPaths());
+    const next = await commands.writeMemory(homeId, path, text, projectPaths());
     contents[path] = text;
     delete drafts[path];
     if (current?.entry.path === path) editing = false;
@@ -119,7 +112,7 @@ async function remove() {
   const { path } = current.entry;
   error = null;
   try {
-    const next = await deleteMemory(homeId, path, projectPaths());
+    const next = await commands.deleteMemory(homeId, path, projectPaths());
     delete drafts[path];
     delete contents[path];
     // Only close the editor if it is still showing the deleted memory.
@@ -136,7 +129,7 @@ async function remove() {
 async function toggle(home: MemoryHome, key: string, value: boolean) {
   error = null;
   try {
-    apply(await setMemoryToggle(home.homeId, key, value, projectPaths()));
+    apply(await commands.setMemoryToggle(home.homeId, key, value, projectPaths()));
   } catch (cause) {
     error = errorMessage(cause);
   }
@@ -286,7 +279,7 @@ void load();
           <TooltipButton label="Edit" onclick={startEdit} aria-label="Edit memory" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500" disabled={text === undefined}>
             <Pencil size={14} />
           </TooltipButton>
-          <TooltipButton label="Reveal in Finder" onclick={() => revealInFinder(entry.path)} aria-label="Reveal in Finder" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
+          <TooltipButton label="Reveal in Finder" onclick={() => commands.revealInFinder(entry.path)} aria-label="Reveal in Finder" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
             <FolderOpen size={14} />
           </TooltipButton>
           <TooltipButton label="Delete" onclick={() => (confirmDelete = true)} aria-label="Delete memory" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">

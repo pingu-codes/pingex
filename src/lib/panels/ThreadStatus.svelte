@@ -9,12 +9,8 @@
 -->
 <script lang="ts">
 import { accountUsage } from "$lib/services/accountUsage.svelte";
-import {
-  isContextBreakdownUnsupported,
-  readContextBreakdown,
-  readThreadUsage,
-  readUsageBreakdown,
-} from "$lib/services/api";
+import { isContextBreakdownUnsupported, readThreadUsage } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import type { ContextStats } from "$lib/thread/contextUsage";
 import type { ContextComposition, ThreadUsage } from "$lib/types";
 import PromptPartsList from "$lib/usage/PromptPartsList.svelte";
@@ -101,10 +97,11 @@ $effect(() => {
   void (async () => {
     let next: ContextComposition | null = null;
     try {
-      next = await readContextBreakdown(id);
+      next = await commands.readContextBreakdown(id);
     } catch (cause) {
       if (!isContextBreakdownUnsupported(cause)) return;
-      next = await readUsageBreakdown({ kind: "thread", threadId: id })
+      next = await commands
+        .readUsageBreakdown({ kind: "thread", threadId: id }, null)
         .then((breakdown) => breakdown.context ?? null)
         .catch(() => null);
     }

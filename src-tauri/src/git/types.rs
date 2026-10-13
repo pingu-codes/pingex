@@ -114,6 +114,7 @@ pub(crate) struct WorktreeEntry {
 /// A recent commit for the base-revision picker and branch context.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
+#[serde(rename = "GitCommit")]
 pub(crate) struct CommitInfo {
     pub(crate) hash: String,
     pub(crate) short_hash: String,
@@ -126,6 +127,7 @@ pub(crate) struct CommitInfo {
 /// remote prefix (`origin/main`), which is also what `git diff` expects.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
+#[serde(rename = "GitBranch")]
 pub(crate) struct BranchRef {
     pub(crate) name: String,
     pub(crate) is_remote: bool,
@@ -138,7 +140,7 @@ pub(crate) struct BranchRef {
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
-pub(crate) enum WorktreeBranch {
+pub(crate) enum WorktreeBranchRequest {
     /// Check out an existing local branch.
     Existing { name: String },
     /// Create a new branch, optionally from a base revision.
@@ -152,7 +154,7 @@ pub(crate) enum WorktreeBranch {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorktreeAddRequest {
     pub(crate) path: String,
-    pub(crate) branch: WorktreeBranch,
+    pub(crate) branch: WorktreeBranchRequest,
 }
 
 /// The commit `git_commit` produced, with whatever the hooks printed.

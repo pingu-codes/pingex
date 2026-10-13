@@ -4,7 +4,7 @@ import { onMount } from "svelte";
 import type { DialogClose } from "$lib/app/dialogs.svelte";
 import DialogShell from "$lib/components/DialogShell.svelte";
 import DirectoryField from "$lib/components/DirectoryField.svelte";
-import { gitWorktrees } from "$lib/services/api";
+import { commands } from "$lib/services/homeRouting";
 import type { Project, WorktreeEntry } from "$lib/types";
 import { submitState } from "$lib/utils/actionState.svelte";
 import { basename } from "$lib/utils/path";
@@ -24,7 +24,7 @@ let {
   close: DialogClose<true>;
 } = $props();
 
-const worktrees = resource(() => gitWorktrees(repoDir));
+const worktrees = resource(() => commands.gitWorktrees(repoDir));
 /** Chosen from the list, or browsed to by hand. */
 let selectedPath = $state("");
 const action = submitState();
