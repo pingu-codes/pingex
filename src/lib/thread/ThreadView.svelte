@@ -1,23 +1,20 @@
 <script lang="ts">
-import { ArrowDown, ChevronRight, Gauge, Pause, Pencil, Play, Target, X } from "@lucide/svelte";
+import { ArrowDown, ChevronRight, X } from "@lucide/svelte";
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
-import { onDestroy, tick, untrack } from "svelte";
+import { onDestroy, untrack } from "svelte";
 import { SvelteSet } from "svelte/reactivity";
 import { nameNewThread } from "$lib/app/appData.svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
 import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
-import TooltipButton from "$lib/components/TooltipButton.svelte";
 import TypingDots from "$lib/components/TypingDots.svelte";
 import Composer from "$lib/composer/Composer.svelte";
 import type { SlashCommandId } from "$lib/composer/slashCommands";
 import RightPanel, { type PanelView } from "$lib/panels/RightPanel.svelte";
-import { runsFor } from "$lib/services/agentRuns.svelte";
+import { runAsSubagent, runsFor } from "$lib/services/agentRuns.svelte";
 import {
   addThreadBranch,
-  clearThreadGoal,
   copyText,
   forkThread,
-  getThreadGoal,
   gitChangesSummary,
   gitRepoInfo,
   gitWorktreeAdd,
@@ -29,9 +26,6 @@ import {
   revealInFinder,
   reviewLocalDiff,
   setThreadBranchEditTurn,
-  setThreadGoal,
-  setThreadGoalBudget,
-  setThreadGoalStatus,
   startThread,
   startTurn,
   updateSubagentPolicy,
@@ -44,21 +38,22 @@ import { contextStats as deriveContextStats } from "$lib/thread/contextUsage";
 import ElicitationCard from "$lib/thread/ElicitationCard.svelte";
 import FloatingMenu from "$lib/thread/FloatingMenu.svelte";
 import { collectFileChanges } from "$lib/thread/fileChanges";
-import GoalBudgetDialog from "$lib/thread/GoalBudgetDialog.svelte";
-import { parseTokenBudget } from "$lib/thread/goalBudget";
+import GoalBanner from "$lib/thread/GoalBanner.svelte";
+import { goalCommands } from "$lib/thread/goalCommands";
 import { cwdBelongsTo } from "$lib/thread/handoff";
 import { messageText, messageTitle } from "$lib/thread/messageText";
-import { groupForTurn, isPendingEditTurn, versionsForTurn } from "$lib/thread/messageVersions";
+import { isPendingEditTurn, versionsForTurn } from "$lib/thread/messageVersions";
 import { planText } from "$lib/thread/planText";
 import QuestionCard from "$lib/thread/QuestionCard.svelte";
 import QueuedMessageRow from "$lib/thread/QueuedMessageRow.svelte";
+import { queuedText } from "$lib/thread/queueEntries";
 import ReasoningBlock from "$lib/thread/ReasoningBlock.svelte";
 import SystemPromptSection from "$lib/thread/SystemPromptSection.svelte";
-import { isAtBottom, isFarFromBottom, nextFollowing, recallScroll, rememberScroll } from "$lib/thread/scrollPositions";
 import { attachSession, draftSession, openSession, releaseSession } from "$lib/thread/sessions.svelte";
 import TurnPlanCard from "$lib/thread/TurnPlanCard.svelte";
 import type { ThreadSession } from "$lib/thread/threadSession.svelte";
 import { upsertItem } from "$lib/thread/threadStream";
+import { TranscriptScroll } from "$lib/thread/transcriptScroll.svelte";
 import {
   completedSegmentKey,
   segmentKey,
@@ -91,7 +86,6 @@ import type {
 } from "$lib/types";
 import { can } from "$lib/utils/capabilities";
 import { errorMessage } from "$lib/utils/errors";
-import { formatTokensShort } from "$lib/utils/format";
 import CreateWorktreeDialog from "$lib/worktrees/CreateWorktreeDialog.svelte";
 import { tempWorktreeLocation } from "$lib/worktrees/worktrees";
 
@@ -188,51 +182,18 @@ const liveThreadId = $derived(session.id);
 const activeTurn = $derived(session.activeTurn);
 const loading = $derived(session.loading);
 const error = $derived(session.error);
-const streamError = $derived(session.streamError);
-const notice = $derived(session.notice);
-const goal = $derived(session.goal);
 const starting = $derived(session.starting);
-const compacting = $derived(session.compacting);
-const tokenUsage = $derived(session.tokenUsage);
-const subagentModelPolicy = $derived(session.subagentModelPolicy);
-const subagentReasoningEffortPolicy = $derived(session.subagentReasoningEffortPolicy);
 /** What the thread last ran on, so a turn sent before the model list loads
  *  still carries full collaboration-mode settings. */
-const lastTurnModel = $derived.by(() => {
-  const turns = thread?.turns ?? [];
-  for (let i = turns.length - 1; i >= 0; i--) {
-    const model = turns[i].model;
-    if (model) return model;
-  }
-  return null;
-});
+const lastTurnModel = $derived([...(thread?.turns ?? [])].reverse().find((turn) => turn.model)?.model ?? null);
 // Surface stream errors as dismissable, auto-expiring toasts (see ToastHost).
 $effect(() => {
+  const streamError = session.streamError;
   if (!streamError) return;
   toastError(streamError);
   session.streamError = null;
 });
-let scroller: HTMLElement | null = null;
-/** Thread whose remembered scroll offset has been applied to `scroller`. */
-let restoredScrollFor: string | null = null;
-/** Whether the transcript tracks the live bottom. Only user scrolling changes it;
- *  position is a poor proxy for intent while content streams in fast. */
-let following = $state(true);
-/** Set right before we assign `scrollTop` so the resulting scroll event is not
- *  mistaken for the user's. One-shot, deliberately not reactive. */
-let programmaticScroll = false;
-let lastScrollTop = 0;
-/** Measured: the scroller is pinned to the very bottom. Gates the jump pill so
- *  a wheel-up that cannot move anything (rubber-band at the end) never shows it. */
-let atBottom = $state(true);
-/** Measured: the latest content is well out of view (see `isFarFromBottom`). */
-let farFromBottom = $state(false);
-/** The user scrolled towards the bottom within the last `RECENT_DOWN_SCROLL_MS`.
- *  Read as intent to return to the latest content; scrolling up (reading back
- *  through history) clears it at once so the pill never covers what is being read. */
-let recentDownScroll = $state(false);
-const RECENT_DOWN_SCROLL_MS = 2000;
-let recentDownScrollTimer: ReturnType<typeof setTimeout> | null = null;
+const transcript = new TranscriptScroll(() => liveThreadId);
 let panelView = $state<PanelView | null>(null);
 /** Whether the system prompt's full text is shown inline at the top of the
  *  scrollback. Toggled from the status panel; fetched once per thread and
@@ -264,25 +225,15 @@ function toggleSystemPromptInThread() {
       systemPromptPartsFor = null;
     });
 }
-let composer = $state<{
-  implementPlan: () => void;
-  implementPlanFresh: (plan?: string | null) => void;
-  appSubagentsChoice: () => boolean | null;
-  harnessChoice: () => "codex" | "claude" | null;
-  openReviewPicker: () => void;
-  startGoalEdit: (objective: string) => void;
-  syncPlanMode: (on: boolean) => void;
-  syncPermissionMode: (mode: string) => void;
-  restoreText: (text: string) => void;
-  turnOptions: () => TurnOptions | undefined;
-  isEmpty: () => boolean;
-} | null>(null);
+let composer = $state<ReturnType<typeof Composer> | null>(null);
 /** Model the composer will run turns on — priced for the usage estimate. */
 let activeModel = $state<string | null>(null);
 type NewThreadLocation = "project" | "temporary" | "permanent";
 let newThreadLocation = $state<NewThreadLocation>("project");
 let newThreadCwd = $state("");
 let repoInfo = $state<GitRepoInfo | null>(null);
+/** Where new worktrees branch from. */
+const repoDir = $derived(repoInfo?.root ?? (projectPath || cwd));
 
 $effect(() => {
   if (threadId) return;
@@ -300,9 +251,9 @@ function chooseNewThreadLocation(location: NewThreadLocation) {
   if (location === "permanent") {
     openDialog(CreateWorktreeDialog, {
       codexHome,
-      repoDir: repoInfo?.root ?? (projectPath || cwd),
+      repoDir,
       submit: async (path: string, branch: WorktreeBranchRequest) => {
-        await gitWorktreeAdd(repoInfo?.root ?? (projectPath || cwd), path, branch);
+        await gitWorktreeAdd(repoDir, path, branch);
         newThreadLocation = "permanent";
         newThreadCwd = path;
       },
@@ -317,7 +268,6 @@ async function ensureNewThreadCwd(): Promise<string> {
   if (newThreadLocation === "project") return cwd;
   if (newThreadLocation === "permanent") return newThreadCwd;
   if (!codexHome) throw new Error("The active Codex home is unavailable.");
-  const repoDir = repoInfo?.root ?? (projectPath || cwd);
   const suffix = `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 6)}`;
   const branchName = `codex/tmp-${suffix}`;
   const path = tempWorktreeLocation(codexHome, repoDir, suffix);
@@ -334,23 +284,7 @@ async function ensureNewThreadCwd(): Promise<string> {
  * `subagentsChanged` outcome does not fire for our tools. Reading the store keeps
  * the menu live while they work.
  */
-const appSubagentDetails = $derived(
-  runsFor(liveThreadId)
-    .filter((run) => run.childThreadId)
-    .map((run) => ({
-      id: run.childThreadId as string,
-      parentThreadId: liveThreadId ?? "",
-      title: run.name,
-      cwd: run.cwd,
-      status: run.status,
-      agentNickname: run.name,
-      agentRole: null,
-      model: run.model,
-      reasoningEffort: run.reasoningEffort,
-      source: "app" as const,
-      runId: run.runId,
-    })),
-);
+const appSubagentDetails = $derived(runsFor(liveThreadId).flatMap((run) => runAsSubagent(run) ?? []));
 
 const subagentDetails = $derived([
   ...session.subagents.map((detail) => ({ ...detail, source: "codex" as const })),
@@ -363,96 +297,15 @@ $effect(() => {
   const revision = session.revision;
   if (revision === seenRevision) return;
   seenRevision = revision;
-  maybeScroll();
+  transcript.follow();
 });
-
-function maybeScroll(force = false) {
-  const element = scroller;
-  if (!element) return;
-  if (force) following = true;
-  if (!following) {
-    // Streamed content grows scrollHeight without a scroll event.
-    measureBottom(element);
-    return;
-  }
-  requestAnimationFrame(() => scrollProgrammatically(element, element.scrollHeight));
-}
-
-/** Assign `scrollTop` without the resulting scroll event flipping `following`.
- *  When nothing moves no event fires, so drop the guard at once rather than let
- *  it swallow the next real user scroll. */
-function scrollProgrammatically(element: HTMLElement, top: number) {
-  const before = element.scrollTop;
-  programmaticScroll = true;
-  element.scrollTop = top;
-  if (element.scrollTop === before) programmaticScroll = false;
-}
-
-function measureBottom(element: HTMLElement) {
-  atBottom = isAtBottom(element);
-  farFromBottom = isFarFromBottom(element);
-}
-
-function noteScrollDirection(element: HTMLElement) {
-  if (element.scrollTop > lastScrollTop) {
-    recentDownScroll = true;
-    if (recentDownScrollTimer) clearTimeout(recentDownScrollTimer);
-    recentDownScrollTimer = setTimeout(() => {
-      recentDownScroll = false;
-      recentDownScrollTimer = null;
-    }, RECENT_DOWN_SCROLL_MS);
-  } else if (element.scrollTop < lastScrollTop) {
-    clearRecentDownScroll();
-  }
-}
-
-function clearRecentDownScroll() {
-  recentDownScroll = false;
-  if (recentDownScrollTimer) clearTimeout(recentDownScrollTimer);
-  recentDownScrollTimer = null;
-}
-
-onDestroy(clearRecentDownScroll);
-
-function onScroll() {
-  const element = scroller;
-  if (!element) return;
-  if (programmaticScroll) {
-    programmaticScroll = false;
-  } else {
-    following = nextFollowing(following, lastScrollTop, element);
-    noteScrollDirection(element);
-  }
-  lastScrollTop = element.scrollTop;
-  measureBottom(element);
-  if (liveThreadId) rememberScroll(liveThreadId, element);
-}
-
-/** A wheel-up and a programmatic scroll-down can land in the same frame, so the
- *  net scroll event alone may read as "moved down"; detach on the intent itself. */
-function onWheel(event: WheelEvent) {
-  if (event.deltaY < 0) following = false;
-}
 
 // Switching threads remounts this view, so the scroller opens at the top; put
 // it back where this thread was left once the transcript has rendered.
 $effect(() => {
   const id = liveThreadId;
-  if (loading || !thread || !id || restoredScrollFor === id) return;
-  restoredScrollFor = id;
-  const saved = recallScroll(id);
-  if (!saved) return;
-  tick().then(() => {
-    requestAnimationFrame(() => {
-      const element = scroller;
-      if (!element || liveThreadId !== id) return;
-      following = saved.atBottom;
-      scrollProgrammatically(element, saved.atBottom ? element.scrollHeight : saved.top);
-      lastScrollTop = element.scrollTop;
-      measureBottom(element);
-      clearRecentDownScroll();
-    });
-  });
+  if (loading || !thread || !id) return;
+  transcript.restore(id);
 });
 
 /**
@@ -500,7 +353,7 @@ async function send(input: UserInputPart[], options?: TurnOptions): Promise<bool
   }
   const sent = session.send(input, options);
   // The optimistic bubble is already in the transcript; follow it.
-  maybeScroll(true);
+  transcript.follow(true);
   return sent;
 }
 
@@ -574,7 +427,7 @@ const showTypingIndicator = $derived.by(() => {
 /** Take a message off the queue: back into an empty composer, or, when that
  *  would clobber typed text, only after the user agrees to lose it. */
 async function cancelQueued(entry: QueuedSubmission) {
-  const text = queuedPreview(entry.input);
+  const text = queuedText(entry.input);
   if (composer?.isEmpty()) {
     await session.queue.remove(entry);
     composer.restoreText(text);
@@ -590,15 +443,6 @@ async function cancelQueued(entry: QueuedSubmission) {
   if (!confirmed) return;
   await session.queue.remove(entry);
 }
-
-function queuedPreview(input: UserInputPart[]) {
-  return input
-    .map((part) => (part.type === "text" ? (part.text ?? "") : `@${part.name}`))
-    .join("")
-    .trim();
-}
-
-const interrupt = () => session.interrupt();
 
 const allItems = $derived((thread?.turns ?? []).flatMap((turn) => turn.items));
 /** Prior prompts, oldest first, for the composer's ↑/↓ recall. */
@@ -649,14 +493,15 @@ let gitChangesLoading = $state(false);
 let gitChangesError = $state<string | null>(null);
 let gitChangesTimer: ReturnType<typeof setTimeout> | null = null;
 let gitChangesRequest = 0;
-const changesDir = $derived(workspaceId ? cwd : thread?.cwd || cwd);
+/** Where the thread works: a workspace's hub, else the thread's own directory. */
+const workDir = $derived(workspaceId ? cwd : thread?.cwd || cwd);
 
 function refreshGitChanges(immediate = false) {
   if (gitChangesTimer) clearTimeout(gitChangesTimer);
   gitChangesTimer = setTimeout(
     async () => {
       gitChangesTimer = null;
-      const dir = changesDir;
+      const dir = workDir;
       if (!dir) return;
       const id = ++gitChangesRequest;
       gitChangesLoading = true;
@@ -679,7 +524,7 @@ function refreshGitChanges(immediate = false) {
 
 // Load once per directory, then again each time a turn ends.
 $effect(() => {
-  changesDir;
+  workDir;
   gitChanges = null;
   refreshGitChanges(true);
 });
@@ -718,7 +563,7 @@ async function startPlanThread(input: UserInputPart[], options?: TurnOptions) {
   if (starting || activeTurn) return;
   session.starting = true;
   session.streamError = null;
-  const dir = workspaceId ? cwd : thread?.cwd || cwd;
+  const dir = workDir;
   try {
     const created = await startThread(
       dir,
@@ -740,17 +585,14 @@ async function startPlanThread(input: UserInputPart[], options?: TurnOptions) {
   }
 }
 
-const contextStats = $derived(tokenUsage ? deriveContextStats(tokenUsage) : null);
+const contextStats = $derived(session.tokenUsage ? deriveContextStats(session.tokenUsage) : null);
+const costUsd = $derived(estimateCost(session.tokenUsage, activeModel));
 
 // A deep link asked for a specific worktree but the opened thread runs
 // elsewhere — surface it rather than silently showing the wrong directory.
 const cwdMismatch = $derived(
   Boolean(expectedCwd && thread?.id && thread?.cwd && !cwdBelongsTo(thread.cwd, expectedCwd)),
 );
-
-function compact() {
-  return session.compact();
-}
 
 function review(target: ReviewTarget) {
   const owner = session;
@@ -781,32 +623,18 @@ function diffKind(status: string): string {
   return "update";
 }
 
-/**
- * Thread-scoped commands. Those needing the live thread are answered here;
- * the rest bubble to App. A command that needs a thread and has none tells the
- * user so rather than silently doing nothing.
- */
-function runCommand(command: SlashCommandId, argument = "", typed = "") {
-  if (command === "btw") {
-    if (!liveThreadId) {
-      failCommand(command, typed);
-      return;
-    }
+/** Commands a draft can answer. `/review` and `/goal` are here deliberately:
+ *  both start a thread of their own rather than turning the user away. The
+ *  rest read back the conversation, so they need a thread behind them. */
+const DRAFT_COMMANDS = new Set<SlashCommandId>(["new", "review", "goal", "diff", "status"]);
+
+/** Commands answered here rather than in App, given the typed argument. */
+const threadCommands: Partial<Record<SlashCommandId, (argument: string, typed: string) => void>> = {
+  btw: (argument) => {
     panelView = { kind: "side", ...(argument ? { submission: { id: Date.now(), text: argument } } : {}) };
-    return;
-  }
-  // These read back the conversation, so they cannot be answered on a draft.
-  // `/review` and `/goal` are absent deliberately: both start a thread of their
-  // own rather than turning the user away.
-  if (!liveThreadId && (command === "compact" || command === "undo" || command === "copy" || command === "export")) {
-    failCommand(command, typed);
-    return;
-  }
-  if (command === "compact") {
-    compact();
-    return;
-  }
-  if (command === "review") {
+  },
+  compact: () => void session.compact(),
+  review: (argument) => {
     if (activeTurn || starting) {
       session.notice = "/review can't start while Codex is working — stop the current turn first.";
       return;
@@ -815,228 +643,43 @@ function runCommand(command: SlashCommandId, argument = "", typed = "") {
     // review rather than assuming the working tree.
     if (argument) void review({ type: "custom", instructions: argument });
     else composer?.openReviewPicker();
-    return;
-  }
-  if (command === "diff") {
-    void showWorkingDiff();
-    return;
-  }
-  if (command === "undo") {
+  },
+  diff: () => void showWorkingDiff(),
+  undo: (argument) => {
     const turns = Number.parseInt(argument, 10);
-    void undoTurns(Number.isFinite(turns) && turns > 0 ? turns : 1);
-    return;
-  }
-  if (command === "status") {
+    void session.undoTurns(Number.isFinite(turns) && turns > 0 ? turns : 1);
+  },
+  status: () => {
     panelView = { kind: "status" };
-    return;
-  }
-  if (command === "goal") {
-    void goalCommand(argument, typed);
-    return;
-  }
-  if (command === "copy") {
-    void copyLastResponse();
-    return;
-  }
-  if (command === "export") {
-    void exportConversation();
-    return;
-  }
-  if (command !== "new" && !liveThreadId) {
-    failCommand(command, typed);
-    return;
-  }
-  onCommand?.(command, liveThreadId);
-}
-
-/** A command that could not run: say why, and give the typed line back so the
- *  user can edit it rather than retyping it from scratch. */
-function failCommand(command: SlashCommandId, typed: string, message?: string) {
-  session.streamError = message ?? `/${command} needs an open thread.`;
-  if (typed) composer?.restoreText(typed);
-}
-
-/**
- * `/goal` — set, view, cap or clear the goal for a long-running task. With no
- * argument the current goal is shown; `clear` drops it; `budget <tokens>` (or
- * `budget clear`) caps its spend; anything else becomes the new objective.
- *
- * Setting an objective needs no conversation behind it, so — like `/review` —
- * an unsent draft becomes a real thread here: that is what starting a thread
- * with a goal means. Reading and clearing stay draft-only answers, since
- * creating a thread just to report it has no goal would be waste.
- */
-async function goalCommand(argument: string, typed = "") {
-  const budget = /^budget\b\s*(.*)$/i.exec(argument.trim());
-  if (budget) {
-    await goalBudgetCommand(budget[1].trim(), typed);
-    return;
-  }
-  const objective = argument && argument.toLowerCase() !== "clear" ? argument : null;
-  const current = liveThreadId;
-  if (!objective) {
-    // Reading or clearing a goal a draft cannot have yet.
-    if (!current) {
-      session.notice = "No goal is set — /goal <objective> sets one.";
-      return;
-    }
-    try {
-      if (argument) {
-        await clearThreadGoal(current);
-        session.setGoal(null);
-        session.notice = "Goal cleared.";
-      } else {
-        const held = await getThreadGoal(current);
-        session.setGoal(held);
-        session.notice = held
-          ? `Goal (${held.status}): ${held.objective}`
-          : "No goal is set — /goal <objective> sets one.";
-      }
-    } catch (cause) {
-      failCommand("goal", typed, errorMessage(cause));
-    }
-    return;
-  }
-  const ok = await setGoal(objective);
-  if (!ok && typed) composer?.restoreText(typed);
-}
-
-/** `/goal budget <tokens|clear>` — cap the goal's spend, or lift the cap. */
-async function goalBudgetCommand(argument: string, typed = "") {
-  if (!liveThreadId || !goal) {
-    session.notice = "No goal is set — /goal <objective> sets one first.";
-    return;
-  }
-  if (!argument) {
-    session.notice = goal.tokenBudget
-      ? `Goal budget: ${formatTokensShort(goal.tokensUsed)} of ${formatTokensShort(goal.tokenBudget)} tokens used.`
-      : "The goal has no budget — /goal budget 500k caps it.";
-    return;
-  }
-  const tokens = argument.toLowerCase() === "clear" ? null : parseTokenBudget(argument);
-  if (tokens === null && argument.toLowerCase() !== "clear") {
-    failCommand("goal", typed, "Budgets are a number of tokens, like 250000, 500k or 2m.");
-    return;
-  }
-  await applyGoalBudget(tokens);
-}
-
-/** Write `tokens` (or no cap) to the goal and reflect the answer. */
-async function applyGoalBudget(tokens: number | null): Promise<boolean> {
-  if (!liveThreadId || !goal) return false;
-  try {
-    const set = await setThreadGoalBudget(liveThreadId, tokens);
-    session.setGoal({ ...goal, ...set, objective: set.objective || goal.objective });
-    session.notice = tokens === null ? "Goal budget lifted." : `Goal budget set: ${formatTokensShort(tokens)} tokens.`;
-    return true;
-  } catch (cause) {
-    toastError(errorMessage(cause));
-    return false;
-  }
-}
-
-/** The banner's budget control: cap, raise or lift the goal's token budget. */
-async function editGoalBudget() {
-  if (!goal) return;
-  const chosen = await openDialog(GoalBudgetDialog, { current: goal.tokenBudget, used: goal.tokensUsed });
-  if (chosen === undefined) return;
-  await applyGoalBudget(chosen);
-}
-
-/**
- * Set `objective` as the thread's goal — from `/goal`, the composer's goal
- * mode, or the banner's edit. Resolves false when nothing was set: the user
- * declined to replace the current goal, or Codex refused. `edit` is the
- * banner's own edit of the visible goal, which needs no replace confirmation.
- */
-async function setGoal(objective: string, edit = false): Promise<boolean> {
-  const current = liveThreadId;
-  const fresh = !current;
-  if (fresh && (activeTurn || starting)) {
-    session.streamError = "A goal can't start a thread while Codex is working.";
-    return false;
-  }
-  if (!fresh && !edit) {
-    // The thread may already be working towards something — never overwrite
-    // it silently. (This also covers the goal-started draft, which still
-    // looks like a draft because adopting the thread does not remount.)
-    const existing = session.goal ?? (await getThreadGoal(current).catch(() => null));
-    if (existing && existing.objective !== objective) {
-      const ok = await openDialog(ConfirmDialog, {
-        title: "Replace goal",
-        body: [`This thread already has a goal: “${existing.objective}”`, `Replace it with “${objective}”?`],
-        confirmLabel: "Replace goal",
-        tone: "warning" as const,
-      });
-      if (!ok) return false;
-    }
-  }
-  if (fresh) session.starting = true;
-  try {
-    const id = await ensureLiveThread();
-    const set = await setThreadGoal(id, objective);
-    // No notice: the goal banner confirms it, and the goal's first turn would
-    // clear a notice the moment it appeared.
-    session.setGoal(set);
-    // A goal-only thread has no turn to name it from, so the objective titles
-    // it: shown at once, then refined by the namer.
-    if (fresh) {
-      nameNewThread(id, messageTitle([{ type: "text", text: objective }]));
-      requestAutoName(id, "seed", objective);
-    }
-    return true;
-  } catch (cause) {
-    fail(cause);
-    return false;
-  } finally {
-    if (fresh) session.starting = false;
-  }
-}
-
-/** Pause a running goal, or resume a paused (or otherwise stalled) one. */
-async function toggleGoal() {
-  if (!goal || !liveThreadId) return;
-  const status = goal.status === "active" ? "paused" : "active";
-  try {
-    session.setGoal({ ...goal, ...(await setThreadGoalStatus(liveThreadId, status)), objective: goal.objective });
-  } catch (cause) {
-    toastError(errorMessage(cause));
-  }
-}
-
-async function clearGoal() {
-  if (!liveThreadId) return;
-  try {
-    await clearThreadGoal(liveThreadId);
-    session.setGoal(null);
-  } catch (cause) {
-    toastError(errorMessage(cause));
-  }
-}
-
-const GOAL_STATUS_LABEL: Record<string, string> = {
-  active: "active",
-  paused: "paused",
-  blocked: "blocked",
-  usageLimited: "waiting on usage limit",
-  budgetLimited: "budget exhausted",
-  complete: "complete",
+  },
+  goal: (argument, typed) => void goals.run(argument, typed),
+  copy: () => void copyLastResponse(),
+  export: () => void exportConversation(),
 };
 
-/** Badge preset for each goal status, so the banner shows state at a glance. */
-const GOAL_STATUS_PRESET: Record<string, string> = {
-  active: "preset-filled-primary-500",
-  paused: "preset-tonal-surface",
-  blocked: "preset-tonal-error",
-  usageLimited: "preset-tonal-warning",
-  budgetLimited: "preset-tonal-error",
-  complete: "preset-tonal-success",
-};
-
-/** The banner's Edit: the objective moves into the composer, whose send confirms it. */
-function startGoalEdit() {
-  if (goal) composer?.startGoalEdit(goal.objective);
+/**
+ * Thread-scoped commands. Those needing the live thread are answered here;
+ * the rest bubble to App. A command that needs a thread and has none tells the
+ * user so rather than silently doing nothing.
+ */
+function runCommand(command: SlashCommandId, argument = "", typed = "") {
+  if (!liveThreadId && !DRAFT_COMMANDS.has(command)) {
+    // Say why, and give the typed line back so the user can edit it rather
+    // than retype it from scratch.
+    session.streamError = `/${command} needs an open thread.`;
+    if (typed) composer?.restoreText(typed);
+    return;
+  }
+  const handler = threadCommands[command];
+  if (handler) handler(argument, typed);
+  else onCommand?.(command, liveThreadId);
 }
+
+const goals = goalCommands({
+  session: () => session,
+  ensureLiveThread: (owner) => ensureLiveThread(owner),
+  restoreText: (text) => composer?.restoreText(text),
+});
 
 /** The markdown a transcript item contributes to `/copy` and `/export`. */
 function itemMarkdown(item: ThreadItem): string {
@@ -1051,8 +694,7 @@ function itemMarkdown(item: ThreadItem): string {
 
 /** `/copy` — put the last completed response on the clipboard as markdown. */
 async function copyLastResponse() {
-  const items = thread?.turns.flatMap((turn) => turn.items) ?? [];
-  const last = [...items].reverse().find((item) => item.type === "agentMessage" && !item.streaming && item.text);
+  const last = [...allItems].reverse().find((item) => item.type === "agentMessage" && !item.streaming && item.text);
   if (!last?.text) {
     session.notice = "No response to copy yet.";
     return;
@@ -1084,10 +726,6 @@ async function exportConversation() {
   } catch (cause) {
     fail(cause);
   }
-}
-
-function undoTurns(turns: number) {
-  return session.undoTurns(turns);
 }
 
 function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: SubagentPolicy | null) {
@@ -1122,7 +760,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
         processes={processes.list}
         currentThreadId={liveThreadId}
         {contextStats}
-        costUsd={estimateCost(tokenUsage, activeModel)}
+        {costUsd}
         onOpenFinder={() => revealInFinder(thread?.cwd || cwd).catch(() => {})}
         onOpenZed={() => openInZed(thread?.cwd || cwd).catch(fail)}
         onShowPlan={() => (panelView = latestPlan ? { kind: "plan", text: latestPlan } : panelView)}
@@ -1151,9 +789,9 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
     {/if}
     <div
       class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
-      bind:this={scroller}
-      onscroll={onScroll}
-      onwheel={onWheel}
+      {@attach transcript.attach}
+      onscroll={transcript.onScroll}
+      onwheel={transcript.onWheel}
     >
       <div class="mx-auto min-w-0 max-w-3xl space-y-5 px-6 py-8">
         {#if loading}
@@ -1282,11 +920,11 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
         {/if}
       </div>
     </div>
-    {#if !following && !atBottom && farFromBottom && recentDownScroll && !loading && thread}
+    {#if transcript.showJumpPill && !loading && thread}
       <button
         type="button"
         class="btn btn-sm preset-filled absolute bottom-3 left-1/2 -translate-x-1/2 gap-1 rounded-full shadow-lg"
-        onclick={() => maybeScroll(true)}
+        onclick={() => transcript.follow(true)}
       >
         <ArrowDown class="size-3.5" />
         Jump to latest
@@ -1300,78 +938,21 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
     </div>
   {/if}
 
-  {#if goal}
-    <div class="mx-auto w-full max-w-3xl px-6">
-      <div
-        class="mb-2 flex items-center gap-2 rounded-lg border border-surface-200-800 bg-surface-100-900 px-3 py-1.5 text-xs"
-        data-testid="goal-banner"
-        title={goal.tokenBudget ? `${goal.tokensUsed.toLocaleString()} of ${goal.tokenBudget.toLocaleString()} tokens used` : undefined}
-      >
-        <Target size={12} class="shrink-0 {goal.status === 'active' ? 'text-primary-500' : 'text-surface-500'}" />
-        <span class="shrink-0 font-medium text-surface-500">Goal</span>
-        <span
-          class="badge shrink-0 px-1.5 py-0 text-[10px] {GOAL_STATUS_PRESET[goal.status] ?? 'preset-tonal-surface'}"
-          data-testid="goal-status"
-        >
-          {GOAL_STATUS_LABEL[goal.status] ?? goal.status}
-        </span>
-        <span class="min-w-0 flex-1 truncate" title={goal.objective}>{goal.objective}</span>
-        {#if goal.tokenBudget}
-          {@const share = Math.min(1, goal.tokensUsed / goal.tokenBudget)}
-          <span class="flex shrink-0 items-center gap-1.5 text-[10px] tabular-nums text-surface-500" data-testid="goal-budget">
-            <span
-              class="h-1.5 w-16 overflow-hidden rounded-full bg-surface-200-800"
-              role="progressbar"
-              aria-label="Goal budget used"
-              aria-valuemin={0}
-              aria-valuemax={goal.tokenBudget}
-              aria-valuenow={goal.tokensUsed}
-            >
-              <span
-                class="block h-full rounded-full {goal.status === 'budgetLimited' ? 'bg-error-500' : share >= 0.9 ? 'bg-warning-500' : 'bg-primary-500'}"
-                style="width: {share * 100}%"
-              ></span>
-            </span>
-            {formatTokensShort(goal.tokensUsed)} / {formatTokensShort(goal.tokenBudget)}
-          </span>
-        {/if}
-        {#if goal.status === "budgetLimited"}
-          <button type="button" class="btn btn-sm shrink-0 py-0 text-[10px] preset-tonal-error" onclick={editGoalBudget}>
-            Raise budget
-          </button>
-        {/if}
-        <TooltipButton
-          label={goal.tokenBudget ? "Change goal budget" : "Set goal budget"}
-          onclick={editGoalBudget}
-          aria-label={goal.tokenBudget ? "Change goal budget" : "Set goal budget"}
-          class="shrink-0 opacity-60 hover:opacity-100"
-        >
-          <Gauge size={12} />
-        </TooltipButton>
-        <TooltipButton label="Edit goal" onclick={startGoalEdit} aria-label="Edit goal" class="shrink-0 opacity-60 hover:opacity-100">
-          <Pencil size={12} />
-        </TooltipButton>
-        {#if goal.status !== "complete"}
-          <TooltipButton
-            label={goal.status === "active" ? "Pause goal" : "Resume goal"}
-            onclick={toggleGoal}
-            aria-label={goal.status === "active" ? "Pause goal" : "Resume goal"}
-            class="shrink-0 opacity-60 hover:opacity-100"
-          >
-            {#if goal.status === "active"}<Pause size={12} />{:else}<Play size={12} />{/if}
-          </TooltipButton>
-        {/if}
-        <TooltipButton label="Clear goal" onclick={clearGoal} aria-label="Clear goal" class="shrink-0 opacity-60 hover:opacity-100">
-          <X size={12} />
-        </TooltipButton>
-      </div>
-    </div>
+  {#if session.goal}
+    {@const goal = session.goal}
+    <GoalBanner
+      {goal}
+      onEditBudget={goals.editBudget}
+      onEdit={() => composer?.startGoalEdit(goal.objective)}
+      onToggle={goals.toggle}
+      onClear={goals.clear}
+    />
   {/if}
 
-  {#if notice}
+  {#if session.notice}
     <div class="mx-auto w-full max-w-3xl px-6">
       <div class="card preset-tonal-warning mb-2 flex items-start gap-2 px-3 py-2 text-xs">
-        <span class="min-w-0 flex-1">{notice}</span>
+        <span class="min-w-0 flex-1">{session.notice}</span>
         <button type="button" onclick={() => (session.notice = null)} class="shrink-0 opacity-60 hover:opacity-100" aria-label="Dismiss notice">
           <X size={12} />
         </button>
@@ -1437,26 +1018,26 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
 
   <Composer
     bind:this={composer}
-    busy={activeTurn !== null || starting || compacting}
+    busy={activeTurn !== null || starting || session.compacting}
     disabled={loading || error !== null}
     hasQuestions={threadQuestions.length > 0}
     plan={pendingPlan}
-    cwd={workspaceId ? cwd : (thread?.cwd || cwd)}
+    cwd={workDir}
     draftKey={threadId ? `${projectPath || cwd}#thread:${threadId}` : projectPath || cwd}
     history={messageHistory}
     projectKey={projectPath || cwd}
     {threadId}
     threadHarness={thread?.harness === "claude" ? "claude" : threadId ? "codex" : null}
     onSend={send}
-    onInterrupt={interrupt}
+    onInterrupt={() => session.interrupt()}
     onCommand={runCommand}
-    onGoal={setGoal}
+    onGoal={goals.set}
     onReview={(target) => void review(target)}
     onImplementFresh={liveThreadId ? startPlanThread : undefined}
     {contextStats}
-    {compacting}
-    {subagentModelPolicy}
-    {subagentReasoningEffortPolicy}
+    compacting={session.compacting}
+    subagentModelPolicy={session.subagentModelPolicy}
+    subagentReasoningEffortPolicy={session.subagentReasoningEffortPolicy}
     threadModel={lastTurnModel}
     threadSpeedTier={thread?.speedTier}
     runningSpeedTier={session.runningSpeedTier}
@@ -1479,9 +1060,9 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
     {gitChangesError}
     onRefreshGitChanges={() => refreshGitChanges(true)}
     {contextStats}
-    costUsd={estimateCost(tokenUsage, activeModel)}
+    {costUsd}
     {activeModel}
-    cwd={workspaceId ? cwd : (thread?.cwd || cwd)}
+    cwd={workDir}
     onClose={() => (panelView = null)}
     onDataChanged={(data) => onDataChanged?.(data)}
     onImplementPlan={implementPlan}

@@ -1,4 +1,4 @@
-import type { QueuedSubmission } from "$lib/types";
+import type { QueuedSubmission, UserInputPart } from "$lib/types";
 
 /** Queued optimistically while `thread/queue/add` is still in flight. */
 const PENDING_PREFIX = "pending-";
@@ -35,4 +35,12 @@ export function mergeQueue(serverItems: QueuedSubmission[], current: QueuedSubmi
     ...serverItems,
     ...current.filter((entry) => isClientQueued(entry) && !acknowledged.has(entry.clientUserMessageId)),
   ];
+}
+
+/** A queued message as one line, with each chip shown as its `@name`. */
+export function queuedText(input: UserInputPart[]): string {
+  return input
+    .map((part) => (part.type === "text" ? (part.text ?? "") : `@${part.name}`))
+    .join("")
+    .trim();
 }

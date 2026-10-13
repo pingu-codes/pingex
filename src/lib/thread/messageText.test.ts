@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { mergeTextParts, messageText, messageTitle, userMessageMarkdown } from "$lib/thread/messageText";
+import { editedParts, mergeTextParts, messageText, messageTitle, userMessageMarkdown } from "$lib/thread/messageText";
 import type { UserInputPart } from "$lib/types";
 
 // A mention leaves the composer as its own text part, so this is what a sent
@@ -85,5 +85,18 @@ describe("messageTitle", () => {
   it("has no title for a message with no prose", () => {
     expect(messageTitle([{ type: "localImage", path: "/tmp/shot.png" }])).toBe("");
     expect(messageTitle([{ type: "text", text: "   " }])).toBe("");
+  });
+});
+
+describe("editedParts", () => {
+  it("replaces the prose and keeps every other part in place", () => {
+    const skill: UserInputPart = { type: "skill", name: "review", path: "/skills/review" };
+    const parts: UserInputPart[] = [skill, ...mentioned];
+    expect(editedParts(parts, "new text")).toEqual([skill, { type: "text", text: "new text" }]);
+  });
+
+  it("adds the text to a message that had none", () => {
+    const image: UserInputPart = { type: "localImage", path: "/tmp/a.png" };
+    expect(editedParts([image], "caption")).toEqual([image, { type: "text", text: "caption" }]);
   });
 });

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { isClientQueued, isLocalOnly, localId, mergeQueue, pendingId } from "$lib/thread/queueEntries";
+import { isClientQueued, isLocalOnly, localId, mergeQueue, pendingId, queuedText } from "$lib/thread/queueEntries";
 import type { QueuedSubmission } from "$lib/types";
 
 function entry(id: string, clientUserMessageId: string, text = "hi"): QueuedSubmission {
@@ -52,5 +52,17 @@ describe("mergeQueue", () => {
     // an empty successful listing must not wipe a local queue either.
     const local = [entry(localId("c1"), "c1"), entry(localId("c2"), "c2")];
     expect(mergeQueue([], local).map((item) => item.id)).toEqual([localId("c1"), localId("c2")]);
+  });
+});
+
+describe("queuedText", () => {
+  it("shows chips inline as their @name", () => {
+    expect(
+      queuedText([
+        { type: "text", text: "run " },
+        { type: "skill", name: "review", path: "/skills/review" },
+        { type: "text", text: " now " },
+      ]),
+    ).toBe("run @review now");
   });
 });

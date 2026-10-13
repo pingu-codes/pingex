@@ -1,10 +1,16 @@
 <script lang="ts">
 import { Check, ChevronLeft, ChevronRight, Copy, Pencil, Sparkles } from "@lucide/svelte";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { onDestroy, tick } from "svelte";
+import { onDestroy } from "svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import { isTauri, revealInFinder } from "$lib/services/api";
-import { messageText as joinMessageText, mergeTextParts, userMessageMarkdown } from "$lib/thread/messageText";
+import { InlineEdit } from "$lib/thread/inlineEdit.svelte";
+import {
+  editedParts,
+  messageText as joinMessageText,
+  mergeTextParts,
+  userMessageMarkdown,
+} from "$lib/thread/messageText";
 import type { MessageVersions } from "$lib/thread/messageVersions";
 import { messageParts } from "$lib/thread/turnSegments";
 import type { ThreadItem, UserInputPart } from "$lib/types";
@@ -36,8 +42,6 @@ let {
 } = $props();
 
 let failedImages = $state<string[]>([]);
-let draft = $state<string | null>(null);
-let textarea = $state<HTMLTextAreaElement | null>(null);
 
 // Mentions arrive as their own text parts; merge adjacent runs so a mention
 // stays inline in the sentence it was typed into.
@@ -53,54 +57,17 @@ function copyMessage(event: MouseEvent) {
   copied.trigger();
 }
 
-async function startEdit() {
-  draft = messageText();
-  await tick();
-  textarea?.focus();
-  textarea?.setSelectionRange(textarea.value.length, textarea.value.length);
-}
-
-/** The original parts with their text replaced by `text`: attachments and
- *  skills keep their place, the merged text runs collapse into one. */
-function editedParts(text: string): UserInputPart[] {
-  const edited: UserInputPart[] = [];
-  let placed = false;
-  for (const part of parts) {
-    if (part.type !== "text") {
-      edited.push(part);
-    } else if (!placed) {
-      edited.push({ type: "text", text });
-      placed = true;
-    }
-  }
-  if (!placed) edited.push({ type: "text", text });
-  return edited;
-}
-
-function submit() {
-  const text = draft?.trim() ?? "";
-  draft = null;
-  if (text && text !== messageText()) onSubmitEdit(editedParts(text));
-}
-
-function onKeydown(event: KeyboardEvent) {
-  if (event.key === "Escape") {
-    draft = null;
-  } else if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-    event.preventDefault();
-    submit();
-  }
-}
+const edit = new InlineEdit(messageText, (text) => onSubmitEdit(editedParts(parts, text)));
 
 function autogrow() {
-  const element = textarea;
+  const element = edit.textarea;
   if (!element) return;
   element.style.height = "auto";
   element.style.height = `${element.scrollHeight}px`;
 }
 
 $effect(() => {
-  void draft;
+  void edit.draft;
   autogrow();
 });
 
@@ -123,7 +90,7 @@ const localImageSrc = (part: UserInputPart) =>
 {/snippet}
 
 <div class="group/bubble flex items-start justify-end gap-1.5">
-  {#if draft === null}
+  {#if !edit.editing}
     <TooltipButton
       label="Copy message (⇧ for Markdown)"
       aria-label="Copy message"
@@ -139,25 +106,25 @@ const localImageSrc = (part: UserInputPart) =>
       {/if}
     </TooltipButton>
   {/if}
-  {#if editable && draft === null && messageParts(item).some((part) => part.type === "text")}
+  {#if editable && !edit.editing && messageParts(item).some((part) => part.type === "text")}
     <TooltipButton
       label="Edit message (starts a new version)"
       aria-label="Edit and resend"
-      onclick={startEdit}
+      onclick={edit.start}
       class="mt-2 grid size-6 shrink-0 place-items-center rounded text-surface-500 opacity-0 transition hover:bg-surface-200-800 hover:text-surface-800-200 group-hover/bubble:opacity-100"
     >
       <Pencil size={12} />
     </TooltipButton>
   {/if}
-  <div class="flex min-w-0 flex-col items-end gap-1 {draft === null ? 'max-w-[85%]' : 'w-full'}">
+  <div class="flex min-w-0 flex-col items-end gap-1 {!edit.editing ? 'max-w-[85%]' : 'w-full'}">
   <div
-    class="min-w-0 space-y-2 rounded-2xl rounded-br-md bg-primary-500/10 px-4 py-2.5 text-sm leading-6 [overflow-wrap:anywhere] {draft === null
+    class="min-w-0 space-y-2 rounded-2xl rounded-br-md bg-primary-500/10 px-4 py-2.5 text-sm leading-6 [overflow-wrap:anywhere] {!edit.editing
       ? ''
       : 'w-full'}"
   >
     {#each parts as part, index (index)}
       {#if part.type === "text" && part.text}
-        {#if draft === null}
+        {#if !edit.editing}
           <!-- Kept on one line: the container is `whitespace-pre-wrap`, so any
                indentation between the segments would render as real spaces. -->
           <div class="whitespace-pre-wrap"
@@ -194,24 +161,24 @@ const localImageSrc = (part: UserInputPart) =>
         {@render fileChip(part.name ?? basename(part.path ?? ""), part.path ?? "")}
       {/if}
     {/each}
-    {#if draft !== null}
+    {#if edit.editing}
       <textarea
-        bind:this={textarea}
-        bind:value={draft}
-        onkeydown={onKeydown}
+        bind:this={edit.textarea}
+        bind:value={edit.draft}
+        onkeydown={edit.onkeydown}
         aria-label="Edit message"
         rows="1"
         class="w-full resize-none bg-transparent outline-none"
       ></textarea>
       <div class="flex items-center justify-end gap-2">
-        <button onclick={() => (draft = null)} class="btn btn-sm hover:preset-tonal">Cancel</button>
-        <button onclick={submit} class="btn btn-sm preset-filled-primary-500" title="Starts a new version of the thread from this message">
+        <button onclick={edit.cancel} class="btn btn-sm hover:preset-tonal">Cancel</button>
+        <button onclick={edit.submit} class="btn btn-sm preset-filled-primary-500" title="Starts a new version of the thread from this message">
           Send
         </button>
       </div>
     {/if}
   </div>
-  {#if versions && draft === null}
+  {#if versions && !edit.editing}
     <div class="flex items-center gap-0.5 text-[11px] text-surface-500" aria-label="Message versions">
       <button
         aria-label="Previous version"

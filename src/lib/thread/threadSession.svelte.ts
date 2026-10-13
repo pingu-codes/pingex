@@ -129,60 +129,83 @@ export class ThreadSession {
     this.operation = null;
     this.starting = false;
     if (this.disposed || this.disconnectedState) return;
+    this.#maybeIdle();
+  }
+
+  /** Let the queue run on, then hand the session back to the registry when no
+   *  view shows it and nothing is left in flight. */
+  #maybeIdle(): void {
     this.queue.maybeDrain();
     if (this.mounted === 0 && !this.working()) this.onIdle?.();
+  }
+
+  /**
+   * Run a thread-level operation. It holds `starting` until `body` settles, so
+   * no turn or queued message can start under it. `current()` turns false once
+   * the operation has been overtaken (a disconnect, a dispose); `body` checks
+   * it after each await, and a failure is only reported while it holds.
+   */
+  async #runOperation(
+    kind: NonNullable<ThreadSession["operation"]>["kind"],
+    body: (current: () => boolean) => Promise<void>,
+    describe: (cause: unknown) => string = errorMessage,
+  ): Promise<void> {
+    const operation = { kind };
+    this.operation = operation;
+    this.starting = true;
+    this.streamError = null;
+    const current = () => this.operation === operation && !this.disposed;
+    try {
+      await body(current);
+    } catch (cause) {
+      if (current()) this.streamError = describe(cause);
+    } finally {
+      this.finishOperation(operation);
+    }
   }
 
   /** Own the request even while a draft is being created by the view. */
   async review(target: ReviewTarget, ensureLiveThread?: () => Promise<string>): Promise<void> {
     if (!this.available() || !this.thread || (!this.id && !ensureLiveThread)) return;
-    const operation = { kind: "review" } as const;
-    this.operation = operation;
-    this.starting = true;
-    this.streamError = null;
-    const request = async (): Promise<Turn | null> => {
-      try {
+    await this.#runOperation("review", async (current) => {
+      const request = async (): Promise<Turn | null> => {
         const id = this.id ?? (await ensureLiveThread!());
-        if (this.operation !== operation || this.disposed) return null;
+        if (!current()) return null;
         const turn = await startReview(id, target);
-        if (this.operation !== operation || this.disposed) return null;
+        if (!current()) return null;
         const existing = this.thread!.turns.find((candidate) => candidate.id === turn.id);
         if (!existing)
           this.thread!.turns.push({ ...turn, status: turn.status ?? "inProgress", items: turn.items ?? [] });
         this.revision++;
         return turn;
-      } catch (cause) {
-        if (this.operation === operation && !this.disposed) {
-          this.streamError = errorMessage(cause);
-        }
-        return null;
+      };
+      const pending = request();
+      // A Stop pressed meanwhile waits on this for the review's turn id.
+      const settled = pending.catch(() => null);
+      this.pendingReview = settled;
+      try {
+        await pending;
+      } finally {
+        if (this.pendingReview === settled) this.pendingReview = null;
       }
-    };
-    const pending = request();
-    this.pendingReview = pending;
-    await pending;
-    if (this.pendingReview === pending) this.pendingReview = null;
-    this.finishOperation(operation);
+    });
   }
 
   /** Request acknowledgement does not end the streamed compaction. */
   async compact(): Promise<void> {
-    if (!this.available() || !this.id) return;
-    const operation = { kind: "compact" } as const;
-    this.operation = operation;
-    this.starting = true;
-    this.beginCompaction();
-    this.streamError = null;
-    try {
-      await compactThread(this.id);
-    } catch (cause) {
-      if (this.operation === operation && !this.disposed) {
+    const id = this.id;
+    if (!this.available() || !id) return;
+    await this.#runOperation(
+      "compact",
+      async () => {
+        this.beginCompaction();
+        await compactThread(id);
+      },
+      (cause) => {
         this.endCompaction();
-        this.streamError = errorMessage(cause);
-      }
-    } finally {
-      this.finishOperation(operation);
-    }
+        return errorMessage(cause);
+      },
+    );
   }
 
   /** Rewind history in place. A thread Codex cannot rewind keeps its history. */
@@ -193,27 +216,21 @@ export class ThreadSession {
     const dropped = Math.min(count, thread.turns.length);
     if (!dropped) return;
     const kept = thread.turns.slice(0, -dropped);
-    const operation = { kind: "undo" } as const;
-    this.operation = operation;
-    this.starting = true;
-    this.streamError = null;
-    try {
-      await revertThread(
-        id,
-        thread.turns[kept.length].id,
-        kept.map((turn) => turn.id),
-      );
-      if (this.operation !== operation || this.disposed) return;
-      thread.turns = kept;
-      this.revision++;
-      await invalidateThreadCache(id).catch(() => {});
-    } catch (cause) {
-      if (this.operation === operation && !this.disposed) {
-        this.streamError = isRevertUnsupported(cause) ? UNDO_UNAVAILABLE : errorMessage(cause);
-      }
-    } finally {
-      this.finishOperation(operation);
-    }
+    await this.#runOperation(
+      "undo",
+      async (current) => {
+        await revertThread(
+          id,
+          thread.turns[kept.length].id,
+          kept.map((turn) => turn.id),
+        );
+        if (!current()) return;
+        thread.turns = kept;
+        this.revision++;
+        await invalidateThreadCache(id).catch(() => {});
+      },
+      (cause) => (isRevertUnsupported(cause) ? UNDO_UNAVAILABLE : errorMessage(cause)),
+    );
   }
   /** Bumped by every deliberate goal write, so the async fetch in `load()`
    *  can tell when its result has been overtaken and must be dropped. */
@@ -563,8 +580,7 @@ export class ThreadSession {
     }
     if (method === "thread/compacted") {
       this.endCompaction();
-      this.queue.maybeDrain();
-      if (this.mounted === 0 && !this.working()) this.onIdle?.();
+      this.#maybeIdle();
       return;
     }
     if (method === "thread/collaborationMode/changed") {
@@ -638,10 +654,7 @@ export class ThreadSession {
     }
     if (outcome.subagentsChanged) void this.refreshSubagents();
     this.revision++;
-    if (outcome.turnCompleted) {
-      this.queue.maybeDrain();
-      if (this.mounted === 0 && !this.working()) this.onIdle?.();
-    }
+    if (outcome.turnCompleted) this.#maybeIdle();
   }
 }
 

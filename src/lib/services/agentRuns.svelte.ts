@@ -1,5 +1,5 @@
 import { threadIdOf } from "$lib/services/turnLifecycle";
-import type { AgentRun, CodexEvent } from "$lib/types";
+import type { AgentRun, CodexEvent, SubagentDetail } from "$lib/types";
 
 /**
  * Agents the app has spawned, keyed by the thread that spawned them.
@@ -76,6 +76,24 @@ export function runsFor(threadId: string | null | undefined): AgentRun[] {
 /** How many of a thread's agents are still working. */
 export function runningCount(threadId: string | null | undefined): number {
   return runsFor(threadId).filter(isRunning).length;
+}
+
+/** A run as a subagent of its parent thread, once it has a thread of its own. */
+export function runAsSubagent(run: AgentRun): SubagentDetail | null {
+  if (!run.childThreadId) return null;
+  return {
+    id: run.childThreadId,
+    parentThreadId: run.parentThreadId,
+    title: run.name,
+    cwd: run.cwd,
+    status: run.status,
+    agentNickname: run.name,
+    agentRole: null,
+    model: run.model,
+    reasoningEffort: run.reasoningEffort,
+    source: "app",
+    runId: run.runId,
+  };
 }
 
 /**

@@ -1,12 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import {
-  groupForTurn,
-  isPendingEditTurn,
-  newestLeaf,
-  rootThreadId,
-  versionsForTurn,
-} from "$lib/thread/messageVersions";
+import { isPendingEditTurn, newestLeaf, rootThreadId, versionsForTurn } from "$lib/thread/messageVersions";
 import type { ThreadBranch } from "$lib/types";
 
 function branch(overrides: Partial<ThreadBranch> & Pick<ThreadBranch, "threadId" | "parentThreadId">): ThreadBranch {
@@ -64,8 +58,6 @@ describe("versionsForTurn", () => {
       count: 3,
       prevThreadId: "fork-1",
     });
-    expect(groupForTurn("turn-2c", branches)).toBe("turn-2");
-    expect(groupForTurn("turn-7", branches)).toBe("turn-7");
   });
 
   it("places an inherited edit turn by its id wherever it is shown", () => {

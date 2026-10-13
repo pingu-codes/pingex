@@ -32,8 +32,3 @@ export function requestAutoName(threadId: string, pass: Pass, seed?: string): vo
       // A failed pass is not retried: the thread keeps its first-message title.
     });
 }
-
-/** Test seam: forget which threads have been named. */
-export function resetAutoNameState(): void {
-  done.clear();
-}

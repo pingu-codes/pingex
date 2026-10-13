@@ -34,6 +34,23 @@ export function messageText(content: UserInputPart[]): string {
     .join("");
 }
 
+/** `content` with its prose replaced by `text`: attachments and skills keep
+ *  their place, and the text runs collapse into one where the first one was. */
+export function editedParts(content: UserInputPart[], text: string): UserInputPart[] {
+  const edited: UserInputPart[] = [];
+  let placed = false;
+  for (const part of content) {
+    if (part.type !== "text") {
+      edited.push(part);
+    } else if (!placed) {
+      edited.push({ type: "text", text });
+      placed = true;
+    }
+  }
+  if (!placed) edited.push({ type: "text", text });
+  return edited;
+}
+
 /**
  * The message as markdown for the clipboard: file mentions keep their link form
  * (rewritten to `./`-relative paths), and attachments become links of the same
