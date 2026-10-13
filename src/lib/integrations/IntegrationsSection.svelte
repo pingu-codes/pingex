@@ -13,6 +13,10 @@ import {
   Trash2,
   X,
 } from "@lucide/svelte";
+import { Collapsible } from "@skeletonlabs/skeleton-svelte";
+import { tick } from "svelte";
+import type { HTMLInputAttributes } from "svelte/elements";
+import Segmented, { type SegmentedOption } from "$lib/components/Segmented.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import {
   authAction,
@@ -176,7 +180,8 @@ $effect(() => {
     if (!server) return;
     filter = "mcp";
     expanded[server] = true;
-    queueMicrotask(() => {
+    // The Collapsible opens on the next update; scroll once its content is in.
+    void tick().then(() => {
       const target = tool ? document.getElementById(`mcp-tool-${server}-${tool}`) : null;
       (target ?? document.getElementById(`mcp-row-${server}`))?.scrollIntoView({ block: "nearest" });
     });
@@ -269,8 +274,7 @@ async function toggleSkill(skill: SkillSummary) {
   });
 }
 
-async function toggleSkillView(skill: SkillSummary) {
-  const open = !skillOpen[skill.path];
+async function setSkillView(skill: SkillSummary, open: boolean) {
   skillOpen[skill.path] = open;
   if (!open || skillText[skill.path] != null) return;
   skillText[skill.path] = null;
@@ -431,6 +435,19 @@ async function doRemove(name: string) {
   });
 }
 
+/** Identifiers, commands and URLs: no autocorrection or spellcheck. */
+const codeInput = {
+  autocomplete: "off",
+  autocorrect: "off",
+  autocapitalize: "off",
+  spellcheck: false,
+} as const satisfies HTMLInputAttributes;
+
+const TRANSPORTS: SegmentedOption<"stdio" | "http">[] = [
+  { value: "stdio", label: "stdio (command)" },
+  { value: "http", label: "HTTP (url)" },
+];
+
 const FILTERS: { id: IntegrationFilter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "mcp", label: "MCP" },
@@ -494,21 +511,16 @@ const matchCount = $derived(
     <input type="search" aria-label="Search integrations" placeholder="Search integrations…" class="input w-full" bind:value={query} />
     {#if query}<button type="button" class="btn btn-sm" onclick={() => (query = "")}>Clear search</button>{/if}
   </div>
-  <div class="mt-4 flex flex-wrap gap-1" role="tablist" aria-label="Integration type">
-    {#each FILTERS.filter((entry) => !projectPath || entry.id !== "connections") as tab (tab.id)}
-      <button
-        type="button"
-        role="tab"
-        aria-selected={filter === tab.id}
-        onclick={() => (filter = tab.id)}
-        class="rounded-full px-3 py-1 text-xs transition-colors {filter === tab.id
-          ? 'preset-filled-primary-500'
-          : 'hover:preset-tonal text-surface-600-400'}"
-      >
-        {tab.label}
-      </button>
-    {/each}
-  </div>
+  <Segmented
+    label="Integration type"
+    value={filter}
+    onChange={(next) => (filter = next)}
+    class="mt-4"
+    options={FILTERS.filter((entry) => !projectPath || entry.id !== "connections").map((entry) => ({
+      value: entry.id,
+      label: entry.label,
+    }))}
+  />
 
   {#if loadError}
     <div class="error-note mt-4">{loadError}</div>
@@ -533,7 +545,7 @@ const matchCount = $derived(
           id="skill-name"
           bind:value={skillFormName}
           placeholder="release-notes"
-          class="input mt-1 w-full font-mono text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck={false}
+          class="input mt-1 w-full font-mono text-xs" {...codeInput}
         />
         <p class="mt-1 text-[11px] text-surface-500">Becomes the folder name under <span class="font-mono">~/.codex/skills/</span>.</p>
       </div>
@@ -580,7 +592,7 @@ const matchCount = $derived(
           id="mcp-name"
           bind:value={formName}
           placeholder="github"
-          class="input mt-1 w-full font-mono text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck={false}
+          class="input mt-1 w-full font-mono text-xs" {...codeInput}
         />
         {#if editing !== "" && formName.trim() !== editing}
           <p class="mt-1 text-[11px] text-surface-500">Renaming keeps this server's settings and stored secrets.</p>
@@ -588,23 +600,12 @@ const matchCount = $derived(
       </div>
       <div>
         <span class="text-xs font-medium text-surface-500">Transport</span>
-        <div class="mt-1 flex gap-1">
-          {#each [{ id: "stdio", label: "stdio (command)" }, { id: "http", label: "HTTP (url)" }] as option (option.id)}
-            <button
-              type="button"
-              onclick={() => (formTransport = option.id as "stdio" | "http")}
-              aria-pressed={formTransport === option.id}
-              class="btn btn-sm text-xs {formTransport === option.id ? 'preset-filled-surface-200-800' : 'hover:preset-tonal text-surface-500'}"
-            >
-              {option.label}
-            </button>
-          {/each}
-        </div>
+        <Segmented label="Transport" value={formTransport} onChange={(next) => (formTransport = next)} class="mt-1" options={TRANSPORTS} />
       </div>
       {#if formTransport === "stdio"}
       <div>
         <label for="mcp-command" class="text-xs font-medium text-surface-500">Command</label>
-        <input id="mcp-command" bind:value={formCommand} placeholder="npx" class="input mt-1 w-full font-mono text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck={false}
+        <input id="mcp-command" bind:value={formCommand} placeholder="npx" class="input mt-1 w-full font-mono text-xs" {...codeInput}
  />
       </div>
       <div>
@@ -613,7 +614,7 @@ const matchCount = $derived(
           id="mcp-args"
           bind:value={formArgs}
           placeholder="-y @modelcontextprotocol/server-github"
-          class="input mt-1 w-full font-mono text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck={false}
+          class="input mt-1 w-full font-mono text-xs" {...codeInput}
         />
       </div>
       <div>
@@ -629,13 +630,13 @@ const matchCount = $derived(
         <div class="mt-1.5 space-y-1.5">
           {#each formEnv as row, index (index)}
             <div class="flex items-center gap-1.5">
-              <input bind:value={row.key} placeholder="GITHUB_TOKEN" class="input flex-1 font-mono text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck={false}
+              <input bind:value={row.key} placeholder="GITHUB_TOKEN" class="input flex-1 font-mono text-xs" {...codeInput}
  />
               <input
                 bind:value={row.value}
                 type="password"
                 placeholder={editing !== "" ? "unchanged" : "secret value"}
-                class="input flex-1 font-mono text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck={false}
+                class="input flex-1 font-mono text-xs" {...codeInput}
               />
               <TooltipButton
                 label="Remove variable"
@@ -657,7 +658,7 @@ const matchCount = $derived(
           id="mcp-url"
           bind:value={formUrl}
           placeholder="https://mcp.example.com/sse"
-          class="input mt-1 w-full font-mono text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck={false}
+          class="input mt-1 w-full font-mono text-xs" {...codeInput}
         />
       </div>
       <div>
@@ -666,7 +667,7 @@ const matchCount = $derived(
           id="mcp-bearer"
           bind:value={formBearerEnv}
           placeholder="LINEAR_API_KEY"
-          class="input mt-1 w-full font-mono text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck={false}
+          class="input mt-1 w-full font-mono text-xs" {...codeInput}
         />
         <p class="mt-1 text-[11px] text-surface-500">
           Name of an environment variable holding the token. Leave blank to sign in with OAuth instead.
@@ -704,187 +705,192 @@ const matchCount = $derived(
           {@const hasDetails = tools.length + resources.length + templates.length + info.length > 0}
           {@const auth = authAction(live)}
           <div id="mcp-row-{server.name}" class="card border border-surface-200-800 bg-surface-50-950 p-3">
-            <div class="flex items-center gap-3">
-              <Plug size={16} class="shrink-0 text-surface-500" />
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-2">
-                  <span class="truncate font-medium">{live?.serverInfo?.title || server.name}</span>
-                  <span class="shrink-0 rounded-full bg-surface-200-800 px-1.5 py-0.5 text-[10px] text-surface-600-400">{server.scope}</span>
+            <Collapsible
+              open={Boolean(expanded[server.name])}
+              onOpenChange={(details) => (expanded[server.name] = details.open)}
+              class="items-stretch gap-0"
+            >
+              <div class="flex items-center gap-3">
+                <Plug size={16} class="shrink-0 text-surface-500" />
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2">
+                    <span class="truncate font-medium">{live?.serverInfo?.title || server.name}</span>
+                    <span class="shrink-0 rounded-full bg-surface-200-800 px-1.5 py-0.5 text-[10px] text-surface-600-400">{server.scope}</span>
+                  </div>
+                  <div class="mt-0.5 truncate text-[11px] text-surface-500">{capabilitySummary(server, live)}</div>
                 </div>
-                <div class="mt-0.5 truncate text-[11px] text-surface-500">{capabilitySummary(server, live)}</div>
+                <div class="flex shrink-0 items-center gap-1.5">
+                  <span class="size-1.5 rounded-full {statusDotClass(status)}"></span>
+                  <span class="text-[10px] text-surface-500">{server.scope === "plugin" && !live ? pluginServerLabel(server) : projectPath ? server.enabled ? "Enabled" : "Disabled" : statusLabel(status)}</span>
+                  {#if runtimeStatusLabel(live) && runtimeStatusLabel(live) !== statusLabel(status)}
+                    <span class="text-[10px] text-surface-500" title="Codex runtime status">· {runtimeStatusLabel(live)}</span>
+                  {/if}
+                </div>
               </div>
-              <div class="flex shrink-0 items-center gap-1.5">
-                <span class="size-1.5 rounded-full {statusDotClass(status)}"></span>
-                <span class="text-[10px] text-surface-500">{server.scope === "plugin" && !live ? pluginServerLabel(server) : projectPath ? server.enabled ? "Enabled" : "Disabled" : statusLabel(status)}</span>
-                {#if runtimeStatusLabel(live) && runtimeStatusLabel(live) !== statusLabel(status)}
-                  <span class="text-[10px] text-surface-500" title="Codex runtime status">· {runtimeStatusLabel(live)}</span>
+
+              {#if live?.error}
+                <div class="mt-2 flex items-start gap-1.5 text-[11px] text-error-500">
+                  <X size={12} class="mt-0.5 shrink-0" />
+                  <span>{live.error}</span>
+                </div>
+              {/if}
+              {#if auth === "signIn"}
+                <div class="mt-2 text-[11px] text-warning-600-400">This server needs you to sign in before its tools are available.</div>
+              {:else if auth === "env"}
+                <div class="mt-2 text-[11px] text-surface-500">
+                  Authenticated from <span class="font-mono">{server.bearerTokenEnvVar ?? "a bearer token"}</span> in your environment.
+                </div>
+              {/if}
+
+              <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
+                {#if auth === "signIn" && !projectPath}
+                  <button
+                    type="button"
+                    onclick={() => signIn(server)}
+                    disabled={signingIn[server.name]}
+                    class="btn btn-sm preset-filled-primary-500 text-xs"
+                  >
+                    <LogIn size={12} />
+                    {signingIn[server.name] ? "Waiting for browser…" : "Sign in"}
+                  </button>
+                {:else if auth === "signedIn"}
+                  <span class="text-[11px] text-success-500">Signed in</span>
+                {/if}
+                {#if projectPath}
+                  <select aria-label={`Setting for ${server.name}`} class="select text-xs" disabled={updating} value={settingValue(`mcp:${server.name}`)} onchange={(event) => changeSetting("mcp", server.name, event.currentTarget.value)}>
+                    <option value="inherit">{server.scope === "plugin" ? "Inherit" : `Inherit (${data.settings[`mcp:${server.name}`]?.inheritedEnabled ? "enabled" : "disabled"})`}</option>
+                    <option value="enabled">Enabled</option><option value="disabled">Disabled</option>
+                  </select>
+                {:else}
+                <button type="button" onclick={() => toggleEnabled(server)} class="btn btn-sm hover:preset-tonal text-xs">
+                  {server.enabled ? "Disable" : "Enable"}
+                </button>
+                {#if server.scope === "user" || server.scope === "global"}<button type="button" onclick={() => openConfigure(server)} class="btn btn-sm hover:preset-tonal text-xs">Edit</button>{/if}
+                {/if}
+                {#if hasDetails}
+                  <Collapsible.Trigger class="group btn btn-sm hover:preset-tonal text-xs">
+                    <ChevronRight size={12} class="transition-transform group-data-[state=open]:rotate-90" />
+                    {contribution || "Details"}
+                  </Collapsible.Trigger>
+                {/if}
+                {#if data.settings[`mcp:${server.name}`]?.pluginId}
+                  {@const owner = data.settings[`mcp:${server.name}`].pluginId}
+                  <span class="text-xs text-surface-500">Plugin: {owner}{data.plugins.some((plugin) => plugin.id === owner && !plugin.enabled) ? " (disabled)" : ""}</span>
+                {/if}
+                {#if !projectPath && (server.scope === "user" || server.scope === "global")}
+                {#if confirmRemove === server.name}
+                  <button type="button" onclick={() => doRemove(server.name)} class="btn btn-sm preset-filled-error-500 text-xs">Confirm remove</button>
+                  <button type="button" onclick={() => (confirmRemove = null)} class="btn btn-sm hover:preset-tonal text-xs">Cancel</button>
+                {:else}
+                  <TooltipButton
+                    label={`Remove ${server.name}`}
+                    type="button"
+                    onclick={() => (confirmRemove = server.name)}
+                    aria-label="Remove {server.name}"
+                    class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
+                  >
+                    <Trash2 size={13} />
+                  </TooltipButton>
+                {/if}
                 {/if}
               </div>
-            </div>
 
-            {#if live?.error}
-              <div class="mt-2 flex items-start gap-1.5 text-[11px] text-error-500">
-                <X size={12} class="mt-0.5 shrink-0" />
-                <span>{live.error}</span>
-              </div>
-            {/if}
-            {#if auth === "signIn"}
-              <div class="mt-2 text-[11px] text-warning-600-400">This server needs you to sign in before its tools are available.</div>
-            {:else if auth === "env"}
-              <div class="mt-2 text-[11px] text-surface-500">
-                Authenticated from <span class="font-mono">{server.bearerTokenEnvVar ?? "a bearer token"}</span> in your environment.
-              </div>
-            {/if}
-
-            <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
-              {#if auth === "signIn" && !projectPath}
-                <button
-                  type="button"
-                  onclick={() => signIn(server)}
-                  disabled={signingIn[server.name]}
-                  class="btn btn-sm preset-filled-primary-500 text-xs"
-                >
-                  <LogIn size={12} />
-                  {signingIn[server.name] ? "Waiting for browser…" : "Sign in"}
-                </button>
-              {:else if auth === "signedIn"}
-                <span class="text-[11px] text-success-500">Signed in</span>
-              {/if}
-              {#if projectPath}
-                <select aria-label={`Setting for ${server.name}`} class="select text-xs" disabled={updating} value={settingValue(`mcp:${server.name}`)} onchange={(event) => changeSetting("mcp", server.name, event.currentTarget.value)}>
-                  <option value="inherit">{server.scope === "plugin" ? "Inherit" : `Inherit (${data.settings[`mcp:${server.name}`]?.inheritedEnabled ? "enabled" : "disabled"})`}</option>
-                  <option value="enabled">Enabled</option><option value="disabled">Disabled</option>
-                </select>
-              {:else}
-              <button type="button" onclick={() => toggleEnabled(server)} class="btn btn-sm hover:preset-tonal text-xs">
-                {server.enabled ? "Disable" : "Enable"}
-              </button>
-              {#if server.scope === "user" || server.scope === "global"}<button type="button" onclick={() => openConfigure(server)} class="btn btn-sm hover:preset-tonal text-xs">Edit</button>{/if}
-              {/if}
               {#if hasDetails}
-                <button
-                  type="button"
-                  onclick={() => (expanded[server.name] = !expanded[server.name])}
-                  aria-expanded={Boolean(expanded[server.name])}
-                  class="btn btn-sm hover:preset-tonal text-xs"
-                >
-                  <ChevronRight size={12} class="transition-transform {expanded[server.name] ? 'rotate-90' : ''}" />
-                  {contribution || "Details"}
-                </button>
-              {/if}
-              {#if data.settings[`mcp:${server.name}`]?.pluginId}
-                {@const owner = data.settings[`mcp:${server.name}`].pluginId}
-                <span class="text-xs text-surface-500">Plugin: {owner}{data.plugins.some((plugin) => plugin.id === owner && !plugin.enabled) ? " (disabled)" : ""}</span>
-              {/if}
-              {#if !projectPath && (server.scope === "user" || server.scope === "global")}
-              {#if confirmRemove === server.name}
-                <button type="button" onclick={() => doRemove(server.name)} class="btn btn-sm preset-filled-error-500 text-xs">Confirm remove</button>
-                <button type="button" onclick={() => (confirmRemove = null)} class="btn btn-sm hover:preset-tonal text-xs">Cancel</button>
-              {:else}
-                <TooltipButton
-                  label={`Remove ${server.name}`}
-                  type="button"
-                  onclick={() => (confirmRemove = server.name)}
-                  aria-label="Remove {server.name}"
-                  class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
-                >
-                  <Trash2 size={13} />
-                </TooltipButton>
-              {/if}
-              {/if}
-            </div>
-
-            {#if expanded[server.name] && hasDetails}
-              <div class="mt-2.5 space-y-3 border-t border-surface-200-800 pt-2.5">
-              {#if info.length > 0}
-                <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11px]">
-                  {#each info as line (line.label)}
-                    <dt class="text-surface-500">{line.label}</dt>
-                    <dd class="min-w-0 break-words text-surface-600-400">
-                      {#if line.href}
-                        <button type="button" onclick={() => openExternalUrl(line.href ?? "")} class="inline-flex items-center gap-1 text-primary-500 hover:underline">
-                          {line.value} <ExternalLink size={10} />
-                        </button>
-                      {:else}
-                        {line.value}
+                <Collapsible.Content>
+                {#if expanded[server.name]}
+                <div class="mt-2.5 space-y-3 border-t border-surface-200-800 pt-2.5">
+                {#if info.length > 0}
+                  <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11px]">
+                    {#each info as line (line.label)}
+                      <dt class="text-surface-500">{line.label}</dt>
+                      <dd class="min-w-0 break-words text-surface-600-400">
+                        {#if line.href}
+                          <button type="button" onclick={() => openExternalUrl(line.href ?? "")} class="inline-flex items-center gap-1 text-primary-500 hover:underline">
+                            {line.value} <ExternalLink size={10} />
+                          </button>
+                        {:else}
+                          {line.value}
+                        {/if}
+                      </dd>
+                    {/each}
+                  </dl>
+                {/if}
+                {#if tools.length > 0}
+                <div>
+                <div class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-surface-500">Tools</div>
+                <ul class="space-y-2">
+                  {#each tools as tool (tool.name)}
+                    {@const parameters = toolParameters(tool)}
+                    <li id="mcp-tool-{server.name}-{tool.name}">
+                      <div class="font-mono text-[11px] font-medium">{tool.name}</div>
+                      {#if tool.description}
+                        <p class="mt-0.5 text-[11px] leading-snug text-surface-600-400">{tool.description}</p>
                       {/if}
-                    </dd>
+                      {#if parameters.length > 0}
+                        <dl class="mt-1 space-y-0.5">
+                          {#each parameters as parameter (parameter.name)}
+                            <div class="flex gap-1.5 text-[10px]">
+                              <dt class="shrink-0 font-mono text-surface-600-400">
+                                {parameter.name}{parameter.required ? "" : "?"}
+                                <span class="text-surface-400">: {parameter.type}</span>
+                              </dt>
+                              {#if parameter.hint}
+                                <dd class="min-w-0 flex-1 truncate text-surface-500">{parameter.hint}</dd>
+                              {/if}
+                            </div>
+                          {/each}
+                        </dl>
+                      {/if}
+                    </li>
                   {/each}
-                </dl>
-              {/if}
-              {#if tools.length > 0}
-              <div>
-              <div class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-surface-500">Tools</div>
-              <ul class="space-y-2">
-                {#each tools as tool (tool.name)}
-                  {@const parameters = toolParameters(tool)}
-                  <li id="mcp-tool-{server.name}-{tool.name}">
-                    <div class="font-mono text-[11px] font-medium">{tool.name}</div>
-                    {#if tool.description}
-                      <p class="mt-0.5 text-[11px] leading-snug text-surface-600-400">{tool.description}</p>
-                    {/if}
-                    {#if parameters.length > 0}
-                      <dl class="mt-1 space-y-0.5">
-                        {#each parameters as parameter (parameter.name)}
-                          <div class="flex gap-1.5 text-[10px]">
-                            <dt class="shrink-0 font-mono text-surface-600-400">
-                              {parameter.name}{parameter.required ? "" : "?"}
-                              <span class="text-surface-400">: {parameter.type}</span>
-                            </dt>
-                            {#if parameter.hint}
-                              <dd class="min-w-0 flex-1 truncate text-surface-500">{parameter.hint}</dd>
-                            {/if}
+                </ul>
+                </div>
+                {/if}
+                {#if resources.length > 0}
+                  <div>
+                    <div class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-surface-500">Resources</div>
+                    <ul class="space-y-1.5">
+                      {#each resources as resource (resource.uri)}
+                        <li>
+                          <div class="flex items-baseline gap-2">
+                            <span class="font-mono text-[11px] font-medium break-all">{resource.uri}</span>
+                            {#if resource.mimeType}<span class="shrink-0 text-[10px] text-surface-400">{resource.mimeType}</span>{/if}
                           </div>
-                        {/each}
-                      </dl>
-                    {/if}
-                  </li>
-                {/each}
-              </ul>
-              </div>
-              {/if}
-              {#if resources.length > 0}
-                <div>
-                  <div class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-surface-500">Resources</div>
-                  <ul class="space-y-1.5">
-                    {#each resources as resource (resource.uri)}
-                      <li>
-                        <div class="flex items-baseline gap-2">
-                          <span class="font-mono text-[11px] font-medium break-all">{resource.uri}</span>
-                          {#if resource.mimeType}<span class="shrink-0 text-[10px] text-surface-400">{resource.mimeType}</span>{/if}
-                        </div>
-                        {#if resource.title || resource.name || resource.description}
-                          <p class="mt-0.5 text-[11px] leading-snug text-surface-600-400">
-                            {[resource.title || resource.name, resource.description].filter(Boolean).join(" — ")}
-                          </p>
-                        {/if}
-                      </li>
-                    {/each}
-                  </ul>
+                          {#if resource.title || resource.name || resource.description}
+                            <p class="mt-0.5 text-[11px] leading-snug text-surface-600-400">
+                              {[resource.title || resource.name, resource.description].filter(Boolean).join(" — ")}
+                            </p>
+                          {/if}
+                        </li>
+                      {/each}
+                    </ul>
+                  </div>
+                {/if}
+                {#if templates.length > 0}
+                  <div>
+                    <div class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-surface-500">Resource templates</div>
+                    <ul class="space-y-1.5">
+                      {#each templates as template (template.uriTemplate)}
+                        <li>
+                          <div class="flex items-baseline gap-2">
+                            <span class="font-mono text-[11px] font-medium break-all">{template.uriTemplate}</span>
+                            {#if template.mimeType}<span class="shrink-0 text-[10px] text-surface-400">{template.mimeType}</span>{/if}
+                          </div>
+                          {#if template.title || template.name || template.description}
+                            <p class="mt-0.5 text-[11px] leading-snug text-surface-600-400">
+                              {[template.title || template.name, template.description].filter(Boolean).join(" — ")}
+                            </p>
+                          {/if}
+                        </li>
+                      {/each}
+                    </ul>
+                  </div>
+                {/if}
                 </div>
+                {/if}
+                </Collapsible.Content>
               {/if}
-              {#if templates.length > 0}
-                <div>
-                  <div class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-surface-500">Resource templates</div>
-                  <ul class="space-y-1.5">
-                    {#each templates as template (template.uriTemplate)}
-                      <li>
-                        <div class="flex items-baseline gap-2">
-                          <span class="font-mono text-[11px] font-medium break-all">{template.uriTemplate}</span>
-                          {#if template.mimeType}<span class="shrink-0 text-[10px] text-surface-400">{template.mimeType}</span>{/if}
-                        </div>
-                        {#if template.title || template.name || template.description}
-                          <p class="mt-0.5 text-[11px] leading-snug text-surface-600-400">
-                            {[template.title || template.name, template.description].filter(Boolean).join(" — ")}
-                          </p>
-                        {/if}
-                      </li>
-                    {/each}
-                  </ul>
-                </div>
-              {/if}
-              </div>
-            {/if}
+            </Collapsible>
           </div>
         {/each}
       {/if}
@@ -901,89 +907,92 @@ const matchCount = $derived(
         {/if}
         {#each skills as skill (skill.path)}
           <div id="skill-row-{encodeURIComponent(skill.path)}" class="card border border-surface-200-800 bg-surface-50-950 p-3">
-            <div class="flex items-center gap-3">
-              <Sparkles size={16} class="shrink-0 {skill.enabled ? 'text-tertiary-500' : 'text-surface-500'}" />
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-2">
-                  <span class="truncate font-medium">{skill.displayName || skill.name}</span>
-                  <span class="shrink-0 rounded-full bg-surface-200-800 px-1.5 py-0.5 text-[10px] text-surface-600-400">{skill.scope}</span>
-                </div>
-                {#if skill.displayName}
-                  <div class="mt-0.5 truncate font-mono text-[10px] text-surface-400">{skill.name}</div>
-                {/if}
-              </div>
-              <div class="flex shrink-0 items-center gap-1.5">
-                <span class="size-1.5 rounded-full {skill.enabled ? 'bg-success-500' : 'bg-surface-400'}"></span>
-                <span class="text-[10px] text-surface-500">{skill.enabled ? "Enabled" : "Disabled"}</span>
-              </div>
-            </div>
-            {#if skill.shortDescription || skill.description}
-              <p class="mt-1.5 line-clamp-3 text-[11px] leading-snug text-surface-600-400">
-                {skill.shortDescription || skill.description}
-              </p>
-            {/if}
-            <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
-              {#if !projectPath}
-              <button type="button" onclick={() => toggleSkill(skill)} class="btn btn-sm hover:preset-tonal text-xs">
-                {skill.enabled ? "Disable" : "Enable"}
-              </button>
-              {/if}
-              {#if data.settings[`skill:${skill.path}`]?.pluginId}
-                <span class="text-xs text-surface-500">Plugin: {data.settings[`skill:${skill.path}`].pluginId}</span>
-              {/if}
-              <button
-                type="button"
-                onclick={() => toggleSkillView(skill)}
-                aria-expanded={Boolean(skillOpen[skill.path])}
-                class="btn btn-sm hover:preset-tonal text-xs"
-              >
-                <ChevronRight size={12} class="transition-transform {skillOpen[skill.path] ? 'rotate-90' : ''}" />
-                View SKILL.md
-              </button>
-              <TooltipButton label="Reveal in Finder" type="button" onclick={() => revealInFinder(skill.path)} aria-label="Reveal {skill.name} in Finder" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
-                <FolderOpen size={13} />
-              </TooltipButton>
-              <TooltipButton label="Open in Zed" type="button" onclick={() => openInZed(skill.path)} aria-label="Open {skill.name} in Zed" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
-                <FileText size={13} />
-              </TooltipButton>
-              <span class="min-w-0 flex-1 truncate font-mono text-[10px] text-surface-500">{skill.path}</span>
-              {#if skill.scope === "user" && !projectPath}
-                {#if confirmDeleteSkill === skill.path}
-                  <button type="button" onclick={() => doDeleteSkill(skill)} class="btn btn-sm preset-filled-error-500 text-xs">Confirm delete</button>
-                  <button type="button" onclick={() => (confirmDeleteSkill = null)} class="btn btn-sm hover:preset-tonal text-xs">Cancel</button>
-                {:else}
-                  <TooltipButton
-                    label={`Delete ${skill.name}`}
-                    type="button"
-                    onclick={() => (confirmDeleteSkill = skill.path)}
-                    aria-label="Delete {skill.name}"
-                    class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
-                  >
-                    <Trash2 size={13} />
-                  </TooltipButton>
-                {/if}
-              {/if}
-            </div>
-            {#if skillOpen[skill.path]}
-              <div class="mt-2.5 border-t border-surface-200-800 pt-2.5">
-                {#if skillText[skill.path] == null}
-                  <div class="text-[11px] text-surface-500">Loading SKILL.md…</div>
-                {:else}
-                  {@const parsed = splitFrontmatter(skillText[skill.path] ?? "")}
-                  <div class="max-h-80 overflow-auto rounded bg-surface-100-900 p-3 text-xs leading-5">
-                    {#if parsed.meta.length > 0}
-                      <dl class="mb-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 border-b border-surface-200-800 pb-2 text-[11px]">
-                        {#each parsed.meta as entry (entry.key)}
-                          <dt class="font-mono text-surface-500">{entry.key}</dt>
-                          <dd class="min-w-0 break-words text-surface-600-400">{entry.value}</dd>
-                        {/each}
-                      </dl>
-                    {/if}
-                    <div class="prose-md prose-md-compact">{@html renderMarkdown(parsed.body)}</div>
+            <Collapsible
+              open={Boolean(skillOpen[skill.path])}
+              onOpenChange={(details) => setSkillView(skill, details.open)}
+              class="items-stretch gap-0"
+            >
+              <div class="flex items-center gap-3">
+                <Sparkles size={16} class="shrink-0 {skill.enabled ? 'text-tertiary-500' : 'text-surface-500'}" />
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2">
+                    <span class="truncate font-medium">{skill.displayName || skill.name}</span>
+                    <span class="shrink-0 rounded-full bg-surface-200-800 px-1.5 py-0.5 text-[10px] text-surface-600-400">{skill.scope}</span>
                   </div>
+                  {#if skill.displayName}
+                    <div class="mt-0.5 truncate font-mono text-[10px] text-surface-400">{skill.name}</div>
+                  {/if}
+                </div>
+                <div class="flex shrink-0 items-center gap-1.5">
+                  <span class="size-1.5 rounded-full {skill.enabled ? 'bg-success-500' : 'bg-surface-400'}"></span>
+                  <span class="text-[10px] text-surface-500">{skill.enabled ? "Enabled" : "Disabled"}</span>
+                </div>
+              </div>
+              {#if skill.shortDescription || skill.description}
+                <p class="mt-1.5 line-clamp-3 text-[11px] leading-snug text-surface-600-400">
+                  {skill.shortDescription || skill.description}
+                </p>
+              {/if}
+              <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
+                {#if !projectPath}
+                <button type="button" onclick={() => toggleSkill(skill)} class="btn btn-sm hover:preset-tonal text-xs">
+                  {skill.enabled ? "Disable" : "Enable"}
+                </button>
+                {/if}
+                {#if data.settings[`skill:${skill.path}`]?.pluginId}
+                  <span class="text-xs text-surface-500">Plugin: {data.settings[`skill:${skill.path}`].pluginId}</span>
+                {/if}
+                <Collapsible.Trigger class="group btn btn-sm hover:preset-tonal text-xs">
+                  <ChevronRight size={12} class="transition-transform group-data-[state=open]:rotate-90" />
+                  View SKILL.md
+                </Collapsible.Trigger>
+                <TooltipButton label="Reveal in Finder" type="button" onclick={() => revealInFinder(skill.path)} aria-label="Reveal {skill.name} in Finder" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
+                  <FolderOpen size={13} />
+                </TooltipButton>
+                <TooltipButton label="Open in Zed" type="button" onclick={() => openInZed(skill.path)} aria-label="Open {skill.name} in Zed" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
+                  <FileText size={13} />
+                </TooltipButton>
+                <span class="min-w-0 flex-1 truncate font-mono text-[10px] text-surface-500">{skill.path}</span>
+                {#if skill.scope === "user" && !projectPath}
+                  {#if confirmDeleteSkill === skill.path}
+                    <button type="button" onclick={() => doDeleteSkill(skill)} class="btn btn-sm preset-filled-error-500 text-xs">Confirm delete</button>
+                    <button type="button" onclick={() => (confirmDeleteSkill = null)} class="btn btn-sm hover:preset-tonal text-xs">Cancel</button>
+                  {:else}
+                    <TooltipButton
+                      label={`Delete ${skill.name}`}
+                      type="button"
+                      onclick={() => (confirmDeleteSkill = skill.path)}
+                      aria-label="Delete {skill.name}"
+                      class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
+                    >
+                      <Trash2 size={13} />
+                    </TooltipButton>
+                  {/if}
                 {/if}
               </div>
-            {/if}
+              <Collapsible.Content>
+              {#if skillOpen[skill.path]}
+                <div class="mt-2.5 border-t border-surface-200-800 pt-2.5">
+                  {#if skillText[skill.path] == null}
+                    <div class="text-[11px] text-surface-500">Loading SKILL.md…</div>
+                  {:else}
+                    {@const parsed = splitFrontmatter(skillText[skill.path] ?? "")}
+                    <div class="max-h-80 overflow-auto rounded bg-surface-100-900 p-3 text-xs leading-5">
+                      {#if parsed.meta.length > 0}
+                        <dl class="mb-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 border-b border-surface-200-800 pb-2 text-[11px]">
+                          {#each parsed.meta as entry (entry.key)}
+                            <dt class="font-mono text-surface-500">{entry.key}</dt>
+                            <dd class="min-w-0 break-words text-surface-600-400">{entry.value}</dd>
+                          {/each}
+                        </dl>
+                      {/if}
+                      <div class="prose-md prose-md-compact">{@html renderMarkdown(parsed.body)}</div>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+              </Collapsible.Content>
+            </Collapsible>
           </div>
         {/each}
       {/if}

@@ -74,7 +74,7 @@ describe("BranchSwitcherDialog", () => {
     const close = vi.fn();
     render(BranchSwitcherDialog, { dir: "/repo", currentBranch: "main", close });
 
-    await userEvent.click(screen.getByRole("tab", { name: "Create" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Create" }));
     await userEvent.type(screen.getByRole("textbox", { name: "New branch name" }), "feat/new");
     await userEvent.type(screen.getByRole("combobox", { name: "Base revision" }), "main");
     await userEvent.click(screen.getByRole("button", { name: "Create branch" }));

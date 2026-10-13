@@ -57,16 +57,16 @@ describe("SettingsView", () => {
     await user.click(screen.getByRole("tab", { name: /Advanced/ }));
 
     const toggle = screen.getByRole("switch", { name: "Message log" });
-    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(toggle).not.toBeChecked();
     // The log itself now lives in the thread's right sidebar, not inline here.
     expect(screen.queryByTestId("message-log")).not.toBeInTheDocument();
 
     await user.click(toggle);
-    expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(toggle).toBeChecked();
     expect(screen.queryByTestId("message-log")).not.toBeInTheDocument();
 
     await user.click(toggle);
-    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(toggle).not.toBeChecked();
   });
 
   it("closes via the header button", async () => {

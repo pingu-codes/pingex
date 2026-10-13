@@ -1,11 +1,10 @@
 <script lang="ts">
-import { FolderGit2, FolderOpen, GitBranch } from "@lucide/svelte";
-import { open as openPicker } from "@tauri-apps/plugin-dialog";
+import { FolderGit2, GitBranch } from "@lucide/svelte";
 import { onMount } from "svelte";
 import type { DialogClose } from "$lib/app/dialogs.svelte";
 import DialogShell from "$lib/components/DialogShell.svelte";
-import TooltipButton from "$lib/components/TooltipButton.svelte";
-import { gitWorktrees, isTauri } from "$lib/services/api";
+import DirectoryField from "$lib/components/DirectoryField.svelte";
+import { gitWorktrees } from "$lib/services/api";
 import type { Project, WorktreeEntry } from "$lib/types";
 import { submitState } from "$lib/utils/actionState.svelte";
 import { basename } from "$lib/utils/path";
@@ -38,12 +37,6 @@ const canAdd = $derived(!action.busy && selectedPath.trim().length > 0);
 function branchLabel(entry: WorktreeEntry): string {
   if (entry.detached) return entry.head ? `detached @ ${entry.head.slice(0, 7)}` : "detached";
   return entry.branch ?? "(no branch)";
-}
-
-async function browse() {
-  if (!isTauri()) return;
-  const picked = await openPicker({ directory: true, multiple: false, title: "Choose a worktree" });
-  if (typeof picked === "string") selectedPath = picked;
 }
 
 async function add() {
@@ -95,24 +88,20 @@ async function add() {
     </div>
   </div>
 
-  <label class="mt-3 block">
-    <span class="text-xs font-medium text-surface-600-400">Location</span>
-    <div class="mt-1 flex gap-2">
-      <input
-        type="text"
+  <div class="mt-3">
+    <label for="add-worktree-location" class="text-xs font-medium text-surface-600-400">Location</label>
+    <div class="mt-1">
+      <DirectoryField
+        id="add-worktree-location"
         value={selectedPath}
-        oninput={(event) => (selectedPath = event.currentTarget.value)}
+        onInput={(next) => (selectedPath = next)}
         placeholder="/path/to/worktree"
-        class="min-w-0 flex-1 field font-mono text-[13px]"
+        browseLabel="Browse for worktree"
+        pickerTitle="Choose a worktree"
       />
-      {#if isTauri()}
-        <TooltipButton label="Browse for worktree" type="button" onclick={browse} class="btn btn-sm preset-tonal shrink-0" aria-label="Browse for worktree">
-          <FolderOpen size={14} />
-        </TooltipButton>
-      {/if}
     </div>
     <p class="mt-1 text-[11px] text-surface-500">Must be a linked worktree of this repository, not the main checkout.</p>
-  </label>
+  </div>
 
   {#if action.error}
     <p class="mt-3 error-note">{action.error}</p>

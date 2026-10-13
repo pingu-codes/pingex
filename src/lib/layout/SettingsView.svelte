@@ -17,6 +17,9 @@ import {
 } from "@lucide/svelte";
 import { classifyVersion, LAST_STABLE, STABLE, type VersionTier } from "$lib/app/codexVersion.svelte";
 import { hostFromOption, hostOverride, hostToOption } from "$lib/app/host";
+import { launch } from "$lib/app/launch.svelte";
+import HostSelect from "$lib/components/HostSelect.svelte";
+import Toggle from "$lib/components/Toggle.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import IntegrationsSection from "$lib/integrations/IntegrationsSection.svelte";
 import {
@@ -36,7 +39,6 @@ import {
   DEFAULT_QUICK_SHORTCUT,
   getQuickShortcut,
   isTauri,
-  listWslDistros,
   readAgentSettings,
   readCodexServerInfo,
   readConfigSettings,
@@ -118,7 +120,6 @@ let settingsClaudeConfig = $state("");
 // only appear when a distribution exists, so the form is unchanged elsewhere.
 let settingsCodexHost = $state("native");
 let settingsClaudeHost = $state("native");
-let distros = $state<string[]>([]);
 let generalError = $state<string | null>(null);
 let generalSaved = $state(false);
 // The directory the form loaded with, so a save can say what changed.
@@ -209,9 +210,6 @@ $effect(() => {
       settingsClaudeHost = hostToOption(settings.overrideClaudeHost);
     })
     .catch((cause) => (generalError = errorMessage(cause)));
-  listWslDistros()
-    .then((list) => (distros = list))
-    .catch(() => (distros = []));
   // Best effort: a Codex that will not start is already reported elsewhere.
   readCodexServerInfo()
     .then((info) => (serverInfo = info))
@@ -423,18 +421,13 @@ async function reveal(path: string | null | undefined) {
                   class="input mt-1 w-full font-mono text-xs"
                 />
               </div>
-              {#if distros.length > 0}
+              {#if launch.distros.length > 0}
                 <div>
                   <div class="flex items-center gap-2">
                     <label for="settings-codex-host" class="text-xs font-medium text-surface-500">Codex runs in</label>
                     {@render restartBadge()}
                   </div>
-                  <select id="settings-codex-host" bind:value={settingsCodexHost} class="select mt-1 w-full text-xs" data-testid="settings-codex-host">
-                    <option value="native">This PC</option>
-                    {#each distros as distro (distro)}
-                      <option value={distro}>WSL · {distro}</option>
-                    {/each}
-                  </select>
+                  <HostSelect id="settings-codex-host" bind:value={settingsCodexHost} class="mt-1 w-full text-xs" data-testid="settings-codex-host" />
                   <p class="mt-1 text-[11px] leading-4 text-surface-500">
                     The home, the binary and every project of a WSL home are Linux paths inside that
                     distribution. Homes picked from the launcher keep the host they were picked with.
@@ -450,15 +443,10 @@ async function reveal(path: string | null | undefined) {
                   class="input mt-1 w-full font-mono text-xs"
                 />
               </div>
-              {#if distros.length > 0}
+              {#if launch.distros.length > 0}
                 <div>
                   <label for="settings-claude-host" class="text-xs font-medium text-surface-500">Claude runs in</label>
-                  <select id="settings-claude-host" bind:value={settingsClaudeHost} class="select mt-1 w-full text-xs" data-testid="settings-claude-host">
-                    <option value="native">This PC</option>
-                    {#each distros as distro (distro)}
-                      <option value={distro}>WSL · {distro}</option>
-                    {/each}
-                  </select>
+                  <HostSelect id="settings-claude-host" bind:value={settingsClaudeHost} class="mt-1 w-full text-xs" data-testid="settings-claude-host" />
                 </div>
               {/if}
               <div>
@@ -590,23 +578,12 @@ async function reveal(path: string | null | undefined) {
                 </div>
                 <div class="flex items-center gap-2">
                   {@render localBadge()}
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={sidebarPrefs.hideOldThreads}
-                    aria-label="Hide threads older than a day"
-                    data-testid="hide-old-threads-switch"
-                    onclick={() => sidebarPrefs.setHideOldThreads(!sidebarPrefs.hideOldThreads)}
-                    class="relative h-5 w-9 shrink-0 rounded-full transition {sidebarPrefs.hideOldThreads
-                      ? 'bg-primary-500'
-                      : 'bg-surface-300-700'}"
-                  >
-                    <span
-                      class="absolute top-0.5 size-4 rounded-full bg-white transition-all {sidebarPrefs.hideOldThreads
-                        ? 'left-[1.125rem]'
-                        : 'left-0.5'}"
-                    ></span>
-                  </button>
+                  <Toggle
+                    checked={sidebarPrefs.hideOldThreads}
+                    label="Hide threads older than a day"
+                    testId="hide-old-threads-switch"
+                    onChange={(checked) => sidebarPrefs.setHideOldThreads(checked)}
+                  />
                 </div>
               </div>
             </div>
@@ -822,23 +799,12 @@ async function reveal(path: string | null | undefined) {
               </div>
               <div class="flex shrink-0 items-center gap-2">
                 {@render localBadge()}
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={messageLog.enabled}
-                  aria-label="Message log"
-                  data-testid="message-log-switch"
-                  onclick={() => messageLog.setEnabled(!messageLog.enabled)}
-                  class="relative h-5 w-9 shrink-0 rounded-full transition {messageLog.enabled
-                    ? 'bg-primary-500'
-                    : 'bg-surface-300-700'}"
-                >
-                  <span
-                    class="absolute top-0.5 size-4 rounded-full bg-white transition-all {messageLog.enabled
-                      ? 'left-[1.125rem]'
-                      : 'left-0.5'}"
-                  ></span>
-                </button>
+                <Toggle
+                  checked={messageLog.enabled}
+                  label="Message log"
+                  testId="message-log-switch"
+                  onChange={(checked) => messageLog.setEnabled(checked)}
+                />
               </div>
             </div>
           </section>

@@ -443,7 +443,7 @@ function backToPicker() {
                 <option value={line.anchor}>{line.label}</option>
               {/each}
             </select>
-            <textarea bind:value={addBody} aria-label="Comment" rows="2" placeholder="Leave a comment on this line…" class="mt-2 w-full resize-y rounded-md border border-surface-300-700 bg-surface-50-950 p-2 text-xs"></textarea>
+            <textarea bind:value={addBody} aria-label="Comment" rows="2" placeholder="Leave a comment on this line…" class="mt-2 w-full resize-y field text-xs"></textarea>
             <div class="mt-1 flex justify-end gap-1">
               <button onclick={() => (addingOn = null)} class="btn btn-sm preset-tonal">Cancel</button>
               <button onclick={() => addComment(selectedFile)} disabled={!addBody.trim() || lines.length === 0} class="btn btn-sm preset-filled-primary-500">Add</button>

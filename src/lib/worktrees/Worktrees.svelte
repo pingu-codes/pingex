@@ -18,6 +18,7 @@ import {
   Trash2,
   Unlock,
 } from "@lucide/svelte";
+import { Menu, Portal } from "@skeletonlabs/skeleton-svelte";
 import { onMount } from "svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
@@ -75,8 +76,6 @@ let error = $state<string | null>(null);
 /** Menu actions; they may overlap and share one error banner. */
 const actions = submitState({ exclusive: false });
 
-let openMenu = $state<string | null>(null);
-
 const cards = $derived<WorktreeCard[]>(worktreeCards(entries, projects));
 const mainCard = $derived(cards.find((card) => card.entry.isMain) ?? null);
 const linkedCards = $derived(cards.filter((card) => !card.entry.isMain));
@@ -105,7 +104,6 @@ onMount(() => {
 });
 
 async function runAction(fn: () => Promise<void>) {
-  openMenu = null;
   await actions.run(async () => {
     await fn();
     await load();
@@ -132,7 +130,6 @@ function threadCountFor(path: string): number {
 
 /** Check a temporary worktree's branch out in this repository and drop the worktree. */
 function handoffToLocal(entry: WorktreeEntry) {
-  openMenu = null;
   openDialog(HandoffToLocalDialog, {
     worktreePath: entry.path,
     targets: [],
@@ -144,8 +141,29 @@ function handoffToLocal(entry: WorktreeEntry) {
   });
 }
 
+/** The actions a worktree's overflow menu offers, in order. */
+function menuItems(entry: WorktreeEntry) {
+  const items: { value: string; label: string; icon: typeof Pencil; danger?: boolean }[] = [];
+  if (onRenameProject) items.push({ value: "rename", label: "Rename display name", icon: Pencil });
+  if (entry.locked) items.push({ value: "unlock", label: "Unlock", icon: LockOpen });
+  else if (!entry.isMain) items.push({ value: "lock", label: "Lock", icon: Unlock });
+  if (entry.prunable || entry.missingDir) items.push({ value: "prune", label: "Prune stale", icon: Trash2 });
+  if (!entry.isMain && isTempWorktreePath(entry.path) && !entry.missingDir)
+    items.push({ value: "handoff", label: "Hand off to local", icon: ArrowLeftRight });
+  if (!entry.isMain) items.push({ value: "remove", label: "Remove worktree", icon: Trash2, danger: true });
+  return items;
+}
+
+function menuAction(entry: WorktreeEntry, action: string) {
+  if (action === "rename") onRenameProject?.(entry.path);
+  else if (action === "unlock") void runAction(() => gitWorktreeUnlock(repoDir, entry.path));
+  else if (action === "lock") void runAction(() => gitWorktreeLock(repoDir, entry.path));
+  else if (action === "prune") void runAction(() => gitWorktreePrune(repoDir));
+  else if (action === "handoff") handoffToLocal(entry);
+  else if (action === "remove") void removeWorktree(entry);
+}
+
 async function removeWorktree(entry: WorktreeEntry) {
-  openMenu = null;
   const result = await openDialog(RemoveWorktreeDialog, {
     entry,
     threadCount: threadCountFor(entry.path),
@@ -291,50 +309,26 @@ async function removeWorktree(entry: WorktreeEntry) {
           <FolderOpen size={14} />
         </TooltipButton>
       {/if}
-      <div class="relative">
-        <button
-          type="button"
-          onclick={() => (openMenu = openMenu === card.entry.path ? null : card.entry.path)}
-          aria-label="Worktree actions"
-          class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
-        >
+      <Menu positioning={{ placement: "bottom-end" }} onSelect={(details) => menuAction(card.entry, details.value)}>
+        <Menu.Trigger aria-label="Worktree actions" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
           <MoreHorizontal size={16} />
-        </button>
-        {#if openMenu === card.entry.path}
-          <button type="button" class="fixed inset-0 z-40 cursor-default" aria-label="Close menu" onclick={() => (openMenu = null)}></button>
-          <div class="popover-card absolute right-0 z-50 mt-1 w-48 overflow-hidden py-1 text-sm">
-            {#if onRenameProject}
-              <button onclick={() => { openMenu = null; onRenameProject?.(card.entry.path); }} class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:preset-tonal">
-                <Pencil size={13} /> Rename display name
-              </button>
-            {/if}
-            {#if card.entry.locked}
-              <button onclick={() => runAction(() => gitWorktreeUnlock(repoDir, card.entry.path))} class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:preset-tonal">
-                <LockOpen size={13} /> Unlock
-              </button>
-            {:else if !card.entry.isMain}
-              <button onclick={() => runAction(() => gitWorktreeLock(repoDir, card.entry.path))} class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:preset-tonal">
-                <Unlock size={13} /> Lock
-              </button>
-            {/if}
-            {#if card.entry.prunable || card.entry.missingDir}
-              <button onclick={() => runAction(() => gitWorktreePrune(repoDir))} class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:preset-tonal">
-                <Trash2 size={13} /> Prune stale
-              </button>
-            {/if}
-            {#if !card.entry.isMain && isTempWorktreePath(card.entry.path) && !card.entry.missingDir}
-              <button onclick={() => handoffToLocal(card.entry)} class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:preset-tonal">
-                <ArrowLeftRight size={13} /> Hand off to local
-              </button>
-            {/if}
-            {#if !card.entry.isMain}
-              <button onclick={() => removeWorktree(card.entry)} class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-error-500 hover:preset-tonal">
-                <Trash2 size={13} /> Remove worktree
-              </button>
-            {/if}
-          </div>
-        {/if}
-      </div>
+        </Menu.Trigger>
+        <Portal>
+          <Menu.Positioner>
+            <Menu.Content class="popover-card z-50 w-48 select-none p-1 text-sm">
+              {#each menuItems(card.entry) as item (item.value)}
+                <Menu.Item
+                  value={item.value}
+                  class="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:preset-tonal data-highlighted:preset-tonal {item.danger ? 'text-error-500' : ''}"
+                >
+                  <item.icon size={13} />
+                  <Menu.ItemText>{item.label}</Menu.ItemText>
+                </Menu.Item>
+              {/each}
+            </Menu.Content>
+          </Menu.Positioner>
+        </Portal>
+      </Menu>
     </div>
   </div>
 {/snippet}

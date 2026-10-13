@@ -127,9 +127,9 @@ describe("MemoriesView", () => {
     mocks.setMemoryToggle.mockResolvedValue(homes(false));
     render(MemoriesView);
     const toggle = await screen.findByRole("switch", { name: "Claude Code: Auto memory" });
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(toggle).toBeChecked();
     await user.click(toggle);
-    await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("false"));
+    await waitFor(() => expect(toggle).not.toBeChecked());
     expect(mocks.setMemoryToggle).toHaveBeenCalledWith("claude", "autoMemoryEnabled", false, expect.any(Array));
   });
 });

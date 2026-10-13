@@ -2,6 +2,7 @@
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { hostFromOption } from "$lib/app/host";
 import { commands, type HarnessKind } from "$lib/bindings";
+import HostSelect from "$lib/components/HostSelect.svelte";
 import { type ClaudeStatus, readHomeClaudeStatus } from "$lib/services/api";
 import { chooseDefaultHome, loadProfile, profileHomes, removeHome, updateHome } from "$lib/services/homeRouting";
 import { isTauri } from "$lib/services/tauri";
@@ -12,7 +13,6 @@ let host = $state("native");
 let configDir = $state("~/.codex");
 let binary = $state("codex");
 let label = $state("");
-let distros = $state<string[]>([]);
 const action = submitState();
 const homes = $derived(profileHomes());
 
@@ -29,16 +29,6 @@ let confirming = $state<string | null>(null);
 let editDir = $state("");
 let editBinary = $state("");
 let editLabel = $state("");
-
-$effect(() => {
-  if (isTauri())
-    commands
-      .listWslDistros()
-      .then((value) => {
-        distros = value;
-      })
-      .catch(() => {});
-});
 
 // Re-probe whenever the set of Claude Homes changes — after an add or a
 // removal, `loadProfile` replaces the list and the ids that went with it. An
@@ -239,11 +229,7 @@ async function add() {
       >
       <label class="label text-xs"
         ><span>Host</span
-        ><select class="select" bind:value={host}
-          ><option value="native">This computer</option>{#each distros as distro}<option value={distro}
-              >WSL · {distro}</option
-            >{/each}</select
-        ></label
+        ><HostSelect bind:value={host} /></label
       >
     </div>
     {@render fields(

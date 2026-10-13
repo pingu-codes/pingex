@@ -39,9 +39,10 @@ test("edits, searches and deletes a Claude memory", async ({ page }) => {
 
 test("flips a memory switch", async ({ page }) => {
   const toggle = page.getByRole("switch", { name: "Codex: Use memories" });
-  await expect(toggle).toHaveAttribute("aria-checked", "true");
-  await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  await expect(toggle).toBeChecked();
+  // The checkbox is visually hidden under the switch's track, which takes the click.
+  await toggle.uncheck({ force: true });
+  await expect(toggle).not.toBeChecked();
 });
 
 test("/memories opens the page from a composer", async ({ page }) => {

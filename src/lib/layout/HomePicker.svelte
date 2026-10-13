@@ -12,6 +12,7 @@ import {
   X,
 } from "@lucide/svelte";
 import { hostFromOption, hostKey, hostLabel, NATIVE_HOST, sameHost } from "$lib/app/host";
+import HostSelect from "$lib/components/HostSelect.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import type { Host, LaunchState } from "$lib/types";
 import { errorMessage } from "$lib/utils/errors";
@@ -288,18 +289,14 @@ const isCurrent = (option: HomeOption) =>
       >
         {#if distros.length > 0}
           <!-- The same path can exist natively and inside a distribution. -->
-          <select
+          <HostSelect
             bind:value={rawHost}
+            {distros}
             disabled={locked}
             aria-label="Where the home lives"
             data-testid="raw-home-host"
-            class="select w-auto shrink-0 rounded-xl py-2 text-sm"
-          >
-            <option value="native">This PC</option>
-            {#each distros as distro (distro)}
-              <option value={distro}>WSL · {distro}</option>
-            {/each}
-          </select>
+            class="w-auto shrink-0 rounded-xl py-2 text-sm"
+          />
         {/if}
         <input
           bind:value={rawPath}

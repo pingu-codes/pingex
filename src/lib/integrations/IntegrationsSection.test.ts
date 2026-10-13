@@ -180,7 +180,7 @@ describe("IntegrationsSection", () => {
     await user.type(screen.getByRole("searchbox", { name: "Search integrations" }), "CORRECTNESS");
     expect(screen.getByText("code-reviewer")).toBeInTheDocument();
     expect(screen.queryByText("GitHub")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: "MCP" }));
+    await user.click(screen.getByRole("radio", { name: "MCP" }));
     expect(screen.getByText("No matching integrations.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Clear search" }));
     expect(screen.getByText("GitHub")).toBeInTheDocument();
@@ -303,15 +303,15 @@ describe("IntegrationsSection", () => {
     expect(await screen.findByText("GitHub")).toBeInTheDocument();
     expect(screen.getByText("linear")).toBeInTheDocument();
     expect(screen.getByText("code-reviewer")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "MCP" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Plugins" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "MCP" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Plugins" })).toBeInTheDocument();
   });
 
   it("filters to only MCP rows when the MCP tab is selected", async () => {
     const user = userEvent.setup();
     render(IntegrationsSection, {});
     await screen.findByText("GitHub");
-    await user.click(screen.getByRole("tab", { name: "MCP" }));
+    await user.click(screen.getByRole("radio", { name: "MCP" }));
     expect(screen.queryByText("code-reviewer")).not.toBeInTheDocument();
     expect(screen.getByText("GitHub")).toBeInTheDocument();
   });
