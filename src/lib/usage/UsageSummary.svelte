@@ -7,6 +7,7 @@
 <script lang="ts">
 import { onMount } from "svelte";
 import { openThreadById } from "$lib/app/navigation.svelte";
+import Segmented from "$lib/components/Segmented.svelte";
 import { readUsageBreakdown } from "$lib/services/api";
 import { usageStatus } from "$lib/services/codexEvents.svelte";
 import type { UsageBreakdown, UsageScope } from "$lib/types";
@@ -80,18 +81,12 @@ function groupCost(group: UsageBreakdown["byModel"][number]): string | null {
 
 <div class="space-y-4 text-xs" data-testid="usage-summary">
   {#if !compact}
-    <div class="flex items-center gap-1" role="group" aria-label="Usage time range">
-      {#each USAGE_RANGES as option (option.id)}
-        <button
-          type="button"
-          class="rounded-full px-2.5 py-1 text-[11px] {range === option.id ? 'preset-filled-primary-500' : 'preset-tonal'}"
-          aria-pressed={range === option.id}
-          onclick={() => selectRange(option.id)}
-        >
-          {option.label}
-        </button>
-      {/each}
-    </div>
+    <Segmented
+      label="Usage time range"
+      value={range}
+      onChange={selectRange}
+      options={USAGE_RANGES.map((option) => ({ value: option.id, label: option.label }))}
+    />
   {/if}
 
   {#if !breakdown && !usage.error}

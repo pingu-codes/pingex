@@ -141,7 +141,7 @@ function submitReview() {
                     aria-label="Reply"
                     rows="2"
                     placeholder="Write a reply…"
-                    class="w-full resize-y rounded-md border border-surface-300-700 bg-surface-50-950 p-2 text-xs"
+                    class="w-full resize-y field text-xs"
                   ></textarea>
                   <div class="mt-1 flex justify-end">
                     <button onclick={() => submitReply(thread)} disabled={busy || !replyBody.trim()} class="btn btn-sm preset-filled-primary-500">
@@ -185,7 +185,7 @@ function submitReview() {
           aria-label="Review summary"
           rows="2"
           placeholder="Overall review comment…"
-          class="w-full resize-y rounded-md border border-surface-300-700 bg-surface-50-950 p-2 text-xs"
+          class="w-full resize-y field text-xs"
         ></textarea>
         <div class="flex items-center gap-2">
           <select bind:value={reviewEvent} aria-label="Review action" class="select select-sm flex-1 text-xs">

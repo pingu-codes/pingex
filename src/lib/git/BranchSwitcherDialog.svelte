@@ -2,8 +2,9 @@
 import { GitBranch, Plus } from "@lucide/svelte";
 import { onMount } from "svelte";
 import type { DialogClose } from "$lib/app/dialogs.svelte";
+import BranchList from "$lib/components/BranchList.svelte";
 import DialogShell from "$lib/components/DialogShell.svelte";
-import { filterBranches } from "$lib/composer/reviewTargets";
+import Segmented from "$lib/components/Segmented.svelte";
 import { gitBranches, gitCheckoutBranch, gitCreateBranch } from "$lib/services/api";
 import type { GitBranch as Branch } from "$lib/types";
 import { submitState } from "$lib/utils/actionState.svelte";
@@ -24,7 +25,6 @@ let {
 
 const listing = resource(() => gitBranches(dir), { describe: (cause) => parseGitError(cause).message });
 const branches = $derived<Branch[]>(listing.value ?? []);
-let query = $state("");
 let mode = $state<"switch" | "create">("switch");
 let newName = $state("");
 let base = $state("");
@@ -35,19 +35,11 @@ const action = submitState();
 
 onMount(() => void listing.reload());
 
-const local = $derived(
-  filterBranches(
-    branches.filter((branch) => !branch.isRemote),
-    query,
-  ),
-);
+const local = $derived(branches.filter((branch) => !branch.isRemote));
 const remoteOnly = $derived(
-  filterBranches(
-    branches.filter(
-      (branch) =>
-        branch.isRemote && !branches.some((other) => !other.isRemote && other.name === stripRemotePrefix(branch.name)),
-    ),
-    query,
+  branches.filter(
+    (branch) =>
+      branch.isRemote && !branches.some((other) => !other.isRemote && other.name === stripRemotePrefix(branch.name)),
   ),
 );
 const canCreate = $derived(!action.busy && newName.trim().length > 0);
@@ -92,60 +84,30 @@ async function create() {
 <DialogShell title={mode === "switch" ? "Switch branch" : "Create branch"} width={480} onClose={() => close()}>
   {#snippet icon()}<GitBranch size={17} class="text-primary-500" />{/snippet}
 
-  <div class="mt-3 flex gap-1 rounded-lg bg-surface-200-800 p-0.5 text-xs" role="tablist" aria-label="Branch action">
-    <button type="button" role="tab" aria-selected={mode === "switch"} onclick={() => (mode = "switch")} class="flex-1 rounded-md px-2 py-1 {mode === 'switch' ? 'bg-surface-50-950 font-medium shadow-sm' : 'text-surface-500'}">Switch</button>
-    <button type="button" role="tab" aria-selected={mode === "create"} onclick={() => (mode = "create")} class="flex-1 rounded-md px-2 py-1 {mode === 'create' ? 'bg-surface-50-950 font-medium shadow-sm' : 'text-surface-500'}">Create</button>
-  </div>
+  <Segmented
+    label="Branch action"
+    value={mode}
+    onChange={(next) => (mode = next)}
+    fill
+    class="mt-3"
+    options={[
+      { value: "switch", label: "Switch" },
+      { value: "create", label: "Create" },
+    ]}
+  />
 
   {#if mode === "switch"}
-    <input
-      type="search"
-      bind:value={query}
-      placeholder="Filter branches"
-      aria-label="Filter branches"
-      class="mt-3 w-full field text-sm"
+    <BranchList
+      id="branch-switch-list"
+      class="mt-3"
+      label="Filter branches"
+      branches={local}
+      remote={remoteOnly}
+      loaded={Boolean(listing.value)}
+      error={listing.error}
+      disabled={(branch) => action.busy || branch.isCurrent}
+      onPick={(branch) => (branch.isRemote ? trackRemote(branch.name) : switchTo(branch.name, false))}
     />
-    <div role="listbox" aria-label="Branches" class="mt-2 max-h-64 overflow-y-auto rounded-md border border-surface-200-800 bg-surface-50-950 p-1">
-      {#if listing.error}
-        <p class="px-2 py-2 text-xs text-error-500">{listing.error}</p>
-      {:else if !listing.value}
-        <div class="placeholder m-1 h-8 animate-pulse rounded"></div>
-      {:else if local.length === 0 && remoteOnly.length === 0}
-        <p class="px-2 py-2 text-xs text-surface-500">No branches match.</p>
-      {:else}
-        {#each local as branch (branch.name)}
-          <button
-            type="button"
-            role="option"
-            aria-selected={branch.isCurrent}
-            disabled={action.busy || branch.isCurrent}
-            onclick={() => switchTo(branch.name, false)}
-            class="menu-row text-sm disabled:opacity-60"
-          >
-            <GitBranch size={12} class="shrink-0 text-surface-500" />
-            <span class="min-w-0 flex-1 truncate font-mono text-[13px]">{branch.name}</span>
-            {#if branch.isCurrent}<span class="rounded-full bg-primary-500/15 px-1.5 py-0.5 text-[10px] font-medium text-primary-500">current</span>{/if}
-          </button>
-        {/each}
-        {#if remoteOnly.length > 0}
-          <div class="mt-1 px-2 pt-1 eyebrow text-[10px]">Remote</div>
-          {#each remoteOnly as branch (branch.name)}
-            <button
-              type="button"
-              role="option"
-              aria-selected="false"
-              disabled={action.busy}
-              onclick={() => trackRemote(branch.name)}
-              class="menu-row text-sm disabled:opacity-60"
-              title="Create a local branch tracking {branch.name}"
-            >
-              <GitBranch size={12} class="shrink-0 text-surface-500" />
-              <span class="min-w-0 flex-1 truncate font-mono text-[13px]">{branch.name}</span>
-            </button>
-          {/each}
-        {/if}
-      {/if}
-    </div>
   {:else}
     <label class="mt-3 block">
       <span class="text-xs font-medium text-surface-600-400">Branch name</span>

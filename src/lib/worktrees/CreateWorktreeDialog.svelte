@@ -1,12 +1,12 @@
 <script lang="ts">
-import { FolderOpen, GitBranch } from "@lucide/svelte";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { GitBranch } from "@lucide/svelte";
 import { onMount } from "svelte";
 import type { DialogClose } from "$lib/app/dialogs.svelte";
+import BranchList from "$lib/components/BranchList.svelte";
 import DialogShell from "$lib/components/DialogShell.svelte";
-import TooltipButton from "$lib/components/TooltipButton.svelte";
-import { filterBranches } from "$lib/composer/reviewTargets";
-import { gitBranches, gitRecentCommits, isTauri } from "$lib/services/api";
+import DirectoryField from "$lib/components/DirectoryField.svelte";
+import Segmented from "$lib/components/Segmented.svelte";
+import { gitBranches, gitRecentCommits } from "$lib/services/api";
 import type { GitBranch as Branch, GitCommit, WorktreeBranchRequest } from "$lib/types";
 import { submitState } from "$lib/utils/actionState.svelte";
 import { basename, trimSlash } from "$lib/utils/path";
@@ -32,7 +32,6 @@ let branchName = $state("");
 let existingQuery = $state("");
 /** The row picked from the list; cleared as soon as the query is edited. */
 let selectedBranch = $state<Branch | null>(null);
-let activeIndex = $state(0);
 let base = $state("");
 let location = $state("");
 let locationTouched = $state(false);
@@ -52,34 +51,9 @@ const action = submitState();
 
 onMount(() => void refs.reload());
 
-const matches = $derived(filterBranches(branches, existingQuery));
-/** A branch checked out in another worktree cannot be added again. */
-const pickable = (branch: Branch) => !branch.isCurrent;
-
-$effect(() => {
-  if (activeIndex >= matches.length) activeIndex = 0;
-});
-
 function pickBranch(branch: Branch) {
-  if (!pickable(branch)) return;
   selectedBranch = branch;
   existingQuery = branch.name;
-}
-
-function onQueryKeydown(event: KeyboardEvent) {
-  if (event.key === "ArrowDown") {
-    event.preventDefault();
-    activeIndex = Math.min(activeIndex + 1, matches.length - 1);
-  } else if (event.key === "ArrowUp") {
-    event.preventDefault();
-    activeIndex = Math.max(activeIndex - 1, 0);
-  } else if (event.key === "Enter") {
-    const branch = matches[activeIndex];
-    if (branch && branch.name !== existingQuery) {
-      event.preventDefault();
-      pickBranch(branch);
-    }
-  }
 }
 
 /** What `create()` will send for the existing-branch mode. */
@@ -117,13 +91,9 @@ const canCreate = $derived.by(() => {
   return mode === "new" ? branchName.trim().length > 0 : existingRequest !== null;
 });
 
-async function browse() {
-  if (!isTauri()) return;
-  const picked = await openDialog({ directory: true, multiple: false, title: "Choose a worktree location" });
-  if (typeof picked === "string") {
-    locationTouched = true;
-    location = picked;
-  }
+function setLocation(value: string) {
+  locationTouched = true;
+  location = value;
 }
 
 async function create() {
@@ -138,22 +108,18 @@ async function create() {
 <DialogShell title="Create worktree" width={500} onClose={() => close()}>
   {#snippet icon()}<GitBranch size={17} class="text-primary-500" />{/snippet}
 
-  <div class="mt-4 flex gap-1 rounded-lg bg-surface-200-800 p-1 text-sm">
-    <button
-      type="button"
-      onclick={() => (mode = "new")}
-      class="flex-1 rounded-md px-3 py-1.5 font-medium transition {mode === 'new' ? 'bg-surface-50-950 shadow-sm' : 'text-surface-500 hover:text-surface-800-200'}"
-    >
-      New branch
-    </button>
-    <button
-      type="button"
-      onclick={() => (mode = "existing")}
-      class="flex-1 rounded-md px-3 py-1.5 font-medium transition {mode === 'existing' ? 'bg-surface-50-950 shadow-sm' : 'text-surface-500 hover:text-surface-800-200'}"
-    >
-      Existing branch
-    </button>
-  </div>
+  <Segmented
+    label="Branch source"
+    value={mode}
+    onChange={(next) => (mode = next)}
+    size="md"
+    fill
+    class="mt-4"
+    options={[
+      { value: "new", label: "New branch" },
+      { value: "existing", label: "Existing branch" },
+    ]}
+  />
 
   <div class="mt-4 space-y-3">
     {#if mode === "new"}
@@ -191,60 +157,22 @@ async function create() {
       </label>
     {:else}
       <div>
-        <label class="block">
-          <span class="text-xs font-medium text-surface-600-400">Existing branch</span>
-          <input
-            type="text"
-            value={existingQuery}
-            oninput={(event) => {
-              existingQuery = event.currentTarget.value;
-              selectedBranch = null;
-              activeIndex = 0;
-            }}
-            onkeydown={onQueryKeydown}
-            placeholder="Filter local and remote branches…"
-            role="combobox"
-            aria-expanded="true"
-            aria-controls="worktree-branch-list"
-            aria-autocomplete="list"
-            class="mt-1 w-full field font-mono text-sm"
-          />
-        </label>
-        <div
+        <BranchList
           id="worktree-branch-list"
-          role="listbox"
-          aria-label="Branches"
-          class="mt-1 max-h-48 select-none overflow-y-auto rounded-md border border-surface-200-800 bg-surface-50-950 p-1"
-        >
-          {#if refs.error}
-            <p class="px-2 py-2 text-xs text-error-500">{refs.error}</p>
-          {:else if matches.length === 0}
-            <p class="px-2 py-2 text-xs text-surface-500">
-              {branches.length === 0 ? "No branches found." : `No branch matches “${existingQuery}”.`}
-            </p>
-          {:else}
-            {#each matches as branch, index (branch.name)}
-              <button
-                type="button"
-                role="option"
-                aria-selected={selectedBranch?.name === branch.name}
-                aria-disabled={!pickable(branch)}
-                onmouseenter={() => (activeIndex = index)}
-                onclick={() => pickBranch(branch)}
-                class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left font-mono text-xs {index === activeIndex
-                  ? 'preset-tonal'
-                  : ''} {pickable(branch) ? '' : 'opacity-50'}"
-              >
-                <span class="min-w-0 flex-1 truncate">{branch.name}</span>
-                {#if branch.isCurrent}
-                  <span class="shrink-0 font-sans text-[10px] text-surface-500">checked out</span>
-                {:else if branch.isRemote}
-                  <span class="shrink-0 font-sans text-[10px] text-surface-500">remote</span>
-                {/if}
-              </button>
-            {/each}
-          {/if}
-        </div>
+          label="Existing branch"
+          showLabel
+          combobox
+          placeholder="Filter local and remote branches…"
+          listClass="max-h-48"
+          currentLabel="checked out"
+          {branches}
+          bind:query={existingQuery}
+          onQueryInput={() => (selectedBranch = null)}
+          loaded={!refs.loading}
+          error={refs.error}
+          selected={(branch) => selectedBranch?.name === branch.name}
+          onPick={pickBranch}
+        />
         {#if existingRequest?.kind === "tracking"}
           <p class="mt-1 text-[11px] text-surface-500">
             Creates local branch <span class="font-mono">{existingRequest.name}</span> tracking
@@ -254,28 +182,21 @@ async function create() {
       </div>
     {/if}
 
-    <label class="block">
-      <span class="text-xs font-medium text-surface-600-400">Location</span>
-      <div class="mt-1 flex gap-2">
-        <input
-          type="text"
+    <div>
+      <label for="worktree-location" class="text-xs font-medium text-surface-600-400">Location</label>
+      <div class="mt-1">
+        <DirectoryField
+          id="worktree-location"
           value={location}
-          oninput={(event) => {
-            locationTouched = true;
-            location = event.currentTarget.value;
-          }}
-          class="min-w-0 flex-1 field font-mono text-[13px]"
+          onInput={setLocation}
+          browseLabel="Browse for location"
+          pickerTitle="Choose a worktree location"
         />
-        {#if isTauri()}
-          <TooltipButton label="Browse for location" type="button" onclick={browse} class="btn btn-sm preset-tonal shrink-0" aria-label="Browse for location">
-            <FolderOpen size={14} />
-          </TooltipButton>
-        {/if}
       </div>
       <p class="mt-1 text-[11px] text-surface-500">
         Defaults to the Codex-home worktree convention. Edit or browse for a custom directory.
       </p>
-    </label>
+    </div>
   </div>
 
   {#if action.error}

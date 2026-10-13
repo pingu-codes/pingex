@@ -53,14 +53,14 @@ test("project details gains a Usage tab with a range and the heaviest threads", 
 
   const summary = page.getByTestId("usage-summary");
   await expect(summary).toContainText("Spend by category");
-  await expect(summary.getByRole("button", { name: "30 days" })).toBeVisible();
+  await expect(summary.getByRole("radio", { name: "30 days" })).toBeVisible();
   await expect(summary).toContainText("Heaviest threads");
   await expect(summary).toContainText("Fix trailing-edge debounce");
   await expect(summary).toContainText("claude-haiku-4-5");
 
   // A narrower range re-reads; the preview halves its figures for one.
   const before = await summary.getByTestId("usage-cost").textContent();
-  await summary.getByRole("button", { name: "7 days" }).click();
+  await summary.getByText("7 days", { exact: true }).click();
   await expect(summary.getByTestId("usage-cost")).not.toHaveText(before ?? "");
 });
 

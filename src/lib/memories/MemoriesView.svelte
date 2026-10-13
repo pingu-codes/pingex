@@ -1,6 +1,7 @@
 <script lang="ts">
 import { Brain, ChevronDown, FolderOpen, Pencil, RefreshCw, Search, Trash2, TriangleAlert } from "@lucide/svelte";
 import { projects } from "$lib/app/appData.svelte";
+import Toggle from "$lib/components/Toggle.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import {
   defaultEntry,
@@ -191,16 +192,11 @@ void load();
                 <div class="text-xs">{setting.label}</div>
                 <div class="text-[10px] leading-4 text-surface-500">{setting.description}</div>
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={setting.value}
-                aria-label={`${home.label}: ${setting.label}`}
-                onclick={() => toggle(home, setting.key, !setting.value)}
-                class="relative h-5 w-9 shrink-0 rounded-full transition {setting.value ? 'bg-primary-500' : 'bg-surface-300-700'}"
-              >
-                <span class="absolute top-0.5 size-4 rounded-full bg-white transition-all {setting.value ? 'left-[1.125rem]' : 'left-0.5'}"></span>
-              </button>
+              <Toggle
+                checked={setting.value}
+                label={`${home.label}: ${setting.label}`}
+                onChange={(checked) => toggle(home, setting.key, checked)}
+              />
             </div>
           {/each}
 

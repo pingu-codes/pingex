@@ -10,7 +10,6 @@ vi.mock("$lib/services/tauri", async (importOriginal) => ({
   isTauri: () => true,
 }));
 
-const listWslDistros = vi.fn(async () => [] as string[]);
 const readHomeClaudeStatus = vi.fn();
 const updateProfileHome = vi.fn(
   async (_id: string, _dir: string, _binary: string, _label: string) => ({}) as ProfileHome,
@@ -24,7 +23,6 @@ vi.mock("$lib/bindings", async (importOriginal) => {
     ...actual,
     commands: {
       ...actual.commands,
-      listWslDistros: () => listWslDistros(),
       readHomeClaudeStatus: (id: string) => readHomeClaudeStatus(id),
       updateProfileHome: (id: string, configDir: string, binary: string, label: string) =>
         updateProfileHome(id, configDir, binary, label),

@@ -1,10 +1,9 @@
 <script lang="ts">
-import { open } from "@tauri-apps/plugin-dialog";
-import { onMount } from "svelte";
 import type { DialogClose } from "$lib/app/dialogs.svelte";
 import { hostFromOption } from "$lib/app/host";
 import DialogShell from "$lib/components/DialogShell.svelte";
-import { listWslDistros } from "$lib/services/api";
+import DirectoryField from "$lib/components/DirectoryField.svelte";
+import HostSelect from "$lib/components/HostSelect.svelte";
 import type { Host } from "$lib/types";
 import { submitState } from "$lib/utils/actionState.svelte";
 
@@ -12,27 +11,13 @@ let { submit, close }: { submit: (path: string, host: Host | null) => Promise<vo
   $props();
 let path = $state("");
 let selectedHost = $state("native");
-let distros = $state<string[]>([]);
 let explicit = $state(false);
 const action = submitState();
 
-onMount(() => {
-  listWslDistros()
-    .then((value) => {
-      distros = value;
-    })
-    .catch(() => {});
-});
-
-async function browse() {
-  const value = await open({ directory: true, multiple: false, title: "Choose a project folder" });
-  if (typeof value !== "string") return;
+/** A folder picked inside a distribution (`\\wsl.localhost\<distro>\…`) runs there unless a host was chosen. */
+function picked(value: string) {
   path = value;
-  if (!explicit) {
-    const match = /^\\\\(?:wsl\.localhost|wsl\$)\\([^\\]+)/i.exec(value);
-    selectedHost = match?.[1] ?? "native";
-    if (match && !distros.includes(match[1])) distros = [...distros, match[1]];
-  }
+  if (!explicit) selectedHost = /^\\\\(?:wsl\.localhost|wsl\$)\\([^\\]+)/i.exec(value)?.[1] ?? "native";
 }
 
 async function add() {
@@ -45,18 +30,22 @@ async function add() {
   <form id="add-project-form" onsubmit={(event) => { event.preventDefault(); void add(); }} class="mt-4 flex flex-col gap-4">
     <label class="label">
       <span>Run on</span>
-      <select class="select" bind:value={selectedHost} onchange={() => { explicit = true; }}>
-        <option value="native">This computer</option>
-        {#each distros as distro}<option value={distro}>WSL · {distro}</option>{/each}
-      </select>
+      <HostSelect bind:value={selectedHost} onchange={() => { explicit = true; }} />
     </label>
-    <label class="label">
-      <span>Project folder</span>
-      <div class="flex gap-2">
-        <input class="input flex-1" bind:value={path} placeholder={selectedHost === "native" ? "Choose a folder" : "/home/you/project"} />
-        <button class="btn preset-tonal" type="button" onclick={browse}>Browse</button>
-      </div>
-    </label>
+    <div class="label">
+      <label for="add-project-path">Project folder</label>
+      <DirectoryField
+        id="add-project-path"
+        value={path}
+        onInput={(next) => (path = next)}
+        onPick={picked}
+        placeholder={selectedHost === "native" ? "Choose a folder" : "/home/you/project"}
+        browseLabel="Browse for a project folder"
+        pickerTitle="Choose a project folder"
+        inputClass="input"
+        buttonSize="btn-base"
+      />
+    </div>
     <p class="text-xs text-surface-500">Codex, Claude Code and Git will run on this project's Host.</p>
     {#if action.error}<p role="alert" class="text-sm text-error-500">{action.error}</p>{/if}
   </form>
