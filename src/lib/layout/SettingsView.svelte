@@ -19,7 +19,13 @@ import { classifyVersion, LAST_STABLE, STABLE, type VersionTier } from "$lib/app
 import { hostFromOption, hostOverride, hostToOption } from "$lib/app/host";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import IntegrationsSection from "$lib/integrations/IntegrationsSection.svelte";
-import { appearance, FONT_SIZE_MAX, FONT_SIZE_MIN } from "$lib/layout/appearancePrefs.svelte";
+import {
+  appearance,
+  FONT_SIZE_MAX,
+  FONT_SIZE_MIN,
+  type FontChoice,
+  type ThemeName,
+} from "$lib/layout/appearancePrefs.svelte";
 import Connections from "$lib/layout/Connections.svelte";
 import { messageLog } from "$lib/layout/messageLogPrefs.svelte";
 import ProfileHomes from "$lib/layout/ProfileHomes.svelte";
@@ -88,6 +94,9 @@ const sectionIcons: Record<string, typeof Settings2> = {
 
 let query = $state("");
 let activeSection = $state("general");
+// The font-size slider previews its value while dragging and applies on release:
+// applying per input rescales the page (slider included) under the pointer.
+let draftFontSize = $state<number | null>(null);
 // Jump to the requested section whenever a settingsNav request fires.
 $effect(() => {
   void navNonce;
@@ -497,6 +506,42 @@ async function reveal(path: string | null | undefined) {
             <div class="mt-4 space-y-5 text-sm">
               <div class="flex items-center justify-between gap-4">
                 <div>
+                  <div class="font-medium">Theme</div>
+                  <div class="text-xs text-surface-500">Colours and contrast. Follows your system light or dark mode.</div>
+                </div>
+                <div class="flex items-center gap-2">
+                  {@render localBadge()}
+                  <select
+                    aria-label="Theme"
+                    class="select text-sm"
+                    value={appearance.prefs.theme}
+                    onchange={(event) => appearance.set({ theme: event.currentTarget.value as ThemeName })}
+                  >
+                    <option value="default">Default</option>
+                    <option value="readable">Readable (high contrast)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="flex items-center justify-between gap-4">
+                <div>
+                  <div class="font-medium">Font</div>
+                  <div class="text-xs text-surface-500">Typeface for all text and code.</div>
+                </div>
+                <div class="flex items-center gap-2">
+                  {@render localBadge()}
+                  <select
+                    aria-label="Font"
+                    class="select text-sm"
+                    value={appearance.prefs.font}
+                    onchange={(event) => appearance.set({ font: event.currentTarget.value as FontChoice })}
+                  >
+                    <option value="default">Default</option>
+                    <option value="hyperlegible">Atkinson Hyperlegible</option>
+                  </select>
+                </div>
+              </div>
+              <div class="flex items-center justify-between gap-4">
+                <div>
                   <div class="font-medium">Density</div>
                   <div class="text-xs text-surface-500">Spacing of lists and cards.</div>
                 </div>
@@ -516,7 +561,9 @@ async function reveal(path: string | null | undefined) {
               <div class="flex items-center justify-between gap-4">
                 <div>
                   <div class="font-medium">Font size</div>
-                  <div class="text-xs text-surface-500">Base text size ({appearance.prefs.fontSize}px).</div>
+                  <div class="text-xs text-surface-500">
+                    Base text size ({draftFontSize ?? appearance.prefs.fontSize}px). Applies when you let go.
+                  </div>
                 </div>
                 <div class="flex items-center gap-2">
                   {@render localBadge()}
@@ -525,8 +572,12 @@ async function reveal(path: string | null | undefined) {
                     aria-label="Font size"
                     min={FONT_SIZE_MIN}
                     max={FONT_SIZE_MAX}
-                    value={appearance.prefs.fontSize}
-                    oninput={(event) => appearance.set({ fontSize: Number(event.currentTarget.value) })}
+                    value={draftFontSize ?? appearance.prefs.fontSize}
+                    oninput={(event) => (draftFontSize = Number(event.currentTarget.value))}
+                    onchange={(event) => {
+                      appearance.set({ fontSize: Number(event.currentTarget.value) });
+                      draftFontSize = null;
+                    }}
                   />
                 </div>
               </div>

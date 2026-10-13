@@ -40,6 +40,8 @@
     "@testing-library/svelte": "npm:@testing-library/svelte@5.4.2",
     "@testing-library/svelte/": "npm:@testing-library/svelte@5.4.2/",
     "@testing-library/user-event": "npm:@testing-library/user-event@14.6.1",
+    "@fontsource/atkinson-hyperlegible-mono/": "npm:/@fontsource/atkinson-hyperlegible-mono@5.3.0/",
+    "@fontsource/atkinson-hyperlegible-next/": "npm:/@fontsource/atkinson-hyperlegible-next@5.3.0/",
     "@lucide/svelte": "npm:@lucide/svelte@1.25.0",
     "@skeletonlabs/skeleton": "npm:@skeletonlabs/skeleton@5.0.1",
     "@skeletonlabs/skeleton-svelte": "npm:@skeletonlabs/skeleton-svelte@5.0.1",

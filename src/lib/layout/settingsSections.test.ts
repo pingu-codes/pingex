@@ -19,6 +19,12 @@ describe("filterSections", () => {
     expect(result.map((section) => section.id)).toEqual(["agent"]);
   });
 
+  it("finds the readable theme and font under appearance", () => {
+    for (const query of ["contrast", "readable", "typeface", "accessibility"]) {
+      expect(filterSections(SETTINGS_SECTIONS, query).map((section) => section.id)).toEqual(["appearance"]);
+    }
+  });
+
   it("finds the usage section by what it shows", () => {
     expect(filterSections(SETTINGS_SECTIONS, "cost").map((section) => section.id)).toEqual(["usage"]);
     expect(filterSections(SETTINGS_SECTIONS, "system prompt").map((section) => section.id)).toEqual(["usage"]);

@@ -1,8 +1,11 @@
 import { mount } from "svelte";
 import "./app.css";
 import { disableAutocorrect } from "$lib/disableAutocorrect";
+import { appearance, applyAppearance } from "$lib/layout/appearancePrefs.svelte";
 
 disableAutocorrect();
+// Apply saved theme, font and size before mounting so the first paint matches.
+applyAppearance(appearance.prefs);
 
 const target = document.getElementById("app")!;
 

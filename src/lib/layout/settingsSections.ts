@@ -12,7 +12,20 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   {
     id: "appearance",
     label: "Appearance",
-    keywords: ["theme", "density", "font size", "text size", "hide old threads", "recent threads", "sidebar"],
+    keywords: [
+      "theme",
+      "readable",
+      "high contrast",
+      "accessibility",
+      "font",
+      "typeface",
+      "density",
+      "font size",
+      "text size",
+      "hide old threads",
+      "recent threads",
+      "sidebar",
+    ],
   },
   {
     id: "agent",

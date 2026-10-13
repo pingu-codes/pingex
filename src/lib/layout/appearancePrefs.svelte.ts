@@ -1,10 +1,16 @@
-/** Frontend-only appearance preferences (density and base font size),
+/** Frontend-only appearance preferences (theme, font, density and base font size),
  * persisted in localStorage and applied to the document root. These are local
  * runtime settings with no Codex equivalent, so they never touch config.toml. */
 
 export type Density = "comfortable" | "compact";
+/** `readable` is the high-contrast theme in `src/themes/readable.css`. */
+export type ThemeName = "default" | "readable";
+/** `hyperlegible` swaps in the bundled Atkinson Hyperlegible Next/Mono. */
+export type FontChoice = "default" | "hyperlegible";
 
 export interface AppearancePrefs {
+  theme: ThemeName;
+  font: FontChoice;
   density: Density;
   /** Base font size in px applied to the document root. */
   fontSize: number;
@@ -17,7 +23,7 @@ const STORAGE_KEY = "pingex-appearance-prefs";
 const LEGACY_STORAGE_KEY = "pingu-appearance-prefs";
 
 export function defaultAppearance(): AppearancePrefs {
-  return { density: "comfortable", fontSize: DEFAULT_FONT_SIZE };
+  return { theme: "default", font: "default", density: "comfortable", fontSize: DEFAULT_FONT_SIZE };
 }
 
 function clampFontSize(size: number): number {
@@ -31,6 +37,8 @@ export function loadAppearance(): AppearancePrefs {
     if (!raw) return defaultAppearance();
     const parsed = JSON.parse(raw) as Partial<AppearancePrefs>;
     const prefs: AppearancePrefs = {
+      theme: parsed.theme === "readable" ? "readable" : "default",
+      font: parsed.font === "hyperlegible" ? "hyperlegible" : "default",
       density: parsed.density === "compact" ? "compact" : "comfortable",
       fontSize: clampFontSize(parsed.fontSize ?? DEFAULT_FONT_SIZE),
     };
@@ -52,8 +60,12 @@ export function saveAppearance(prefs: AppearancePrefs): void {
 /** Apply appearance prefs to the document root so they take effect app-wide. */
 export function applyAppearance(prefs: AppearancePrefs): void {
   if (typeof document === "undefined") return;
-  document.documentElement.style.fontSize = `${clampFontSize(prefs.fontSize)}px`;
-  document.documentElement.dataset.density = prefs.density;
+  const root = document.documentElement;
+  root.style.fontSize = `${clampFontSize(prefs.fontSize)}px`;
+  root.dataset.density = prefs.density;
+  root.dataset.theme = prefs.theme === "readable" ? "readable" : "cerberus";
+  if (prefs.font === "hyperlegible") root.dataset.font = prefs.font;
+  else delete root.dataset.font;
 }
 
 /** Reactive singleton so any view observing `appearance.prefs` re-renders on change. */
