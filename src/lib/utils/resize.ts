@@ -1,6 +1,6 @@
 /** Drag-to-resize helper for panel edges, with sizes persisted to localStorage. */
 
-export type ResizeHandleOptions = {
+type ResizeHandleOptions = {
   axis: "x" | "y";
   /** +1 when dragging right/down grows the panel, -1 when dragging left/up grows it. */
   direction: 1 | -1;

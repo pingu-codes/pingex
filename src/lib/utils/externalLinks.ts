@@ -5,7 +5,7 @@ import { type FileRef, parseFileRef } from "$lib/utils/fileRef";
 const EXTERNAL_SCHEMES = ["http:", "https:", "mailto:"];
 
 /** What to do with a link that turns out to name a local file. */
-export type LinkHandlers = { onFilePath?: (ref: FileRef) => void };
+type LinkHandlers = { onFilePath?: (ref: FileRef) => void };
 
 let installed = false;
 let handlers: Required<LinkHandlers> = { onFilePath: (ref) => void revealInFinder(ref.path).catch(() => {}) };

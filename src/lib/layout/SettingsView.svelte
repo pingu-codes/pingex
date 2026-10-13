@@ -50,10 +50,10 @@ import {
 } from "$lib/services/api";
 import { loadProfile } from "$lib/services/homeRouting";
 import type { Account, AgentSettings, CodexServerInfo, ConfigSetting, HomeOverview, RuntimeSettings } from "$lib/types";
-import { codexVersionFromUserAgent } from "$lib/types";
 import UsageSummary from "$lib/usage/UsageSummary.svelte";
 import { dragRegion } from "$lib/utils/dragRegion";
 import { errorMessage } from "$lib/utils/errors";
+import { codexVersionFromUserAgent } from "$lib/utils/userAgent";
 
 let {
   account = null,

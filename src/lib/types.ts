@@ -10,108 +10,34 @@ import type {
   CodexNotification,
   CommitInfo,
   Connection,
-  FileMatch,
   SubagentDetail as GenSubagentDetail,
+  TurnOptions as GenTurnOptions,
   HandoffPreflight,
   Project,
-  RecentHomeInfo,
   SearchFilter,
-  SearchGroup,
   ServerRequest,
   SiblingRef,
   StoredPlacement,
   StoredProjectSource,
   StoredSidebarFolder,
   StoredThreadSection,
-  ThreadMatch,
   ThreadSummary,
   WorkspaceResults,
   WorktreeBranch,
 } from "$lib/bindings";
 
+// Every generated type under its own name; a local declaration of the same
+// name below takes precedence. Only the renamed ones are listed.
+export type * from "$lib/bindings";
 export type {
-  Account,
-  Attachment,
-  BinaryStatus,
-  BootstrapData,
-  Capability,
   CategoryTokensDto as CategoryTokens,
-  ChangedFile,
-  ChangesSummary,
-  ChecksSummary,
-  CommitResult,
-  CompositionSource,
-  ConfigSetting,
-  ContextComposition,
-  CreateWorkspaceInput,
-  DiffHunk,
-  DiffLine,
-  FileDiff,
-  FileHit,
-  FilePreview,
-  GitContext,
-  GitRepoInfo,
-  GitStatus,
-  HomeOverview,
-  Host,
-  IntegrationsList,
-  LaunchState,
-  McpServerInfo,
-  McpServerSummary,
-  MemoryEntry,
-  MemoryHome,
-  MemoryStore,
-  MemoryToggle,
-  ModelUsage,
-  PendingComment,
-  PluginSummary,
-  PrComment,
-  PrCommit,
-  PrDetail,
-  PreviewProblem,
-  PrFile,
-  PrFreshness,
-  Project,
-  PromptPart,
-  PromptPartKind,
-  ProviderStatus,
-  PrSummary,
-  ReviewDraft,
-  RuntimeSettings,
-  SettingKind,
-  SettingSource,
-  SidebarLayout,
-  SideExchange,
-  SideQuestion,
-  SkillInfo,
-  SkillSummary,
-  StatusCounts,
-  StatusFile,
-  SyncResult,
-  ThreadBranch,
-  ThreadSearchItem,
-  ThreadSearchPage,
-  ThreadSummary,
-  ThreadsPage,
-  ThreadUsageSummary,
-  UsageBreakdown,
   UsageScopeArg as UsageScope,
   UsageTokensDto as UsageTokens,
-  WireMessage,
-  WorkspaceMember,
-  WorkspaceMemberInput,
-  WorktreeEntry,
 } from "$lib/bindings";
 
 export type ThreadSection = StoredThreadSection;
 
 export type ProjectSource = StoredProjectSource;
-
-export type WorkspaceFileMatch = FileMatch;
-
-export type WorkspaceThreadMatch = ThreadMatch;
-
-export type WorkspaceSearchGroup<T> = SearchGroup<T>;
 
 export type WorkspaceSearchResults = WorkspaceResults;
 
@@ -203,7 +129,7 @@ export interface FileUpdateChange {
 }
 
 /** One step of the todo list Codex maintains for the turn it is working on. */
-export interface TurnPlanStep {
+interface TurnPlanStep {
   step: string;
   status: "pending" | "inProgress" | "completed";
 }
@@ -411,7 +337,7 @@ export interface MisalignmentErrorDetails {
   steer?: { message?: string | null } | null;
 }
 
-export interface TurnError {
+interface TurnError {
   message: string;
   misalignment?: MisalignmentErrorDetails | null;
 }
@@ -430,7 +356,7 @@ export interface Turn {
 }
 
 /** One side of `thread/tokenUsage/updated` — either the session total or the last request. */
-export interface TokenUsageBreakdown {
+interface TokenUsageBreakdown {
   totalTokens: number;
   inputTokens: number;
   cachedInputTokens: number;
@@ -450,7 +376,7 @@ export interface ThreadTokenUsage {
 }
 
 /** One row of the per-model usage breakdown in `ThreadUsage`. */
-export interface ThreadUsageBreakdownGroup {
+interface ThreadUsageBreakdownGroup {
   model?: string | null;
   reasoningEffort?: string | null;
   speed?: string | null;
@@ -536,7 +462,7 @@ export interface Model {
   upgradeInfo?: ModelUpgradeInfo | null;
 }
 
-export interface ModelUpgradeInfo {
+interface ModelUpgradeInfo {
   model: string;
   upgradeCopy?: string | null;
   modelLink?: string | null;
@@ -545,24 +471,14 @@ export interface ModelUpgradeInfo {
   retirementAt?: number | null;
 }
 
-/** Per-turn overrides picked in the composer popovers. */
-export interface TurnOptions {
-  claudeMode?: import("$lib/bindings").ClaudeModeSettings;
-  speedTier?: string;
-  model?: string;
-  effort?: string;
-  approvalPolicy?: string;
-  sandboxMode?: string;
-  /** "auto" hands permission prompts to the harness's own reviewer. */
-  approvalsReviewer?: string;
+/** Per-turn overrides picked in the composer popovers: the generated options
+ *  with the fields Rust passes through as JSON given their shapes. */
+export type TurnOptions = Omit<GenTurnOptions, keyof TurnOptionsOverrides> & TurnOptionsOverrides;
+
+interface TurnOptionsOverrides {
   collaborationMode?: { mode: string; settings?: unknown };
   subagentModelPolicy?: SubagentPolicy | null;
   subagentReasoningEffortPolicy?: SubagentPolicy | null;
-  /** What the turn will actually run on, including defaults the composer did
-   *  not have to override. Recorded locally so the transcript can label each
-   *  reply; not forwarded to Codex. */
-  resolvedModel?: string | null;
-  resolvedEffort?: string | null;
 }
 
 export type SubagentPolicy = { allowed: string[] } | { excluded: string[] };
@@ -600,14 +516,6 @@ export interface CodexServerInfo {
   platformFamily?: string | null;
   codexHome?: string | null;
 }
-
-/** The CLI version embedded in a `userAgent`, or null when it cannot be read. */
-export function codexVersionFromUserAgent(userAgent: string | null | undefined): string | null {
-  const match = userAgent?.match(/^[\w.-]+\/(\d+\.\d+\.\d+(?:-[\w.]+)?)/);
-  return match?.[1] ?? null;
-}
-
-export type RecentHome = RecentHomeInfo;
 
 export type WorktreeHandoffPreflight = HandoffPreflight;
 
@@ -669,7 +577,7 @@ export type RemoteConnection = Connection;
  * - `bearerToken` — authenticated from a `bearer_token_env_var`, so there is
  *   nothing to sign into; the credential comes from the environment.
  */
-export type McpAuthStatus = "unknown" | "unsupported" | "notLoggedIn" | "bearerToken" | "oAuth" | (string & {});
+type McpAuthStatus = "unknown" | "unsupported" | "notLoggedIn" | "bearerToken" | "oAuth" | (string & {});
 
 /**
  * Where a server is in its lifecycle, reported by Codex ≥0.150.1 as
@@ -677,7 +585,7 @@ export type McpAuthStatus = "unknown" | "unsupported" | "notLoggedIn" | "bearerT
  * upstream enum grows between releases and an unknown value must not break
  * the integrations list.
  */
-export type McpServerRuntimeStatus =
+type McpServerRuntimeStatus =
   | "notStarted"
   | "starting"
   | "connected"

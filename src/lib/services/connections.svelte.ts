@@ -12,7 +12,7 @@ export const remoteConnections = $state<{ list: RemoteConnection[]; loaded: bool
   loaded: false,
 });
 
-export function setConnections(list: RemoteConnection[]): void {
+function setConnections(list: RemoteConnection[]): void {
   remoteConnections.list = list;
   remoteConnections.loaded = true;
 }

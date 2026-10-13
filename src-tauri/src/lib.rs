@@ -571,10 +571,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             threads::lifecycle::archive_thread,
             threads::lifecycle::unarchive_thread,
             threads::lifecycle::delete_thread,
-            threads::lifecycle::list_archived_threads,
             threads::lifecycle::list_models,
             threads::lifecycle::list_harness_models,
-            threads::lifecycle::read_claude_status,
             threads::lifecycle::fork_thread,
             threads::lifecycle::revert_thread,
             threads::queue::queue_add,
@@ -582,7 +580,6 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             threads::queue::queue_update,
             threads::queue::queue_delete,
             threads::queue::queue_reorder,
-            threads::queue::queue_start,
             // Thread sections (Codex ≥0.149)
             threads::sections::create_thread_section,
             threads::sections::update_thread_section,
@@ -625,7 +622,6 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             settings::commands::update_runtime_settings,
             settings::commands::read_launch_state,
             settings::commands::read_codex_server_info,
-            settings::commands::check_codex_binary,
             settings::commands::list_wsl_distros,
             settings::commands::set_codex_binary,
             settings::commands::select_codex_home,
@@ -639,7 +635,6 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             // App-owned subagents
             agents::commands::list_agent_runs,
             agents::commands::kill_agent_run,
-            agents::commands::open_agent_thread,
             // Codex app-server pairing
             codex::pairing::remote_pairing_start,
             codex::pairing::remote_pairing_status,
@@ -712,7 +707,6 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             // schemas, and OAuth.
             integrations::app_server::list_mcp_server_status,
             integrations::app_server::mcp_oauth_login,
-            integrations::app_server::reload_mcp_servers,
             integrations::app_server::list_skills_for,
             integrations::scope::set_integration_enabled,
             integrations::app_server::set_skill_enabled,

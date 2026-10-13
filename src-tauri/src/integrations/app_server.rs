@@ -61,22 +61,9 @@ pub(crate) async fn mcp_oauth_login(
         .map(Json)
 }
 
-/// Make a running Codex pick up `config.toml` edits. Also called after every
+/// Make a running Codex pick up `config.toml` edits. Called after every
 /// mutation in `commands.rs`; without it the session keeps serving the servers
 /// it started with until the app restarts.
-#[tauri::command]
-#[specta::specta]
-pub(crate) async fn reload_mcp_servers(
-    app: AppHandle,
-    window: crate::HomeWindow,
-    state: State<'_, AppState>,
-) -> Result<Json, String> {
-    let ctx = state.ctx(&window);
-    reload_mcp_config(&app, &ctx).await.map(Json)
-}
-
-/// The reload itself, callable from other commands (which hold `State` by
-/// reference and so cannot invoke the command wrapper above).
 pub(crate) async fn reload_mcp_config(
     app: &AppHandle,
     ctx: &crate::HomeContext,

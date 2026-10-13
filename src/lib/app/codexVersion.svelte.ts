@@ -9,7 +9,7 @@
  * warned about, never refused.
  */
 import { readCodexServerInfo } from "$lib/services/api";
-import { codexVersionFromUserAgent } from "$lib/types";
+import { codexVersionFromUserAgent } from "$lib/utils/userAgent";
 
 /** The oldest release the app is tested against. */
 export const LAST_STABLE = "0.159.3";

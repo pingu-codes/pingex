@@ -41,9 +41,9 @@ mod workspaces;
 
 pub(crate) use account::{read_account_cache, write_account_cache};
 pub(crate) use agent_runs::{
-    copy_agent_runs, delete_agent_runs, orphan_running_agent_runs, read_agent_run,
-    read_agent_run_children, read_agent_runs, record_agent_run, retain_agent_runs,
-    update_agent_run, AgentRunRow, STATUS_DONE, STATUS_FAILED, STATUS_KILLED, STATUS_RUNNING,
+    copy_agent_runs, delete_agent_runs, orphan_running_agent_runs, read_agent_run_children,
+    read_agent_runs, record_agent_run, retain_agent_runs, update_agent_run, AgentRunRow,
+    STATUS_DONE, STATUS_FAILED, STATUS_KILLED, STATUS_RUNNING,
 };
 pub use branches::{
     add_thread_branch, delete_thread_branch, read_thread_branches, set_branch_edit_turn,
