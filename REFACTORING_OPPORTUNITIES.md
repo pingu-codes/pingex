@@ -1105,9 +1105,8 @@ Carried over from the cleanup log's "Found, not yet fixed" list:
 
 ## 14. Suggested order
 
-1. **Free and safe.** The rest of repo hygiene (§1.3, §1.6–1.8) and the dead-code deletions
-   (§4.3, §4.10, §5.1, §6.7, §6.9, §7.3, §8.5). Most of the byte savings,
-   almost no risk.
+1. **Free and safe.** The rest of repo hygiene (§1.3, §1.6–1.8). The
+   dead-code deletions (§4.3, §4.10, §5.1, §6.7, §6.9, §7.3, §8.5) are done.
 2. **Helpers first, then sweeps.** §2 is done. Still to add: the test
    factories (§11.1). Many later items get shorter now that the helpers
    exist.
