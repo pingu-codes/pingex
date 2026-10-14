@@ -5,11 +5,11 @@ import {
   loadScopedPrefs,
   policyIsEmpty,
   presetFor,
-  resolveAppSubagents,
   savePrefs,
   saveScopedPrefs,
+  togglePolicy,
   turnOptionsFrom,
-} from "$lib/composer/composerPrefs.svelte";
+} from "$lib/composer/composerPrefs";
 
 beforeEach(() => localStorage.clear());
 
@@ -65,7 +65,7 @@ describe("turnOptionsFrom", () => {
       approvalPolicy: "on-request",
       sandboxMode: "workspace-write",
     });
-    expect(presetFor("codex", "auto-review")?.id).toBe("auto");
+    expect(presetFor("auto-review")?.id).toBe("auto");
   });
 
   it("serializes subagent policies independently from the parent model", () => {
@@ -207,14 +207,16 @@ describe("policyIsEmpty", () => {
   });
 });
 
-describe("resolveAppSubagents", () => {
-  it("defers to the global setting when the thread has no preference", () => {
-    expect(resolveAppSubagents(loadPrefs(), true)).toBe(true);
-    expect(resolveAppSubagents(loadPrefs(), false)).toBe(false);
+describe("togglePolicy", () => {
+  it("narrows no policy to an allow-list without the value", () => {
+    expect(togglePolicy(null, ["a", "b", "c"], "b")).toEqual({ allowed: ["a", "c"] });
   });
 
-  it("lets a thread override the global setting either way", () => {
-    expect(resolveAppSubagents({ ...loadPrefs(), appSubagents: true }, false)).toBe(true);
-    expect(resolveAppSubagents({ ...loadPrefs(), appSubagents: false }, true)).toBe(false);
+  it("reads an exclude-list as everything else allowed", () => {
+    expect(togglePolicy({ excluded: ["a"] }, ["a", "b", "c"], "c")).toEqual({ allowed: ["b"] });
+  });
+
+  it("goes back to no policy once everything is allowed again", () => {
+    expect(togglePolicy({ allowed: ["a", "c"] }, ["a", "b", "c"], "b")).toBeNull();
   });
 });

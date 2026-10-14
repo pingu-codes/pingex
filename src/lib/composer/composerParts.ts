@@ -73,6 +73,28 @@ export function normaliseParts(input: ComposerPart[]): ComposerPart[] {
   return normalised.length > 0 ? normalised : EMPTY_PARTS();
 }
 
+/** A shallow copy of each part, safe to keep while the editor moves on. */
+export function cloneParts(parts: ComposerPart[]): ComposerPart[] {
+  return parts.map((part) => ({ ...part }));
+}
+
+/** The text when `parts` is a single plain-text part (no chips), else null. */
+export function plainText(parts: ComposerPart[]): string | null {
+  return parts.length === 1 && parts[0].type === "text" ? parts[0].text : null;
+}
+
+/** A copy of `parts` with the leading and trailing whitespace of the whole
+ *  message trimmed, as it is sent. */
+export function trimParts(parts: ComposerPart[]): ComposerPart[] {
+  const copy = cloneParts(parts);
+  const texts = copy.filter((part): part is Extract<ComposerPart, { type: "text" }> => part.type === "text");
+  const first = texts.at(0);
+  const last = texts.at(-1);
+  if (first) first.text = first.text.trimStart();
+  if (last) last.text = last.text.trimEnd();
+  return normaliseParts(copy);
+}
+
 /**
  * Turns composer parts into the `turn/start` input array. Images that finished
  * staging become native `localImage` items; non-image files are appended as a

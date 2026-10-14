@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Composer from "$lib/composer/Composer.svelte";
-import { type ComposerPrefs, loadPrefs, loadScopedPrefs, savePrefs } from "$lib/composer/composerPrefs.svelte";
+import { type ComposerPrefs, loadPrefs, loadScopedPrefs, savePrefs } from "$lib/composer/composerPrefs";
 import { placeCaretBeside } from "$lib/composer/richInput";
 import type { SubagentPolicy } from "$lib/types";
 

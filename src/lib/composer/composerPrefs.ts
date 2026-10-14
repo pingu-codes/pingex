@@ -1,5 +1,11 @@
 import { claudeModeFromPrefs, isClaudeMode, selectClaudeMode } from "$lib/composer/claudeModes";
-import type { SubagentPolicy, TurnOptions } from "$lib/types";
+import type {
+  ClaudeExecutionMode,
+  ClaudeModeSettings,
+  ClaudePermissionMode,
+  SubagentPolicy,
+  TurnOptions,
+} from "$lib/types";
 import { can } from "$lib/utils/capabilities";
 
 /**
@@ -34,7 +40,7 @@ export interface ComposerPrefs extends SubagentPrefs {
   effort: string | null;
   permissionPreset: string | null;
   planMode: boolean;
-  claudeMode: import("$lib/bindings").ClaudeModeSettings | null;
+  claudeMode: ClaudeModeSettings | null;
 }
 
 export interface PermissionPreset {
@@ -43,11 +49,10 @@ export interface PermissionPreset {
   description: string;
   approvalPolicy: string;
   sandboxMode: string;
-  /** "auto" hands permission prompts to the harness's own reviewer instead
-   *  of the user. */
-  approvalsReviewer?: string;
 }
 
+/** Codex's permission levels. A harness with native permission modes picks
+ *  from `CLAUDE_MODES` instead, so these only ever apply where it can't. */
 export const PERMISSION_PRESETS: PermissionPreset[] = [
   {
     id: "read-only",
@@ -72,62 +77,16 @@ export const PERMISSION_PRESETS: PermissionPreset[] = [
   },
 ];
 
-/** The same three levels on Claude, in its own words, plus Auto. The shared
- *  ids match Codex's so a preset choice carries across harnesses; the driver
- *  maps each onto a Claude permission mode. */
-export const CLAUDE_PERMISSION_PRESETS: PermissionPreset[] = [
-  {
-    id: "read-only",
-    label: "Ask",
-    description: "Claude asks before every edit and command",
-    approvalPolicy: "on-request",
-    sandboxMode: "read-only",
-  },
-  {
-    id: "auto",
-    label: "Accept edits",
-    description: "Claude edits files without asking; commands still need approval",
-    approvalPolicy: "on-request",
-    sandboxMode: "workspace-write",
-  },
-  {
-    id: "auto-review",
-    label: "Auto",
-    description: "A classifier reviews each action instead of asking you. Not available on Haiku",
-    approvalPolicy: "on-request",
-    sandboxMode: "workspace-write",
-    approvalsReviewer: "auto",
-  },
-  {
-    id: "full-access",
-    label: "Bypass permissions",
-    description: "No prompts at all. Use with care",
-    approvalPolicy: "never",
-    sandboxMode: "danger-full-access",
-  },
-];
+/** Saved preset ids that no longer name a preset, mapped to the one with the
+ *  same approval and sandbox. Claude's old Auto preset is now its native
+ *  `auto` mode (see `claudeModeFromPrefs`); elsewhere it reads as Auto. */
+const LEGACY_PRESET: Record<string, string> = { "auto-review": "auto" };
 
-export function permissionPresetsFor(harness: HarnessChoice | null | undefined): PermissionPreset[] {
-  return can(harness, "permissionModes") ? CLAUDE_PERMISSION_PRESETS : PERMISSION_PRESETS;
-}
-
-/** The preset `id` names on `harness`. A preset only the other harness has
- *  (Claude's Auto) resolves to this harness's preset with the same approval
- *  and sandbox, so switching harness never leaves the picker unset. */
-export function presetFor(harness: HarnessChoice | null | undefined, id: string | null): PermissionPreset | null {
+/** The preset a saved `id` names, so an old choice never leaves the picker unset. */
+export function presetFor(id: string | null): PermissionPreset | null {
   if (!id) return null;
-  const presets = permissionPresetsFor(harness);
-  const own = presets.find((preset) => preset.id === id);
-  if (own) return own;
-  const other = [...PERMISSION_PRESETS, ...CLAUDE_PERMISSION_PRESETS].find((preset) => preset.id === id);
-  return (
-    presets.find(
-      (preset) =>
-        !preset.approvalsReviewer &&
-        preset.approvalPolicy === other?.approvalPolicy &&
-        preset.sandboxMode === other?.sandboxMode,
-    ) ?? null
-  );
+  const current = LEGACY_PRESET[id] ?? id;
+  return PERMISSION_PRESETS.find((preset) => preset.id === current) ?? null;
 }
 
 const STORAGE_KEY = "pingex-composer-prefs";
@@ -152,10 +111,7 @@ interface PrefsStore {
   subagentDefaults: SubagentPrefs | null;
   projects: Record<string, ComposerPrefs>;
   threads: Record<string, ComposerPrefs>;
-  threadModes: Record<
-    string,
-    { mode: import("$lib/bindings").ClaudePermissionMode; exitPlanMode?: import("$lib/bindings").ClaudeExecutionMode }
-  >;
+  threadModes: Record<string, { mode: ClaudePermissionMode; exitPlanMode?: ClaudeExecutionMode }>;
 }
 
 const defaults = (): ComposerPrefs => ({
@@ -191,14 +147,6 @@ function coerceSubagent(value: unknown): SubagentPrefs | null {
   return { ...subagentDefaults(), ...(value as Partial<SubagentPrefs>) };
 }
 
-/**
- * Whether a thread started with these prefs should get the app's agent tools.
- * The per-thread choice wins; `null` defers to the global setting.
- */
-export function resolveAppSubagents(prefs: ComposerPrefs, global: boolean): boolean {
-  return prefs.appSubagents ?? global;
-}
-
 const emptyStore = (): PrefsStore => ({
   version: 2,
   fallback: null,
@@ -208,7 +156,7 @@ const emptyStore = (): PrefsStore => ({
   threadModes: {},
 });
 
-/** Drop unknown fields and fill in ones added since the entry was written. */
+/** Fill in fields added since the entry was written. Unknown fields are kept. */
 function coerce(value: unknown): ComposerPrefs | null {
   if (!value || typeof value !== "object") return null;
   return { ...defaults(), ...(value as Partial<ComposerPrefs>) };
@@ -343,6 +291,20 @@ export function policyAllows(policy: SubagentPolicy | null, value: string): bool
 }
 
 /**
+ * `policy` with `value` flipped between allowed and not. Allowing everything in
+ * `all` again is no policy at all (`null`).
+ */
+export function togglePolicy(policy: SubagentPolicy | null, all: string[], value: string): SubagentPolicy | null {
+  const current = policy
+    ? "allowed" in policy
+      ? policy.allowed
+      : all.filter((entry) => !policy.excluded.includes(entry))
+    : all;
+  const allowed = current.includes(value) ? current.filter((entry) => entry !== value) : [...current, value];
+  return allowed.length === all.length ? null : { allowed };
+}
+
+/**
  * Whether `policy` permits nothing out of `all` — a state no subagent could be
  * spawned under, so the composer refuses to send while it holds.
  */
@@ -365,7 +327,7 @@ export function turnOptionsFrom(
   threadModel?: string | null,
   harness?: HarnessChoice | null,
 ): TurnOptions | undefined {
-  const preset = presetFor(harness, prefs.permissionPreset);
+  const preset = presetFor(prefs.permissionPreset);
   const options: TurnOptions = {};
   if (prefs.speedTier) options.speedTier = prefs.speedTier;
   if (prefs.model) options.model = prefs.model;
@@ -376,7 +338,6 @@ export function turnOptionsFrom(
   } else if (preset) {
     options.approvalPolicy = preset.approvalPolicy;
     options.sandboxMode = preset.sandboxMode;
-    if (preset.approvalsReviewer) options.approvalsReviewer = preset.approvalsReviewer;
   }
   if (subagentModelPolicy) options.subagentModelPolicy = subagentModelPolicy;
   if (subagentReasoningEffortPolicy) options.subagentReasoningEffortPolicy = subagentReasoningEffortPolicy;
