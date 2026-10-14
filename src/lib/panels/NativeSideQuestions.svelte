@@ -1,7 +1,7 @@
 <script lang="ts">
-import { ArrowUp, MessageCircleQuestion, Square, Trash2 } from "@lucide/svelte";
 import { onDestroy, untrack } from "svelte";
-import TooltipButton from "$lib/components/TooltipButton.svelte";
+import SideComposer from "$lib/panels/SideComposer.svelte";
+import SideQuestionList from "$lib/panels/SideQuestionList.svelte";
 import { commands, identity, scopedId } from "$lib/services/homeRouting";
 import type { BootstrapData, SideExchange, SideQuestion } from "$lib/types";
 import { renderMarkdown } from "$lib/utils/markdown";
@@ -205,18 +205,9 @@ async function remove(entry: SideQuestion) {
 </script>
 
 <div class="min-h-0 flex-1 overflow-y-auto p-3">
-  <p class="mb-3 text-xs leading-5 text-surface-500">Ask about what Claude already knows from this conversation. Side questions cannot read files or use tools, and stay out of the main conversation.</p>
+  <p class="mb-3 text-xs leading-5 text-surface-500">Ask about what the agent already knows from this conversation. Side questions cannot read files or use tools, and stay out of the main conversation.</p>
   {#if !activeSideId}
-    <div class="space-y-1">
-      {#each mine as entry (entry.sideThreadId)}
-        <div class="flex items-center gap-1">
-          <button class="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs hover:preset-tonal" onclick={() => (activeSideId = entry.sideThreadId)}>
-            <MessageCircleQuestion size={13} /><span class="truncate">{entry.title}</span>
-          </button>
-          <TooltipButton label="Delete side question" aria-label={`Delete side question ${entry.title}`} onclick={() => remove(entry)} class="btn-icon btn-icon-sm"><Trash2 size={12} /></TooltipButton>
-        </div>
-      {/each}
-    </div>
+    <SideQuestionList entries={mine} onOpen={(entry) => (activeSideId = entry.sideThreadId)} onDelete={remove} />
   {:else if loading}
     <p class="text-xs text-surface-500" aria-label="Loading side question">Loading…</p>
   {:else}
@@ -235,15 +226,4 @@ async function remove(entry: SideQuestion) {
   {#if busy}<p class="mt-3 text-xs text-surface-500" role="status">Answering side question…</p>{/if}
   {#if error}<p class="mt-3 text-xs text-error-500" role="alert">{error}</p>{/if}
 </div>
-<div class="border-t border-surface-200-800 p-2">
-  <div class="flex items-end gap-2 rounded-xl border border-surface-200-800 px-2.5 py-1.5">
-    <textarea bind:value={question} rows="1" placeholder={activeSideId ? "Follow up…" : "Ask a side question…"}
-      class="max-h-24 min-h-[1.25rem] flex-1 resize-none bg-transparent text-xs leading-5 outline-none"
-      onkeydown={(event) => {
-        if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void ask(); }
-        else if (event.key === "Escape" && busy) { event.preventDefault(); void stop(); }
-      }}></textarea>
-    {#if busy}<TooltipButton label="Stop (Esc)" aria-label="Stop side question" onclick={stop} class="btn-icon btn-icon-sm preset-filled-error-500"><Square size={10} /></TooltipButton>{/if}
-    <TooltipButton label="Ask side question" aria-label="Ask side question" onclick={ask} disabled={busy || loading || !question.trim()} class="btn-icon btn-icon-sm preset-filled-primary-500"><ArrowUp size={12} /></TooltipButton>
-  </div>
-</div>
+<SideComposer bind:value={question} followUp={!!activeSideId} {busy} disabled={loading} onAsk={() => void ask()} onStop={() => void stop()} />

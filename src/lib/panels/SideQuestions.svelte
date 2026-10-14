@@ -1,10 +1,11 @@
 <script lang="ts">
-import { ArrowUp, ChevronRight, MessageCircleQuestion, Square, Trash2 } from "@lucide/svelte";
+import { ChevronRight } from "@lucide/svelte";
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
 import { untrack } from "svelte";
-import TooltipButton from "$lib/components/TooltipButton.svelte";
 import TypingDots from "$lib/components/TypingDots.svelte";
 import NativeSideQuestions from "$lib/panels/NativeSideQuestions.svelte";
+import SideComposer from "$lib/panels/SideComposer.svelte";
+import SideQuestionList from "$lib/panels/SideQuestionList.svelte";
 import { forkThread, readThread, startTurn } from "$lib/services/api";
 import {
   activeTurns,
@@ -316,27 +317,7 @@ function openSide(entry: SideQuestion) {
         with full context.
       </p>
     {:else}
-      <div class="space-y-1">
-        {#each mine as entry (entry.sideThreadId)}
-          <div class="group/side relative">
-            <button
-              onclick={() => openSide(entry)}
-              class="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 pr-8 text-left text-xs hover:preset-tonal"
-            >
-              <MessageCircleQuestion size={13} class="shrink-0 text-primary-500" />
-              <span class="min-w-0 flex-1 truncate">{entry.title}</span>
-            </button>
-            <TooltipButton
-              label="Delete side question"
-              aria-label={`Delete side question ${entry.title}`}
-              onclick={() => deleteSide(entry)}
-              class="absolute right-1.5 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded text-surface-500 opacity-0 transition hover:bg-surface-300-700 hover:text-error-500 group-hover/side:opacity-100"
-            >
-              <Trash2 size={12} />
-            </TooltipButton>
-          </div>
-        {/each}
-      </div>
+      <SideQuestionList entries={mine} onOpen={openSide} onDelete={deleteSide} />
     {/if}
   {:else if sideLoading}
     <div class="space-y-2" aria-label="Loading side question">
@@ -418,44 +399,7 @@ function openSide(entry: SideQuestion) {
   {/if}
 </div>
 
-<div class="border-t border-surface-200-800 p-2">
-  <div class="flex items-end gap-2 rounded-xl border border-surface-200-800 bg-surface-50-950 px-2.5 py-1.5 focus-within:border-surface-400-600">
-    <textarea
-      bind:value={question}
-      onkeydown={(event) => {
-        if (event.key === "Enter" && !event.shiftKey) {
-          event.preventDefault();
-          ask();
-        } else if (event.key === "Escape" && busy) {
-          event.preventDefault();
-          stop();
-        }
-      }}
-      rows="1"
-      placeholder={activeSideId ? "Follow up…" : "Ask a side question…"}
-      class="max-h-24 min-h-[1.25rem] flex-1 resize-none bg-transparent text-xs leading-5 outline-none placeholder:text-surface-500"
-    ></textarea>
-    {#if busy}
-      <TooltipButton
-        label="Stop (Esc)"
-        onclick={stop}
-        aria-label="Stop side question"
-        class="grid size-6 shrink-0 place-items-center rounded-full preset-filled-error-500"
-      >
-        <Square size={10} fill="currentColor" />
-      </TooltipButton>
-    {/if}
-    <TooltipButton
-      label={busy ? "Wait for the answer or press Stop" : "Ask side question"}
-      onclick={ask}
-      aria-label="Ask side question"
-      disabled={busy || !question.trim()}
-      class="grid size-6 shrink-0 place-items-center rounded-full preset-filled-primary-500 disabled:opacity-40"
-    >
-      <ArrowUp size={12} />
-    </TooltipButton>
-  </div>
-</div>
+<SideComposer bind:value={question} followUp={!!activeSideId} {busy} onAsk={ask} onStop={stop} />
 
 {:else}
   <p class="p-3 text-xs text-surface-500">{modeError ?? (parentThreadId ? "Loading side questions…" : "Open a conversation to ask a side question.")}</p>

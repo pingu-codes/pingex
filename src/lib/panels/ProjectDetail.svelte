@@ -427,141 +427,129 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
             Add source
           </button>
         </div>
-      {#if query.trim() && results}
-        {#if isEmptyResults(results)}
-          <div class="mt-3 empty-state py-8 text-sm">
-            No matches for "{query.trim()}"
-          </div>
-        {:else}
-          <div class="mt-3 space-y-4">
-            {#if results.projectFiles.items.length > 0}
-              <div>
-                <h3 class="mb-1.5 eyebrow">Project files</h3>
-                <div class="space-y-1">
-                  {#each results.projectFiles.items as match (match.path + ":" + (match.lineNumber ?? "name"))}
-                    <button
-                      onclick={() => openFile(match.path)}
-                      title={fileTitle(match.path, match.lineNumber)}
-                      class="flex w-full items-center gap-2.5 rounded-lg border border-surface-200-800 bg-surface-100-900 px-3 py-2 text-left hover:preset-tonal"
-                    >
-                      <FileIcon size={14} class="shrink-0 text-surface-500" />
-                      <div class="min-w-0 flex-1">
-                        <div class="flex items-baseline gap-1.5">
-                          <span class="truncate text-xs font-medium">{match.fileName}</span>
-                          <span class="truncate text-[10px] text-surface-500">{match.path}{match.lineNumber ? `:${match.lineNumber}` : ""}</span>
-                        </div>
-                        {#if match.preview}
-                          <div class="truncate font-mono text-[11px] text-surface-600-400">{match.preview}</div>
-                        {/if}
-                      </div>
-                    </button>
-                  {/each}
-                </div>
-              </div>
-            {/if}
-
-            {#if results.threads.items.length > 0}
-              <div>
-                <h3 class="mb-1.5 eyebrow">Local chats</h3>
-                <div class="space-y-1">
-                  {#each results.threads.items as match (match.threadId)}
-                    <button
-                      onclick={() => onOpenThread(match.threadId)}
-                      class="flex w-full items-center gap-2.5 rounded-lg border border-surface-200-800 bg-surface-100-900 px-3 py-2 text-left hover:preset-tonal"
-                    >
-                      <MessageSquare size={14} class="shrink-0 text-surface-500" />
-                      <span class="min-w-0 flex-1 truncate text-xs">{match.title}</span>
-                    </button>
-                  {/each}
-                </div>
-              </div>
-            {/if}
-
-            {#if results.messages.items.length > 0}
-              <div>
-                <h3 class="mb-1.5 eyebrow">Thread messages</h3>
-                <div class="space-y-1">
-                  {#each results.messages.items as match (match.threadId)}
-                    <button
-                      onclick={() => onOpenThread(match.threadId)}
-                      class="flex w-full items-center gap-2.5 rounded-lg border border-surface-200-800 bg-surface-100-900 px-3 py-2 text-left hover:preset-tonal"
-                    >
-                      <MessageSquare size={14} class="shrink-0 text-surface-500" />
-                      <span class="min-w-0 flex-1 truncate text-xs">{match.title}</span>
-                    </button>
-                  {/each}
-                </div>
-              </div>
-            {/if}
-          </div>
-        {/if}
-      {/if}
-
-    <!-- Sources -->
-    <div class="mt-6">
-      <h2 class="mb-1.5 eyebrow">Sources</h2>
-      {#if sourceError}
-        <div class="mb-2 flex items-center gap-2 error-note">
-          <span class="min-w-0 flex-1">{sourceError}</span>
-          <TooltipButton label="Dismiss" onclick={() => (sourceError = null)} aria-label="Dismiss" class="btn-icon btn-icon-sm"><X size={12} /></TooltipButton>
-        </div>
-      {/if}
-      {#if sources.length === 0}
-        <button
-          onclick={addFolder}
-          class="w-full empty-cta"
-        >
-          Attach folders or files to make their contents searchable in this project.
-        </button>
-      {:else}
-        <div class="space-y-1.5">
-          {#each sources as source (source.id)}
-            <div class="group/src flex items-center gap-3 panel-card px-3 py-2.5">
-              {#if source.kind === "folder"}
-                <FolderOpen size={16} strokeWidth={1.7} class="shrink-0 text-surface-500" />
-              {:else}
-                <FileIcon size={16} strokeWidth={1.7} class="shrink-0 text-surface-500" />
-              {/if}
-              <div class="min-w-0 flex-1">
-                <div class="truncate text-sm font-medium" title={source.sourcePath}>{sourceName(source)}</div>
-                <div class="truncate text-[11px] text-surface-500">{source.sourcePath}</div>
-              </div>
-              <!-- Status badge -->
-              {#if source.status === "pending"}
-                <span class="flex shrink-0 items-center gap-1 text-[11px] text-surface-500">
-                  <Loader size={12} class="animate-spin" />
-                  Indexing…
-                </span>
-              {:else if source.status === "indexed"}
-                <TooltipAnchor label={source.indexedAt ? `Indexed ${relativeTime(source.indexedAt)}` : "Indexed"} class="flex shrink-0 items-center gap-1 text-[11px] text-success-600 dark:text-success-400">
-                  <CheckCircle2 size={12} />
-                  {source.docCount} {source.docCount === 1 ? "file" : "files"}
-                </TooltipAnchor>
-              {:else}
-                <TooltipButton
-                  label={source.error ?? "Indexing failed"}
-                  onclick={() => retrySource(source.id)}
-                  class="flex shrink-0 items-center gap-1 text-[11px] text-error-500 hover:underline"
-                >
-                  <AlertCircle size={12} />
-                  Retry
-                  <RefreshCw size={11} />
-                </TooltipButton>
-              {/if}
-              <TooltipButton
-                label="Remove source"
-                onclick={() => removeSource(source.id)}
-                aria-label="Remove source"
-                class="btn-icon btn-icon-sm shrink-0 text-surface-500 opacity-0 transition hover:text-error-500 focus:opacity-100 group-hover/src:opacity-100"
-              >
-                <Trash2 size={14} />
-              </TooltipButton>
+        {#if query.trim() && results}
+          {#if isEmptyResults(results)}
+            <div class="mt-3 empty-state py-8 text-sm">
+              No matches for "{query.trim()}"
             </div>
-          {/each}
+          {:else}
+            <div class="mt-3 space-y-4">
+              {#if results.projectFiles.items.length > 0}
+                <div>
+                  <h3 class="mb-1.5 eyebrow">Project files</h3>
+                  <div class="space-y-1">
+                    {#each results.projectFiles.items as match (match.path + ":" + (match.lineNumber ?? "name"))}
+                      <button
+                        onclick={() => openFile(match.path)}
+                        title={fileTitle(match.path, match.lineNumber)}
+                        class="flex w-full items-center gap-2.5 rounded-lg border border-surface-200-800 bg-surface-100-900 px-3 py-2 text-left hover:preset-tonal"
+                      >
+                        <FileIcon size={14} class="shrink-0 text-surface-500" />
+                        <div class="min-w-0 flex-1">
+                          <div class="flex items-baseline gap-1.5">
+                            <span class="truncate text-xs font-medium">{match.fileName}</span>
+                            <span class="truncate text-[10px] text-surface-500">{match.path}{match.lineNumber ? `:${match.lineNumber}` : ""}</span>
+                          </div>
+                          {#if match.preview}
+                            <div class="truncate font-mono text-[11px] text-surface-600-400">{match.preview}</div>
+                          {/if}
+                        </div>
+                      </button>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+
+              {@render threadResults("Local chats", results.threads.items)}
+              {@render threadResults("Thread messages", results.messages.items)}
+            </div>
+          {/if}
+        {/if}
+
+        <!-- Sources -->
+        <div class="mt-6">
+          <h2 class="mb-1.5 eyebrow">Sources</h2>
+          {#if sourceError}
+            <div class="mb-2 flex items-center gap-2 error-note">
+              <span class="min-w-0 flex-1">{sourceError}</span>
+              <TooltipButton label="Dismiss" onclick={() => (sourceError = null)} aria-label="Dismiss" class="btn-icon btn-icon-sm"><X size={12} /></TooltipButton>
+            </div>
+          {/if}
+          {#if sources.length === 0}
+            <button
+              onclick={addFolder}
+              class="w-full empty-cta"
+            >
+              Attach folders or files to make their contents searchable in this project.
+            </button>
+          {:else}
+            <div class="space-y-1.5">
+              {#each sources as source (source.id)}
+                <div class="group/src flex items-center gap-3 panel-card px-3 py-2.5">
+                  {#if source.kind === "folder"}
+                    <FolderOpen size={16} strokeWidth={1.7} class="shrink-0 text-surface-500" />
+                  {:else}
+                    <FileIcon size={16} strokeWidth={1.7} class="shrink-0 text-surface-500" />
+                  {/if}
+                  <div class="min-w-0 flex-1">
+                    <div class="truncate text-sm font-medium" title={source.sourcePath}>{sourceName(source)}</div>
+                    <div class="truncate text-[11px] text-surface-500">{source.sourcePath}</div>
+                  </div>
+                  <!-- Status badge -->
+                  {#if source.status === "pending"}
+                    <span class="flex shrink-0 items-center gap-1 text-[11px] text-surface-500">
+                      <Loader size={12} class="animate-spin" />
+                      Indexing…
+                    </span>
+                  {:else if source.status === "indexed"}
+                    <TooltipAnchor label={source.indexedAt ? `Indexed ${relativeTime(source.indexedAt)}` : "Indexed"} class="flex shrink-0 items-center gap-1 text-[11px] text-success-600 dark:text-success-400">
+                      <CheckCircle2 size={12} />
+                      {source.docCount} {source.docCount === 1 ? "file" : "files"}
+                    </TooltipAnchor>
+                  {:else}
+                    <TooltipButton
+                      label={source.error ?? "Indexing failed"}
+                      onclick={() => retrySource(source.id)}
+                      class="flex shrink-0 items-center gap-1 text-[11px] text-error-500 hover:underline"
+                    >
+                      <AlertCircle size={12} />
+                      Retry
+                      <RefreshCw size={11} />
+                    </TooltipButton>
+                  {/if}
+                  <TooltipButton
+                    label="Remove source"
+                    onclick={() => removeSource(source.id)}
+                    aria-label="Remove source"
+                    class="btn-icon btn-icon-sm shrink-0 text-surface-500 opacity-0 transition hover:text-error-500 focus:opacity-100 group-hover/src:opacity-100"
+                  >
+                    <Trash2 size={14} />
+                  </TooltipButton>
+                </div>
+              {/each}
+            </div>
+          {/if}
         </div>
-      {/if}
-    </div>
       </Tabs.Content>
     </Tabs>
   </div>
 </div>
+
+{#snippet threadResults(title: string, matches: { threadId: string; title: string }[])}
+  {#if matches.length > 0}
+    <div>
+      <h3 class="mb-1.5 eyebrow">{title}</h3>
+      <div class="space-y-1">
+        {#each matches as match (match.threadId)}
+          <button
+            onclick={() => onOpenThread(match.threadId)}
+            class="flex w-full items-center gap-2.5 rounded-lg border border-surface-200-800 bg-surface-100-900 px-3 py-2 text-left hover:preset-tonal"
+          >
+            <MessageSquare size={14} class="shrink-0 text-surface-500" />
+            <span class="min-w-0 flex-1 truncate text-xs">{match.title}</span>
+          </button>
+        {/each}
+      </div>
+    </div>
+  {/if}
+{/snippet}

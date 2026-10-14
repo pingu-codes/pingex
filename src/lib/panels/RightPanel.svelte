@@ -91,6 +91,20 @@ let {
   onToggleSystemPromptInThread?: () => void;
 } = $props();
 
+const PANEL_META: Record<PanelView["kind"], { title: string; icon: typeof X; tone?: string }> = {
+  plan: { title: "Plan", icon: Lightbulb, tone: "text-warning-500" },
+  sources: { title: "Sources", icon: Globe },
+  side: { title: "Side questions", icon: MessageCircleQuestion, tone: "text-primary-500" },
+  diffs: { title: "Outputs", icon: FileDiff },
+  changes: { title: "Changes", icon: FileDiff },
+  files: { title: "Files", icon: FolderTree },
+  messageLog: { title: "Message log", icon: ScrollText },
+  status: { title: "Status", icon: Gauge },
+  process: { title: "Process", icon: SquareTerminal },
+};
+const panelMeta = $derived(PANEL_META[view.kind]);
+const PanelIcon = $derived(panelMeta.icon);
+
 let activeSideId = $state<string | null>(null);
 let panelWidth = $state(loadSize("layout.rightPanelWidth", 380, 280, 720));
 
@@ -145,36 +159,10 @@ function openProjectFile(relativePath: string) {
         <ArrowLeft size={14} />
       </TooltipButton>
     {/if}
-    {#if view.kind === "plan"}
-      <Lightbulb size={14} class="text-warning-500" />
-      <span class="flex-1 text-xs font-semibold">Plan</span>
-    {:else if view.kind === "sources"}
-      <Globe size={14} class="text-surface-500" />
-      <span class="flex-1 text-xs font-semibold">Sources</span>
-    {:else if view.kind === "diffs"}
-      <FileDiff size={14} class="text-surface-500" />
-      <span class="flex-1 text-xs font-semibold">Outputs</span>
-      {#if changes.length > 0}
-        <span class="text-[10px] text-surface-500">{changes.length}</span>
-      {/if}
-    {:else if view.kind === "changes"}
-      <FileDiff size={14} class="text-surface-500" />
-      <span class="flex-1 text-xs font-semibold">Changes</span>
-    {:else if view.kind === "files"}
-      <FolderTree size={14} class="text-surface-500" />
-      <span class="flex-1 text-xs font-semibold">Files</span>
-    {:else if view.kind === "messageLog"}
-      <ScrollText size={14} class="text-surface-500" />
-      <span class="flex-1 text-xs font-semibold">Message log</span>
-    {:else if view.kind === "status"}
-      <Gauge size={14} class="text-surface-500" />
-      <span class="flex-1 text-xs font-semibold">Status</span>
-    {:else if view.kind === "process"}
-      <SquareTerminal size={14} class="text-surface-500" />
-      <span class="flex-1 text-xs font-semibold">Process</span>
-    {:else}
-      <MessageCircleQuestion size={14} class="text-primary-500" />
-      <span class="flex-1 text-xs font-semibold">Side questions</span>
+    <PanelIcon size={14} class={panelMeta.tone ?? "text-surface-500"} />
+    <span class="flex-1 text-xs font-semibold">{panelMeta.title}</span>
+    {#if view.kind === "diffs" && changes.length > 0}
+      <span class="text-[10px] text-surface-500">{changes.length}</span>
     {/if}
     <TooltipButton label="Close panel" aria-label="Close panel" onclick={onClose} class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
       <X size={14} />
