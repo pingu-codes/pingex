@@ -581,7 +581,7 @@ See §3.2.
 
 ## 7. Layout, panels and app state
 
-### 7.1 SettingsView (876 lines): repeated cards and rows; split it
+### 7.1 SettingsView (876 lines): repeated cards and rows; split it: done
 - **Repeated markup:**
   - The card wrapper appears 8 times (369, 493, 564, 654, 680, 725, 733,
     759).
@@ -592,7 +592,7 @@ See §3.2.
   Keyboard, Advanced}.svelte`.
 - **Savings:** ~150 lines; the main file drops to ~300. **Risk:** med.
 
-### 7.2 Settings navigation state is mirrored
+### 7.2 Settings navigation state is mirrored: done
 - `App.svelte:72-85, 290-305` syncs a local `settingsOpen` from
   `settingsNav.open` through an effect. SettingsView takes 4 props that
   mirror the store.
@@ -601,7 +601,7 @@ See §3.2.
 - Use `{#if settingsNav.open}` and read the store directly. Put `icon` on
   `SETTINGS_SECTIONS` and type the ids as a union. ~25 lines.
 
-### 7.3 Dead code
+### 7.3 Dead code: done
 - `SettingsView.svelte:139-140, 215-217` calls `readHomeOverview()` and
   stores `overview`, which nothing reads. That costs an IPC round-trip every
   time Settings opens (verified).
@@ -609,7 +609,7 @@ See §3.2.
 - `panels/workspaceSearch.ts`: `totalMatchCount` is used only by its test,
   `emptyStateLabel` is a one-liner, and `debounce` belongs in utils.
 
-### 7.4 HomePage duplication
+### 7.4 HomePage duplication: done
 - The 4 usage tiles are written out by hand (244-264) while the tiles above
   use `{#each}`.
 - 3 project sections have the same heading, blurb and list (346-396).
@@ -617,7 +617,7 @@ See §3.2.
 - (`iconAction` went in §3.6 and the local `relativeTime` in §2.3.)
 - ~80–100 lines.
 
-### 7.5 Sidebar
+### 7.5 Sidebar: done
 - 5 header TooltipButtons share one 120-char class (703-746). Render them
   with `{#each}`.
 - The hover-reveal class is copied 5 times.
@@ -626,22 +626,22 @@ See §3.2.
 - `{#if thread.harness === "claude"}` at line 434 (see §12).
 - ~50 lines.
 
-### 7.6 SideQuestions vs NativeSideQuestions
+### 7.6 SideQuestions vs NativeSideQuestions: done
 - The list and the textarea footer are built separately in each
   (`SideQuestions.svelte:322-346, 425-465`;
   `NativeSideQuestions.svelte:218-256`), and their styles have drifted.
 - Extract `SideQuestionList.svelte` and `SideComposer.svelte`. ~50 lines.
 
-### 7.7 RightPanel header
+### 7.7 RightPanel header: done
 - A 9-branch if-chain for icon and title (`RightPanel.svelte:148-178`).
   Replace it with a `PANEL_META` table. ~25 lines.
 
-### 7.8 ProjectDetail
+### 7.8 ProjectDetail: done
 - "Local chats" and "Thread messages" are byte-identical result blocks
   (467-500). Use a `resultGroup` snippet.
 - The Sources tab is mis-indented (504-566). ~30 lines.
 
-### 7.9 `menuAction`: a 130-line if-return chain
+### 7.9 `menuAction`: a 130-line if-return chain: done
 - `app/actions.svelte.ts:313-446` is 25 sequential `if (action === X)`
   blocks with order-dependent fall-through, and togglePin is the implicit
   default.
@@ -1073,7 +1073,7 @@ scope.
 
 | Rule | Where |
 |---|---|
-| Frontend never checks harness kind | `Sidebar.svelte:434` (`thread.harness === "claude"` badge); `ThreadView.svelte:718, 1437`; `HarnessMenu.svelte:50`; hard-coded "Codex" in `Composer.svelte:1209-1210, 1237` and the TypingDots default label; "Claude" in `NativeSideQuestions.svelte:216` |
+| Frontend never checks harness kind | `ThreadView.svelte:718, 1437`; `HarnessMenu.svelte:50`; hard-coded "Codex" in `Composer.svelte:1209-1210, 1237` and the TypingDots default label |
 | Hosts: no hand-built Linux paths | `worktrees/worktrees.ts:25-37` (§8.7); `review/gh.rs:44, 65` guesses the host with `Host::from_local` instead of using the Home's host (§13) |
 | Stringly-typed harness in Rust | `threads/turn.rs:153-170, 206` (§9.15) |
 
@@ -1101,7 +1101,8 @@ listed so they aren't lost.
    `Cancelled` counts as terminal at `project.rs:460` but not at :396
    (§9.12).
 7. **Settings opens with a wasted IPC call.** `readHomeOverview()` runs on
-   every open and its result is unused (§7.3).
+   every open and its result is unused (§7.3). Fixed: the call is gone, and
+   each Settings section now loads its own data when shown.
 8. **Queued-message edits flatten chips to `@name`,** while bubble edits
    preserve them (§5.9). Fixed with the shared `InlineEdit`.
 
