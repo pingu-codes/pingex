@@ -68,20 +68,12 @@ import ThreadView from "$lib/thread/ThreadView.svelte";
 import { dragRegion } from "$lib/utils/dragRegion";
 import { loadSize, resizeHandle } from "$lib/utils/resize";
 
-let settingsOpen = $state(false);
 let sidebarWidth = $state(loadSize("layout.sidebarWidth", 280, 200, 480));
 
 const thread = $derived(selectedThreadInfo());
 const project = $derived(currentProject());
 const review = $derived(reviewRepo());
 const detail = $derived(detailProject());
-
-// Deep links (e.g. an MCP tool-call in the thread view) request Settings via
-// the shared settingsNav store; mirror that into the local open state.
-$effect(() => {
-  void settingsNav.nonce;
-  if (settingsNav.open) settingsOpen = true;
-});
 
 startApp();
 init();
@@ -287,20 +279,13 @@ init();
 </main>
 {/if}
 
-{#if settingsOpen}
+{#if settingsNav.open}
   <div class="fixed inset-0 z-50">
     <SettingsView
       account={appData.data?.account ?? null}
       codexHome={appData.data?.codexHome ?? null}
       codexBinary={appData.data?.codexBinary ?? null}
-      initialSection={settingsNav.section}
-      focusServer={settingsNav.focusServer}
-      focusTool={settingsNav.focusTool}
-      navNonce={settingsNav.nonce}
-      onClose={() => {
-        settingsOpen = false;
-        closeSettings();
-      }}
+      onClose={closeSettings}
     />
   </div>
 {/if}

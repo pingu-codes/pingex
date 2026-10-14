@@ -1,14 +1,14 @@
+import type { SettingsSectionId } from "$lib/layout/settingsSections";
+
 /**
  * Tiny shared channel for opening the Settings dialog at a specific section,
  * optionally focusing an integration. Lets deep components (e.g. an MCP
  * tool-call in the thread view) request the Integrations UI without threading
  * callbacks through every layer.
  */
-export type SettingsSection = "general" | "integrations" | "usage";
-
 export const settingsNav = $state<{
   open: boolean;
-  section: SettingsSection;
+  section: SettingsSectionId;
   /** MCP server name to scroll to / highlight when the section opens. */
   focusServer: string | null;
   /** Tool within `focusServer` to scroll to, when the caller knows which one. */
@@ -24,7 +24,7 @@ export const settingsNav = $state<{
 });
 
 export function openSettings(
-  section: SettingsSection = "general",
+  section: SettingsSectionId = "general",
   focusServer: string | null = null,
   focusTool: string | null = null,
 ): void {

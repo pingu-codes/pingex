@@ -1,17 +1,47 @@
+import {
+  Blocks,
+  Bot,
+  Code2,
+  Database,
+  FlaskConical,
+  Gauge,
+  Keyboard,
+  Palette,
+  Settings2,
+  Sliders,
+  Smartphone,
+} from "@lucide/svelte";
+import type { Component } from "svelte";
+
+export type SettingsSectionId =
+  | "general"
+  | "appearance"
+  | "agent"
+  | "modelFeatures"
+  | "coding"
+  | "integrations"
+  | "connections"
+  | "keyboard"
+  | "usage"
+  | "data"
+  | "advanced";
+
 /** Static definition of the settings navigation, kept separate from the view so
  * the search/filter logic is unit-testable without rendering. */
 export interface SettingsSection {
-  id: string;
+  id: SettingsSectionId;
   label: string;
+  icon: Component<{ size?: number; class?: string }>;
   /** Extra searchable terms — control names and synonyms in this section. */
   keywords: string[];
 }
 
 export const SETTINGS_SECTIONS: SettingsSection[] = [
-  { id: "general", label: "General", keywords: ["codex home", "binary", "runtime", "restart"] },
+  { id: "general", label: "General", icon: Settings2, keywords: ["codex home", "binary", "runtime", "restart"] },
   {
     id: "appearance",
     label: "Appearance",
+    icon: Palette,
     keywords: [
       "theme",
       "readable",
@@ -30,6 +60,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   {
     id: "agent",
     label: "Agent",
+    icon: Bot,
     keywords: [
       "model",
       "reasoning effort",
@@ -40,16 +71,27 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
       "parallel agents",
     ],
   },
-  { id: "modelFeatures", label: "Model features", keywords: ["reasoning summaries", "hide reasoning"] },
-  { id: "coding", label: "Coding", keywords: ["file opener", "editor scheme"] },
-  { id: "integrations", label: "Integrations", keywords: ["mcp servers", "skills"] },
-  { id: "connections", label: "Connections", keywords: ["phone", "pairing", "qr code", "remote control"] },
-  { id: "keyboard", label: "Keyboard shortcuts", keywords: ["shortcuts", "hotkeys", "keybindings"] },
-  { id: "usage", label: "Usage", keywords: ["tokens", "cost", "spend", "context", "cache", "system prompt"] },
-  { id: "data", label: "Data controls", keywords: ["database", "drafts", "storage", "clear metadata"] },
+  { id: "modelFeatures", label: "Model features", icon: Sliders, keywords: ["reasoning summaries", "hide reasoning"] },
+  { id: "coding", label: "Coding", icon: Code2, keywords: ["file opener", "editor scheme"] },
+  { id: "integrations", label: "Integrations", icon: Blocks, keywords: ["mcp servers", "skills"] },
+  {
+    id: "connections",
+    label: "Connections",
+    icon: Smartphone,
+    keywords: ["phone", "pairing", "qr code", "remote control"],
+  },
+  { id: "keyboard", label: "Keyboard shortcuts", icon: Keyboard, keywords: ["shortcuts", "hotkeys", "keybindings"] },
+  {
+    id: "usage",
+    label: "Usage",
+    icon: Gauge,
+    keywords: ["tokens", "cost", "spend", "context", "cache", "system prompt"],
+  },
+  { id: "data", label: "Data controls", icon: Database, keywords: ["database", "drafts", "storage", "clear metadata"] },
   {
     id: "advanced",
     label: "Advanced",
+    icon: FlaskConical,
     keywords: ["message log", "developer", "debug", "json-rpc", "protocol", "app-server traffic"],
   },
 ];

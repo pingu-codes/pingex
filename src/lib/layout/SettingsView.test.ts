@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import SettingsView from "$lib/layout/SettingsView.svelte";
 import { commands } from "$lib/services/homeRouting";
+import { closeSettings, openSettings } from "$lib/services/settingsNav.svelte";
 
 vi.mock("$lib/services/homeRouting", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
@@ -94,5 +95,30 @@ describe("SettingsView", () => {
 
     await fireEvent.change(timeLimit, { target: { value: "600" } });
     expect(commands.writeAgentSettings).toHaveBeenCalledWith(expect.objectContaining({ timeoutSeconds: 600 }));
+  });
+
+  it("opens at the section a settingsNav request names", () => {
+    openSettings("usage");
+    setup();
+    expect(screen.getByRole("tab", { name: /Usage/ })).toHaveAttribute("aria-selected", "true");
+    closeSettings();
+    openSettings("general");
+    closeSettings();
+  });
+
+  it("lets Escape cancel shortcut recording without closing", async () => {
+    const user = userEvent.setup();
+    const { onClose } = setup();
+    await user.click(screen.getByRole("tab", { name: /Keyboard/ }));
+    await user.click(await screen.findByRole("button", { name: /CmdOrCtrl|Ctrl|Alt|Shift/ }));
+    expect(screen.getByRole("button", { name: "Press keys…" })).toBeInTheDocument();
+
+    await user.click(document.body);
+    await user.keyboard("{Escape}");
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Press keys…" })).not.toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });

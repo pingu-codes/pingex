@@ -29,13 +29,14 @@ import { commands } from "$lib/services/homeRouting";
 import { isTauri } from "$lib/services/tauri";
 import type { GitContext, Project, ProjectSource, WorkspaceSearchResults } from "$lib/types";
 import UsageSummary from "$lib/usage/UsageSummary.svelte";
+import { debounce } from "$lib/utils/debounce";
 import { errorMessage } from "$lib/utils/errors";
 import { relativeTime } from "$lib/utils/format";
 import { basename } from "$lib/utils/path";
 import { ensureGitStatus, gitStatusCache } from "$lib/worktrees/gitStatus.svelte";
 import Worktrees from "$lib/worktrees/Worktrees.svelte";
 import { aheadBehindLabel, isDirty, statusSummary } from "$lib/worktrees/worktrees";
-import { debounce, emptyStateLabel, isEmptyResults } from "./workspaceSearch";
+import { isEmptyResults } from "./workspaceSearch";
 
 let {
   project,
@@ -429,7 +430,7 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
       {#if query.trim() && results}
         {#if isEmptyResults(results)}
           <div class="mt-3 empty-state py-8 text-sm">
-            {emptyStateLabel(query)}
+            No matches for "{query.trim()}"
           </div>
         {:else}
           <div class="mt-3 space-y-4">
