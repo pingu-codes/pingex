@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Composer from "$lib/composer/Composer.svelte";
 import { type ComposerPrefs, loadPrefs, loadScopedPrefs, savePrefs } from "$lib/composer/composerPrefs.svelte";
-import { placeCaretBesideChip } from "$lib/composer/richInput";
+import { placeCaretBeside } from "$lib/composer/richInput";
 import type { SubagentPolicy } from "$lib/types";
 
 // The preview skill fixtures carry no `enabled` flag, which the picker filters on.
@@ -182,7 +182,7 @@ describe("Composer", () => {
     await user.click(await screen.findByRole("option", { name: /utils\.ts/ }));
     await user.type(textarea, "now");
 
-    placeCaretBesideChip(textarea.querySelector("[data-mention-path]") as HTMLElement, "before");
+    placeCaretBeside(textarea.querySelector("[data-mention-path]") as HTMLElement, "before");
     await fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true });
 
     expect(textarea.querySelectorAll("br")).toHaveLength(1);
@@ -482,7 +482,7 @@ describe("Composer", () => {
     expect(chip).not.toBeNull();
     expect(screen.queryByRole("button", { name: /^Remove/ })).toBeNull();
 
-    placeCaretBesideChip(chip, "after");
+    placeCaretBeside(chip, "after");
     await fireEvent.keyDown(textarea, { key: "Backspace" });
 
     expect(textarea.querySelector("[data-mention-path]")).toBeNull();
@@ -508,7 +508,7 @@ describe("Composer", () => {
     expect(textarea.querySelector("div")).toBeNull();
     expect(flattened.parentNode).toBe(textarea);
 
-    placeCaretBesideChip(flattened, "after");
+    placeCaretBeside(flattened, "after");
     await fireEvent.keyDown(textarea, { key: "ArrowLeft" });
 
     const range = window.getSelection()?.getRangeAt(0);
@@ -523,7 +523,7 @@ describe("Composer", () => {
     await user.type(textarea, "see @util");
     await user.click(await screen.findByRole("option", { name: /utils\.ts/ }));
 
-    placeCaretBesideChip(textarea.querySelector("[data-mention-path]") as HTMLElement, "after");
+    placeCaretBeside(textarea.querySelector("[data-mention-path]") as HTMLElement, "after");
     await fireEvent.keyDown(textarea, { key: "Backspace", metaKey: true });
 
     expect(textarea.querySelector("[data-mention-path]")).toBeNull();
@@ -566,7 +566,7 @@ describe("Composer", () => {
     expect(chip.previousSibling?.nodeType).toBe(Node.TEXT_NODE);
     expect(chip.nextSibling?.nodeType).toBe(Node.TEXT_NODE);
 
-    placeCaretBesideChip(chip, "after");
+    placeCaretBeside(chip, "after");
     await fireEvent.keyDown(textarea, { key: "Backspace" });
     expect(textarea.querySelector("[data-mention-path]")).toBeNull();
   });

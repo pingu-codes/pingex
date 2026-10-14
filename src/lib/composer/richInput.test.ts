@@ -6,16 +6,15 @@ import {
   deleteLineBreak,
   deleteToLineEdge,
   detectQueries,
-  insertAttachmentChip,
+  insertChip,
   insertLineBreak,
   moveCaretToLineEdge,
   moveCaretToWordEdge,
   normaliseEditorDom,
   placeCaretAtOffset,
-  placeCaretBesideChip,
+  placeCaretBeside,
   readParts,
   renderParts,
-  renderPartsWith,
   updateAttachmentChip,
 } from "$lib/composer/richInput";
 
@@ -114,7 +113,7 @@ describe("chipBesideCaret", () => {
 describe("caretOffset", () => {
   it("counts every chip type as one unit", () => {
     const editor = editorWith();
-    renderPartsWith(
+    renderParts(
       editor,
       [
         { type: "text", text: "a " },
@@ -135,18 +134,18 @@ describe("caretOffset", () => {
   });
 });
 
-describe("placeCaretBesideChip", () => {
+describe("placeCaretBeside", () => {
   it("collapses the selection to either side of the chip", () => {
     const chip = chipNode();
     const editor = editorWith(document.createTextNode("see "), chip, document.createTextNode(" now"));
 
-    placeCaretBesideChip(chip, "after");
+    placeCaretBeside(chip, "after");
     let range = window.getSelection()?.getRangeAt(0);
     expect(range?.startContainer).toBe(editor);
     expect(range?.startOffset).toBe(2);
     expect(range?.collapsed).toBe(true);
 
-    placeCaretBesideChip(chip, "before");
+    placeCaretBeside(chip, "before");
     range = window.getSelection()?.getRangeAt(0);
     expect(range?.startOffset).toBe(1);
   });
@@ -171,7 +170,7 @@ describe("moveCaretToLineEdge", () => {
 
   it("stops at the line's own edge rather than the editor's", () => {
     const editor = editorWith();
-    renderPartsWith(editor, [{ type: "text", text: "one\ntwo\nthree" }], noopHandlers);
+    renderParts(editor, [{ type: "text", text: "one\ntwo\nthree" }], noopHandlers);
     placeCaretAtOffset(editor, 5); // inside "two"
 
     moveCaretToLineEdge(editor, "forward");
@@ -201,7 +200,7 @@ describe("moveCaretToWordEdge", () => {
   // "see " + chip + " now" — the chip is unit 4.
   const withChip = (): HTMLElement => {
     const editor = editorWith();
-    renderPartsWith(editor, [{ type: "text", text: "see " }, mention, { type: "text", text: " now" }], noopHandlers);
+    renderParts(editor, [{ type: "text", text: "see " }, mention, { type: "text", text: " now" }], noopHandlers);
     return editor;
   };
 
@@ -272,7 +271,7 @@ describe("readParts line breaks", () => {
 
   it("round-trips a trailing newline through renderParts", () => {
     const editor = editorWith();
-    renderParts(editor, [{ type: "text", text: "hello\n" }]);
+    renderParts(editor, [{ type: "text", text: "hello\n" }], noopHandlers);
     expect(readParts(editor)).toEqual([{ type: "text", text: "hello\n" }]);
   });
 });
@@ -296,7 +295,7 @@ describe("deleteLineBreak", () => {
 
   it("takes exactly one break out of a doubled line break", () => {
     const editor = editorWith();
-    renderParts(editor, [{ type: "text", text: "one\n\ntwo" }]);
+    renderParts(editor, [{ type: "text", text: "one\n\ntwo" }], noopHandlers);
     const tail = [...editor.childNodes].find((node) => node.textContent === "two") as Text;
     select(tail, 0);
 
@@ -305,7 +304,7 @@ describe("deleteLineBreak", () => {
 
   it("deletes the break ahead of the caret on a forward delete", () => {
     const editor = editorWith();
-    renderParts(editor, [{ type: "text", text: "one\ntwo" }]);
+    renderParts(editor, [{ type: "text", text: "one\ntwo" }], noopHandlers);
     const head = editor.firstChild as Text;
     select(head, 3);
 
@@ -314,7 +313,7 @@ describe("deleteLineBreak", () => {
 
   it("leaves ordinary character deletes to the browser", () => {
     const editor = editorWith();
-    renderParts(editor, [{ type: "text", text: "one\ntwo" }]);
+    renderParts(editor, [{ type: "text", text: "one\ntwo" }], noopHandlers);
     const head = editor.firstChild as Text;
     select(head, 2);
 
@@ -324,7 +323,7 @@ describe("deleteLineBreak", () => {
   it("keeps chips and their order when a break is removed", () => {
     const editor = editorWith();
     const mention: ComposerPart = { type: "mention", name: "lib", path: "/proj/src/lib" };
-    renderPartsWith(editor, [{ type: "text", text: "see " }, mention, { type: "text", text: "\nnow" }], noopHandlers);
+    renderParts(editor, [{ type: "text", text: "see " }, mention, { type: "text", text: "\nnow" }], noopHandlers);
     const tail = [...editor.childNodes].find((node) => node.textContent === "now") as Text;
     select(tail, 0);
 
@@ -387,7 +386,7 @@ describe("normaliseEditorDom", () => {
 
   it("does nothing to an already-flat editor", () => {
     const editor = editorWith();
-    renderPartsWith(editor, [{ type: "text", text: "one\n" }, mention], noopHandlers);
+    renderParts(editor, [{ type: "text", text: "one\n" }, mention], noopHandlers);
     const before = editor.innerHTML;
     select(editor.firstChild as Text, 1);
 
@@ -417,9 +416,9 @@ describe("insertLineBreak", () => {
   it("adds a single break before a chip and leaves the caret between the two", () => {
     const editor = editorWith();
     const mention: ComposerPart = { type: "mention", name: "lib", path: "/proj/src/lib" };
-    renderPartsWith(editor, [{ type: "text", text: "look at " }, mention], noopHandlers);
+    renderParts(editor, [{ type: "text", text: "look at " }, mention], noopHandlers);
     const chip = editor.querySelector("[data-mention-path]") as HTMLElement;
-    placeCaretBesideChip(chip, "before");
+    placeCaretBeside(chip, "before");
 
     expect(insertLineBreak(editor, noopHandlers)).toEqual([{ type: "text", text: "look at \n" }, mention]);
     // One break, not the two WebKit writes beside a contenteditable=false chip.
@@ -431,7 +430,7 @@ describe("insertLineBreak", () => {
 
   it("splits the text at the caret", () => {
     const editor = editorWith();
-    renderPartsWith(editor, [{ type: "text", text: "onetwo" }], noopHandlers);
+    renderParts(editor, [{ type: "text", text: "onetwo" }], noopHandlers);
     select(editor.firstChild as Text, 3);
 
     expect(insertLineBreak(editor, noopHandlers)).toEqual([{ type: "text", text: "one\ntwo" }]);
@@ -439,7 +438,7 @@ describe("insertLineBreak", () => {
 
   it("leaves the keystroke to the browser when there is no caret", () => {
     const editor = editorWith();
-    renderPartsWith(editor, [{ type: "text", text: "one" }], noopHandlers);
+    renderParts(editor, [{ type: "text", text: "one" }], noopHandlers);
     window.getSelection()?.removeAllRanges();
 
     expect(insertLineBreak(editor, noopHandlers)).toBeNull();
@@ -456,11 +455,7 @@ describe("deleteToLineEdge", () => {
   it("takes the whole line back to its start, chip included", () => {
     const editor = editorWith();
     const mention: ComposerPart = { type: "mention", name: "lib", path: "/proj/src/lib" };
-    renderPartsWith(
-      editor,
-      [{ type: "text", text: "one\nsee " }, mention, { type: "text", text: " now" }],
-      noopHandlers,
-    );
+    renderParts(editor, [{ type: "text", text: "one\nsee " }, mention, { type: "text", text: " now" }], noopHandlers);
     const tail = [...editor.childNodes].find((node) => node.textContent === " now") as Text;
     select(tail, 4);
 
@@ -470,7 +465,7 @@ describe("deleteToLineEdge", () => {
 
   it("stops at the line break rather than eating the line above", () => {
     const editor = editorWith();
-    renderPartsWith(editor, [{ type: "text", text: "one\ntwo\nthree" }], noopHandlers);
+    renderParts(editor, [{ type: "text", text: "one\ntwo\nthree" }], noopHandlers);
     const line = [...editor.childNodes].find((node) => node.textContent === "two") as Text;
     select(line, 3);
 
@@ -479,7 +474,7 @@ describe("deleteToLineEdge", () => {
 
   it("takes the rest of the line forward", () => {
     const editor = editorWith();
-    renderPartsWith(editor, [{ type: "text", text: "one\ntwo" }], noopHandlers);
+    renderParts(editor, [{ type: "text", text: "one\ntwo" }], noopHandlers);
     const head = editor.firstChild as Text;
     select(head, 1);
 
@@ -488,7 +483,7 @@ describe("deleteToLineEdge", () => {
 
   it("is a no-op at the edge it deletes towards", () => {
     const editor = editorWith();
-    renderPartsWith(editor, [{ type: "text", text: "one\ntwo" }], noopHandlers);
+    renderParts(editor, [{ type: "text", text: "one\ntwo" }], noopHandlers);
     const line = [...editor.childNodes].find((node) => node.textContent === "two") as Text;
     select(line, 0);
 
@@ -506,7 +501,7 @@ describe("renderParts", () => {
       { type: "text", text: " and\nthe next line" },
     ];
 
-    renderParts(editor, parts);
+    renderParts(editor, parts, noopHandlers);
 
     const chip = editor.querySelector<HTMLElement>("[data-mention-path]");
     expect(chip?.dataset.mentionPath).toBe("/proj/src/lib");
@@ -516,7 +511,7 @@ describe("renderParts", () => {
   it("replaces any previous content", () => {
     const editor = editorWith(document.createTextNode("old text"), chipNode());
 
-    renderParts(editor, [{ type: "text", text: "new" }]);
+    renderParts(editor, [{ type: "text", text: "new" }], noopHandlers);
 
     expect(readParts(editor)).toEqual([{ type: "text", text: "new" }]);
   });
@@ -547,7 +542,7 @@ describe("attachment parts", () => {
       { type: "text", text: " here" },
     ];
 
-    renderPartsWith(editor, parts, noopHandlers);
+    renderParts(editor, parts, noopHandlers);
 
     expect(readParts(editor)).toEqual(parts);
   });
@@ -561,7 +556,7 @@ describe("attachment parts", () => {
       kind: "file",
       path: "/tmp/staging/f9__notes.md",
     });
-    renderPartsWith(editor, [file, { type: "text", text: "review" }], noopHandlers);
+    renderParts(editor, [file, { type: "text", text: "review" }], noopHandlers);
 
     const parts = readParts(editor);
     expect(parts[0]).toEqual(file);
@@ -571,7 +566,7 @@ describe("attachment parts", () => {
   it("updateAttachmentChip swaps staging for ready without touching neighbours", () => {
     const editor = editorWith();
     const staging = readyAttachment({ state: "staging", path: "", size: 0 });
-    renderPartsWith(editor, [{ type: "text", text: "x" }, staging, { type: "text", text: "y" }], noopHandlers);
+    renderParts(editor, [{ type: "text", text: "x" }, staging, { type: "text", text: "y" }], noopHandlers);
 
     updateAttachmentChip(editor, "a1", readyAttachment(), noopHandlers);
 
@@ -579,7 +574,7 @@ describe("attachment parts", () => {
     expect(parts).toEqual([{ type: "text", text: "x" }, readyAttachment(), { type: "text", text: "y" }]);
   });
 
-  it("insertAttachmentChip drops the chip at the caret", () => {
+  it("insertChip drops an attachment chip at the caret", () => {
     const text = document.createTextNode("look ");
     const editor = editorWith(text);
     const selection = window.getSelection();
@@ -589,7 +584,7 @@ describe("attachment parts", () => {
     selection?.removeAllRanges();
     selection?.addRange(range);
 
-    insertAttachmentChip(readyAttachment(), noopHandlers);
+    insertChip(range, readyAttachment(), noopHandlers);
 
     const parts = readParts(editor);
     expect(parts[0]).toEqual({ type: "text", text: "look " });

@@ -28,6 +28,9 @@ export type ComposerPart =
   | { type: "skill"; name: string; path: string; label: string }
   | AttachmentPart;
 
+/** A part the editor renders as a non-editable chip rather than as text. */
+export type ChipPart = Exclude<ComposerPart, { type: "text" }>;
+
 /** Callbacks wired into every attachment chip's controls. */
 export interface AttachmentChipHandlers {
   onRetry: (id: string) => void;

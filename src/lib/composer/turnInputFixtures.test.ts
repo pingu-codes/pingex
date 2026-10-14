@@ -13,7 +13,7 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { type AttachmentPart, buildTurnInput, type ComposerPart } from "$lib/composer/composerParts";
-import { insertSkillChip, readParts, renderPartsWith } from "$lib/composer/richInput";
+import { insertChip, readParts, renderParts } from "$lib/composer/richInput";
 import type { TurnInputItem } from "$lib/types";
 
 /** Relative to this file, as `toMatchFileSnapshot` wants. */
@@ -73,7 +73,7 @@ function skillViaDom(trailing: string): ComposerPart[] {
   const root = editor();
   root.append(document.createTextNode("Please "));
   const range = caretAtEnd(root);
-  insertSkillChip(range, "e2e-skill", SKILL_PATH, "e2e-skill");
+  insertChip(range, { type: "skill", name: "e2e-skill", path: SKILL_PATH, label: "e2e-skill" }, noopHandlers);
   root.append(document.createTextNode(trailing));
   return readParts(root);
 }
@@ -82,7 +82,7 @@ function skillViaDom(trailing: string): ComposerPart[] {
 function viaDraft(parts: ComposerPart[]): ComposerPart[] {
   const stored = JSON.stringify(parts);
   const root = editor();
-  renderPartsWith(root, JSON.parse(stored) as ComposerPart[], noopHandlers);
+  renderParts(root, JSON.parse(stored) as ComposerPart[], noopHandlers);
   return readParts(root);
 }
 
