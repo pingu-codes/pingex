@@ -63,6 +63,7 @@ import type {
   ThreadSection,
   ThreadSummary,
 } from "$lib/types";
+import { harnessName } from "$lib/utils/capabilities";
 import { dragRegion } from "$lib/utils/dragRegion";
 import { errorMessage } from "$lib/utils/errors";
 import { relativeTime } from "$lib/utils/format";
@@ -141,6 +142,30 @@ let {
 } = $props();
 
 const visibleProjects = $derived(projects.filter((project) => !project.archived));
+
+interface HeaderAction {
+  label: string;
+  icon: typeof Plus;
+  onclick: () => void;
+  testId?: string;
+}
+
+// The Projects heading's hover-revealed buttons; optional ones show only when
+// the parent wires them.
+const headerActions = $derived(
+  [
+    onSessionFocus && {
+      label: "Focus: hide threads not opened this session or favorited",
+      icon: Zap,
+      onclick: onSessionFocus,
+      testId: "session-focus",
+    },
+    onResetOrder && { label: "Reset project order", icon: ListRestart, onclick: () => onResetOrder(ROOT_SCOPE) },
+    onAddWorkspace && { label: "Create multi-project workspace", icon: Layers3, onclick: onAddWorkspace },
+    onNewFolder && { label: "New folder", icon: FolderPlus, onclick: onNewFolder },
+    { label: "Add project folder", icon: Plus, onclick: onAddProject },
+  ].filter((action): action is HeaderAction => Boolean(action)),
+);
 
 // One busy project shouldn't push every other project off-screen, so expanded
 // projects show a head slice until the user asks for the rest. Threads the
@@ -449,9 +474,10 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
         </span>
       {/if}
       <span class="min-w-0 flex-1 truncate" title={thread.title}>{thread.title}</span>
-      {#if thread.harness === "claude"}
-        <span class="shrink-0 rounded px-1 text-[9px] font-semibold uppercase tracking-wide text-surface-500 preset-tonal" title="Runs on Claude Code">
-          Claude
+      {#if thread.harness}
+        <!-- Only threads off the default harness carry one, so name it. -->
+        <span class="shrink-0 rounded px-1 text-[9px] font-semibold uppercase tracking-wide text-surface-500 preset-tonal" title="Runs on {harnessName(thread.harness)}">
+          {harnessName(thread.harness)}
         </span>
       {/if}
       {#if isTempWorktreePath(thread.cwd ?? "")}
@@ -486,36 +512,50 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
       type="button"
       aria-label="Thread menu"
       {...menuButton(threadTarget(project, thread))}
-      class="absolute right-0.5 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded text-surface-500 opacity-0 transition hover:bg-surface-300-700 hover:text-surface-900-100 focus:opacity-100 group-hover/thread:opacity-100"
+      class="absolute right-0.5 top-1/2 size-6 -translate-y-1/2 row-action group-hover/thread:opacity-100"
     >
       <Ellipsis size={13} />
     </button>
   </div>
 {/snippet}
 
-{#snippet folderHeader(folder: SidebarFolder, project: Project | null, count: number)}
-  <div
-    class="group/folder relative flex items-center rounded-md {dropClass(folderRef(folder))}"
-    role="presentation"
-    {...contextMenuTrigger(folderTarget(folder, project))}
-    use:draggable={dragSource(project?.path ?? ROOT_SCOPE, folderRef(folder), folder.name)}
-  >
-    <Collapsible.Trigger class="group flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 pl-2 pr-7 text-left text-[13px] font-medium group-hover/folder:preset-tonal">
-      <ChevronDown class="text-surface-500 transition group-data-[state=closed]:-rotate-90" size={14} />
-      <FolderOpen class="text-warning-500 group-data-[state=closed]:hidden" size={15} strokeWidth={1.7} />
-      <Folder class="hidden text-warning-500 group-data-[state=closed]:block" size={15} strokeWidth={1.7} />
-      <span class="min-w-0 flex-1 truncate" title={folder.name}>{folder.name}</span>
-      <span class="text-[10px] font-normal text-surface-500 group-hover/folder:opacity-0">{count}</span>
-    </Collapsible.Trigger>
-    <button
-      type="button"
-      aria-label="Folder menu"
-      {...menuButton(folderTarget(folder, project))}
-      class="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded text-surface-500 opacity-0 transition hover:bg-surface-300-700 hover:text-surface-900-100 focus:opacity-100 group-hover/folder:opacity-100"
+{#snippet folderNode(folder: SidebarFolder, project: Project | null, children: TreeNode<ThreadSummary>[] | TreeNode<Project>[])}
+  <Collapsible class="min-w-0 items-stretch" open={folder.expanded} onOpenChange={({ open }) => persistFolderExpansion(folder, open)}>
+    <div
+      class="group/folder relative flex items-center rounded-md {dropClass(folderRef(folder))}"
+      role="presentation"
+      {...contextMenuTrigger(folderTarget(folder, project))}
+      use:draggable={dragSource(project?.path ?? ROOT_SCOPE, folderRef(folder), folder.name)}
     >
-      <Ellipsis size={14} />
-    </button>
-  </div>
+      <Collapsible.Trigger class="group flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 pl-2 pr-7 text-left text-[13px] font-medium group-hover/folder:preset-tonal">
+        <ChevronDown class="text-surface-500 transition group-data-[state=closed]:-rotate-90" size={14} />
+        <FolderOpen class="text-warning-500 group-data-[state=closed]:hidden" size={15} strokeWidth={1.7} />
+        <Folder class="hidden text-warning-500 group-data-[state=closed]:block" size={15} strokeWidth={1.7} />
+        <span class="min-w-0 flex-1 truncate" title={folder.name}>{folder.name}</span>
+        <span class="text-[10px] font-normal text-surface-500 group-hover/folder:opacity-0">{flattenItems<unknown>(children).length}</span>
+      </Collapsible.Trigger>
+      <button
+        type="button"
+        aria-label="Folder menu"
+        {...menuButton(folderTarget(folder, project))}
+        class="absolute right-1 top-1/2 size-6 -translate-y-1/2 row-action group-hover/folder:opacity-100"
+      >
+        <Ellipsis size={14} />
+      </button>
+    </div>
+    <Collapsible.Content class="ml-[27px] border-l border-surface-200-800 pl-1.5">
+      {#if children.length === 0}
+        <p class="px-2 py-1.5 text-xs text-surface-500">Drop {project ? "threads" : "projects"} here</p>
+      {:else if project}
+        {@render threadNodes(project, children as TreeNode<ThreadSummary>[])}
+      {:else}
+        {@const projectNodes = children as TreeNode<Project>[]}
+        {#each projectNodes as child (rowId(child))}
+          {@render rootNode(child)}
+        {/each}
+      {/if}
+    </Collapsible.Content>
+  </Collapsible>
 {/snippet}
 
 {#snippet threadList(project: Project, threads: ThreadSummary[])}
@@ -534,7 +574,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
           type="button"
           aria-label="Section menu"
           {...menuButton(sectionTarget(group.section!))}
-          class="grid size-5 shrink-0 place-items-center rounded text-surface-500 opacity-0 transition hover:bg-surface-300-700 hover:text-surface-900-100 focus:opacity-100 group-hover/section:opacity-100"
+          class="size-5 shrink-0 row-action group-hover/section:opacity-100"
         >
           <Ellipsis size={12} />
         </button>
@@ -549,16 +589,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
 {#snippet threadNodes(project: Project, nodes: TreeNode<ThreadSummary>[])}
   {#each threadRuns(nodes) as run, index (run.kind === "folder" ? rowId(folderRef(run.node.folder)) : `run-${index}`)}
     {#if run.kind === "folder"}
-      <Collapsible class="min-w-0 items-stretch" open={run.node.folder.expanded} onOpenChange={({ open }) => persistFolderExpansion(run.node.folder, open)}>
-        {@render folderHeader(run.node.folder, project, flattenItems(run.node.children).length)}
-        <Collapsible.Content class="ml-[27px] border-l border-surface-200-800 pl-1.5">
-          {#if run.node.children.length === 0}
-            <p class="px-2 py-1.5 text-xs text-surface-500">Drop threads here</p>
-          {:else}
-            {@render threadNodes(project, run.node.children)}
-          {/if}
-        </Collapsible.Content>
-      </Collapsible>
+      {@render folderNode(run.node.folder, project, run.node.children)}
     {:else}
       {@render threadList(project, run.threads)}
     {/if}
@@ -604,7 +635,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
           event.stopPropagation();
           onNewThread(project);
         }}
-        class="absolute right-7 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded text-surface-500 opacity-0 transition hover:bg-surface-300-700 hover:text-surface-900-100 focus:opacity-100 group-hover/project:opacity-100"
+        class="absolute right-7 top-1/2 size-6 -translate-y-1/2 row-action group-hover/project:opacity-100"
       >
         <SquarePen size={13} />
       </TooltipButton>
@@ -612,7 +643,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
         type="button"
         aria-label="Project menu"
         {...menuButton(projectTarget(project))}
-        class="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded text-surface-500 opacity-0 transition hover:bg-surface-300-700 hover:text-surface-900-100 focus:opacity-100 group-hover/project:opacity-100"
+        class="absolute right-1 top-1/2 size-6 -translate-y-1/2 row-action group-hover/project:opacity-100"
       >
         <Ellipsis size={14} />
       </button>
@@ -656,17 +687,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
 
 {#snippet rootNode(node: TreeNode<Project>)}
   {#if node.kind === "folder"}
-    <Collapsible class="min-w-0 items-stretch" open={node.folder.expanded} onOpenChange={({ open }) => persistFolderExpansion(node.folder, open)}>
-      {@render folderHeader(node.folder, null, flattenItems(node.children).length)}
-      <Collapsible.Content class="ml-[27px] border-l border-surface-200-800 pl-1.5">
-        {#if node.children.length === 0}
-          <p class="px-2 py-1.5 text-xs text-surface-500">Drop projects here</p>
-        {/if}
-        {#each node.children as child (rowId(child))}
-          {@render rootNode(child)}
-        {/each}
-      </Collapsible.Content>
-    </Collapsible>
+    {@render folderNode(node.folder, null, node.children)}
   {:else}
     {@render projectRow(node.item)}
   {/if}
@@ -718,50 +739,16 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
     <div class="projects-heading mb-1 flex h-8 items-center justify-between px-2">
       <span class="eyebrow">Projects</span>
       <div class="flex items-center gap-0.5">
-        {#if onSessionFocus}
+        {#each headerActions as action (action.label)}
           <TooltipButton
-            label="Focus: hide threads not opened this session or favorited"
-            onclick={onSessionFocus}
-            data-testid="session-focus"
+            label={action.label}
+            onclick={action.onclick}
+            data-testid={action.testId}
             class="btn-icon btn-icon-sm hover:preset-tonal text-surface-600-400 opacity-0 transition focus:opacity-100 group-hover/projects:opacity-100"
           >
-            <Zap size={15} />
+            <action.icon size={15} />
           </TooltipButton>
-        {/if}
-        {#if onResetOrder}
-          <TooltipButton
-            label="Reset project order"
-            onclick={() => onResetOrder?.(ROOT_SCOPE)}
-            class="btn-icon btn-icon-sm hover:preset-tonal text-surface-600-400 opacity-0 transition focus:opacity-100 group-hover/projects:opacity-100"
-          >
-            <ListRestart size={15} />
-          </TooltipButton>
-        {/if}
-        {#if onAddWorkspace}
-          <TooltipButton
-            label="Create multi-project workspace"
-            onclick={onAddWorkspace}
-            class="btn-icon btn-icon-sm hover:preset-tonal text-surface-600-400 opacity-0 transition focus:opacity-100 group-hover/projects:opacity-100"
-          >
-            <Layers3 size={15} />
-          </TooltipButton>
-        {/if}
-        {#if onNewFolder}
-          <TooltipButton
-            label="New folder"
-            onclick={onNewFolder}
-            class="btn-icon btn-icon-sm hover:preset-tonal text-surface-600-400 opacity-0 transition focus:opacity-100 group-hover/projects:opacity-100"
-          >
-            <FolderPlus size={15} />
-          </TooltipButton>
-        {/if}
-        <TooltipButton
-          label="Add project folder"
-          onclick={onAddProject}
-          class="btn-icon btn-icon-sm hover:preset-tonal text-surface-600-400 opacity-0 transition focus:opacity-100 group-hover/projects:opacity-100"
-        >
-          <Plus size={15} />
-        </TooltipButton>
+        {/each}
       </div>
     </div>
 

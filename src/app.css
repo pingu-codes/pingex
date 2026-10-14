@@ -85,6 +85,12 @@ button {
   @apply flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:preset-tonal;
 }
 
+/* Icon button on a sidebar row, hidden until it takes focus. The caller adds
+   its size and the row's reveal, e.g. `group-hover/thread:opacity-100`. */
+@utility row-action {
+  @apply grid place-items-center rounded text-surface-500 opacity-0 transition hover:bg-surface-300-700 hover:text-surface-900-100 focus:opacity-100;
+}
+
 /* Composer toolbar trigger pill; `pill-active` replaces `pill` when on. */
 @utility pill {
   @apply inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] text-surface-500 transition hover:bg-surface-200-800 hover:text-surface-800-200;

@@ -32,6 +32,7 @@ import { isTauri } from "$lib/services/tauri";
 import type { HomeOverview, MenuTarget, Project, ThreadSummary, UsageBreakdown } from "$lib/types";
 import { costFor, costLabel, rangeSince } from "$lib/usage/usageBreakdown";
 import { formatTokensShort, relativeTime } from "$lib/utils/format";
+import { resource } from "$lib/utils/resource.svelte";
 import BranchChip from "$lib/worktrees/BranchChip.svelte";
 
 type HomeAction = "reveal" | "rename" | "togglePin" | "toggleArchive" | "remove";
@@ -73,44 +74,49 @@ const pinnedThreads = $derived(
 const threadCount = $derived(active.reduce((total, project) => total + project.threads.length, 0));
 const pinnedProjectCount = $derived(active.filter((project) => project.pinned).length);
 
-let overview = $state<HomeOverview | null>(null);
-let usage = $state<UsageBreakdown | null>(null);
+// Last 30 days of spend across the Home, and the Home's defaults (model, MCP
+// servers, skills). Both are read-only and best-effort: a failure leaves its
+// panel empty.
+const usageLoad = resource<UsageBreakdown | null>(
+  () => commands.readUsageBreakdown({ kind: "global" }, rangeSince("30d")),
+  { initial: null },
+);
+const overviewLoad = resource<HomeOverview | null>(() => commands.readHomeOverview(), { initial: null });
+$effect(() => {
+  void usageLoad.reload();
+  void overviewLoad.reload();
+});
+const usage = $derived(usageLoad.value);
+const overview = $derived(overviewLoad.value);
 const usageCostSummary = $derived(usage ? costFor(usage.byModel, usage.reportedCostUsd) : null);
-const usageCost = $derived(costLabel(usageCostSummary));
-const usageCostEstimated = $derived(usageCostSummary?.estimated ?? false);
+const usageTiles = $derived(
+  usage
+    ? [
+        ["Tokens", formatTokensShort(usage.tokens.totalTokens)],
+        ["Output", formatTokensShort(usage.tokens.outputTokens)],
+        ["Turns", usage.turns],
+        [usageCostSummary?.estimated ? "Est. cost" : "Cost", costLabel(usageCostSummary) ?? "—"],
+      ]
+    : [],
+);
 
-// Last 30 days of spend across the Home. Best-effort, like the overview.
-$effect(() => {
-  let cancelled = false;
-  commands
-    .readUsageBreakdown({ kind: "global" }, rangeSince("30d"))
-    .then((result) => {
-      if (!cancelled) usage = result;
-    })
-    .catch(() => {
-      if (!cancelled) usage = null;
-    });
-  return () => {
-    cancelled = true;
-  };
-});
-
-// The active home's defaults (model, MCP servers, skills). Read-only and
-// best-effort — failures leave the dashboard's config panels empty.
-$effect(() => {
-  let cancelled = false;
-  commands
-    .readHomeOverview()
-    .then((result) => {
-      if (!cancelled) overview = result;
-    })
-    .catch(() => {
-      if (!cancelled) overview = null;
-    });
-  return () => {
-    cancelled = true;
-  };
-});
+const projectSections = $derived([
+  { title: "Projects", list: folders, hideLabel: "Archive project", hideIcon: Archive, emptyCta: true },
+  {
+    title: "Imported from Codex",
+    blurb: "Permanent worktrees discovered in your Codex home. Hide the ones you don't need.",
+    list: worktrees,
+    hideLabel: "Hide worktree",
+    hideIcon: EyeOff,
+  },
+  {
+    title: "Workspaces",
+    blurb: "Writable shared hubs with isolated project members.",
+    list: workspaces,
+    hideLabel: "Archive workspace",
+    hideIcon: Archive,
+  },
+]);
 
 const target = (project: Project): MenuTarget => ({ kind: "project", project });
 </script>
@@ -123,6 +129,15 @@ const target = (project: Project): MenuTarget => ({ kind: "project", project });
   >
     <Icon size={14} />
   </TooltipButton>
+{/snippet}
+
+{#snippet statTiles(tiles: (string | number)[][])}
+  {#each tiles as [label, value] (label)}
+    <div class="rounded-lg bg-surface-50-950 px-3 py-2">
+      <div class="text-lg font-semibold tabular-nums">{value}</div>
+      <div class="text-[11px] text-surface-500">{label}</div>
+    </div>
+  {/each}
 {/snippet}
 
 {#snippet projectRow(project: Project, hideLabel: string, HideIcon: typeof X)}
@@ -231,12 +246,7 @@ const target = (project: Project): MenuTarget => ({ kind: "project", project });
       {/if}
 
       <div class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {#each [["Projects", folders.length], ["Worktrees", worktrees.length], ["Threads", threadCount], ["Pinned", pinnedProjectCount]] as [label, value] (label)}
-          <div class="rounded-lg bg-surface-50-950 px-3 py-2">
-            <div class="text-lg font-semibold tabular-nums">{value}</div>
-            <div class="text-[11px] text-surface-500">{label}</div>
-          </div>
-        {/each}
+        {@render statTiles([["Projects", folders.length], ["Worktrees", worktrees.length], ["Threads", threadCount], ["Pinned", pinnedProjectCount]])}
       </div>
     </div>
 
@@ -250,22 +260,7 @@ const target = (project: Project): MenuTarget => ({ kind: "project", project });
       </div>
       {#if usage && usage.turns > 0}
         <div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <div class="rounded-lg bg-surface-50-950 px-3 py-2">
-            <div class="text-lg font-semibold tabular-nums">{formatTokensShort(usage.tokens.totalTokens)}</div>
-            <div class="text-[11px] text-surface-500">Tokens</div>
-          </div>
-          <div class="rounded-lg bg-surface-50-950 px-3 py-2">
-            <div class="text-lg font-semibold tabular-nums">{formatTokensShort(usage.tokens.outputTokens)}</div>
-            <div class="text-[11px] text-surface-500">Output</div>
-          </div>
-          <div class="rounded-lg bg-surface-50-950 px-3 py-2">
-            <div class="text-lg font-semibold tabular-nums">{usage.turns}</div>
-            <div class="text-[11px] text-surface-500">Turns</div>
-          </div>
-          <div class="rounded-lg bg-surface-50-950 px-3 py-2">
-            <div class="text-lg font-semibold tabular-nums">{usageCost ?? "—"}</div>
-            <div class="text-[11px] text-surface-500">{usageCostEstimated ? "Est. cost" : "Cost"}</div>
-          </div>
+          {@render statTiles(usageTiles)}
         </div>
       {:else}
         <p class="mt-2 text-xs text-surface-500">No turns recorded in the last 30 days.</p>
@@ -335,43 +330,23 @@ const target = (project: Project): MenuTarget => ({ kind: "project", project });
       </div>
     {/if}
 
-    <h2 class="mt-8 eyebrow">Projects</h2>
-    {#if folders.length === 0}
-      <button
-        onclick={onAddProject}
-        class="mt-2 w-full empty-cta"
-      >
-        Add a folder to see its Codex threads here.
-      </button>
-    {:else}
-      <div class="mt-2 space-y-1.5">
-        {#each folders as project (project.path)}
-          {@render projectRow(project, "Archive project", Archive)}
-        {/each}
-      </div>
-    {/if}
-
-    {#if worktrees.length > 0}
-      <h2 class="mt-8 eyebrow">Imported from Codex</h2>
-      <p class="mt-1 text-xs text-surface-500">
-        Permanent worktrees discovered in your Codex home. Hide the ones you don't need.
-      </p>
-      <div class="mt-2 space-y-1.5">
-        {#each worktrees as project (project.path)}
-          {@render projectRow(project, "Hide worktree", EyeOff)}
-        {/each}
-      </div>
-    {/if}
-
-    {#if workspaces.length > 0}
-      <h2 class="mt-8 eyebrow">Workspaces</h2>
-      <p class="mt-1 text-xs text-surface-500">Writable shared hubs with isolated project members.</p>
-      <div class="mt-2 space-y-1.5">
-        {#each workspaces as project (project.path)}
-          {@render projectRow(project, "Archive workspace", Archive)}
-        {/each}
-      </div>
-    {/if}
+    {#each projectSections as section (section.title)}
+      {#if section.list.length > 0 || section.emptyCta}
+        <h2 class="mt-8 eyebrow">{section.title}</h2>
+        {#if section.blurb}
+          <p class="mt-1 text-xs text-surface-500">{section.blurb}</p>
+        {/if}
+        {#if section.list.length === 0}
+          <button onclick={onAddProject} class="mt-2 w-full empty-cta">Add a folder to see its Codex threads here.</button>
+        {:else}
+          <div class="mt-2 space-y-1.5">
+            {#each section.list as project (project.path)}
+              {@render projectRow(project, section.hideLabel, section.hideIcon)}
+            {/each}
+          </div>
+        {/if}
+      {/if}
+    {/each}
 
     {#if hidden.length > 0}
       <Collapsible class="mt-8 items-stretch gap-0">

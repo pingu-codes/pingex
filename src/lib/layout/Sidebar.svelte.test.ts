@@ -250,6 +250,15 @@ describe("Sidebar", () => {
     await user.unhover(projectName);
   });
 
+  it("names the harness only on threads that carry one", () => {
+    const source = projectWithThreads(2);
+    source.threads[1].harness = "claude";
+    setup(source);
+
+    expect(screen.getAllByTitle(/^Runs on /)).toHaveLength(1);
+    expect(screen.getByTitle("Runs on Claude")).toHaveTextContent("Claude");
+  });
+
   it("shows a descendant subagent count on the root thread", () => {
     const source = project();
     source.threads[0].subagentCount = 3;
