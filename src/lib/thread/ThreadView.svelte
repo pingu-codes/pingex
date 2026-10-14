@@ -71,7 +71,6 @@ import type {
 import { can } from "$lib/utils/capabilities";
 import { errorMessage } from "$lib/utils/errors";
 import CreateWorktreeDialog from "$lib/worktrees/CreateWorktreeDialog.svelte";
-import { tempWorktreeLocation } from "$lib/worktrees/worktrees";
 
 let {
   threadId,
@@ -102,7 +101,7 @@ let {
   sideQuestions?: SideQuestion[];
   /** Every message-version branch; the bubbles find their own in here. */
   threadBranches?: ThreadBranch[];
-  onThreadCreated?: (id: string, cwd: string) => void;
+  onThreadCreated?: (id: string, cwd: string, inTempWorktree?: boolean) => void;
   onDataChanged?: (data: BootstrapData) => void;
   /** Thread-level slash commands from the composer (new, fork, archive, rename). */
   onCommand?: (command: SlashCommandId, threadId: string | null) => void;
@@ -239,7 +238,7 @@ const newThreadLocations = $derived<SegmentedOption<NewThreadLocation>[]>([
   {
     value: "temporary",
     label: "Temporary worktree",
-    disabled: !repoInfo?.isGitRepo || !codexHome,
+    disabled: !repoInfo?.isGitRepo,
     title: repoInfo?.isGitRepo ? "Created under CODEX_HOME/worktrees-tmp and kept across restarts" : notGitRepo,
   },
   {
@@ -270,11 +269,7 @@ function chooseNewThreadLocation(location: NewThreadLocation) {
 async function ensureNewThreadCwd(): Promise<string> {
   if (newThreadLocation === "project") return cwd;
   if (newThreadLocation === "permanent") return newThreadCwd;
-  if (!codexHome) throw new Error("The active Codex home is unavailable.");
-  const suffix = `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 6)}`;
-  const branchName = `codex/tmp-${suffix}`;
-  const path = tempWorktreeLocation(codexHome, repoDir, suffix);
-  await gitWorktreeAdd(repoDir, path, { kind: "new", name: branchName, base: null });
+  const path = await commands.gitWorktreeAddTemp(repoDir);
   newThreadCwd = path;
   return path;
 }
@@ -322,6 +317,7 @@ async function ensureLiveThread(owner = session): Promise<string> {
   const subagents = composer?.appSubagentsChoice() ?? null;
   const harness = composer?.harnessChoice() ?? null;
   const createdCallback = onThreadCreated;
+  const temporary = newThreadLocation === "temporary";
   const newCwd = await ensureNewThreadCwd();
   const created = await startThread(newCwd, workspace, subagents, harness);
   if (!attachSession(owner, created.id)) throw new Error("Thread creation was interrupted.");
@@ -329,7 +325,7 @@ async function ensureLiveThread(owner = session): Promise<string> {
     owner.thread.harness = created.harness ?? null;
     owner.thread.speedTier = created.speedTier;
   }
-  if (owner === session && owner.mounted > 0) createdCallback?.(created.id, created.cwd ?? newCwd);
+  if (owner === session && owner.mounted > 0) createdCallback?.(created.id, created.cwd ?? newCwd, temporary);
   return created.id;
 }
 

@@ -20,6 +20,7 @@ import type {
   ThreadSummary,
   UserInputPart,
 } from "$lib/types";
+import { basename } from "$lib/utils/path";
 import { previewStageBytes, previewStageFromPath } from "./attachments";
 import { worktreeEntry } from "./factories";
 import {
@@ -658,6 +659,14 @@ export const previewCommands: PreviewCommands = {
   gitWorktreeHandoff: (_worktreePath, _targetDir, _commitUncommitted, branchName) => branchName || "codex/tmp-preview",
   gitWorktreeAdd(_repoDir, { path, branch }) {
     previewWorktrees.push(worktreeEntry({ path, head: null, branch: branch.name }));
+  },
+  gitWorktreeAddTemp(repoDir) {
+    const suffix = `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 6)}`;
+    const path = `${previewLaunchState.codexHome}/worktrees-tmp/${basename(repoDir)}/${suffix}`;
+    previewWorktrees.push(
+      worktreeEntry({ path, head: null, branch: `codex/tmp-${suffix}`, isCodexManaged: true, isTemp: true }),
+    );
+    return path;
   },
   gitWorktreeRemove(_repoDir, path) {
     const index = previewWorktrees.findIndex((entry) => entry.path === path);

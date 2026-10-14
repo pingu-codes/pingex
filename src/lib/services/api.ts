@@ -411,15 +411,17 @@ export async function listSkillsFor(cwds: string[]): Promise<SkillSummary[]> {
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+export interface NewSkillInput {
+  name: string;
+  description: string;
+  body?: string | null;
+}
+
 /**
  * Scaffold `<codex_home>/skills/<name>/SKILL.md`. Returns the refreshed list
  * (Codex is asked to rescan, so the new skill is already present).
  */
-export async function createSkill(input: {
-  name: string;
-  description: string;
-  body?: string | null;
-}): Promise<IntegrationsList> {
+export async function createSkill(input: NewSkillInput): Promise<IntegrationsList> {
   return commands.createSkill(input.name, input.description, input.body ?? null, null);
 }
 
@@ -433,7 +435,8 @@ export async function createSkill(input: {
  * values left blank keep the stored secret (which the UI never receives) and
  * names missing from the set are dropped.
  */
-export async function saveMcpServer(input: {
+/** An MCP server to add, or to edit when `previousName` names the existing entry. */
+export interface McpServerInput {
   previousName?: string | null;
   name: string;
   command?: string | null;
@@ -442,7 +445,9 @@ export async function saveMcpServer(input: {
   envKeys?: string[] | null;
   url?: string | null;
   bearerTokenEnvVar?: string | null;
-}): Promise<IntegrationsList> {
+}
+
+export async function saveMcpServer(input: McpServerInput): Promise<IntegrationsList> {
   return commands.saveMcpServer({
     previousName: input.previousName ?? null,
     name: input.name,

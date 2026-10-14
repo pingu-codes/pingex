@@ -18,6 +18,7 @@ export function worktreeEntry(overrides: Partial<WorktreeEntry> = {}): WorktreeE
     prunableReason: null,
     isMain: false,
     isCodexManaged: false,
+    isTemp: false,
     missingDir: false,
     branchCheckedOutElsewhere: false,
     upstream: null,
@@ -43,6 +44,7 @@ export function threadSummary(overrides: Partial<ThreadSummary> & Pick<ThreadSum
     sectionId: null,
     subagentCount: 0,
     hidden: false,
+    inTempWorktree: false,
     ...overrides,
   };
 }

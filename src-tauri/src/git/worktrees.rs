@@ -80,15 +80,16 @@ fn parse_worktree_list(stdout: &str) -> Vec<RawWorktree> {
     entries
 }
 
-/// Canonical-path identity: a worktree is Codex-managed only when its
-/// canonicalized path lives under `<codex_home>/worktrees/` (permanent) or
-/// `<codex_home>/worktrees-tmp/` (temporary). Falls back to a lexical check
-/// when the path cannot be canonicalized (e.g. missing dir).
-fn is_codex_managed(host: &Host, path: &str, codex_home: &Path) -> bool {
+/// Canonical-path identity: which Codex-home worktree root a worktree lives
+/// under, `worktrees` (permanent) or `worktrees-tmp` (temporary), if either.
+/// Falls back to a lexical check when the path cannot be canonicalized (e.g.
+/// missing dir).
+fn codex_worktree_root(host: &Host, path: &str, codex_home: &Path) -> Option<&'static str> {
     let home = host.path_string(codex_home);
-    ["worktrees", "worktrees-tmp"].iter().any(|dir| {
+    let path = host.canonical(path);
+    ["worktrees", "worktrees-tmp"].into_iter().find(|dir| {
         let root = host.canonical(&host.join_str(&home, dir));
-        host.is_under(&root, &host.canonical(path))
+        host.is_under(&root, &path)
     })
 }
 
@@ -123,7 +124,7 @@ pub(crate) fn read_worktrees(
             .branch
             .as_deref()
             .is_some_and(|branch| branch_counts.get(branch).copied().unwrap_or(0) > 1);
-        let is_codex_managed = is_codex_managed(host, &item.path, codex_home);
+        let root = codex_worktree_root(host, &item.path, codex_home);
 
         // A worktree that cannot be inspected still gets a row, tagged with why.
         let mut state = None;
@@ -161,7 +162,8 @@ pub(crate) fn read_worktrees(
             prunable_reason: item.prunable_reason,
             // Git always lists the main working tree first.
             is_main: index == 0,
-            is_codex_managed,
+            is_codex_managed: root.is_some(),
+            is_temp: root == Some("worktrees-tmp"),
             missing_dir,
             branch_checked_out_elsewhere,
             upstream,
@@ -222,24 +224,19 @@ mod tests {
     fn codex_managed_identity_uses_worktrees_prefix_not_name() {
         let home = PathBuf::from("/home/.codex");
         let host = Host::Native;
-        // A path literally under <home>/worktrees is managed.
-        assert!(is_codex_managed(
-            &host,
-            "/home/.codex/worktrees/0357/feature",
-            &home
-        ));
+        let root = |path: &str| codex_worktree_root(&host, path, &home);
+        // A path literally under <home>/worktrees is managed and permanent.
+        assert_eq!(
+            root("/home/.codex/worktrees/0357/feature"),
+            Some("worktrees")
+        );
         // Temporary worktrees under <home>/worktrees-tmp are managed too.
-        assert!(is_codex_managed(
-            &host,
-            "/home/.codex/worktrees-tmp/repo/tmp-1",
-            &home
-        ));
+        assert_eq!(
+            root("/home/.codex/worktrees-tmp/repo/tmp-1"),
+            Some("worktrees-tmp")
+        );
         // A path merely *named* like a worktree elsewhere is not.
-        assert!(!is_codex_managed(
-            &host,
-            "/elsewhere/worktrees-of-mine",
-            &home
-        ));
-        assert!(!is_codex_managed(&host, "/projects/my-worktree", &home));
+        assert_eq!(root("/elsewhere/worktrees-of-mine"), None);
+        assert_eq!(root("/projects/my-worktree"), None);
     }
 }

@@ -10,7 +10,6 @@ import {
   fileChange,
   reviewPrompt,
   staleBanner,
-  threadsForFile,
 } from "$lib/review/review";
 import type { PrComment, PrFile, PrFreshness } from "$lib/types";
 
@@ -100,15 +99,12 @@ describe("review helpers", () => {
     expect(t2.resolved).toBe(false);
   });
 
-  it("filters threads for a file and separates conversation comments", () => {
+  it("separates conversation comments from inline ones", () => {
     const comments: PrComment[] = [
       comment({ id: 1, path: "a.ts", line: 8, threadId: "T1" }),
       comment({ id: 2, path: "a.ts", line: 2, threadId: "T2" }),
       comment({ id: 3, path: null, body: "general" }),
     ];
-    const forA = threadsForFile(comments, "a.ts");
-    // Sorted by line ascending.
-    expect(forA.map((t) => t.line)).toEqual([2, 8]);
     expect(conversationComments(comments).map((c) => c.id)).toEqual([3]);
   });
 

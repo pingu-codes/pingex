@@ -10,7 +10,7 @@ import type { GitBranch as Branch } from "$lib/types";
 import { submitState } from "$lib/utils/actionState.svelte";
 import { resource } from "$lib/utils/resource.svelte";
 import { stripRemotePrefix } from "$lib/worktrees/worktrees";
-import { hintFor, parseGitError } from "./gitErrors";
+import { gitErrorHints, parseGitError } from "./gitErrors";
 
 let {
   dir,
@@ -130,7 +130,7 @@ async function create() {
     <div class="mt-3 error-note">
       <div>{action.error}</div>
       {#if dirtyRefusal}
-        <div class="mt-0.5 opacity-80">{hintFor("dirtyTree")}</div>
+        <div class="mt-0.5 opacity-80">{gitErrorHints.dirtyTree}</div>
       {/if}
     </div>
   {/if}

@@ -12,7 +12,7 @@ import { usageStatus } from "$lib/services/codexEvents.svelte";
 import { commands } from "$lib/services/homeRouting";
 import type { UsageBreakdown, UsageScope } from "$lib/types";
 import UsageBreakdownBar from "$lib/usage/UsageBreakdownBar.svelte";
-import { costFor, costLabel, rangeSince, USAGE_RANGES, type UsageRange } from "$lib/usage/usageBreakdown";
+import { costFor, costLabel, rangeSince, segmentsFor, USAGE_RANGES, type UsageRange } from "$lib/usage/usageBreakdown";
 import { formatTokens, formatTokensShort, relativeTime } from "$lib/utils/format";
 import { resource } from "$lib/utils/resource.svelte";
 
@@ -104,7 +104,7 @@ function groupCost(group: UsageBreakdown["byModel"][number]): string | null {
         <span>Spend by category</span>
         <span class="font-mono normal-case tracking-normal">{formatTokensShort(breakdown.tokens.totalTokens)} tokens</span>
       </h3>
-      <UsageBreakdownBar categories={breakdown.categories} label="Tokens spent by category" />
+      <UsageBreakdownBar rows={segmentsFor(breakdown.categories)} label="Tokens spent by category" />
     </section>
 
     <section>

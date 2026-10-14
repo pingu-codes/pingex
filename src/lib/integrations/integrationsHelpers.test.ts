@@ -6,7 +6,11 @@ import {
   contributionSummary,
   envKeysValid,
   formatArgs,
+  overrideEnabled,
+  overrideValue,
   parseArgs,
+  pluginNote,
+  pluginServerLabel,
   rowStatus,
   runtimeStatusLabel,
   serverInfoLines,
@@ -267,5 +271,47 @@ describe("splitFrontmatter", () => {
       body: "\n## Hi\n",
     });
     expect(splitFrontmatter("## Hi")).toEqual({ meta: [], body: "## Hi" });
+  });
+});
+
+describe("project overrides and plugin ownership", () => {
+  const setting = (overrideEnabled: boolean | null, pluginId: string | null = null) => ({
+    inheritedEnabled: true,
+    overrideEnabled,
+    pluginId,
+  });
+
+  it("round-trips a setting through the override select", () => {
+    expect(overrideValue(undefined)).toBe("inherit");
+    expect(overrideValue(setting(null))).toBe("inherit");
+    expect(overrideValue(setting(true))).toBe("enabled");
+    expect(overrideValue(setting(false))).toBe("disabled");
+    expect(overrideEnabled("inherit")).toBeNull();
+    expect(overrideEnabled("enabled")).toBe(true);
+    expect(overrideEnabled("disabled")).toBe(false);
+  });
+
+  it("names the owning plugin and whether it is off", () => {
+    expect(pluginNote(setting(null), true)).toBeNull();
+    expect(pluginNote(setting(null, "demo@local"), true)).toBe("Plugin: demo@local");
+    expect(pluginNote(setting(null, "demo@local"), false)).toBe("Plugin: demo@local (disabled)");
+  });
+
+  it("labels a plugin server Codex has not reported", () => {
+    const server: McpServerSummary = {
+      name: "demo@local:search",
+      transport: "stdio",
+      command: null,
+      args: [],
+      url: null,
+      envKeys: [],
+      bearerTokenEnvVar: null,
+      enabled: true,
+      scope: "plugin",
+    };
+    expect(pluginServerLabel(server, setting(null, "demo@local"), false)).toBe("Disabled by plugin");
+    expect(pluginServerLabel({ ...server, enabled: false }, setting(null, "demo@local"), true)).toBe("Disabled");
+    expect(pluginServerLabel(server, setting(true, "demo@local"), true)).toBe("Enabled preference");
+    expect(pluginServerLabel(server, setting(null, "demo@local"), true)).toBe("Plugin default");
   });
 });

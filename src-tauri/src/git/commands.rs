@@ -21,7 +21,9 @@ use super::types::{
     WorktreeAddRequest, WorktreeBranchRequest, WorktreeEntry,
 };
 use super::worktrees::read_worktrees;
-use crate::projects::worktrees::{is_temp_worktree_path, worktree_parent_project_on};
+use crate::projects::worktrees::{
+    is_temp_worktree_path, temp_worktree_location, worktree_parent_project_on,
+};
 use crate::storage;
 use crate::util::host::Host;
 use crate::AppState;
@@ -106,7 +108,57 @@ pub(crate) async fn git_worktree_add(
     window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    add_worktree(&state.ctx(&window), repo_dir, request).await
+}
+
+/// Cut a temporary worktree of `repo_dir` on a fresh `codex/tmp-*` branch,
+/// under `<codex_home>/worktrees-tmp/`, and return its path.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn git_worktree_add_temp(
+    repo_dir: String,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
     let ctx = state.ctx(&window);
+    let runtime = ctx.runtime();
+    let suffix = temp_worktree_suffix();
+    let path = temp_worktree_location(&runtime.host, &runtime.codex_home_str(), &repo_dir, &suffix);
+    let request = WorktreeAddRequest {
+        path: path.clone(),
+        branch: WorktreeBranchRequest::New {
+            name: format!("codex/tmp-{suffix}"),
+            base: None,
+        },
+    };
+    add_worktree(&ctx, repo_dir, request).await?;
+    Ok(path)
+}
+
+/// A unique, roughly time-ordered name: base-36 milliseconds and six random
+/// hex digits.
+fn temp_worktree_suffix() -> String {
+    let mut millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_millis());
+    let mut digits = Vec::new();
+    loop {
+        digits.push(char::from_digit((millis % 36) as u32, 36).unwrap_or('0'));
+        millis /= 36;
+        if millis == 0 {
+            break;
+        }
+    }
+    let time: String = digits.into_iter().rev().collect();
+    let random = uuid::Uuid::new_v4().simple().to_string();
+    format!("{time}-{}", &random[..6])
+}
+
+async fn add_worktree(
+    ctx: &crate::HomeContext,
+    repo_dir: String,
+    request: WorktreeAddRequest,
+) -> Result<(), String> {
     let runtime = ctx.runtime();
     let database = ctx.database();
     let created = request.path.clone();
@@ -702,7 +754,32 @@ mod tests {
             .expect("feature worktree listed");
         assert!(!feature.is_main);
         assert!(!feature.is_codex_managed);
+        assert!(!feature.is_temp);
         assert!(!feature.missing_dir);
+
+        // One cut under <codex_home>/worktrees-tmp is managed and temporary.
+        let scratch = temp_worktree_location(
+            &host,
+            &host.path_string(&fake_home),
+            &repo.display().to_string(),
+            "scratch",
+        );
+        std::fs::create_dir_all(Path::new(&scratch).parent().unwrap()).unwrap();
+        let add = run_git(
+            &host,
+            &repo,
+            &["worktree", "add", "-b", "scratch", &scratch],
+            WRITE_TIMEOUT,
+        )
+        .unwrap();
+        assert!(add.ok, "worktree add failed: {}", add.stderr);
+        let entries = read_worktrees(&host, &repo, &fake_home).unwrap();
+        let scratch = entries
+            .iter()
+            .find(|e| e.branch.as_deref() == Some("scratch"))
+            .expect("temporary worktree listed");
+        assert!(scratch.is_codex_managed);
+        assert!(scratch.is_temp);
 
         // Dirty the worktree; a non-forced remove is refused.
         std::fs::write(wt.join("dirty.txt"), "x").unwrap();

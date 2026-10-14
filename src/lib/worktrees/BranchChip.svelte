@@ -1,6 +1,7 @@
 <script lang="ts">
 import { GitBranch } from "@lucide/svelte";
-import { ensureGitStatus, gitStatusCache, statusIsDirty } from "$lib/worktrees/gitStatus.svelte";
+import { ensureGitStatus, gitStatusCache } from "$lib/worktrees/gitStatus.svelte";
+import { isDirty } from "$lib/worktrees/worktrees";
 
 let {
   path,
@@ -18,7 +19,7 @@ $effect(() => {
 });
 
 const status = $derived(gitStatusCache.byPath[path] ?? null);
-const dirty = $derived(statusIsDirty(status));
+const dirty = $derived(isDirty(status?.counts ?? null));
 const branch = $derived(status?.detached ? "detached" : (status?.branch ?? null));
 </script>
 

@@ -1,4 +1,5 @@
 import type {
+  IntegrationSetting,
   IntegrationsList,
   McpJsonSchema,
   McpResource,
@@ -116,6 +117,38 @@ export function resourcesOf(status?: McpServerStatus | null): McpResource[] {
 
 export function resourceTemplatesOf(status?: McpServerStatus | null): McpResourceTemplate[] {
   return status?.resourceTemplates ?? [];
+}
+
+/** What a project override select shows for a setting. */
+export type OverrideValue = "inherit" | "enabled" | "disabled";
+
+export function overrideValue(setting?: IntegrationSetting | null): OverrideValue {
+  const value = setting?.overrideEnabled;
+  return value == null ? "inherit" : value ? "enabled" : "disabled";
+}
+
+/** The override a select value asks for; null inherits. */
+export function overrideEnabled(value: OverrideValue): boolean | null {
+  return value === "inherit" ? null : value === "enabled";
+}
+
+/** "Plugin: <id>" for a row a plugin provides, marked when that plugin is off. */
+export function pluginNote(setting: IntegrationSetting | null | undefined, ownerEnabled: boolean): string | null {
+  const owner = setting?.pluginId;
+  if (!owner) return null;
+  return `Plugin: ${owner}${ownerEnabled ? "" : " (disabled)"}`;
+}
+
+/** The state of a plugin-provided server Codex has not reported running. */
+export function pluginServerLabel(
+  server: McpServerSummary,
+  setting: IntegrationSetting | null | undefined,
+  ownerEnabled: boolean,
+): string {
+  if (!ownerEnabled) return "Disabled by plugin";
+  if (!server.enabled) return "Disabled";
+  // plugin/read exposes names, not the package's per-server defaults or policy.
+  return setting?.overrideEnabled === true ? "Enabled preference" : "Plugin default";
 }
 
 /** "2 tools · 1 resource" — what the server contributes, for the details toggle. */
@@ -237,7 +270,7 @@ export function formatArgs(args: string[]): string {
  * the UI can show metadata compactly instead of rendering `---` as a rule.
  */
 export function splitFrontmatter(text: string): { meta: { key: string; value: string }[]; body: string } {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
+  const match = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text);
   if (!match) return { meta: [], body: text };
   const meta = match[1]
     .split(/\r?\n/)

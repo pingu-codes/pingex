@@ -16,6 +16,7 @@ import type { ContextComposition, ThreadUsage } from "$lib/types";
 import PromptPartsList from "$lib/usage/PromptPartsList.svelte";
 import UsageBreakdownBar from "$lib/usage/UsageBreakdownBar.svelte";
 import UsageSummary from "$lib/usage/UsageSummary.svelte";
+import { segmentsFor } from "$lib/usage/usageBreakdown";
 import { formatTokens } from "$lib/utils/format";
 import { usageWindows } from "$lib/utils/rateLimits";
 
@@ -163,8 +164,7 @@ const sessionRows = $derived(
           </span>
         </h3>
         <UsageBreakdownBar
-          categories={composition.categories}
-          exact={composition.source === "harness"}
+          rows={segmentsFor(composition.categories, { exact: composition.source === "harness" })}
           label="Context composition"
         />
         {#if composition.parts?.length}

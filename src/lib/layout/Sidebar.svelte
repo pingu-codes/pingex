@@ -70,7 +70,6 @@ import { relativeTime } from "$lib/utils/format";
 import { basename } from "$lib/utils/path";
 import BranchChip from "$lib/worktrees/BranchChip.svelte";
 import { ensureGitStatus, gitStatusCache } from "$lib/worktrees/gitStatus.svelte";
-import { isTempWorktreePath } from "$lib/worktrees/worktrees";
 
 let {
   projects,
@@ -480,7 +479,7 @@ const sectionTarget = (section: ThreadSection): MenuTarget => ({ kind: "section"
           {harnessName(thread.harness)}
         </span>
       {/if}
-      {#if isTempWorktreePath(thread.cwd ?? "")}
+      {#if thread.inTempWorktree}
         <span
           class="grid shrink-0 place-items-center text-surface-500"
           title="Runs in the temporary worktree {basename(thread.cwd ?? '')}"

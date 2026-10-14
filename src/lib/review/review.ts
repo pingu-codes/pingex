@@ -29,11 +29,6 @@ export function changeStat(file: PrFile): string {
   return parts.length > 0 ? parts.join(" ") : "no change";
 }
 
-/** A stable anchor for one file's diff (used for scroll/selection). */
-export function fileAnchor(file: PrFile): string {
-  return `file:${file.path}`;
-}
-
 /** A stable anchor for one line of a diff, keyed by side and line number. */
 export function lineAnchor(path: string, side: string, line: number): string {
   return `line:${path}:${side}:${line}`;
@@ -114,13 +109,6 @@ export function commentThreads(comments: PrComment[]): CommentThread[] {
   return [...byKey.values()];
 }
 
-/** Inline threads for a specific file, in stable line order. */
-export function threadsForFile(comments: PrComment[], path: string): CommentThread[] {
-  return commentThreads(comments)
-    .filter((thread) => thread.path === path)
-    .sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
-}
-
 /** Conversation (non-inline) comments, oldest first. */
 export function conversationComments(comments: PrComment[]): PrComment[] {
   return comments.filter((comment) => comment.path == null);
@@ -149,18 +137,6 @@ export function staleBanner(freshness: PrFreshness | null): string | null {
   if (!freshness?.stale) return null;
   const head = freshness.remoteHead ? freshness.remoteHead.slice(0, 7) : "unknown";
   return `This pull request changed on the remote (now at ${head}). Refresh to see the latest.`;
-}
-
-/** Human label for a submitted review event. */
-export function reviewEventLabel(event: string): string {
-  switch (event) {
-    case "approve":
-      return "Approve";
-    case "request-changes":
-      return "Request changes";
-    default:
-      return "Comment";
-  }
 }
 
 /**

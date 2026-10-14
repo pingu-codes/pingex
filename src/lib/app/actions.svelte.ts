@@ -61,9 +61,9 @@ import CreateWorktreeDialog from "$lib/worktrees/CreateWorktreeDialog.svelte";
 
 /** A draft thread has become a real one: keep it on screen and let the
  *  sidebar catch up in the background. */
-export function threadCreated(id: string, cwd: string): void {
+export function threadCreated(id: string, cwd: string, inTempWorktree = false): void {
   touchThread(id);
-  trackNewThread(id, cwd);
+  trackNewThread(id, cwd, inTempWorktree);
   adoptThread(id);
   quietRefresh();
 }

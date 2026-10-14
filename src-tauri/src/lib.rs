@@ -649,6 +649,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             git::commands::git_recent_commits,
             git::commands::git_branches,
             git::commands::git_worktree_add,
+            git::commands::git_worktree_add_temp,
             git::commands::git_worktree_remove,
             git::commands::git_worktree_prune,
             git::commands::git_worktree_lock,

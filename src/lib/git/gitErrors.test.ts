@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { hintFor, parseGitError } from "./gitErrors";
+import { gitErrorHints, parseGitError } from "./gitErrors";
 
 describe("parseGitError", () => {
   it("splits a classified prefix from the message", () => {
@@ -24,7 +24,7 @@ describe("parseGitError", () => {
   });
 
   it("offers a hint for actionable kinds only", () => {
-    expect(hintFor("dirtyTree")).toContain("switch anyway");
-    expect(hintFor("other")).toBeNull();
+    expect(gitErrorHints.dirtyTree).toContain("switch anyway");
+    expect(gitErrorHints.other).toBeNull();
   });
 });

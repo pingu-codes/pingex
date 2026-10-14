@@ -52,9 +52,3 @@ export function refreshAllGitStatus(throttleMs = 1000): void {
   lastRefreshAll = now;
   for (const path of Object.keys(gitStatusCache.byPath)) refreshGitStatus(path);
 }
-
-export function statusIsDirty(status: GitStatus | null | undefined): boolean {
-  if (!status) return false;
-  const { staged, unstaged, untracked, conflicted } = status.counts;
-  return staged + unstaged + untracked + conflicted > 0;
-}

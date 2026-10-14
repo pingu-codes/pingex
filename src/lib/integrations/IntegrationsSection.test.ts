@@ -39,8 +39,16 @@ vi.mock("$lib/services/homeRouting", () => ({
   },
 }));
 
+import { closeAllDialogs } from "$lib/app/dialogs.svelte";
+import DialogHost from "$lib/components/DialogHost.svelte";
 import IntegrationsSection from "$lib/integrations/IntegrationsSection.svelte";
 import { skillsStatus } from "$lib/services/codexEvents.svelte";
+
+/** The section plus the host its add/edit dialogs open in. */
+function renderWithDialogs() {
+  render(DialogHost);
+  return render(IntegrationsSection, {});
+}
 
 it("updates an open list when skills change", async () => {
   render(IntegrationsSection);
@@ -171,6 +179,7 @@ function statuses(): Record<string, McpServerStatus> {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  closeAllDialogs();
   skillsStatus.nonce = 0;
   listIntegrations.mockResolvedValue(fixture());
   listMcpServerStatus.mockResolvedValue(statuses());
@@ -396,7 +405,7 @@ describe("IntegrationsSection", () => {
     await waitFor(() => expect(screen.queryByText("code-reviewer")).not.toBeInTheDocument());
   });
 
-  it("creates a skill through the form and validates the name", async () => {
+  it("creates a skill through the dialog and validates the name", async () => {
     const user = userEvent.setup();
     const next = fixture();
     next.skills.push({
@@ -409,7 +418,7 @@ describe("IntegrationsSection", () => {
       shortDescription: null,
     });
     createSkill.mockResolvedValue(next);
-    render(IntegrationsSection, {});
+    renderWithDialogs();
     await screen.findByText("code-reviewer");
     await user.click(screen.getByRole("button", { name: /Add skill/ }));
     await user.type(screen.getByLabelText("Name"), "Release Notes");
@@ -426,6 +435,7 @@ describe("IntegrationsSection", () => {
       body: null,
     });
     expect(await screen.findByText("release-notes")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Create skill" })).not.toBeInTheDocument());
   });
 
   it("offers a sign-in for a server that needs OAuth, and not for one that does not", async () => {
@@ -451,10 +461,10 @@ describe("IntegrationsSection", () => {
     await waitFor(() => expect(listIntegrations).toHaveBeenCalledTimes(2));
   });
 
-  it("adds a new MCP server through the form", async () => {
+  it("adds a new MCP server through the dialog", async () => {
     const user = userEvent.setup();
     saveMcpServer.mockResolvedValue(fixture());
-    render(IntegrationsSection, {});
+    renderWithDialogs();
     await screen.findByText("GitHub");
     await user.click(screen.getByRole("button", { name: /Add MCP server/ }));
     await user.type(screen.getByLabelText("Name"), "notion");
@@ -476,7 +486,7 @@ describe("IntegrationsSection", () => {
   it("prefills an existing stdio server and saves edits, including a rename", async () => {
     const user = userEvent.setup();
     saveMcpServer.mockResolvedValue(fixture());
-    render(IntegrationsSection, {});
+    renderWithDialogs();
     const row = (await screen.findByText("GitHub")).closest(".card") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Edit" }));
 
@@ -505,7 +515,7 @@ describe("IntegrationsSection", () => {
   it("edits an HTTP server's url and bearer token variable", async () => {
     const user = userEvent.setup();
     saveMcpServer.mockResolvedValue(fixture());
-    render(IntegrationsSection, {});
+    renderWithDialogs();
     const row = (await screen.findByText("linear")).closest(".card") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Edit" }));
 
@@ -522,5 +532,48 @@ describe("IntegrationsSection", () => {
         bearerTokenEnvVar: "LINEAR_API_KEY",
       }),
     );
+  });
+
+  it("keeps the server dialog open with the error when saving fails, and closes it on success", async () => {
+    const user = userEvent.setup();
+    saveMcpServer.mockRejectedValueOnce(new Error("config.toml is read-only")).mockResolvedValueOnce(fixture());
+    renderWithDialogs();
+    await screen.findByText("GitHub");
+    await user.click(screen.getByRole("button", { name: /Add MCP server/ }));
+    await user.click(screen.getByRole("button", { name: "Add server" }));
+    expect(screen.getByText("Name is required.")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Name"), "notion");
+    await user.type(screen.getByLabelText("Command"), "npx");
+    await user.click(screen.getByRole("button", { name: "Add server" }));
+    expect(await screen.findByText("config.toml is read-only")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add server" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Add server" })).not.toBeInTheDocument());
+    expect(saveMcpServer).toHaveBeenCalledTimes(2);
+  });
+
+  it("removes a server only after confirmation", async () => {
+    const user = userEvent.setup();
+    const next = fixture();
+    next.mcpServers = next.mcpServers.filter((server) => server.name !== "github");
+    removeMcpServer.mockResolvedValue(next);
+    render(IntegrationsSection, {});
+    const row = (await screen.findByText("GitHub")).closest("[id^='mcp-row-']") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "Remove github" }));
+    await user.click(within(row).getByRole("button", { name: "Cancel" }));
+    expect(removeMcpServer).not.toHaveBeenCalled();
+    await user.click(within(row).getByRole("button", { name: "Remove github" }));
+    await user.click(within(row).getByRole("button", { name: "Confirm remove" }));
+    expect(removeMcpServer).toHaveBeenCalledWith("github");
+    await waitFor(() => expect(screen.queryByText("GitHub")).not.toBeInTheDocument());
+  });
+
+  it("reports a SKILL.md that cannot be read and folds the row again", async () => {
+    const user = userEvent.setup();
+    readSkill.mockRejectedValue(new Error("Permission denied"));
+    render(IntegrationsSection, {});
+    const row = (await screen.findByText("code-reviewer")).closest(".card") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: /View SKILL.md/ }));
+    expect(await screen.findByText("Permission denied")).toBeInTheDocument();
+    expect(within(row).queryByText("Loading SKILL.md…")).not.toBeInTheDocument();
   });
 });

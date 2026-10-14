@@ -174,6 +174,7 @@ init();
             repoName={project?.name ?? null}
             repoDir={project?.path ?? view.draftCwd ?? thread?.cwd ?? ""}
             cwd={project?.workspaceId ? project.path : (thread?.cwd ?? view.draftCwd ?? project?.path ?? "")}
+            inTempWorktree={thread?.inTempWorktree}
             threadId={view.threadId}
             onMovedToWorktree={movedToWorktree}
             onError={(message) => (handoff.error = message)}
