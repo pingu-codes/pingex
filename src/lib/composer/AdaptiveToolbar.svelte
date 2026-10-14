@@ -28,6 +28,13 @@ let hidden = $state<string[]>([]);
 let open = $state(false);
 let position = $state({ left: 0, bottom: 0 });
 
+/** The items still on the toolbar, grouped by where they sit. */
+const shown = $derived.by(() => {
+  const groups: Record<"beforeModel" | "afterModel" | "end", Item[]> = { beforeModel: [], afterModel: [], end: [] };
+  for (const item of items) if (!hidden.includes(item.id)) groups[item.placement ?? "afterModel"].push(item);
+  return groups;
+});
+
 function measure(node: HTMLElement, id: string) {
   const update = () => {
     const width = node.getBoundingClientRect().width;
@@ -113,14 +120,14 @@ async function toggle() {
 
 <div bind:this={root} use:measure={'root'} class="toolbar" data-testid="composer-toolbar">
   <div class="control" use:measure={'attachment'}>{@render attachment()}</div>
-  {#each items.filter(item => !hidden.includes(item.id) && item.placement === 'beforeModel') as item (item.id)}
+  {#each shown.beforeModel as item (item.id)}
     <div class="control" data-toolbar-item={item.id} use:measure={item.id}>{@render item.content()}</div>
   {/each}
   <div class="model" use:measure={'model'}>{@render model()}</div>
-  {#each items.filter(item => !hidden.includes(item.id) && !item.placement) as item (item.id)}
+  {#each shown.afterModel as item (item.id)}
     <div class="control" data-toolbar-item={item.id} use:measure={item.id}>{@render item.content()}</div>
   {/each}
-  {#each items.filter(item => !hidden.includes(item.id) && item.placement === 'end') as item (item.id)}
+  {#each shown.end as item (item.id)}
     <div class="control home" data-toolbar-item={item.id} use:measure={item.id}>{@render item.content()}</div>
   {/each}
   {#if hidden.length}

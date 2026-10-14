@@ -44,8 +44,7 @@ let branches = $state<GitBranch[]>([]);
 let commits = $state<GitCommit[]>([]);
 let loadError = $state<string | null>(null);
 
-const listLabel = $derived((REVIEW_MODES.find((mode) => mode.id === stage) ?? REVIEW_MODES[0]).listLabel);
-const emptyMessage = $derived((REVIEW_MODES.find((mode) => mode.id === stage) ?? REVIEW_MODES[0]).emptyMessage);
+const stageMode = $derived(REVIEW_MODES.find((mode) => mode.id === stage) ?? REVIEW_MODES[0]);
 
 function chooseMode(mode: ReviewModeOption) {
   if (mode.id === "uncommittedChanges") {
@@ -81,7 +80,7 @@ function back() {
 
 {#if stage === "uncommittedChanges"}
   <PickerList
-    items={filterModes(query ?? "")}
+    items={filterModes(query)}
     label="Review targets"
     emptyMessage={`No review target matches “${query}”.`}
     {scope}
@@ -96,9 +95,9 @@ function back() {
   </PickerList>
 {:else if stage === "baseBranch"}
   <PickerList
-    items={filterBranches(branches, query ?? "")}
-    label={listLabel}
-    {emptyMessage}
+    items={filterBranches(branches, query)}
+    label={stageMode.listLabel}
+    emptyMessage={stageMode.emptyMessage}
     error={loadError}
     {scope}
     onPick={(branch) => onPick({ type: "baseBranch", branch: branch.name })}
@@ -117,9 +116,9 @@ function back() {
   </PickerList>
 {:else}
   <PickerList
-    items={filterCommits(commits, query ?? "")}
-    label={listLabel}
-    {emptyMessage}
+    items={filterCommits(commits, query)}
+    label={stageMode.listLabel}
+    emptyMessage={stageMode.emptyMessage}
     error={loadError}
     {scope}
     onPick={(commit) => onPick({ type: "commit", sha: commit.hash, title: commit.subject })}
