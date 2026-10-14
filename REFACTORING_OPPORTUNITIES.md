@@ -61,7 +61,7 @@ duplicated (section 1); §1.1, §1.4 and §1.5 are done.
 | 10 | ~~Tailwind `@utility` classes for repeated class strings~~ (done) | §2.6 | ~10 KB of markup | low |
 | 11 | git/commands.rs: use the existing `locked()` and add `blocking()` | §10.3, §10.4 | ~170–210 lines | low |
 | 12 | ~~Split ThreadView (goal banner, scroll follow)~~ (done) | §5.2, §5.3 | ~330 lines out of the 1,489-line file | med |
-| 13 | Split Composer (attachments, draft, settings) and use Skeleton Popover | §6.2, §6.3 | Composer ~1,374 → ~600 lines; ~130 removed | med |
+| 13 | ~~Split Composer (attachments, draft, settings) and use Skeleton Popover~~ (done) | §6.2, §6.3 | Composer ~1,374 → ~600 lines; ~130 removed | med |
 | 14 | Shared JSONL child process core for Codex and Claude | §9.2 | ~100–130 lines | med |
 | 15 | Split IntegrationsSection into dialogs and rows | §8.1 | ~120 lines; file ~1,100 → ~450 | med |
 
@@ -490,92 +490,72 @@ All of §5 is done. ThreadView went from 1,499 to 1,079 lines.
 
 ## 6. Composer
 
-### 6.1 `richInput.ts`: six edit verbs share one frame
-- **Where:** `deleteLineBreak` (750), `insertLineBreak` (778),
-  `deleteToLineEdge` (799), `deleteToWordEdge` (831),
-  `deleteCharBesideChip` (864) and `normaliseEditorDom` (918). Each does
-  caretOffset → `toUnits(readParts)` → splice → `fromUnits` → render → place
-  caret.
-- **Proposal:** a private `editUnits(root, handlers, (units, caret) =>
-  newCaret | null)`. In `richEditor.svelte.ts:162-264`, add `take(event,
-  parts)` for the 5 repeated `preventDefault(); adopt(x); return;` blocks.
-- **Savings:** ~50–60 lines. **Risk:** low (well tested).
+All of §6 is done except the `acceleratorFromEvent` move in §6.10, which
+belongs with the SettingsView work in §7.1. Composer.svelte went from 1,359 to
+825 lines.
 
-### 6.2 Split `Composer.svelte` (1,374 lines)
-- **Concerns:** attachments (798-941, 1033-1046, drag/drop 280-317), drafts
-  (210-278), history recall (180-210) and prefs/model/plan settings
-  (343-700).
-- **Duplication:** `IMAGE_EXTENSIONS`/`basename`/`guessKind` (819-825) are
-  verbatim copies from `preview/attachments.ts`.
-- **Proposal:** `AttachmentStager` (`attachments.svelte.ts`),
-  `ComposerDraft`, and a `ComposerSettings` class next to `composerPrefs`.
-- **Savings:** Composer drops to ~600 lines. **Risk:** med (many `$derived`
-  dependencies; Composer.test.ts is broad).
+### 6.1 `richInput.ts`: six edit verbs share one frame: done
+- A private `editUnits(root, handlers, edit)` carries caretOffset → units →
+  splice → render → place caret for all six verbs. `RichEditor.take(event,
+  parts)` replaces the repeated `preventDefault(); adopt(x); return;` blocks.
+
+### 6.2 Split `Composer.svelte` (1,374 lines): done
+- `ComposerSettings` (`composerSettings.svelte.ts`, next to `composerPrefs`):
+  prefs, their scoping effects, everything derived from the model list, the
+  turn options and every `choose*`/`toggle*`.
+- `AttachmentStager` (`attachments.svelte.ts`): staging, retry, native and
+  HTML drag/drop, the file picker and paste.
+- `ComposerDraft` and `HistoryRecall` (`composerDraft.svelte.ts`): draft
+  persistence and the ↑/↓ walk.
+- The `IMAGE_EXTENSIONS`/`basename`/`guessKind` copies were already gone
+  (§2.2, §2.9).
 
 ### 6.3 Composer popovers → Skeleton Popover: done
 See §3.2.
 
-### 6.4 Chip construction duplicated three ways
-- `buildMentionChip`/`buildSkillChip`/`buildAttachmentChip`
-  (`richInput.ts:156-303`) repeat the span shell. `insertMentionChip` and
-  `insertSkillChip` have identical bodies. "Is this a chip" is spelled out at
-  42-58, 387-390 and 905. `richEditor.svelte.ts:298-320` has twin insert
-  methods.
-- Add `chipShell`, `buildChip` (also used by `renderPartsWith`),
-  `insertChip`, one `CHIP_SELECTOR`, and `insertAtQuery`. ~40 lines.
+### 6.4 Chip construction duplicated three ways: done
+- `chipShell`, `buildChip` (also used by `renderParts`), `insertChip`,
+  `readChip` and one `CHIP_SELECTOR`. RichEditor's twin insert methods go
+  through `insertAtQuery`. `ChipPart` lives in `composerParts.ts`.
 
-### 6.5 Selection boilerplate
-- "Get the live range" has about 9 copies and "select this collapsed range"
-  5. `placeCaretBesideChip` is a pure alias, and `removeMentionChip` removes
-  any chip.
-- Export `liveRange()` and `selectCollapsed()`, drop the alias, and rename
-  to `removeChip`. ~30 lines.
+### 6.5 Selection boilerplate: done
+- `liveRange()`, `caretRangeIn(root)`, `selectCollapsed()` and
+  `placeCaretAtEnd()` are exported. `placeCaretBesideChip` is now
+  `placeCaretBeside(node)`, with no alias, and `removeMentionChip` is
+  `removeChip`.
 
-### 6.6 Caret helpers re-implement each other
-- `moveCaretVertically` (509-532) hand-rolls `lineEdgeOffset` (695-700).
-- `chipBesideCaret` and `chipAcrossLineBreak` share a 10-line neighbour
-  lookup.
-- `chipBesideCaret` also re-implements `chipContaining`.
-- The `Units` alias is declared after its first uses.
-- ~25 lines.
+### 6.6 Caret helpers re-implement each other: done
+- `moveCaretVertically` uses `lineEdgeOffset`. `chipBesideCaret` and
+  `chipAcrossLineBreak` share `nodeBesideCaret`, and `chipBesideCaret` uses
+  `chipContaining`. `Unit`/`Units` are declared at the top.
 
-### 6.7 Dead Claude permission presets
-- `CLAUDE_PERMISSION_PRESETS` and `permissionPresetsFor`
-  (`composerPrefs.svelte.ts:75-115`) only take effect when
-  `can(harness, "permissionModes")`, which is exactly when the UI uses
-  `CLAUDE_MODES` instead. Their only live job is mapping legacy
-  `"auto-review"` to `"auto"`.
-- Replace them with a one-entry `LEGACY_PRESET` map. ~40 lines.
+### 6.7 Dead Claude permission presets: done
+- `CLAUDE_PERMISSION_PRESETS`, `permissionPresetsFor`, the preset
+  `approvalsReviewer` field and `presetFor`'s harness argument are gone. A
+  one-entry `LEGACY_PRESET` map reads `"auto-review"` as `"auto"`.
 
-### 6.8 Composer-local duplication
-- `toggleSubagentModel` and `toggleSubagentEffort` share their expansion
-  logic. `(models ?? [])` appears 7 times.
-- The plan-mode set/clear branch is repeated 4 times. `saveScopedPrefs` is
-  inlined although `persist()` exists.
-- `parts.map(p => ({...p}))` appears 6 times, and the single-plain-text check
-  twice.
-- Add `togglePolicy`, `modelList`, `setPlanMode`, `cloneParts`, `plainText`
-  and `trimParts` (the last three in `composerParts.ts`). ~35 lines.
+### 6.8 Composer-local duplication: done
+- `togglePolicy` (composerPrefs), `ComposerSettings.modelList` and
+  `setPlanMode`, `persist()` everywhere, and `cloneParts`, `plainText` and
+  `trimParts` in `composerParts.ts`, each with unit tests.
 
-### 6.9 Dead code and stale comments
-- `richInput.ts:333 renderParts` and `composerPrefs.resolveAppSubagents` are
-  used only by tests.
-- `planTurnOptions`, `turnOptions` and `ensureHarnessModels` are pure
-  wrappers.
-- `export cancelGoalEdit` has no external caller.
-- Two orphaned or doubled JSDocs.
-- The comment on `coerce` is wrong: it says the function drops unknown
-  fields, but it doesn't.
-- `composerPrefs.svelte.ts` uses no runes, so it can be renamed to `.ts`.
-- ~25 lines.
+### 6.9 Dead code and stale comments: done
+- The test-only `renderParts` is gone; `renderPartsWith` took its name. The
+  test-only `resolveAppSubagents` is gone too.
+- `planTurnOptions` and both `ensureHarnessModels` wrappers (Composer's and
+  the one in `models.svelte.ts`) are gone. `turnOptions` is the one export.
+  `cancelGoalEdit` is no longer exported.
+- The doubled `onCommand` JSDoc and the orphaned `isEmpty` one are fixed, and
+  so is the comment on `coerce`.
+- `composerPrefs.svelte.ts` is now `composerPrefs.ts`.
 
 ### 6.10 Small cleanups
-- `ReviewTargetPicker.svelte:45-46`: a double `find` and a needless
-  `?? ""`.
-- `AdaptiveToolbar.svelte:118-126`: three filtered `{#each}` loops; group
-  them once.
-- `quick/quickChat.ts acceleratorFromEvent` is used only by SettingsView.
-  Move it to `utils/accelerator.ts`.
+- Done: ReviewTargetPicker looks up its stage's mode once and drops the
+  `?? ""` (`query` is a required string). AdaptiveToolbar groups its visible
+  items once into `shown`.
+- Left: `quick/quickChat.ts acceleratorFromEvent` is used only by
+  SettingsView. Move it to `utils/accelerator.ts` as part of the §7.1
+  SettingsView work.
 
 ---
 
@@ -1139,8 +1119,8 @@ Carried over from the cleanup log's "Found, not yet fixed" list:
    All low risk, compile-checked, and about 700 lines together.
 4. ~~**api.ts restructuring** (§4.1, §4.2, §4.4, §4.5).~~ Done.
 5. ~~**Skeleton swaps** (§3).~~ Done.
-6. **Large component splits:** Composer, SettingsView, IntegrationsSection
-   (§6.2, §7.1, §8.1). ThreadView (§5.2, §5.3) is done.
+6. **Large component splits:** SettingsView, IntegrationsSection (§7.1,
+   §8.1). ThreadView (§5.2, §5.3) and Composer (§6.2) are done.
 7. **Driver-level Rust:** `JsonlProcess`, typed journal, `ThreadDriver`
    (§9.2, §9.3, §9.8).
 8. **Policy call:** retiring the compat gates (§9.1). Decide the ADR 0001

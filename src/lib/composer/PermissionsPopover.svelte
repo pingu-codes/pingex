@@ -2,7 +2,7 @@
 import { Check, ChevronDown, Shield } from "@lucide/svelte";
 import ComposerPopover from "$lib/composer/ComposerPopover.svelte";
 import { CLAUDE_MODES } from "$lib/composer/claudeModes";
-import { type HarnessChoice, permissionPresetsFor, presetFor } from "$lib/composer/composerPrefs.svelte";
+import { type HarnessChoice, PERMISSION_PRESETS, presetFor } from "$lib/composer/composerPrefs";
 import { can } from "$lib/utils/capabilities";
 
 let {
@@ -20,9 +20,9 @@ let {
 } = $props();
 
 const permissionModes = $derived(can(harness, "permissionModes"));
-const presets = $derived(permissionModes ? CLAUDE_MODES : permissionPresetsFor(harness));
+const presets = $derived(permissionModes ? CLAUDE_MODES : PERMISSION_PRESETS);
 const selected = $derived(
-  permissionModes ? CLAUDE_MODES.find((mode) => mode.id === selectedId) : presetFor(harness, selectedId),
+  permissionModes ? CLAUDE_MODES.find((mode) => mode.id === selectedId) : presetFor(selectedId),
 );
 const selectedLabel = $derived(selected?.label ?? "Permissions");
 </script>

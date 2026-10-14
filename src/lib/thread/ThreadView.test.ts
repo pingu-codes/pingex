@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appData, trackNewThread } from "$lib/app/appData.svelte";
-import { loadPrefs, savePrefs } from "$lib/composer/composerPrefs.svelte";
+import { loadPrefs, savePrefs } from "$lib/composer/composerPrefs";
 import type { BootstrapData, ThreadDetail, Turn } from "$lib/types";
 import { errorMessage } from "$lib/utils/errors";
 

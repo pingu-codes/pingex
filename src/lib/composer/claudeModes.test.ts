@@ -6,7 +6,7 @@ import {
   saveScopedPrefs,
   saveThreadClaudeMode,
   turnOptionsFrom,
-} from "$lib/composer/composerPrefs.svelte";
+} from "$lib/composer/composerPrefs";
 
 beforeEach(() => localStorage.clear());
 

@@ -6,6 +6,8 @@ import {
   buildTurnInput,
   hasSendableContent,
   normaliseParts,
+  plainText,
+  trimParts,
 } from "$lib/composer/composerParts";
 
 const readyAttachment = (over: Partial<AttachmentPart> = {}): AttachmentPart => ({
@@ -134,5 +136,34 @@ describe("buildGoalObjective", () => {
     expect(buildGoalObjective([readyAttachment({ kind: "file", filename: "notes.md", path: "/tmp/notes.md" })])).toBe(
       "[Attached file: notes.md — /tmp/notes.md]",
     );
+  });
+});
+
+describe("plainText", () => {
+  it("reads a lone text part and nothing else", () => {
+    expect(plainText([{ type: "text", text: "/review" }])).toBe("/review");
+    expect(plainText([{ type: "text", text: "a" }, readyAttachment()])).toBeNull();
+    expect(plainText([readyAttachment()])).toBeNull();
+  });
+});
+
+describe("trimParts", () => {
+  it("trims the message's outer whitespace without touching the input", () => {
+    const parts = [
+      { type: "text" as const, text: "  look " },
+      readyAttachment(),
+      { type: "text" as const, text: " here \n" },
+    ];
+    expect(trimParts(parts)).toEqual([
+      { type: "text", text: "look " },
+      readyAttachment(),
+      { type: "text", text: " here" },
+    ]);
+    expect(parts[0]).toEqual({ type: "text", text: "  look " });
+  });
+
+  it("trims both ends of a single text part and drops it once empty", () => {
+    expect(trimParts([{ type: "text", text: "  hi  " }])).toEqual([{ type: "text", text: "hi" }]);
+    expect(trimParts([{ type: "text", text: "   " }])).toEqual([{ type: "text", text: "" }]);
   });
 });

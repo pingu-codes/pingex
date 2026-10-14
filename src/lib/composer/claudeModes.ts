@@ -1,5 +1,5 @@
 import type { ClaudeModeSettings, ClaudePermissionMode } from "$lib/bindings";
-import type { ComposerPrefs } from "$lib/composer/composerPrefs.svelte";
+import type { ComposerPrefs } from "$lib/composer/composerPrefs";
 
 export const CLAUDE_MODES: { id: ClaudePermissionMode; label: string; description: string }[] = [
   { id: "default", label: "Default", description: "Ask for approval when an action needs permission" },

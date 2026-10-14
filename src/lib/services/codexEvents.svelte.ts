@@ -1,6 +1,6 @@
 import { eventMatchesHome } from "$lib/app/launch.svelte";
 import { events, type HarnessKind, type HarnessRequestEnvelope } from "$lib/bindings";
-import { saveThreadClaudeMode } from "$lib/composer/composerPrefs.svelte";
+import { saveThreadClaudeMode } from "$lib/composer/composerPrefs";
 import { applyRateLimitUpdate } from "$lib/services/accountUsage.svelte";
 import { applyAgentActivity, applyAgentRunEvent } from "$lib/services/agentRuns.svelte";
 import { recordUserInputRequest } from "$lib/services/api";

@@ -13,6 +13,7 @@
 import {
   type AttachmentChipHandlers,
   type AttachmentPart,
+  type ChipPart,
   type ComposerPart,
   type DetectedQueries,
   EMPTY_PARTS,
@@ -21,6 +22,7 @@ import {
 import {
   caretOffset,
   caretOnVisualEdgeLine,
+  caretRangeIn,
   chipAcrossLineBreak,
   chipBesideCaret,
   deleteCharBesideChip,
@@ -28,19 +30,19 @@ import {
   deleteToLineEdge,
   deleteToWordEdge,
   detectQueries,
-  insertAttachmentChip,
+  insertChip,
   insertLineBreak,
-  insertMentionChip,
-  insertSkillChip,
+  liveRange,
   moveCaretToLineEdge,
   moveCaretToWordEdge,
   moveCaretVertically,
   normaliseEditorDom,
+  placeCaretAtEnd,
   placeCaretAtOffset,
-  placeCaretBesideChip,
+  placeCaretBeside,
   readParts,
-  removeMentionChip,
-  renderPartsWith,
+  removeChip,
+  renderParts,
   updateAttachmentChip,
 } from "$lib/composer/richInput";
 import { type Snapshot, UndoStack } from "$lib/composer/undoStack";
@@ -167,11 +169,7 @@ export class RichEditor {
         // Delete-to-line-edge, against the parts model for the same reason as
         // `deleteLineBreak` below — and so it never degrades into "remove the
         // chip beside the caret", which is what the branches after this do.
-        const afterLine = deleteToLineEdge(root, direction, this.deps.chipHandlers);
-        if (afterLine) {
-          event.preventDefault();
-          this.adopt(afterLine);
-        }
+        this.take(event, deleteToLineEdge(root, direction, this.deps.chipHandlers));
         return;
       }
       const chip = range ? chipBesideCaret(direction, range) : null;
@@ -185,13 +183,12 @@ export class RichEditor {
       // handled against the parts model like the chip-adjacent cases above.
       // Alt/Ctrl (word-delete) and Meta (already handled above) have their
       // own chip-aware paths and take priority over this single-character one.
-      if (!event.altKey && !event.ctrlKey) {
-        const afterChar = deleteCharBesideChip(root, direction, this.deps.chipHandlers);
-        if (afterChar) {
-          event.preventDefault();
-          this.adopt(afterChar);
-          return;
-        }
+      if (
+        !event.altKey &&
+        !event.ctrlKey &&
+        this.take(event, deleteCharBesideChip(root, direction, this.deps.chipHandlers))
+      ) {
+        return;
       }
       if (event.altKey || event.ctrlKey) {
         // Option+Backspace/Delete word-deletion through a chip: WebKit's
@@ -200,22 +197,12 @@ export class RichEditor {
         // to a contenteditable=false chip is involved. Ctrl is word-delete on
         // Windows/Linux and has no chip-safe native meaning on macOS, so it
         // takes the same path.
-        const afterWord = deleteToWordEdge(root, direction, this.deps.chipHandlers);
-        if (afterWord) {
-          event.preventDefault();
-          this.adopt(afterWord);
-          return;
-        }
+        if (this.take(event, deleteToWordEdge(root, direction, this.deps.chipHandlers))) return;
       }
       // Line breaks are deleted against the parts model rather than by the
       // browser, which merges its own block lines with the composer's `<br>`s
       // and can take two breaks (or a whole line) for one keystroke.
-      const afterBreak = deleteLineBreak(root, direction, this.deps.chipHandlers);
-      if (afterBreak) {
-        event.preventDefault();
-        this.adopt(afterBreak);
-        return;
-      }
+      if (this.take(event, deleteLineBreak(root, direction, this.deps.chipHandlers))) return;
     }
     if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && !event.shiftKey && !event.ctrlKey && root) {
       const direction = event.key === "ArrowLeft" ? "back" : "forward";
@@ -235,7 +222,7 @@ export class RichEditor {
       const chip = range ? chipBesideCaret(direction, range) : null;
       if (chip) {
         event.preventDefault();
-        placeCaretBesideChip(chip, direction === "back" ? "before" : "after");
+        placeCaretBeside(chip, direction === "back" ? "before" : "after");
         return;
       }
       // A chip that starts/ends the line on the other side of a break (e.g. a
@@ -244,7 +231,7 @@ export class RichEditor {
       const lineChip = range ? chipAcrossLineBreak(direction, range) : null;
       if (lineChip) {
         event.preventDefault();
-        placeCaretBesideChip(lineChip, direction === "back" ? "after" : "before");
+        placeCaretBeside(lineChip, direction === "back" ? "after" : "before");
         return;
       }
     }
@@ -277,11 +264,7 @@ export class RichEditor {
       // Breaks are inserted against the parts model for the same reason they
       // are deleted against it: beside a chip WebKit writes two `<br>`s and
       // strands the caret on the empty line between them.
-      const afterBreak = insertLineBreak(root, this.deps.chipHandlers);
-      if (afterBreak) {
-        event.preventDefault();
-        this.adopt(afterBreak);
-      }
+      this.take(event, insertLineBreak(root, this.deps.chipHandlers));
     }
   };
 
@@ -311,26 +294,12 @@ export class RichEditor {
   /** Replace the open `@query` with a chip. `false` when the query's range no
    *  longer points into the text (the picker is dismissed instead). */
   insertMention(mention: Mention): boolean {
-    const range = this.queries.mentionRange;
-    if (!this.usableRange(range)) {
-      this.closeQueries();
-      return false;
-    }
-    insertMentionChip(range, mention);
-    this.afterChipInsert();
-    return true;
+    return this.insertAtQuery(this.queries.mentionRange, { type: "mention", name: mention.name, path: mention.path });
   }
 
   /** Replace the open `$query` with a skill chip; see `insertMention`. */
   insertSkill(name: string, path: string, label: string): boolean {
-    const range = this.queries.skillRange;
-    if (!this.usableRange(range)) {
-      this.closeQueries();
-      return false;
-    }
-    insertSkillChip(range, name, path, label);
-    this.afterChipInsert();
-    return true;
+    return this.insertAtQuery(this.queries.skillRange, { type: "skill", name, path, label });
   }
 
   /** Insert an attachment chip at the caret (or the end, when the caret is
@@ -339,7 +308,7 @@ export class RichEditor {
     const root = this.root;
     if (!root) return;
     this.ensureCaretInside(root);
-    insertAttachmentChip(part, this.deps.chipHandlers);
+    insertChip(liveRange(), part, this.deps.chipHandlers);
     this.adopt(readParts(root));
   }
 
@@ -354,7 +323,7 @@ export class RichEditor {
   /** Remove any chip (mention, skill or attachment), caret where it stood. */
   removeChip(chip: HTMLElement): void {
     this.deps.onChipRemoved?.(chip);
-    removeMentionChip(chip);
+    removeChip(chip);
     if (this.root) this.adopt(readParts(this.root));
     this.focus();
   }
@@ -428,7 +397,7 @@ export class RichEditor {
       this.parts = parts;
       return;
     }
-    renderPartsWith(root, structuredClone(parts), this.deps.chipHandlers);
+    renderParts(root, structuredClone(parts), this.deps.chipHandlers);
     this.parts = readParts(root);
     if (!focus) return;
     placeCaretAtOffset(root, caret ?? Number.MAX_SAFE_INTEGER);
@@ -461,12 +430,10 @@ export class RichEditor {
 
   /** The caret moved: re-mark the chip before it and re-detect the queries. */
   private syncCaret(): void {
-    const root = this.root;
-    const range = liveRange();
-    const inside = !!root && !!range && range.collapsed && root.contains(range.startContainer);
-    this.markCaretChip(inside && range ? chipBesideCaret("back", range) : null);
+    const range = this.root ? caretRangeIn(this.root) : null;
+    this.markCaretChip(range ? chipBesideCaret("back", range) : null);
     // Only while a picker is open: a caret move must not open one on its own.
-    if (inside && this.deps.pickerOpen()) this.detect();
+    if (range && this.deps.pickerOpen()) this.detect();
   }
 
   /** Flag `chip` as the next Backspace's target (styled by the chip classes). */
@@ -477,12 +444,29 @@ export class RichEditor {
     this.caretChip = chip;
   }
 
-  private afterChipInsert(): void {
+  /** An edit verb's result: when it handled the keystroke (non-null parts),
+   *  claim the event and adopt the parts. Returns whether it did. */
+  private take(event: KeyboardEvent, parts: ComposerPart[] | null): boolean {
+    if (!parts) return false;
+    event.preventDefault();
+    this.adopt(parts);
+    return true;
+  }
+
+  /** Replace a picker's query range with a chip. `false` when the range no
+   *  longer points into the text; the picker is dismissed instead. */
+  private insertAtQuery(range: Range | null, part: ChipPart): boolean {
+    if (!this.usableRange(range)) {
+      this.closeQueries();
+      return false;
+    }
+    insertChip(range, part, this.deps.chipHandlers);
     // The query is gone with the text it lived in; say so before re-reading,
     // in case the caret ends up somewhere `detect` cannot see.
     this.closeQueries();
     if (this.root) this.adopt(readParts(this.root));
     this.focus();
+    return true;
   }
 
   /** Whether a picker's range still points into the editor's current text. */
@@ -498,18 +482,7 @@ export class RichEditor {
   /** Focus the editor and drop the caret at its end when it's elsewhere. */
   private ensureCaretInside(root: HTMLElement): void {
     root.focus();
-    const selection = window.getSelection();
-    const inside = selection?.rangeCount && root.contains(selection.getRangeAt(0).startContainer);
-    if (inside) return;
-    const range = document.createRange();
-    range.selectNodeContents(root);
-    range.collapse(false);
-    selection?.removeAllRanges();
-    selection?.addRange(range);
+    const range = liveRange();
+    if (!range || !root.contains(range.startContainer)) placeCaretAtEnd(root);
   }
-}
-
-function liveRange(): Range | null {
-  const selection = window.getSelection();
-  return selection?.rangeCount ? selection.getRangeAt(0) : null;
 }

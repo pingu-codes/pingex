@@ -1,6 +1,6 @@
 /** Model discovery is cached by Home, including in-flight requests. */
 
-import type { HarnessChoice } from "$lib/composer/composerPrefs.svelte";
+import type { HarnessChoice } from "$lib/composer/composerPrefs";
 import { listHarnessModels } from "$lib/services/api";
 import { currentHomeKey } from "$lib/services/homeRouting";
 import type { Model } from "$lib/types";
@@ -19,10 +19,6 @@ export function harnessModelsError(harness: HarnessChoice): string | null {
   return entries[keyFor(harness)]?.error ?? null;
 }
 export function ensureHarnessModels(harness: HarnessChoice): Promise<void> {
-  return ensure(harness);
-}
-
-function ensure(harness: HarnessChoice): Promise<void> {
   const key = keyFor(harness);
   if (entries[key]?.models !== undefined && entries[key].models !== null) return Promise.resolve();
   const pending = inFlight.get(key);

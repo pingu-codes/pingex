@@ -9,16 +9,46 @@
 import {
   type AttachmentChipHandlers,
   type AttachmentPart,
+  type ChipPart,
   type ComposerPart,
   type DetectedQueries,
   normaliseParts,
 } from "$lib/composer/composerParts";
 import { detectSlashQuery } from "$lib/composer/slashCommands";
-import type { Mention } from "$lib/types";
 import { fileIconFor, fileIconSvg, iconForPath } from "$lib/utils/fileIcons";
 import { formatBytes } from "$lib/utils/format";
 
+/** One caret unit of flattened content: a character or a whole chip. */
+type Unit = string | ComposerPart;
+type Units = Unit[];
+
 const isBlock = (node: Node): boolean => /^(DIV|P)$/.test(node.nodeName);
+
+/** Every chip carries one of these; see `readChip` for what each holds. */
+const CHIP_SELECTOR = "[data-mention-path],[data-attachment-id],[data-skill-name]";
+
+const asChip = (node: Node | null | undefined): HTMLElement | null =>
+  node instanceof HTMLElement && node.matches(CHIP_SELECTOR) ? node : null;
+
+/** The selection's first range, or null when there is none. */
+export function liveRange(): Range | null {
+  const selection = window.getSelection();
+  return selection?.rangeCount ? selection.getRangeAt(0) : null;
+}
+
+/** The selection's range when it is a collapsed caret inside `root`. */
+export function caretRangeIn(root: HTMLElement): Range | null {
+  const range = liveRange();
+  return range?.collapsed && root.contains(range.startContainer) ? range : null;
+}
+
+/** Collapses `range` to its start (or end) and makes it the selection. */
+export function selectCollapsed(range: Range, toStart = true): void {
+  range.collapse(toStart);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+}
 
 /**
  * A `<br>` that ends its block renders no line of its own — it is the filler
@@ -41,24 +71,8 @@ function isFillerBreak(node: Node): boolean {
 export function readParts(root: HTMLElement): ComposerPart[] {
   const walk = (node: Node): ComposerPart[] => {
     if (node.nodeType === Node.TEXT_NODE) return [{ type: "text", text: node.textContent ?? "" }];
-    if (node instanceof HTMLElement && node.dataset.attachmentId) {
-      const attachment = readAttachmentDataset(node);
-      if (attachment) return [attachment];
-    }
-    if (node instanceof HTMLElement && node.dataset.mentionPath) {
-      return [{ type: "mention", name: node.dataset.mentionName ?? "file", path: node.dataset.mentionPath }];
-    }
-    if (node instanceof HTMLElement && node.dataset.skillName) {
-      const name = node.dataset.skillName;
-      return [
-        {
-          type: "skill",
-          name,
-          path: node.dataset.skillPath ?? "",
-          label: node.dataset.skillLabel ?? name,
-        },
-      ];
-    }
+    const chip = node instanceof HTMLElement ? readChip(node) : null;
+    if (chip) return [chip];
     if (node.nodeName === "BR") return isFillerBreak(node) ? [] : [{ type: "text", text: "\n" }];
     return childParts(node);
   };
@@ -86,10 +100,8 @@ export function readParts(root: HTMLElement): ComposerPart[] {
  * since a command is the whole message.
  */
 export function detectQueries(root: HTMLElement, cwd: string): DetectedQueries | null {
-  const selection = window.getSelection();
-  if (!selection?.rangeCount) return null;
-  const range = selection.getRangeAt(0);
-  if (!range.collapsed || !root.contains(range.startContainer)) return null;
+  const range = caretRangeIn(root);
+  if (!range) return null;
   const lastTextNode = (node: Node): Text | null => {
     if (node.nodeType === Node.TEXT_NODE) return node as Text;
     for (let index = node.childNodes.length - 1; index >= 0; index -= 1) {
@@ -153,88 +165,23 @@ const CHIP_CARET_ADJACENT = "data-[caret-adjacent]:ring-1 data-[caret-adjacent]:
 const CHIP_SHAPE = `mx-0.5 inline-flex h-5 max-w-[16rem] select-none items-center gap-1 rounded-md px-1.5 align-middle text-[0.8125rem] leading-none transition-shadow ${CHIP_CARET_ADJACENT}`;
 const CHIP_CLASS = `${CHIP_SHAPE} bg-surface-200-800`;
 
-/** Chips have no remove control: Backspace/Delete beside one takes the lot. */
-function buildMentionChip(mention: Mention): HTMLElement {
-  const chip = document.createElement("span");
-  chip.contentEditable = "false";
-  chip.dataset.mentionPath = mention.path;
-  chip.dataset.mentionName = mention.name;
-  chip.className = CHIP_CLASS;
-  chip.title = mention.path;
-  const glyph = iconForPath(mention.name, mention.path);
-  const icon = document.createElement("span");
-  icon.className = `grid shrink-0 place-items-center ${glyph.class}`;
-  icon.innerHTML = fileIconSvg(glyph, "size-3.5 shrink-0");
-  const label = document.createElement("span");
-  label.className = "min-w-0 truncate";
-  // No `@`: the file glyph already says this is a path, and the prefix was
-  // display-only — the dataset, `readParts` and the wire format never had it.
-  label.textContent = mention.name;
-  chip.append(icon, label);
-  return chip;
-}
+/** Sparkles, matching how a skill renders in the transcript. */
+const SKILL_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5 shrink-0"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>';
 
-/**
- * Surrounds a chip with empty text nodes and returns the trailing one. A chip
- * is `contenteditable=false`, so without these the caret has no position of its
- * own beside it — it lands on the chip's box edge and paints over the pill.
- */
-function padChip(chip: HTMLElement): Text {
-  chip.before(document.createTextNode(""));
-  const tail = document.createTextNode("");
-  chip.after(tail);
-  return tail;
-}
-
-/** Collapses the selection into a text node at the given offset. */
-function placeCaretIn(node: Text, offset = 0): void {
-  const range = document.createRange();
-  range.setStart(node, offset);
-  range.collapse(true);
-  const selection = window.getSelection();
-  selection?.removeAllRanges();
-  selection?.addRange(range);
-}
-
-/** Replaces the active mention query with a non-editable chip and places the caret after it. */
-export function insertMentionChip(range: Range, mention: Mention): void {
-  const chip = buildMentionChip(mention);
-  range.deleteContents();
-  range.insertNode(chip);
-  placeCaretIn(padChip(chip));
-}
-
-/**
- * Chip for a picked skill. Carries the protocol `name` in the dataset and shows
- * the friendlier `label` (a plugin's `interface.displayName` when it has one),
- * since `browser-use:browser` is not what the user picked by eye.
- */
-function buildSkillChip(name: string, path: string, label: string): HTMLElement {
-  const chip = document.createElement("span");
-  chip.contentEditable = "false";
-  chip.dataset.skillName = name;
-  chip.dataset.skillPath = path;
-  chip.dataset.skillLabel = label;
-  chip.className = CHIP_CLASS;
-  chip.title = name;
-  const icon = document.createElement("span");
-  icon.className = "grid shrink-0 place-items-center text-tertiary-500";
-  // Sparkles, matching how a skill renders in the transcript.
-  icon.innerHTML =
-    '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5 shrink-0"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>';
-  const text = document.createElement("span");
-  text.className = "min-w-0 truncate";
-  text.textContent = label;
-  chip.append(icon, text);
-  return chip;
-}
-
-/** Replaces the active `$` query with a non-editable skill chip. */
-export function insertSkillChip(range: Range, name: string, path: string, label: string): void {
-  const chip = buildSkillChip(name, path, label);
-  range.deleteContents();
-  range.insertNode(chip);
-  placeCaretIn(padChip(chip));
+/** Reads a chip's dataset back into the part it was built from. */
+function readChip(node: HTMLElement): ChipPart | null {
+  const { dataset } = node;
+  if (dataset.attachmentId) {
+    const attachment = readAttachmentDataset(node);
+    if (attachment) return attachment;
+  }
+  if (dataset.mentionPath) return { type: "mention", name: dataset.mentionName ?? "file", path: dataset.mentionPath };
+  if (dataset.skillName) {
+    const name = dataset.skillName;
+    return { type: "skill", name, path: dataset.skillPath ?? "", label: dataset.skillLabel ?? name };
+  }
+  return null;
 }
 
 /** Reads an attachment chip's serialized dataset back into a typed part. */
@@ -249,17 +196,64 @@ function readAttachmentDataset(node: HTMLElement): AttachmentPart | null {
   }
 }
 
-/** Builds (or rebuilds) the DOM for one attachment chip. */
-function buildAttachmentChip(part: AttachmentPart, handlers: AttachmentChipHandlers): HTMLElement {
+/** A chip's leading glyph. */
+function chipIcon(className: string, svg: string): HTMLElement {
+  const icon = document.createElement("span");
+  icon.className = className;
+  icon.innerHTML = svg;
+  return icon;
+}
+
+/**
+ * The span every chip shares: not editable, its part in the dataset, a lead
+ * glyph and a truncating label. Chips have no remove control: Backspace/Delete
+ * beside one takes the lot.
+ */
+function chipShell(
+  data: Record<string, string>,
+  className: string,
+  title: string,
+  lead: HTMLElement,
+  text: string,
+): HTMLElement {
   const chip = document.createElement("span");
   chip.contentEditable = "false";
-  chip.dataset.attachmentId = part.id;
-  chip.dataset.attachment = JSON.stringify({ ...part, type: "attachment" });
+  Object.assign(chip.dataset, data);
+  chip.className = className;
+  chip.title = title;
+  const label = document.createElement("span");
+  label.className = "min-w-0 truncate";
+  label.textContent = text;
+  chip.append(lead, label);
+  return chip;
+}
+
+/** Builds (or rebuilds) the DOM for one chip. */
+function buildChip(part: ChipPart, handlers: AttachmentChipHandlers): HTMLElement {
+  if (part.type === "attachment") return buildAttachmentChip(part, handlers);
+  if (part.type === "mention") {
+    const glyph = iconForPath(part.name, part.path);
+    const icon = chipIcon(`grid shrink-0 place-items-center ${glyph.class}`, fileIconSvg(glyph, "size-3.5 shrink-0"));
+    // No `@`: the file glyph already says this is a path, and the prefix was
+    // display-only — the dataset, `readParts` and the wire format never had it.
+    return chipShell({ mentionPath: part.path, mentionName: part.name }, CHIP_CLASS, part.path, icon, part.name);
+  }
+  // A skill carries the protocol `name` in the dataset and shows the friendlier
+  // `label` (a plugin's `interface.displayName` when it has one), since
+  // `browser-use:browser` is not what the user picked by eye.
+  const icon = chipIcon("grid shrink-0 place-items-center text-tertiary-500", SKILL_ICON);
+  return chipShell(
+    { skillName: part.name, skillPath: part.path, skillLabel: part.label },
+    CHIP_CLASS,
+    part.name,
+    icon,
+    part.label,
+  );
+}
+
+function buildAttachmentChip(part: AttachmentPart, handlers: AttachmentChipHandlers): HTMLElement {
   const failed = part.state === "failed";
   const staging = part.state === "staging";
-  chip.className = failed ? `${CHIP_SHAPE} bg-error-500/15 text-error-700-300` : CHIP_CLASS;
-  chip.title = failed ? `Failed to attach ${part.filename}` : part.filename;
-
   const lead = document.createElement("span");
   lead.className = "grid size-4 shrink-0 place-items-center overflow-hidden rounded";
   const thumb = part.kind === "image" && !failed ? handlers.thumbSrc?.(part) : null;
@@ -277,12 +271,13 @@ function buildAttachmentChip(part: AttachmentPart, handlers: AttachmentChipHandl
     lead.className += ` ${failed ? "text-error-500" : glyph.class}`;
     lead.innerHTML = fileIconSvg(glyph, "size-3.5 shrink-0");
   }
-  chip.append(lead);
-
-  const label = document.createElement("span");
-  label.className = "min-w-0 truncate";
-  label.textContent = part.filename;
-  chip.append(label);
+  const chip = chipShell(
+    { attachmentId: part.id, attachment: JSON.stringify({ ...part, type: "attachment" }) },
+    failed ? `${CHIP_SHAPE} bg-error-500/15 text-error-700-300` : CHIP_CLASS,
+    failed ? `Failed to attach ${part.filename}` : part.filename,
+    lead,
+    part.filename,
+  );
 
   if (part.state === "ready") {
     const meta = document.createElement("span");
@@ -303,11 +298,31 @@ function buildAttachmentChip(part: AttachmentPart, handlers: AttachmentChipHandl
   return chip;
 }
 
-/** Inserts a new attachment chip at the caret, placing the caret after it. */
-export function insertAttachmentChip(part: AttachmentPart, handlers: AttachmentChipHandlers): void {
-  const selection = window.getSelection();
-  const chip = buildAttachmentChip(part, handlers);
-  const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+/**
+ * Surrounds a chip with empty text nodes and returns the trailing one. A chip
+ * is `contenteditable=false`, so without these the caret has no position of its
+ * own beside it — it lands on the chip's box edge and paints over the pill.
+ */
+function padChip(chip: HTMLElement): Text {
+  chip.before(document.createTextNode(""));
+  const tail = document.createTextNode("");
+  chip.after(tail);
+  return tail;
+}
+
+/** Collapses the selection into a text node at the given offset. */
+function placeCaretIn(node: Text, offset = 0): void {
+  const range = document.createRange();
+  range.setStart(node, offset);
+  selectCollapsed(range);
+}
+
+/**
+ * Replaces `range` (an active `@`/`$` query, or the caret) with a
+ * non-editable chip and places the caret after it.
+ */
+export function insertChip(range: Range | null, part: ChipPart, handlers: AttachmentChipHandlers): void {
+  const chip = buildChip(part, handlers);
   if (range) {
     range.deleteContents();
     range.insertNode(chip);
@@ -327,23 +342,15 @@ export function updateAttachmentChip(
 ): void {
   const existing = root.querySelector<HTMLElement>(`[data-attachment-id="${CSS.escape(id)}"]`);
   if (!existing) return;
-  existing.replaceWith(buildAttachmentChip(part, handlers));
+  existing.replaceWith(buildChip(part, handlers));
 }
 
 /** Rebuilds the contenteditable DOM from composer parts (e.g. a restored draft). */
-export function renderParts(root: HTMLElement, parts: ComposerPart[]): void {
-  renderPartsWith(root, parts, { onRetry: () => {} });
-}
-
-/** Like `renderParts` but with full attachment handlers (thumbnails, retry). */
-export function renderPartsWith(root: HTMLElement, parts: ComposerPart[], handlers: AttachmentChipHandlers): void {
+export function renderParts(root: HTMLElement, parts: ComposerPart[], handlers: AttachmentChipHandlers): void {
   root.replaceChildren();
   for (const part of parts) {
-    if (part.type === "attachment" || part.type === "mention" || part.type === "skill") {
-      let chip: HTMLElement;
-      if (part.type === "attachment") chip = buildAttachmentChip(part, handlers);
-      else if (part.type === "mention") chip = buildMentionChip(part);
-      else chip = buildSkillChip(part.name, part.path, part.label);
+    if (part.type !== "text") {
+      const chip = buildChip(part, handlers);
       root.append(chip);
       padChip(chip);
       continue;
@@ -359,19 +366,15 @@ export function renderPartsWith(root: HTMLElement, parts: ComposerPart[], handle
   if (root.lastChild?.nodeName === "BR") root.append(document.createElement("br"));
 }
 
-/** Removes a mention chip and restores the caret to its former position. */
-export function removeMentionChip(chip: HTMLElement): void {
+/** Removes a chip (any kind) and restores the caret to its former position. */
+export function removeChip(chip: HTMLElement): void {
   const parent = chip.parentNode;
   const index = parent ? [...parent.childNodes].indexOf(chip) : 0;
   chip.remove();
-  if (parent) {
-    const range = document.createRange();
-    range.setStart(parent, index);
-    range.collapse(true);
-    const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-  }
+  if (!parent) return;
+  const range = document.createRange();
+  range.setStart(parent, index);
+  selectCollapsed(range);
 }
 
 const isEmptyText = (node: Node): boolean => node.nodeType === Node.TEXT_NODE && !node.textContent;
@@ -385,13 +388,9 @@ function solidSibling(node: Node, direction: "back" | "forward"): Node | null {
   return current;
 }
 
-const asChip = (node: Node | null | undefined): HTMLElement | null =>
-  node instanceof HTMLElement && (node.dataset.mentionPath || node.dataset.attachmentId || node.dataset.skillName)
-    ? node
-    : null;
-
-/** The chip a node sits inside, if the caret has landed within one's label. */
-function chipContaining(node: Node, root: HTMLElement): HTMLElement | null {
+/** The chip a node sits inside (below `root`, when given), if the caret has
+ *  landed within one's label. */
+function chipContaining(node: Node, root?: HTMLElement): HTMLElement | null {
   let current: Node | null = node;
   while (current && current !== root) {
     const chip = asChip(current);
@@ -402,31 +401,32 @@ function chipContaining(node: Node, root: HTMLElement): HTMLElement | null {
 }
 
 /**
- * Returns the mention chip immediately beside a collapsed caret in the given
+ * Returns the chip immediately beside a collapsed caret in the given
  * direction, if any. Used to intercept Arrow/Backspace/Delete keystrokes:
  * WebKit refuses to move the caret across (or delete) contenteditable=false
  * inline elements, so the composer has to handle them itself.
  */
 export function chipBesideCaret(direction: "back" | "forward", range: Range): HTMLElement | null {
   if (!range.collapsed) return null;
-  const container = range.startContainer;
   // Caret stranded inside a chip's label (WebKit does this after deleting the
   // text right after a chip): the chip itself is what's beside the caret.
-  for (let ancestor: Node | null = container; ancestor; ancestor = ancestor.parentNode) {
-    const chip = asChip(ancestor);
-    if (chip) return chip;
-  }
-  let candidate: Node | null;
+  return chipContaining(range.startContainer) ?? asChip(nodeBesideCaret(direction, range));
+}
+
+/**
+ * The node immediately beside a collapsed caret in the given direction,
+ * skipping the empty text nodes that pad chips — or null when the caret is
+ * mid-text, with characters still to cross on that side.
+ */
+function nodeBesideCaret(direction: "back" | "forward", range: Range): Node | null {
+  const container = range.startContainer;
   if (container.nodeType === Node.TEXT_NODE) {
     const atEdge =
       direction === "back" ? range.startOffset === 0 : range.startOffset === (container.textContent?.length ?? 0);
-    if (!atEdge) return null;
-    candidate = solidSibling(container, direction);
-  } else {
-    candidate = container.childNodes[direction === "back" ? range.startOffset - 1 : range.startOffset] ?? null;
-    if (candidate && isEmptyText(candidate)) candidate = solidSibling(candidate, direction);
+    return atEdge ? solidSibling(container, direction) : null;
   }
-  return asChip(candidate);
+  const candidate = container.childNodes[direction === "back" ? range.startOffset - 1 : range.startOffset] ?? null;
+  return candidate && isEmptyText(candidate) ? solidSibling(candidate, direction) : candidate;
 }
 
 /**
@@ -441,17 +441,7 @@ export function chipBesideCaret(direction: "back" | "forward", range: Range): HT
  */
 export function chipAcrossLineBreak(direction: "back" | "forward", range: Range): HTMLElement | null {
   if (!range.collapsed) return null;
-  const container = range.startContainer;
-  let candidate: Node | null;
-  if (container.nodeType === Node.TEXT_NODE) {
-    const atEdge =
-      direction === "back" ? range.startOffset === 0 : range.startOffset === (container.textContent?.length ?? 0);
-    if (!atEdge) return null;
-    candidate = solidSibling(container, direction);
-  } else {
-    candidate = container.childNodes[direction === "back" ? range.startOffset - 1 : range.startOffset] ?? null;
-    if (candidate && isEmptyText(candidate)) candidate = solidSibling(candidate, direction);
-  }
+  const candidate = nodeBesideCaret(direction, range);
   if (candidate?.nodeName !== "BR") return null;
   return asChip(solidSibling(candidate, direction));
 }
@@ -464,9 +454,8 @@ export function chipAcrossLineBreak(direction: "back" | "forward", range: Range)
  * line check by answering `true`.
  */
 export function caretOnVisualEdgeLine(root: HTMLElement, edge: "first" | "last"): boolean {
-  const selection = window.getSelection();
-  if (!selection?.rangeCount) return true;
-  const caret = selection.getRangeAt(0);
+  const caret = liveRange();
+  if (!caret) return true;
   if (typeof caret.getClientRects !== "function") return true;
   const caretRect = caret.getClientRects()[0];
   if (!caretRect || caretRect.height === 0) return true;
@@ -510,47 +499,31 @@ export function moveCaretVertically(root: HTMLElement, direction: "up" | "down")
   const caret = caretOffset(root);
   if (caret === null) return false;
   const units = toUnits(readParts(root));
-  let lineStart = caret;
-  while (lineStart > 0 && units[lineStart - 1] !== "\n") lineStart -= 1;
-  let lineEnd = caret;
-  while (lineEnd < units.length && units[lineEnd] !== "\n") lineEnd += 1;
+  const lineStart = lineEdgeOffset(units, caret, "back");
+  const lineEnd = lineEdgeOffset(units, caret, "forward");
   const column = caret - lineStart;
 
   let targetStart: number;
   let targetEnd: number;
   if (direction === "up") {
     if (lineStart === 0) return false;
-    const prevEnd = lineStart - 1;
-    let prevStart = prevEnd;
-    while (prevStart > 0 && units[prevStart - 1] !== "\n") prevStart -= 1;
-    targetStart = prevStart;
-    targetEnd = prevEnd;
+    targetEnd = lineStart - 1;
+    targetStart = lineEdgeOffset(units, targetEnd, "back");
   } else {
     if (lineEnd === units.length) return false;
-    const nextStart = lineEnd + 1;
-    let nextEnd = nextStart;
-    while (nextEnd < units.length && units[nextEnd] !== "\n") nextEnd += 1;
-    targetStart = nextStart;
-    targetEnd = nextEnd;
+    targetStart = lineEnd + 1;
+    targetEnd = lineEdgeOffset(units, targetStart, "forward");
   }
   placeCaretAtOffset(root, Math.min(targetStart + column, targetEnd));
   return true;
 }
 
-/** Collapses the selection to just before or just after a node. */
-function placeCaretBesideNode(node: Node, side: "before" | "after"): void {
+/** Collapses the selection to just before or just after a node (a chip, say). */
+export function placeCaretBeside(node: Node, side: "before" | "after"): void {
   const range = document.createRange();
   if (side === "before") range.setStartBefore(node);
   else range.setStartAfter(node);
-  range.collapse(true);
-  const selection = window.getSelection();
-  selection?.removeAllRanges();
-  selection?.addRange(range);
-}
-
-/** Collapses the selection to just before or just after a chip. */
-export function placeCaretBesideChip(chip: HTMLElement, side: "before" | "after"): void {
-  placeCaretBesideNode(chip, side);
+  selectCollapsed(range);
 }
 
 /**
@@ -560,10 +533,8 @@ export function placeCaretBesideChip(chip: HTMLElement, side: "before" | "after"
  * break exactly, so the two always agree on where a newline sits.
  */
 export function caretOffset(root: HTMLElement): number | null {
-  const selection = window.getSelection();
-  if (!selection?.rangeCount) return null;
-  const range = selection.getRangeAt(0);
-  if (!range.collapsed || !root.contains(range.startContainer)) return null;
+  const range = caretRangeIn(root);
+  if (!range) return null;
   let { startContainer: container, startOffset: offset } = range;
   // WebKit parks the caret inside a chip's label once the text after the chip
   // is deleted (it drops the padding text node with it). Count that as "just
@@ -627,21 +598,23 @@ export function placeCaretAtOffset(root: HTMLElement, target: number): void {
         remaining -= length;
       } else {
         if (remaining === 0) {
-          placeCaretBesideNode(node, "before");
+          placeCaretBeside(node, "before");
           return;
         }
         remaining -= 1;
       }
     }
-    const range = document.createRange();
-    range.selectNodeContents(root);
-    range.collapse(false);
-    const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
+    placeCaretAtEnd(root);
   };
   place();
   scrollCaretIntoView(root);
+}
+
+/** Collapses the selection to the very end of `root`. */
+export function placeCaretAtEnd(root: HTMLElement): void {
+  const range = document.createRange();
+  range.selectNodeContents(root);
+  selectCollapsed(range, false);
 }
 
 /**
@@ -650,10 +623,8 @@ export function placeCaretAtOffset(root: HTMLElement, target: number): void {
  * Shift+Enter, paste or undo in a scrolled composer jumps the view to the top.
  */
 function scrollCaretIntoView(root: HTMLElement): void {
-  const selection = window.getSelection();
-  if (!selection?.rangeCount) return;
-  const range = selection.getRangeAt(0);
-  if (!range.collapsed || !root.contains(range.startContainer)) return;
+  const range = caretRangeIn(root);
+  if (!range) return;
   // No Range layout (e.g. jsdom): nothing is scrollable there either.
   if (typeof range.getClientRects !== "function") return;
   let rect: DOMRect | null = range.getClientRects()[0] ?? null;
@@ -677,8 +648,8 @@ function scrollCaretIntoView(root: HTMLElement): void {
 }
 
 /** Explodes parts into one entry per caret unit: a character or a whole chip. */
-function toUnits(parts: ComposerPart[]): (string | ComposerPart)[] {
-  const units: (string | ComposerPart)[] = [];
+function toUnits(parts: ComposerPart[]): Units {
+  const units: Units = [];
   for (const part of parts) {
     if (part.type === "text") units.push(...part.text);
     else units.push(part);
@@ -686,11 +657,31 @@ function toUnits(parts: ComposerPart[]): (string | ComposerPart)[] {
   return units;
 }
 
-function fromUnits(units: (string | ComposerPart)[]): ComposerPart[] {
+function fromUnits(units: Units): ComposerPart[] {
   return normaliseParts(units.map((unit) => (typeof unit === "string" ? { type: "text", text: unit } : unit)));
 }
 
-type Units = (string | ComposerPart)[];
+/**
+ * The frame every parts-model edit shares: read the caret and the content as
+ * units, let `edit` splice them in place and return where the caret goes —
+ * or null to leave the keystroke to the browser — then re-render and return
+ * the new parts.
+ */
+function editUnits(
+  root: HTMLElement,
+  handlers: AttachmentChipHandlers,
+  edit: (units: Units, caret: number) => number | null,
+): ComposerPart[] | null {
+  const caret = caretOffset(root);
+  if (caret === null) return null;
+  const units = toUnits(readParts(root));
+  const nextCaret = edit(units, caret);
+  if (nextCaret === null) return null;
+  const parts = fromUnits(units);
+  renderParts(root, parts, handlers);
+  placeCaretAtOffset(root, nextCaret);
+  return parts;
+}
 
 /** Offset of the start/end of the line `caret` sits on, in flattened units. */
 function lineEdgeOffset(units: Units, caret: number, direction: "back" | "forward"): number {
@@ -700,8 +691,8 @@ function lineEdgeOffset(units: Units, caret: number, direction: "back" | "forwar
   return edge;
 }
 
-const isSpaceUnit = (unit: string | ComposerPart) => typeof unit === "string" && unit !== "\n" && /\s/.test(unit);
-const isWordUnit = (unit: string | ComposerPart) => typeof unit === "string" && unit !== "\n" && !/\s/.test(unit);
+const isSpaceUnit = (unit: Unit) => typeof unit === "string" && unit !== "\n" && /\s/.test(unit);
+const isWordUnit = (unit: Unit) => typeof unit === "string" && unit !== "\n" && !/\s/.test(unit);
 
 /**
  * Offset of the far side of the "word" beside the caret, in flattened units,
@@ -753,16 +744,12 @@ export function deleteLineBreak(
   direction: "back" | "forward",
   handlers: AttachmentChipHandlers,
 ): ComposerPart[] | null {
-  const caret = caretOffset(root);
-  if (caret === null) return null;
-  const units = toUnits(readParts(root));
-  const index = direction === "back" ? caret - 1 : caret;
-  if (units[index] !== "\n") return null;
-  units.splice(index, 1);
-  const parts = fromUnits(units);
-  renderPartsWith(root, parts, handlers);
-  placeCaretAtOffset(root, index);
-  return parts;
+  return editUnits(root, handlers, (units, caret) => {
+    const index = direction === "back" ? caret - 1 : caret;
+    if (units[index] !== "\n") return null;
+    units.splice(index, 1);
+    return index;
+  });
 }
 
 /**
@@ -777,14 +764,10 @@ export function deleteLineBreak(
  * cross the chip, and WebKit will not move a caret across one.
  */
 export function insertLineBreak(root: HTMLElement, handlers: AttachmentChipHandlers): ComposerPart[] | null {
-  const caret = caretOffset(root);
-  if (caret === null) return null;
-  const units = toUnits(readParts(root));
-  units.splice(caret, 0, "\n");
-  const parts = fromUnits(units);
-  renderPartsWith(root, parts, handlers);
-  placeCaretAtOffset(root, caret + 1);
-  return parts;
+  return editUnits(root, handlers, (units, caret) => {
+    units.splice(caret, 0, "\n");
+    return caret + 1;
+  });
 }
 
 /**
@@ -802,18 +785,20 @@ export function deleteToLineEdge(
   direction: "back" | "forward",
   handlers: AttachmentChipHandlers,
 ): ComposerPart[] | null {
-  const caret = caretOffset(root);
-  if (caret === null) return null;
-  const units = toUnits(readParts(root));
-  const edge = lineEdgeOffset(units, caret, direction);
-  const start = direction === "back" ? edge : caret;
-  const end = direction === "back" ? caret : edge;
+  return editUnits(root, handlers, (units, caret) => {
+    const edge = lineEdgeOffset(units, caret, direction);
+    return spliceBetween(units, caret, edge);
+  });
+}
+
+/** Removes the units between two offsets (in either order), returning the
+ *  lower one — or null when they are the same and nothing was removed. */
+function spliceBetween(units: Units, a: number, b: number): number | null {
+  const start = Math.min(a, b);
+  const end = Math.max(a, b);
   if (start === end) return null;
   units.splice(start, end - start);
-  const parts = fromUnits(units);
-  renderPartsWith(root, parts, handlers);
-  placeCaretAtOffset(root, start);
-  return parts;
+  return start;
 }
 
 /**
@@ -834,18 +819,10 @@ export function deleteToWordEdge(
   direction: "back" | "forward",
   handlers: AttachmentChipHandlers,
 ): ComposerPart[] | null {
-  const caret = caretOffset(root);
-  if (caret === null) return null;
-  const units = toUnits(readParts(root));
-  const { offset, crossesChip } = wordEdgeOffset(units, caret, direction);
-  const start = direction === "back" ? offset : caret;
-  const end = direction === "back" ? caret : offset;
-  if (!crossesChip || start === end) return null;
-  units.splice(start, end - start);
-  const parts = fromUnits(units);
-  renderPartsWith(root, parts, handlers);
-  placeCaretAtOffset(root, start);
-  return parts;
+  return editUnits(root, handlers, (units, caret) => {
+    const { offset, crossesChip } = wordEdgeOffset(units, caret, direction);
+    return crossesChip ? spliceBetween(units, caret, offset) : null;
+  });
 }
 
 /**
@@ -867,20 +844,16 @@ export function deleteCharBesideChip(
   direction: "back" | "forward",
   handlers: AttachmentChipHandlers,
 ): ComposerPart[] | null {
-  const caret = caretOffset(root);
-  if (caret === null) return null;
-  const units = toUnits(readParts(root));
-  const charIndex = direction === "back" ? caret - 1 : caret;
-  const chipIndex = direction === "back" ? caret - 2 : caret + 1;
-  const char = units[charIndex];
-  const chip = units[chipIndex];
-  if (typeof char !== "string" || char === "\n") return null;
-  if (chip === undefined || typeof chip === "string") return null;
-  units.splice(charIndex, 1);
-  const parts = fromUnits(units);
-  renderPartsWith(root, parts, handlers);
-  placeCaretAtOffset(root, charIndex);
-  return parts;
+  return editUnits(root, handlers, (units, caret) => {
+    const charIndex = direction === "back" ? caret - 1 : caret;
+    const chipIndex = direction === "back" ? caret - 2 : caret + 1;
+    const char = units[charIndex];
+    const chip = units[chipIndex];
+    if (typeof char !== "string" || char === "\n") return null;
+    if (chip === undefined || typeof chip === "string") return null;
+    units.splice(charIndex, 1);
+    return charIndex;
+  });
 }
 
 /** Whether a chip is missing the empty text node that pads it on either side. */
@@ -894,14 +867,9 @@ const isUnpadded = (chip: Element): boolean =>
  */
 function needsFlattening(root: HTMLElement): boolean {
   if (root.querySelector("div,p")) return true;
-  const selection = window.getSelection();
-  if (selection?.rangeCount) {
-    const container = selection.getRangeAt(0).startContainer;
-    if (root.contains(container) && chipContaining(container, root)) return true;
-  }
-  return [...root.querySelectorAll("[data-mention-path],[data-attachment-id],[data-skill-name]")].some(
-    (chip) => chip.parentNode !== root || isUnpadded(chip),
-  );
+  const container = liveRange()?.startContainer;
+  if (container && root.contains(container) && chipContaining(container, root)) return true;
+  return [...root.querySelectorAll(CHIP_SELECTOR)].some((chip) => chip.parentNode !== root || isUnpadded(chip));
 }
 
 /**
@@ -918,14 +886,9 @@ function needsFlattening(root: HTMLElement): boolean {
  */
 export function normaliseEditorDom(root: HTMLElement, handlers: AttachmentChipHandlers): ComposerPart[] | null {
   if (!needsFlattening(root)) return null;
-  // Without a caret to restore, re-rendering would move it somewhere arbitrary;
-  // leave the DOM alone and normalise on a later edit instead.
-  const caret = caretOffset(root);
-  if (caret === null) return null;
-  const parts = readParts(root);
-  renderPartsWith(root, parts, handlers);
-  placeCaretAtOffset(root, caret);
-  return parts;
+  // Without a caret to restore, re-rendering would move it somewhere arbitrary,
+  // so `editUnits` leaves the DOM alone and a later edit normalises instead.
+  return editUnits(root, handlers, (_units, caret) => caret);
 }
 
 /** Where an edge-seeking motion should land, as a flattened unit offset. */
@@ -983,11 +946,11 @@ function moveCaretToEdge(
     // Landed inside a chip's label: step out to the far side of the chip.
     const inside = chipContaining(range.startContainer, editor);
     if (inside) {
-      placeCaretBesideChip(inside, side);
+      placeCaretBeside(inside, side);
       range = selection.getRangeAt(0);
     }
     const beside = chipBesideCaret(direction, range);
-    if (beside) placeCaretBesideChip(beside, side);
+    if (beside) placeCaretBeside(beside, side);
 
     const now = selection.getRangeAt(0);
     const stuck = now.startContainer === previousNode && now.startOffset === previousOffset;

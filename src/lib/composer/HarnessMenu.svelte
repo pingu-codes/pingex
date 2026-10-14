@@ -1,7 +1,7 @@
 <script lang="ts">
 import { Bot, Check, ChevronDown } from "@lucide/svelte";
 import { Menu, Portal } from "@skeletonlabs/skeleton-svelte";
-import type { HarnessChoice } from "$lib/composer/composerPrefs.svelte";
+import type { HarnessChoice } from "$lib/composer/composerPrefs";
 import { availableHomes, chooseDefaultHome, currentHomeKey } from "$lib/services/homeRouting";
 import { errorMessage } from "$lib/utils/errors";
 
