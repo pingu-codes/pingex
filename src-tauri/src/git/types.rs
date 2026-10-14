@@ -95,9 +95,12 @@ pub(crate) struct WorktreeEntry {
     pub(crate) prunable: bool,
     pub(crate) prunable_reason: Option<String>,
     pub(crate) is_main: bool,
-    /// True only when the canonical path lives under `<codex_home>/worktrees/`;
-    /// never inferred from the display name.
+    /// True only when the canonical path lives under `<codex_home>/worktrees/`
+    /// or `<codex_home>/worktrees-tmp/`; never inferred from the display name.
     pub(crate) is_codex_managed: bool,
+    /// A temporary worktree under `<codex_home>/worktrees-tmp/`: scaffolding
+    /// for one thread rather than a project of its own.
+    pub(crate) is_temp: bool,
     /// The registered directory is gone (a stale registration to prune).
     pub(crate) missing_dir: bool,
     /// This worktree's branch is also checked out in another listed worktree.

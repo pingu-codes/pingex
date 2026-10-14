@@ -6,10 +6,8 @@ import {
   adoptableWorktrees,
   aheadBehindLabel,
   isDirty,
-  isTempWorktreePath,
   statusSummary,
   stripRemotePrefix,
-  tempWorktreeLocation,
   threadCountForPath,
   worktreeCards,
   worktreeProblem,
@@ -27,15 +25,6 @@ describe("worktree helpers", () => {
     expect(statusSummary(null)).toBe("Status unavailable");
     expect(statusSummary({ staged: 0, unstaged: 0, untracked: 0, conflicted: 0 })).toBe("Clean");
     expect(statusSummary({ staged: 1, unstaged: 2, untracked: 0, conflicted: 1 })).toBe("3 changed · 1 conflict");
-  });
-
-  it("keeps temporary worktrees in a restart-safe, repository-scoped Codex location", () => {
-    expect(tempWorktreeLocation("/home/me/.codex/", "/projects/example/", "abc123")).toBe(
-      "/home/me/.codex/worktrees-tmp/example/abc123",
-    );
-    expect(isTempWorktreePath("/home/me/.codex/worktrees-tmp/example/abc123")).toBe(true);
-    expect(isTempWorktreePath("/home/me/.codex/worktrees/example/feature")).toBe(false);
-    expect(isTempWorktreePath("/projects/example")).toBe(false);
   });
 
   it("summarises ahead/behind and dirtiness", () => {
@@ -81,6 +70,7 @@ describe("worktree helpers", () => {
             sectionId: null,
             subagentCount: 0,
             hidden: false,
+            inTempWorktree: false,
           },
           {
             id: "2",
@@ -96,6 +86,7 @@ describe("worktree helpers", () => {
             sectionId: null,
             subagentCount: 0,
             hidden: false,
+            inTempWorktree: false,
           },
           {
             id: "3",
@@ -111,6 +102,7 @@ describe("worktree helpers", () => {
             sectionId: null,
             subagentCount: 0,
             hidden: false,
+            inTempWorktree: false,
           },
         ],
       },
@@ -139,7 +131,7 @@ describe("worktree helpers", () => {
       worktreeEntry({ path: "/repo", isMain: true }),
       worktreeEntry({ path: "/repo/gone", missingDir: true }),
       worktreeEntry({ path: "/repo/stale", prunable: true }),
-      worktreeEntry({ path: "/home/.codex/worktrees-tmp/repo/tmp" }),
+      worktreeEntry({ path: "/home/.codex/worktrees-tmp/repo/tmp", isTemp: true }),
       worktreeEntry({ path: "/repo/listed" }),
       worktreeEntry({ path: "/repo/feature" }),
     ];

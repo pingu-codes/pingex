@@ -15,7 +15,8 @@ use super::types::{
     Account, BootstrapData, BootstrapExtras, Project, ThreadSummary, WorkspaceMember,
 };
 use super::worktrees::{
-    discover_worktrees, is_temp_worktree_path, is_worktree_path, worktree_parent_project_on,
+    discover_worktrees, is_temp_worktree_path, is_worktree_path, temp_worktrees_root_on,
+    worktree_parent_project_on,
 };
 use crate::storage::{
     self, SideQuestion, Store, StoredProject, StoredProjectSource, StoredThreadSummary,
@@ -117,6 +118,7 @@ pub(crate) async fn bootstrap_inner(
             subagent_count: 0,
             hidden: false,
             harness: Some(thread.harness),
+            in_temp_worktree: false,
         });
     }
     let hidden_threads: HashSet<&str> = store.hidden_threads.iter().map(String::as_str).collect();
@@ -213,6 +215,7 @@ pub(crate) async fn bootstrap_cached(ctx: &HomeContext) -> Result<BootstrapData,
             section_id: None,
             subagent_count: 0,
             harness: Some(thread.harness),
+            in_temp_worktree: false,
         });
     }
     let account = storage::read_account_cache(&ctx.database())
@@ -362,11 +365,22 @@ fn build_bootstrap(
         .cloned()
         .collect();
     let descendant_counts = descendant_counts(&visible_threads);
+    // Lexical, so it costs no filesystem (or `wsl.exe`) round trip per thread:
+    // a thread's cwd is the path the worktree was created at.
+    let host = &runtime.host;
+    let temp_root = temp_worktrees_root_on(host, &runtime.codex_home_str());
+    let in_temp_worktree = |cwd: &str| {
+        host.is_under(&temp_root, cwd)
+            || temp_worktree_parents
+                .iter()
+                .any(|(worktree, _)| host.is_under(worktree, cwd))
+    };
     let visible_threads: Vec<_> = visible_threads
         .into_iter()
         .map(|mut thread| {
             thread.subagent_count = descendant_counts.get(&thread.id).copied().unwrap_or(0)
                 + agent_counts.get(thread.id.as_str()).copied().unwrap_or(0);
+            thread.in_temp_worktree = in_temp_worktree(&thread.cwd);
             thread
         })
         .collect();
@@ -622,6 +636,7 @@ mod tests {
             subagent_count: 0,
             hidden: false,
             harness: None,
+            in_temp_worktree: false,
         }
     }
 
@@ -903,6 +918,13 @@ mod tests {
             ids,
             ["own-thread", "live-worktree-thread", "gone-worktree-thread"]
         );
+        // ...and they are marked as running somewhere else.
+        let in_temp: Vec<_> = data.projects[0]
+            .threads
+            .iter()
+            .map(|thread| thread.in_temp_worktree)
+            .collect();
+        assert_eq!(in_temp, [false, true, true]);
     }
 
     #[test]

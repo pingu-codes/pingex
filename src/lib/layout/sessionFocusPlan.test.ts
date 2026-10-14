@@ -17,6 +17,7 @@ const thread = (id: string, extra: Partial<ThreadSummary> = {}): ThreadSummary =
   sectionId: null,
   subagentCount: 0,
   hidden: false,
+  inTempWorktree: false,
   ...extra,
 });
 

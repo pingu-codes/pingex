@@ -52,6 +52,7 @@ function home(key: string, host: Host, harness: "codex" | "claude", cwd: string)
             sectionId: null,
             subagentCount: 0,
             hidden: false,
+            inTempWorktree: false,
             harness,
           },
         ],

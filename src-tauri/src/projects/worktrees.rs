@@ -19,7 +19,7 @@ pub(crate) fn discover_worktrees(runtime: &RuntimeConfig) -> Vec<String> {
     let mut found = discover_worktree_root(host, &host.join_str(&home, "worktrees"));
     found.extend(discover_worktree_root(
         host,
-        &host.join_str(&home, "worktrees-tmp"),
+        &temp_worktrees_root_on(host, &home),
     ));
     found.sort();
     found
@@ -145,7 +145,32 @@ pub fn is_temp_worktree_path_under(codex_home: &Path, path: &str) -> bool {
 
 /// [`is_temp_worktree_path`] against an explicit Codex home on `host`.
 pub(crate) fn is_temp_worktree_path_on(host: &Host, codex_home: &str, path: &str) -> bool {
-    path_under(host, &host.join_str(codex_home, "worktrees-tmp"), path)
+    path_under(host, &temp_worktrees_root_on(host, codex_home), path)
+}
+
+/// [`temp_worktrees_root`] for a Codex home on `host`.
+pub(crate) fn temp_worktrees_root_on(host: &Host, codex_home: &str) -> String {
+    host.join_str(codex_home, "worktrees-tmp")
+}
+
+/// Where a new temporary worktree of `repo_dir` goes:
+/// `<codex_home>/worktrees-tmp/<repo name>/<name>`. Under the Codex home so it
+/// survives restarts (unlike the OS temp dir), and mirroring the permanent
+/// `worktrees/<group>/<name>` two-level layout.
+pub(crate) fn temp_worktree_location(
+    host: &Host,
+    codex_home: &str,
+    repo_dir: &str,
+    name: &str,
+) -> String {
+    let repo = repo_dir
+        .trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|repo| !repo.is_empty())
+        .unwrap_or("repo");
+    let group = host.join_str(&temp_worktrees_root_on(host, codex_home), repo);
+    host.join_str(&group, name)
 }
 
 /// The main working tree a linked worktree belongs to, so discovering a
@@ -281,6 +306,25 @@ mod tests {
             &real_home,
             &gone.display().to_string()
         ));
+    }
+
+    #[test]
+    fn temp_worktrees_go_under_the_codex_home_grouped_by_repository() {
+        let wsl = Host::wsl("Ubuntu");
+        assert_eq!(
+            temp_worktree_location(&wsl, "/home/me/.codex/", "/projects/example/", "abc123"),
+            "/home/me/.codex/worktrees-tmp/example/abc123"
+        );
+        let location = temp_worktree_location(
+            &Host::Native,
+            "/home/me/.codex",
+            "/projects/example",
+            "abc123",
+        );
+        assert_eq!(
+            PathBuf::from(&location),
+            Path::new("/home/me/.codex/worktrees-tmp/example/abc123")
+        );
     }
 
     #[test]

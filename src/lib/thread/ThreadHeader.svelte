@@ -12,13 +12,13 @@ import MoveToWorktreeDialog from "$lib/thread/MoveToWorktreeDialog.svelte";
 import { errorMessage } from "$lib/utils/errors";
 import { flashFlag } from "$lib/utils/flash.svelte";
 import { ensureGitStatus, gitStatusCache, refreshGitStatus } from "$lib/worktrees/gitStatus.svelte";
-import { isTempWorktreePath } from "$lib/worktrees/worktrees";
 
 let {
   codexHome,
   repoName,
   repoDir,
   cwd,
+  inTempWorktree = false,
   threadId,
   onMovedToWorktree,
   onError,
@@ -29,6 +29,8 @@ let {
   repoDir: string;
   /** The thread's working directory. */
   cwd: string;
+  /** `cwd` is a temporary worktree, which can be handed off to a local checkout. */
+  inTempWorktree?: boolean;
   /** Live thread id; null for an unsaved draft (Handoff is disabled). */
   threadId: string | null;
   onMovedToWorktree: (forkedThreadId: string) => void;
@@ -81,14 +83,12 @@ async function copyThreadLink() {
   }
 }
 
-const inTempWorktree = $derived(isTempWorktreePath(cwd));
-
 /** Check the temporary worktree's branch out locally and continue the thread there. */
 function openHandoffToLocal() {
   const thread = threadId;
   if (!thread) return;
   const targets = projects()
-    .filter((project) => project.kind === "folder" && !project.archived && !isTempWorktreePath(project.path))
+    .filter((project) => project.kind === "folder" && !project.archived)
     .map((project) => ({ path: project.path, name: project.name }));
   openDialog(HandoffToLocalDialog, {
     worktreePath: cwd,

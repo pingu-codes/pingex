@@ -117,6 +117,7 @@ pub(crate) fn thread_summary_from(
         subagent_count: 0,
         hidden: false,
         harness: None,
+        in_temp_worktree: false,
     })
 }
 
@@ -205,6 +206,7 @@ impl From<StoredThreadSummary> for ThreadSummary {
             subagent_count: 0,
             hidden: false,
             harness: thread.harness,
+            in_temp_worktree: false,
         }
     }
 }
@@ -230,6 +232,7 @@ mod tests {
             subagent_count: 0,
             hidden: false,
             harness: None,
+            in_temp_worktree: false,
         }
     }
 

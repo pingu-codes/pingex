@@ -36,6 +36,9 @@ pub(crate) struct ThreadSummary {
     /// Which harness runs the thread; `None` means Codex.
     #[specta(optional)]
     pub(crate) harness: Option<String>,
+    /// Its working directory is a temporary worktree, so it runs somewhere
+    /// other than the project folder it is listed under. Set by bootstrap.
+    pub(crate) in_temp_worktree: bool,
 }
 
 /// One row in the sidebar: a real folder, a Codex-managed worktree, or a

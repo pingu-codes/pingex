@@ -10,26 +10,6 @@ export function stripRemotePrefix(name: string): string {
   return index > 0 ? name.slice(index + 1) : name;
 }
 
-/**
- * Where a temporary thread worktree lives: under the Codex home (so it
- * survives restarts, unlike the OS temp dir) but in `worktrees-tmp/` so it is
- * never mistaken for a permanent Codex worktree. Mirrors the permanent
- * `worktrees/<group>/<name>` two-level layout.
- */
-export function tempWorktreeLocation(codexHome: string, repoDir: string, name: string): string {
-  const home = trimSlash(codexHome);
-  return `${home}/worktrees-tmp/${basename(repoDir)}/${name}`;
-}
-
-/**
- * Whether a directory is one of those temporary worktrees. Threads started in
- * one are listed under the repository it was cut from, so this is what marks
- * them as running somewhere other than the project folder.
- */
-export function isTempWorktreePath(path: string): boolean {
-  return path.includes("/worktrees-tmp/");
-}
-
 export function isDirty(counts: StatusCounts | null): boolean {
   if (!counts) return false;
   return counts.staged + counts.unstaged + counts.untracked + counts.conflicted > 0;
@@ -101,11 +81,7 @@ export function adoptableWorktrees(entries: WorktreeEntry[], projects: Project[]
   const listed = new Set(projects.map((project) => trimSlash(project.path)));
   return entries.filter(
     (entry) =>
-      !entry.isMain &&
-      !entry.missingDir &&
-      !entry.prunable &&
-      !isTempWorktreePath(entry.path) &&
-      !listed.has(trimSlash(entry.path)),
+      !entry.isMain && !entry.missingDir && !entry.prunable && !entry.isTemp && !listed.has(trimSlash(entry.path)),
   );
 }
 

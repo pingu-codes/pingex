@@ -32,7 +32,7 @@ import { errorMessage } from "$lib/utils/errors";
 import CreateWorktreeDialog from "$lib/worktrees/CreateWorktreeDialog.svelte";
 import { refreshGitStatus } from "$lib/worktrees/gitStatus.svelte";
 import RemoveWorktreeDialog from "$lib/worktrees/RemoveWorktreeDialog.svelte";
-import { isTempWorktreePath, type WorktreeCard, worktreeCards } from "$lib/worktrees/worktrees";
+import { type WorktreeCard, worktreeCards } from "$lib/worktrees/worktrees";
 
 let {
   repoDir,
@@ -140,7 +140,7 @@ function menuItems(entry: WorktreeEntry) {
   if (entry.locked) items.push({ value: "unlock", label: "Unlock", icon: LockOpen });
   else if (!entry.isMain) items.push({ value: "lock", label: "Lock", icon: Unlock });
   if (entry.prunable || entry.missingDir) items.push({ value: "prune", label: "Prune stale", icon: Trash2 });
-  if (!entry.isMain && isTempWorktreePath(entry.path) && !entry.missingDir)
+  if (!entry.isMain && entry.isTemp && !entry.missingDir)
     items.push({ value: "handoff", label: "Hand off to local", icon: ArrowLeftRight });
   if (!entry.isMain) items.push({ value: "remove", label: "Remove worktree", icon: Trash2, danger: true });
   return items;

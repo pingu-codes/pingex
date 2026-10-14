@@ -164,7 +164,7 @@ export function forgetOptimisticThread(id: string): void {
 }
 
 /** Register a brand-new thread so the sidebar shows it before it persists. */
-export function trackNewThread(id: string, cwd: string): void {
+export function trackNewThread(id: string, cwd: string, inTempWorktree = false): void {
   const summary: ThreadSummary = {
     id,
     cwd,
@@ -179,6 +179,7 @@ export function trackNewThread(id: string, cwd: string): void {
     sectionId: null,
     subagentCount: 0,
     hidden: false,
+    inTempWorktree,
   };
   optimisticThreads.set(id, summary);
   if (appData.data) insertOptimisticThread(appData.data, summary);
@@ -219,6 +220,7 @@ export function trackSubagent(agent: SubagentDetail): void {
     sectionId: null,
     subagentCount: 0,
     hidden: false,
+    inTempWorktree: false,
     parentThreadId: agent.parentThreadId,
     agentNickname: agent.agentNickname,
     agentRole: agent.agentRole,

@@ -42,6 +42,7 @@ const api: Project = {
       sectionId: null,
       subagentCount: 0,
       hidden: false,
+      inTempWorktree: false,
     },
   ],
 };
@@ -138,6 +139,7 @@ describe("navigation", () => {
       sectionId: null,
       subagentCount: 0,
       hidden: false,
+      inTempWorktree: true,
     });
     appData.data = withWorktreeThread;
 
