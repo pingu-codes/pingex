@@ -5,11 +5,11 @@ import type { DialogClose } from "$lib/app/dialogs.svelte";
 import DialogShell from "$lib/components/DialogShell.svelte";
 import DirectoryField from "$lib/components/DirectoryField.svelte";
 import { commands } from "$lib/services/homeRouting";
-import type { Project, WorktreeEntry } from "$lib/types";
+import type { Project } from "$lib/types";
 import { submitState } from "$lib/utils/actionState.svelte";
 import { basename } from "$lib/utils/path";
 import { resource } from "$lib/utils/resource.svelte";
-import { adoptableWorktrees } from "$lib/worktrees/worktrees";
+import { adoptableWorktrees, branchLabel } from "$lib/worktrees/worktrees";
 
 let {
   repoDir,
@@ -33,11 +33,6 @@ onMount(() => void worktrees.reload());
 
 const candidates = $derived(adoptableWorktrees(worktrees.value ?? [], projects));
 const canAdd = $derived(!action.busy && selectedPath.trim().length > 0);
-
-function branchLabel(entry: WorktreeEntry): string {
-  if (entry.detached) return entry.head ? `detached @ ${entry.head.slice(0, 7)}` : "detached";
-  return entry.branch ?? "(no branch)";
-}
 
 async function add() {
   if (!canAdd) return;

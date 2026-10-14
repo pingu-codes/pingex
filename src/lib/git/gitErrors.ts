@@ -5,14 +5,9 @@
 
 import { errorMessage } from "$lib/utils/errors";
 
-export type GitErrorKind =
-  | "auth"
-  | "nonFastForward"
-  | "noUpstream"
-  | "conflict"
-  | "dirtyTree"
-  | "hookRejected"
-  | "other";
+const KINDS = ["auth", "nonFastForward", "noUpstream", "conflict", "dirtyTree", "hookRejected", "other"] as const;
+
+export type GitErrorKind = (typeof KINDS)[number];
 
 export interface GitError {
   kind: GitErrorKind;
@@ -21,42 +16,23 @@ export interface GitError {
   detail: string | null;
 }
 
-const KINDS: GitErrorKind[] = [
-  "auth",
-  "nonFastForward",
-  "noUpstream",
-  "conflict",
-  "dirtyTree",
-  "hookRejected",
-  "other",
-];
-
 export function parseGitError(cause: unknown): GitError {
   const raw = errorMessage(cause ?? "");
   const [first, ...rest] = raw.split("\n");
   const match = /^([a-zA-Z]+): (.*)$/.exec(first);
-  const kind = match && (KINDS as string[]).includes(match[1]) ? (match[1] as GitErrorKind) : "other";
+  const kind = match && (KINDS as readonly string[]).includes(match[1]) ? (match[1] as GitErrorKind) : "other";
   const message = match && kind !== "other" ? match[2] : match && match[1] === "other" ? match[2] : first;
   const detail = rest.join("\n").trim();
   return { kind, message: message.trim() || "Git operation failed", detail: detail.length > 0 ? detail : null };
 }
 
-/** A one-line next step for the error kind, or null when the message suffices. */
-export function hintFor(kind: GitErrorKind): string | null {
-  switch (kind) {
-    case "auth":
-      return "Run a git command in a terminal to sign in, then try again.";
-    case "nonFastForward":
-      return "Pull first, then push again.";
-    case "noUpstream":
-      return "Publish the branch to create an upstream.";
-    case "conflict":
-      return "Resolve the conflicts in a terminal, then refresh.";
-    case "dirtyTree":
-      return "Commit or discard the changes, or switch anyway.";
-    case "hookRejected":
-      return "Fix what the hook reported and commit again.";
-    default:
-      return null;
-  }
-}
+/** A one-line next step for each error kind, or null when the message suffices. */
+export const gitErrorHints: Record<GitErrorKind, string | null> = {
+  auth: "Run a git command in a terminal to sign in, then try again.",
+  nonFastForward: "Pull first, then push again.",
+  noUpstream: "Publish the branch to create an upstream.",
+  conflict: "Resolve the conflicts in a terminal, then refresh.",
+  dirtyTree: "Commit or discard the changes, or switch anyway.",
+  hookRejected: "Fix what the hook reported and commit again.",
+  other: null,
+};

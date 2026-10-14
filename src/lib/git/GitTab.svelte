@@ -14,11 +14,12 @@ import { gitStatusCache, refreshGitStatus } from "$lib/worktrees/gitStatus.svelt
 import { aheadBehindLabel } from "$lib/worktrees/worktrees";
 import BranchSwitcherDialog from "./BranchSwitcherDialog.svelte";
 import CommitBox from "./CommitBox.svelte";
-import { type GitError, hintFor, parseGitError } from "./gitErrors";
+import GitErrorNote from "./GitErrorNote.svelte";
+import { type GitError, parseGitError } from "./gitErrors";
 import { groupStatusFiles, type Selection, selectionAfterRefresh } from "./gitStatusFiles";
 import StatusFileList from "./StatusFileList.svelte";
+import type { SyncOperation } from "./SyncActions.svelte";
 import SyncActions from "./SyncActions.svelte";
-import type { SyncOperation } from "./sync";
 
 let {
   dir,
@@ -97,21 +98,23 @@ $effect(() => {
 
 const rendered = $derived(diff ? highlightDiff(diff.patch) : "");
 
+/** Runs one git operation, refreshes, and reports a failure to `setError` (the action banner by default). */
 async function mutate(
   kind: NonNullable<typeof busy>,
   work: () => Promise<unknown>,
   after: "status" | "context" = "status",
+  setError: (error: GitError | null) => void = (error) => (actionError = error),
 ) {
   if (busy) return false;
   busy = kind;
-  actionError = null;
+  setError(null);
   try {
     await work();
     await refresh();
     if (after === "context") onContextChanged?.(await commands.gitContext(dir));
     return true;
   } catch (cause) {
-    actionError = parseGitError(cause);
+    setError(parseGitError(cause));
     return false;
   } finally {
     busy = null;
@@ -143,22 +146,13 @@ async function discard(paths: string[], untrackedPaths: string[]) {
   if (confirmed) void mutate("files", () => commands.gitDiscard(dir, paths, untrackedPaths));
 }
 
-async function commit(message: string): Promise<boolean> {
-  if (busy) return false;
-  busy = "commit";
-  commitError = null;
-  try {
-    lastCommit = await commands.gitCommit(dir, message);
-    await refresh();
-    onContextChanged?.(await commands.gitContext(dir));
-    return true;
-  } catch (cause) {
-    commitError = parseGitError(cause);
-    return false;
-  } finally {
-    busy = null;
-  }
-}
+const commit = (message: string) =>
+  mutate(
+    "commit",
+    async () => (lastCommit = await commands.gitCommit(dir, message)),
+    "context",
+    (error) => (commitError = error),
+  );
 
 function sync(operation: SyncOperation) {
   lastSync = null;
@@ -216,11 +210,7 @@ async function switchBranch() {
   </div>
 
   {#if actionError}
-    <div class="error-note">
-      <div>{actionError.message}</div>
-      {#if hintFor(actionError.kind)}<div class="mt-0.5 opacity-80">{hintFor(actionError.kind)}</div>{/if}
-      {#if actionError.detail}<pre class="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-4 opacity-90">{actionError.detail}</pre>{/if}
-    </div>
+    <GitErrorNote error={actionError} />
   {:else if lastSync}
     <div class="flex items-center gap-1.5 rounded-md bg-success-500/10 px-3 py-2 text-xs text-success-700 dark:text-success-300">
       <Check size={12} /> {lastSync.summary}

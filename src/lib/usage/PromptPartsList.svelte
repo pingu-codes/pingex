@@ -9,8 +9,8 @@
 import { ChevronRight } from "@lucide/svelte";
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
 import type { PromptPart } from "$lib/types";
-import { approx, promptPartRows } from "$lib/usage/usageBreakdown";
-import { formatTokens } from "$lib/utils/format";
+import UsageBreakdownBar from "$lib/usage/UsageBreakdownBar.svelte";
+import { promptPartRows } from "$lib/usage/usageBreakdown";
 
 let {
   parts,
@@ -31,8 +31,6 @@ let {
   onToggleShowInThread?: () => void;
 } = $props();
 
-const rows = $derived(promptPartRows(parts, total));
-const anyEstimated = $derived(rows.some((row) => row.estimated));
 const hasRemainder = $derived(parts.some((part) => part.kind === "tools" && part.source === "estimated"));
 
 /** One hue per row, darkening with the index so the sub-bar reads left to right. */
@@ -44,6 +42,24 @@ const SHADES = [
   "bg-surface-700-300",
   "bg-surface-200-800",
 ];
+
+const rows = $derived(
+  promptPartRows(parts, total).map((row, index) => ({
+    ...row,
+    color: SHADES[index % SHADES.length],
+    width: row.percentOfPrompt,
+    percent: row.percentOfContext,
+  })),
+);
+const footnote = $derived(
+  [
+    "≈ sized from the harness's own record of the prompt (about 4 bytes per token).",
+    hasRemainder ? "Tool definitions are never written down, so they are what remains." : "",
+    scaled ? "Scaled to fit the measured system prompt." : "",
+  ]
+    .filter(Boolean)
+    .join(" "),
+);
 </script>
 
 {#if rows.length > 0}
@@ -65,38 +81,7 @@ const SHADES = [
     </div>
     <Collapsible.Content>
       <div class="mt-2 border-l-2 border-surface-200-800 pl-3">
-        <div class="flex h-1.5 w-full overflow-hidden rounded-full bg-surface-200-800" role="img" aria-label="System prompt parts">
-          {#each rows as row, index (row.key)}
-            <div
-              class="h-full {SHADES[index % SHADES.length]}"
-              style="width: {row.percentOfPrompt}%"
-              title="{row.label}: {formatTokens(row.tokens)} tokens"
-            ></div>
-          {/each}
-        </div>
-        <dl class="mt-2 space-y-1">
-          {#each rows as row, index (row.key)}
-            <div class="flex items-baseline justify-between gap-3">
-              <dt class="flex min-w-0 items-center gap-1.5 text-surface-600-400">
-                <span class="inline-block size-2 shrink-0 rounded-sm {SHADES[index % SHADES.length]}" aria-hidden="true"></span>
-                <span class="truncate" title={row.detail ?? row.label}>
-                  {row.label}{#if row.detail}<span class="text-surface-500"> · {row.detail}</span>{/if}
-                </span>
-              </dt>
-              <dd class="shrink-0 font-mono tabular-nums">
-                {approx(formatTokens(row.tokens), row.estimated)}
-                <span class="text-surface-500">· {Math.round(row.percentOfContext)}%</span>
-              </dd>
-            </div>
-          {/each}
-        </dl>
-        {#if anyEstimated}
-          <p class="mt-1.5 text-[10px] leading-4 text-surface-500">
-            ≈ sized from the harness's own record of the prompt (about 4 bytes per token).
-            {#if hasRemainder}Tool definitions are never written down, so they are what remains.{/if}
-            {#if scaled}Scaled to fit the measured system prompt.{/if}
-          </p>
-        {/if}
+        <UsageBreakdownBar {rows} label="System prompt parts" thin {footnote} />
       </div>
     </Collapsible.Content>
   </Collapsible>

@@ -1,7 +1,11 @@
+<script lang="ts" module>
+/** The user-initiated network operations on the Git tab. */
+export type SyncOperation = "fetch" | "pull" | "push" | "publish";
+</script>
+
 <script lang="ts">
 import { ArrowDownToLine, ArrowUpFromLine, CloudDownload } from "@lucide/svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
-import type { SyncOperation } from "./sync";
 
 let {
   upstream = null,

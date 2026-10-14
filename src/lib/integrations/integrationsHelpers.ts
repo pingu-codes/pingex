@@ -237,7 +237,7 @@ export function formatArgs(args: string[]): string {
  * the UI can show metadata compactly instead of rendering `---` as a rule.
  */
 export function splitFrontmatter(text: string): { meta: { key: string; value: string }[]; body: string } {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
+  const match = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text);
   if (!match) return { meta: [], body: text };
   const meta = match[1]
     .split(/\r?\n/)

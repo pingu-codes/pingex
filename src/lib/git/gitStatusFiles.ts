@@ -22,11 +22,11 @@ export interface StatusGroups {
   untracked: StatusRow[];
 }
 
-export function isStagedCode(code: string): boolean {
+function isStagedCode(code: string): boolean {
   return code.length >= 1 && code[0] !== ".";
 }
 
-export function isUnstagedCode(code: string): boolean {
+function isUnstagedCode(code: string): boolean {
   return code.length >= 2 && code[1] !== ".";
 }
 

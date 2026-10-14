@@ -109,16 +109,18 @@ export function adoptableWorktrees(entries: WorktreeEntry[], projects: Project[]
   );
 }
 
+/** The branch a worktree is on, or where its detached HEAD points. */
+export function branchLabel(entry: WorktreeEntry): string {
+  if (entry.detached) return entry.head ? `detached @ ${entry.head.slice(0, 7)}` : "detached";
+  return entry.branch ?? "(no branch)";
+}
+
 /** Map backend worktree entries to render-ready card models. Pure and tested. */
 export function worktreeCards(entries: WorktreeEntry[], projects: Project[]): WorktreeCard[] {
   return entries.map((entry) => ({
     entry,
     displayName: basename(entry.path),
-    branchLabel: entry.detached
-      ? entry.head
-        ? `detached @ ${entry.head.slice(0, 7)}`
-        : "detached"
-      : (entry.branch ?? "(no branch)"),
+    branchLabel: branchLabel(entry),
     threadCount: threadCountForPath(projects, entry.path),
     dirty: isDirty(entry.status),
     statusLabel: statusSummary(entry.status),

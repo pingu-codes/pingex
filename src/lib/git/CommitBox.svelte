@@ -1,7 +1,8 @@
 <script lang="ts">
 import { AlertTriangle, Check, ChevronDown } from "@lucide/svelte";
 import type { CommitResult } from "$lib/types";
-import { type GitError, hintFor } from "./gitErrors";
+import GitErrorNote from "./GitErrorNote.svelte";
+import type { GitError } from "./gitErrors";
 
 let {
   stagedCount,
@@ -65,11 +66,7 @@ function onKeydown(event: KeyboardEvent) {
   </div>
 
   {#if error}
-    <div class="mt-2 error-note">
-      <div>{error.message}</div>
-      {#if hintFor(error.kind)}<div class="mt-0.5 opacity-80">{hintFor(error.kind)}</div>{/if}
-      {#if error.detail}<pre class="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-4 opacity-90">{error.detail}</pre>{/if}
-    </div>
+    <GitErrorNote {error} class="mt-2" />
   {:else if lastCommit}
     <div class="mt-2 rounded-md bg-success-500/10 px-3 py-2 text-xs text-success-700 dark:text-success-300">
       <div class="flex items-center gap-1.5">

@@ -1,3 +1,4 @@
+import { splitFrontmatter } from "$lib/integrations/integrationsHelpers";
 import type { MemoryEntry, MemoryHome, MemoryStore } from "$lib/types";
 import { relativeTime } from "$lib/utils/format";
 
@@ -68,7 +69,7 @@ export function entryCount(homes: MemoryHome[]): number {
 /** The markdown body without its `---` frontmatter, which the list already
  *  shows as title, description and kind. The editor keeps it. */
 export function stripFrontmatter(text: string): string {
-  return text.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*(\r?\n|$)/, "");
+  return splitFrontmatter(text).body;
 }
 
 /** Markdown renders; anything else (a skill's script) shows as text. */

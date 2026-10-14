@@ -29,11 +29,23 @@ export const USAGE_CATEGORIES: CategoryMeta[] = [
   { id: "unattributed", label: "Not attributed", color: "bg-surface-200-800", estimated: false },
 ];
 
-export interface UsageSegment extends CategoryMeta {
+/** One row of a stacked bar and its legend. */
+export interface BarRow {
+  key: string;
+  label: string;
+  /** Shown after the label, dimmed. */
+  detail?: string | null;
+  /** Tailwind background class for the bar segment and legend swatch. */
+  color: string;
   tokens: number;
-  /** 0–100, of the categories' sum. */
+  estimated: boolean;
+  /** 0–100, the segment's width in the bar. */
+  width: number;
+  /** 0–100, the share printed in the legend. */
   percent: number;
 }
+
+export interface UsageSegment extends CategoryMeta, BarRow {}
 
 /** Non-empty categories in display order, sized as shares of their sum.
  *  `exact` marks every segment as reported rather than estimated (a
@@ -41,12 +53,17 @@ export interface UsageSegment extends CategoryMeta {
 export function segmentsFor(categories: CategoryTokens, options: { exact?: boolean } = {}): UsageSegment[] {
   const total = USAGE_CATEGORIES.reduce((sum, meta) => sum + Math.max(categories[meta.id], 0), 0);
   if (total === 0) return [];
-  return USAGE_CATEGORIES.filter((meta) => categories[meta.id] > 0).map((meta) => ({
-    ...meta,
-    estimated: options.exact ? false : meta.estimated,
-    tokens: categories[meta.id],
-    percent: (categories[meta.id] / total) * 100,
-  }));
+  return USAGE_CATEGORIES.filter((meta) => categories[meta.id] > 0).map((meta) => {
+    const percent = (categories[meta.id] / total) * 100;
+    return {
+      ...meta,
+      key: meta.id,
+      estimated: options.exact ? false : meta.estimated,
+      tokens: categories[meta.id],
+      width: percent,
+      percent,
+    };
+  });
 }
 
 export interface CostSummary {
