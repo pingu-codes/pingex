@@ -296,130 +296,112 @@ export async function menuAction(action: MenuAction, target: MenuTarget): Promis
     ) {
       return;
     }
-    if (action === "newFolder") {
-      if (target.kind === "project") await newFolder(target.project.path, null);
-      else if (target.kind === "folder") await newFolder(target.folder.scope, target.folder.id);
-      return;
-    }
-    if (action === "deleteFolder") {
-      if (target.kind === "folder") await applyFresh(commands.deleteSidebarFolder(target.folder.id));
-      return;
-    }
-    if (target.kind === "folder") {
-      if (action === "rename") await rename(target);
-      return;
-    }
-    if (action === "openDetails") {
-      if (target.kind === "project") openProjectDetail(target.project);
-      return;
-    }
-    if (action === "openGit") {
-      if (target.kind === "project") openProjectDetail(target.project, "git");
-      return;
-    }
-    if (action === "openWorktrees") {
-      if (target.kind === "project") openProjectDetail(target.project, "worktrees");
-      return;
-    }
-    if (action === "toggleArchive") {
-      if (target.kind !== "project") return;
-      await applyFresh(commands.setProjectArchived(target.project.path, !target.project.archived));
-      if (view.projectPath === target.project.path && !target.project.archived) goHome();
-      return;
-    }
-    if (action === "remove") {
-      if (target.kind !== "project") return;
-      await applyFresh(commands.removeProject(target.project.path));
-      if (view.projectPath === target.project.path) goHome();
-      return;
-    }
-    if (action === "toggleHidden") {
-      if (target.kind === "thread")
-        await applyFresh(commands.setThreadsHidden([target.thread.id], !target.thread.hidden));
-      return;
-    }
-    if (action === "hideBelow") {
-      if (target.kind !== "thread") return;
-      const at = target.order.indexOf(target.thread.id);
-      const below = new Set(at < 0 ? [] : target.order.slice(at + 1));
-      const ids = target.project.threads
-        .filter((thread) => below.has(thread.id) && !thread.hidden && !thread.pinned)
-        .map((thread) => thread.id);
-      if (ids.length > 0) await applyFresh(commands.setThreadsHidden(ids, true));
-      return;
-    }
-    if (action === "unhideAll") {
-      if (target.kind !== "project") return;
-      const ids = target.project.threads.filter((thread) => thread.hidden).map((thread) => thread.id);
-      if (ids.length > 0) await applyFresh(commands.setThreadsHidden(ids, false));
-      return;
-    }
-    if (action === "resetOrder") {
-      if (target.kind === "project") await resetOrder(target.project.path);
-      return;
-    }
-    if (action === "moveUp" || action === "moveDown") {
-      if (target.kind === "project") await nudgeProject(target.project, action === "moveUp" ? -1 : 1);
-      return;
-    }
-    if (action === "fork") {
-      if (target.kind !== "thread") return;
-      const forked = await forkThread(target.thread.id);
-      setView({ projectPath: target.project.path, threadId: forked.id });
-      quietRefresh();
-      return;
-    }
-    if (action === "addWorktree") {
-      if (target.kind === "project") await addWorktreeFor(target.project);
-      return;
-    }
-    if (action === "createWorktree") {
-      if (target.kind === "thread") await createWorktreeFor(target.thread.cwd || target.project.path);
-      return;
-    }
-    if (action === "moveToWorkspace") {
-      if (target.kind === "thread") await moveToWorkspace(target.thread.id);
-      return;
-    }
-    if (action === "moveToSection") {
-      if (target.kind === "thread") await moveToSection(target.thread.id, target.thread.sectionId);
-      return;
-    }
-    if (action === "deleteSection") {
-      if (target.kind === "section") await applyFresh(commands.deleteThreadSection(target.section.id));
-      return;
-    }
-    if (target.kind === "section") {
-      if (action === "rename") await rename(target);
-      return;
-    }
-    if (action === "reveal") {
-      await commands.revealInFinder(
-        target.kind === "project" ? target.project.path : target.thread.cwd || target.project.path,
-      );
-      return;
-    }
-    if (action === "rename") {
-      await rename(target);
-      return;
-    }
-    if (action === "archive") {
-      if (target.kind !== "thread") return;
-      const ticket = dataTicket();
-      const archived = await commands.archiveThread(target.thread.id);
-      forgetOptimisticThread(target.thread.id);
-      applyTicketed(archived, ticket);
-      clearThread(target.thread.id);
-      return;
-    }
-    if (action === "delete") {
-      await confirmDelete(target);
-      return;
-    }
-    if (target.kind === "project") {
-      await applyFresh(commands.setProjectPinned(target.project.path, !target.project.pinned));
-    } else {
-      await applyFresh(commands.setThreadPinned(target.thread.id, !target.thread.pinned));
+    // Each action names the target kinds it applies to; on any other target it
+    // does nothing.
+    switch (action) {
+      case "rename":
+        await rename(target);
+        return;
+      case "newFolder":
+        if (target.kind === "project") await newFolder(target.project.path, null);
+        else if (target.kind === "folder") await newFolder(target.folder.scope, target.folder.id);
+        return;
+      case "deleteFolder":
+        if (target.kind === "folder") await applyFresh(commands.deleteSidebarFolder(target.folder.id));
+        return;
+      case "deleteSection":
+        if (target.kind === "section") await applyFresh(commands.deleteThreadSection(target.section.id));
+        return;
+      case "openDetails":
+        if (target.kind === "project") openProjectDetail(target.project);
+        return;
+      case "openGit":
+        if (target.kind === "project") openProjectDetail(target.project, "git");
+        return;
+      case "openWorktrees":
+        if (target.kind === "project") openProjectDetail(target.project, "worktrees");
+        return;
+      case "toggleArchive":
+        if (target.kind !== "project") return;
+        await applyFresh(commands.setProjectArchived(target.project.path, !target.project.archived));
+        if (view.projectPath === target.project.path && !target.project.archived) goHome();
+        return;
+      case "remove":
+        if (target.kind !== "project") return;
+        await applyFresh(commands.removeProject(target.project.path));
+        if (view.projectPath === target.project.path) goHome();
+        return;
+      case "unhideAll": {
+        if (target.kind !== "project") return;
+        const ids = target.project.threads.filter((thread) => thread.hidden).map((thread) => thread.id);
+        if (ids.length > 0) await applyFresh(commands.setThreadsHidden(ids, false));
+        return;
+      }
+      case "resetOrder":
+        if (target.kind === "project") await resetOrder(target.project.path);
+        return;
+      case "moveUp":
+      case "moveDown":
+        if (target.kind === "project") await nudgeProject(target.project, action === "moveUp" ? -1 : 1);
+        return;
+      case "addWorktree":
+        if (target.kind === "project") await addWorktreeFor(target.project);
+        return;
+      case "toggleHidden":
+        if (target.kind === "thread")
+          await applyFresh(commands.setThreadsHidden([target.thread.id], !target.thread.hidden));
+        return;
+      case "hideBelow": {
+        if (target.kind !== "thread") return;
+        const at = target.order.indexOf(target.thread.id);
+        const below = new Set(at < 0 ? [] : target.order.slice(at + 1));
+        const ids = target.project.threads
+          .filter((thread) => below.has(thread.id) && !thread.hidden && !thread.pinned)
+          .map((thread) => thread.id);
+        if (ids.length > 0) await applyFresh(commands.setThreadsHidden(ids, true));
+        return;
+      }
+      case "fork": {
+        if (target.kind !== "thread") return;
+        const forked = await forkThread(target.thread.id);
+        setView({ projectPath: target.project.path, threadId: forked.id });
+        quietRefresh();
+        return;
+      }
+      case "createWorktree":
+        if (target.kind === "thread") await createWorktreeFor(target.thread.cwd || target.project.path);
+        return;
+      case "moveToWorkspace":
+        if (target.kind === "thread") await moveToWorkspace(target.thread.id);
+        return;
+      case "moveToSection":
+        if (target.kind === "thread") await moveToSection(target.thread.id, target.thread.sectionId);
+        return;
+      case "archive": {
+        if (target.kind !== "thread") return;
+        const ticket = dataTicket();
+        const archived = await commands.archiveThread(target.thread.id);
+        forgetOptimisticThread(target.thread.id);
+        applyTicketed(archived, ticket);
+        clearThread(target.thread.id);
+        return;
+      }
+      case "reveal":
+        if (target.kind === "project") await commands.revealInFinder(target.project.path);
+        else if (target.kind === "thread") await commands.revealInFinder(target.thread.cwd || target.project.path);
+        return;
+      case "delete":
+        if (target.kind === "project" || target.kind === "thread") await confirmDelete(target);
+        return;
+      case "togglePin":
+        if (target.kind === "project") {
+          await applyFresh(commands.setProjectPinned(target.project.path, !target.project.pinned));
+        } else if (target.kind === "thread") {
+          await applyFresh(commands.setThreadPinned(target.thread.id, !target.thread.pinned));
+        }
+        return;
+      default:
+        action satisfies never;
     }
   } catch (cause) {
     fail(cause);
