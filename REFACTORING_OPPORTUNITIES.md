@@ -63,7 +63,7 @@ duplicated (section 1); §1.1, §1.4 and §1.5 are done.
 | 12 | ~~Split ThreadView (goal banner, scroll follow)~~ (done) | §5.2, §5.3 | ~330 lines out of the 1,489-line file | med |
 | 13 | Split Composer (attachments, draft, settings) and use Skeleton Popover | §6.2, §6.3 | Composer ~1,374 → ~600 lines; ~130 removed | med |
 | 14 | Shared JSONL child process core for Codex and Claude | §9.2 | ~100–130 lines | med |
-| 15 | Split IntegrationsSection into dialogs and rows | §8.1 | ~120 lines; file ~1,100 → ~450 | med |
+| 15 | ~~Split IntegrationsSection into dialogs and rows~~ (done) | §8.1 | ~120 lines; file ~1,100 → ~450 | med |
 
 ---
 
@@ -652,7 +652,7 @@ See §3.2.
 
 ## 8. Feature folders
 
-### 8.1 Split `IntegrationsSection.svelte` (1,100 lines)
+### 8.1 Split `IntegrationsSection.svelte` (1,100 lines): done
 - **What:** two inline forms (Add skill 572-615, MCP add/edit 617-731), two
   row types (741-934, 947-1033), the page shell and 30+ `$state` variables.
   Every other feature does create/edit through `openDialog` + `DialogShell` +
@@ -662,7 +662,7 @@ See §3.2.
 - **Savings:** ~120 lines; the main file drops to ~450. **Risk:** med (23
   tests drive the inline forms).
 
-### 8.2 Repeated blocks inside IntegrationsSection
+### 8.2 Repeated blocks inside IntegrationsSection: done
 - Resources and Resource-templates lists are identical (891-930).
 - The inherit/enabled/disabled `<select>` appears twice (799, 1043).
 - So do the "Plugin: …" span and the Confirm/Cancel delete pair.
@@ -670,18 +670,18 @@ See §3.2.
 - Add `uriList`, `overrideSelect` and `confirmDelete` snippets, plus a
   `setting(kind, id)` accessor. ~55 lines.
 
-### 8.3 Shared `GitErrorNote`
+### 8.3 Shared `GitErrorNote`: done
 - The GitError block (message, hint, `<pre>` detail) is identical in
   `GitTab.svelte:229-233` and `CommitBox.svelte:68-72`.
 - GitTab's `commit()` re-implements `mutate()` with a different error sink;
   give `mutate` an error-target parameter.
 
-### 8.4 Usage stacked bar
+### 8.4 Usage stacked bar: done
 - `UsageBreakdownBar.svelte:34-60` and `PromptPartsList.svelte:67-90` render
   the same bar and legend. Make UsageBreakdownBar take generic rows.
   ~25 lines.
 
-### 8.5 Dead and over-exported code
+### 8.5 Dead and over-exported code: done
 - `review/review.ts`: `fileAnchor` (33) and `reviewEventLabel` (155) have no
   references. `threadsForFile` (118) is used only by its test.
 - `git/gitStatusFiles.ts`: `isStagedCode` and `isUnstagedCode` are exported
@@ -691,7 +691,7 @@ See §3.2.
   with `as const`, and turn `hintFor` into a Record.
 - ~45 lines.
 
-### 8.6 Small duplicated helpers
+### 8.6 Small duplicated helpers: done
 - The branch label in `AddWorktreeDialog.svelte:49-52` duplicates
   `worktrees.ts:122-127`.
 - `statusIsDirty` (`gitStatus.svelte.ts:56`) duplicates `isDirty`
@@ -701,7 +701,7 @@ See §3.2.
   terms of the other.
 - ~20 lines.
 
-### 8.7 Move temp-worktree path logic to the backend
+### 8.7 Move temp-worktree path logic to the backend: done
 - `worktrees/worktrees.ts:25-37` rebuilds `${codexHome}/worktrees-tmp/...`
   with a hard-coded `/`, and detects temp worktrees with
   `path.includes("/worktrees-tmp/")`. It's used in 5 components.
@@ -1074,7 +1074,7 @@ scope.
 | Rule | Where |
 |---|---|
 | Frontend never checks harness kind | `Sidebar.svelte:434` (`thread.harness === "claude"` badge); `ThreadView.svelte:718, 1437`; `HarnessMenu.svelte:50`; hard-coded "Codex" in `Composer.svelte:1209-1210, 1237` and the TypingDots default label; "Claude" in `NativeSideQuestions.svelte:216` |
-| Hosts: no hand-built Linux paths | `worktrees/worktrees.ts:25-37` (§8.7); `review/gh.rs:44, 65` guesses the host with `Host::from_local` instead of using the Home's host (§13) |
+| Hosts: no hand-built Linux paths | `review/gh.rs:44, 65` guesses the host with `Host::from_local` instead of using the Home's host (§13) |
 | Stringly-typed harness in Rust | `threads/turn.rs:153-170, 206` (§9.15) |
 
 ---
