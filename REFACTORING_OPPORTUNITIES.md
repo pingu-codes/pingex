@@ -490,9 +490,7 @@ All of §5 is done. ThreadView went from 1,499 to 1,079 lines.
 
 ## 6. Composer
 
-All of §6 is done except the `acceleratorFromEvent` move in §6.10, which
-belongs with the SettingsView work in §7.1. Composer.svelte went from 1,359 to
-825 lines.
+All of §6 is done. Composer.svelte went from 1,359 to 825 lines.
 
 ### 6.1 `richInput.ts`: six edit verbs share one frame: done
 - A private `editUnits(root, handlers, edit)` carries caretOffset → units →
@@ -549,13 +547,12 @@ See §3.2.
   so is the comment on `coerce`.
 - `composerPrefs.svelte.ts` is now `composerPrefs.ts`.
 
-### 6.10 Small cleanups
+### 6.10 Small cleanups: done
 - Done: ReviewTargetPicker looks up its stage's mode once and drops the
   `?? ""` (`query` is a required string). AdaptiveToolbar groups its visible
   items once into `shown`.
-- Left: `quick/quickChat.ts acceleratorFromEvent` is used only by
-  SettingsView. Move it to `utils/accelerator.ts` as part of the §7.1
-  SettingsView work.
+- Done with §7.1: `acceleratorFromEvent` moved from `quick/quickChat.ts` to
+  `utils/accelerator.ts`.
 
 ---
 
@@ -1119,8 +1116,8 @@ Carried over from the cleanup log's "Found, not yet fixed" list:
    All low risk, compile-checked, and about 700 lines together.
 4. ~~**api.ts restructuring** (§4.1, §4.2, §4.4, §4.5).~~ Done.
 5. ~~**Skeleton swaps** (§3).~~ Done.
-6. **Large component splits:** SettingsView, IntegrationsSection (§7.1,
-   §8.1). ThreadView (§5.2, §5.3) and Composer (§6.2) are done.
+6. **Large component splits:** IntegrationsSection (§8.1). ThreadView
+   (§5.2, §5.3), Composer (§6.2) and SettingsView (§7.1) are done.
 7. **Driver-level Rust:** `JsonlProcess`, typed journal, `ThreadDriver`
    (§9.2, §9.3, §9.8).
 8. **Policy call:** retiring the compat gates (§9.1). Decide the ADR 0001
