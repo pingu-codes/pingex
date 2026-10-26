@@ -99,6 +99,24 @@ fn skill_config_write_toggles_enabled() {
     assert_eq!(enabled_of(server), Some(true), "re-enabled after write");
 }
 
+/// The Integrations view toggles by the path `skills/list` reported.
+#[test]
+fn skill_config_write_by_path_toggles_enabled() {
+    live!(server);
+    let cwds = [server.cwd.display().to_string()];
+    let find = |server: &Server| {
+        parse_skills(&server.call(requests::skills_list(&cwds)))
+            .into_iter()
+            .find(|skill| skill.name == SKILL_NAME)
+            .unwrap_or_else(|| panic!("{SKILL_NAME} missing"))
+    };
+    let path = find(server).path;
+    server.call(requests::skill_config_write_path(&path, false));
+    assert!(!find(server).enabled, "disabled after write");
+    server.call(requests::skill_config_write_path(&path, true));
+    assert!(find(server).enabled, "re-enabled after write");
+}
+
 #[test]
 fn mcp_server_status_lists_the_echo_server_and_its_tool() {
     live!(server);

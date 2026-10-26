@@ -5,6 +5,7 @@ use crate::{
     codex::{compat::Feature, requests},
     AppState, HomeContext,
 };
+use futures_util::future::join_all;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -295,109 +296,86 @@ pub(super) async fn read(
         }
     }
     // ConfigToml excludes plugin contributions. Read each installed package's
-    // declared inventory, including packages disabled in this project.
-    for marketplace in catalog["marketplaces"].as_array().into_iter().flatten() {
-        for raw in marketplace["plugins"].as_array().into_iter().flatten() {
-            let Some(plugin) = plugins
-                .iter()
-                .find(|p| Some(p.id.as_str()) == raw["id"].as_str())
-            else {
-                continue;
-            };
-            let Some(name) = raw["name"].as_str() else {
-                continue;
-            };
-            let detail = match ctx
-                .session
-                .send(
-                    app,
-                    requests::integration_plugin_detail(
-                        name,
-                        marketplace["path"].as_str(),
-                        marketplace["name"].as_str().unwrap_or(""),
-                    ),
-                )
-                .await
-            {
-                Ok(value) => value,
-                Err(_) => {
-                    errors.push(format!(
-                        "Plugins: Could not load contributions for {}.",
-                        plugin.id
-                    ));
-                    continue;
-                }
-            };
-            for name in detail["plugin"]["mcpServers"]
+    // declared inventory, including packages disabled in this project. One
+    // `plugin/read` per package, sent together: in sequence they dominate the
+    // whole read.
+    let packages: Vec<(&PluginSummary, &Value, &str)> = catalog["marketplaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|marketplace| {
+            marketplace["plugins"]
                 .as_array()
                 .into_iter()
                 .flatten()
-                .filter_map(Value::as_str)
-            {
-                let id = format!("{}/{name}", plugin.id);
-                if mcp_servers.iter().any(|s| s.name == id) {
-                    continue;
-                }
-                let preference = config["config"]["plugins"][&plugin.id]["mcp_servers"][name]
-                    ["enabled"]
-                    .as_bool()
-                    .unwrap_or(true);
-                mcp_servers.push(McpServerSummary {
-                    name: id.clone(),
-                    transport: "plugin".into(),
-                    command: None,
-                    args: vec![],
-                    url: None,
-                    env_keys: vec![],
-                    bearer_token_env_var: None,
-                    enabled: plugin.enabled && preference,
-                    scope: "plugin".into(),
-                });
-                settings.insert(
-                    format!("mcp:{id}"),
-                    IntegrationSetting {
-                        inherited_enabled: enabled(&inherited, "plugins", &plugin.id)
-                            .unwrap_or(true)
-                            && inherited["plugins"][&plugin.id]["mcp_servers"][name]["enabled"]
-                                .as_bool()
-                                .unwrap_or(true),
-                        override_enabled: local["plugins"][&plugin.id]["mcp_servers"][name]
-                            ["enabled"]
-                            .as_bool(),
-                        plugin_id: Some(plugin.id.clone()),
-                    },
-                );
+                .map(move |raw| (marketplace, raw))
+        })
+        .filter_map(|(marketplace, raw)| {
+            let plugin = plugins
+                .iter()
+                .find(|p| Some(p.id.as_str()) == raw["id"].as_str())?;
+            Some((plugin, marketplace, raw["name"].as_str()?))
+        })
+        .collect();
+    let details = join_all(packages.iter().map(|(_, marketplace, name)| {
+        ctx.session.send(
+            app,
+            requests::integration_plugin_detail(
+                name,
+                marketplace["path"].as_str(),
+                marketplace["name"].as_str().unwrap_or(""),
+            ),
+        )
+    }))
+    .await;
+    for ((plugin, _, _), detail) in packages.iter().zip(details) {
+        let plugin = *plugin;
+        let Ok(detail) = detail else {
+            errors.push(format!(
+                "Plugins: Could not load contributions for {}.",
+                plugin.id
+            ));
+            continue;
+        };
+        for name in detail["plugin"]["mcpServers"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
+            let id = format!("{}/{name}", plugin.id);
+            if mcp_servers.iter().any(|s| s.name == id) {
+                continue;
             }
-            for raw in detail["plugin"]["skills"].as_array().into_iter().flatten() {
-                let (Some(path), Some(name)) = (raw["path"].as_str(), raw["name"].as_str()) else {
-                    continue;
-                };
-                if !skills.iter().any(|s| s.path == path) {
-                    skills.push(super::SkillSummary {
-                        name: name.into(),
-                        path: path.into(),
-                        scope: "plugin".into(),
-                        description: raw["description"].as_str().map(str::to_owned),
-                        enabled: plugin.enabled && raw["enabled"].as_bool().unwrap_or(false),
-                        display_name: raw["interface"]["displayName"].as_str().map(str::to_owned),
-                        short_description: raw["shortDescription"].as_str().map(str::to_owned),
-                    });
-                }
-                let entry = settings
-                    .entry(format!("skill:{path}"))
-                    .or_insert(IntegrationSetting {
-                        inherited_enabled: false,
-                        override_enabled: None,
-                        plugin_id: None,
-                    });
-                entry.plugin_id = Some(plugin.id.clone());
-                if !plugin.enabled {
-                    if let Some(skill) = skills.iter_mut().find(|s| s.path == path) {
-                        skill.enabled = false;
-                    }
-                }
-            }
+            let preference = config["config"]["plugins"][&plugin.id]["mcp_servers"][name]
+                ["enabled"]
+                .as_bool()
+                .unwrap_or(true);
+            mcp_servers.push(McpServerSummary {
+                name: id.clone(),
+                transport: "plugin".into(),
+                command: None,
+                args: vec![],
+                url: None,
+                env_keys: vec![],
+                bearer_token_env_var: None,
+                enabled: plugin.enabled && preference,
+                scope: "plugin".into(),
+            });
+            settings.insert(
+                format!("mcp:{id}"),
+                IntegrationSetting {
+                    inherited_enabled: enabled(&inherited, "plugins", &plugin.id).unwrap_or(true)
+                        && inherited["plugins"][&plugin.id]["mcp_servers"][name]["enabled"]
+                            .as_bool()
+                            .unwrap_or(true),
+                    override_enabled: local["plugins"][&plugin.id]["mcp_servers"][name]["enabled"]
+                        .as_bool(),
+                    plugin_id: Some(plugin.id.clone()),
+                },
+            );
         }
+        merge_plugin_skills(&mut skills, &mut settings, plugin, &detail);
     }
     Ok(IntegrationsList {
         mcp_servers,
@@ -407,6 +385,52 @@ pub(super) async fn read(
         settings,
         errors,
     })
+}
+
+/// Fold one package's `plugin/read` skills into what `skills/list` reported.
+/// `plugin/read` points at the marketplace source, `skills/list` at the
+/// installed copy Codex actually loads, so the two never share a path: match
+/// by name (both namespace it as `plugin:skill`) and keep the loaded row, or
+/// toggling writes a rule for a file Codex never reads. Only skills
+/// `skills/list` left out, those of a disabled package, are added.
+fn merge_plugin_skills(
+    skills: &mut Vec<super::SkillSummary>,
+    settings: &mut BTreeMap<String, IntegrationSetting>,
+    plugin: &PluginSummary,
+    detail: &Value,
+) {
+    for raw in detail["plugin"]["skills"].as_array().into_iter().flatten() {
+        let (Some(path), Some(name)) = (raw["path"].as_str(), raw["name"].as_str()) else {
+            continue;
+        };
+        let index = match skills.iter().position(|s| s.path == path || s.name == name) {
+            Some(index) => index,
+            None => {
+                skills.push(super::SkillSummary {
+                    name: name.into(),
+                    path: path.into(),
+                    scope: "plugin".into(),
+                    description: raw["description"].as_str().map(str::to_owned),
+                    enabled: plugin.enabled && raw["enabled"].as_bool().unwrap_or(false),
+                    display_name: raw["interface"]["displayName"].as_str().map(str::to_owned),
+                    short_description: raw["shortDescription"].as_str().map(str::to_owned),
+                });
+                skills.len() - 1
+            }
+        };
+        let skill = &mut skills[index];
+        if !plugin.enabled {
+            skill.enabled = false;
+        }
+        settings
+            .entry(format!("skill:{}", skill.path))
+            .or_insert(IntegrationSetting {
+                inherited_enabled: false,
+                override_enabled: None,
+                plugin_id: None,
+            })
+            .plugin_id = Some(plugin.id.clone());
+    }
 }
 
 /// Edit one scalar only; removing an override must not remove transport or auth fields.
@@ -514,6 +538,63 @@ pub(crate) async fn set_integration_enabled(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn plugin(enabled: bool) -> PluginSummary {
+        PluginSummary {
+            id: "pdf@runtime".into(),
+            name: "pdf".into(),
+            scope: "user".into(),
+            description: None,
+            enabled,
+        }
+    }
+
+    /// `skills/list` reports the installed copy, `plugin/read` the marketplace
+    /// source; the toggle must address the copy Codex loads.
+    #[test]
+    fn plugin_skills_merge_onto_the_loaded_copy_by_name() {
+        let listed = json!({"data": [{"skills": [{
+            "name": "pdf:pdf",
+            "path": "/home/plugins/cache/runtime/pdf/1.0/skills/pdf/SKILL.md",
+            "enabled": true,
+            "pluginId": "pdf@runtime",
+        }]}]});
+        let detail = json!({"plugin": {"skills": [{
+            "name": "pdf:pdf",
+            "path": "/runtimes/runtime/plugins/pdf/skills/pdf/SKILL.md",
+            "enabled": false,
+        }]}});
+        let mut skills = parse_skill_entries(&listed, true);
+        let mut settings = BTreeMap::new();
+        merge_plugin_skills(&mut skills, &mut settings, &plugin(true), &detail);
+        assert_eq!(skills.len(), 1, "one row per skill: {skills:?}");
+        assert_eq!(
+            skills[0].path,
+            "/home/plugins/cache/runtime/pdf/1.0/skills/pdf/SKILL.md"
+        );
+        assert!(skills[0].enabled);
+        let key = format!("skill:{}", skills[0].path);
+        assert_eq!(settings[&key].plugin_id.as_deref(), Some("pdf@runtime"));
+
+        merge_plugin_skills(&mut skills, &mut settings, &plugin(false), &detail);
+        assert!(!skills[0].enabled, "a disabled package disables its skills");
+    }
+
+    #[test]
+    fn skills_of_a_disabled_package_come_from_plugin_read() {
+        let detail = json!({"plugin": {"skills": [{
+            "name": "pdf:pdf",
+            "path": "/runtimes/runtime/plugins/pdf/skills/pdf/SKILL.md",
+            "enabled": true,
+        }]}});
+        let mut skills = Vec::new();
+        let mut settings = BTreeMap::new();
+        merge_plugin_skills(&mut skills, &mut settings, &plugin(false), &detail);
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].scope, "plugin");
+        assert!(!skills[0].enabled);
+    }
+
     #[test]
     fn project_files_are_isolated_and_plugin_child_reset_preserves_parent() {
         let first = tempfile::tempdir().unwrap();

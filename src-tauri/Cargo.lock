@@ -3165,6 +3165,7 @@ name = "pingex-app"
 version = "0.1.0"
 dependencies = [
  "dirs",
+ "futures-util",
  "ignore",
  "qrcode",
  "serde",

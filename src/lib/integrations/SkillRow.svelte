@@ -72,7 +72,8 @@ async function setOpen(next: boolean) {
       </p>
     {/if}
     <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
-      {#if !projectPath}
+      <!-- A disabled plugin overrides its skills' own setting. -->
+      {#if !projectPath && ownerEnabled}
         <button type="button" onclick={onToggle} class="btn btn-sm hover:preset-tonal text-xs">
           {skill.enabled ? "Disable" : "Enable"}
         </button>
