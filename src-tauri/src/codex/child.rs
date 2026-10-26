@@ -1,12 +1,11 @@
 //! One `codex app-server` child process, speaking JSON-RPC over stdio.
 //!
-//! This is deliberately ignorant of what the child is *for*. The main session
-//! and every app-owned subagent run the same binary the same way; what differs
-//! is only what they do with the notifications and server-initiated requests
-//! that come back, which is the [`ChildSink`]'s job.
+//! This is deliberately ignorant of what the child is *for*: what happens to
+//! the notifications and server-initiated requests that come back is the
+//! [`ChildSink`]'s job.
 
 use serde_json::{json, Value};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
@@ -50,9 +49,6 @@ impl From<RequestError> for String {
     }
 }
 
-/// How many stderr lines to keep for diagnostics.
-const STDERR_TAIL_LINES: usize = 40;
-
 pub(crate) struct CodexChild {
     stdin: Mutex<ChildStdin>,
     child: Mutex<Child>,
@@ -60,10 +56,6 @@ pub(crate) struct CodexChild {
     pending: Mutex<HashMap<i64, oneshot::Sender<Result<Value, String>>>>,
     alive: AtomicBool,
     wire: Arc<WireLog>,
-    /// The tail of the child's stderr. Drained continuously — an undrained
-    /// pipe fills at 64 KiB and then blocks the child mid-write — and kept so a
-    /// failure can say what the process actually complained about.
-    stderr_tail: Arc<Mutex<VecDeque<String>>>,
     /// Kept so writes can push to the wire log without threading a handle
     /// through every caller.
     app: AppHandle,
@@ -111,25 +103,9 @@ impl CodexChild {
         self.alive.store(false, Ordering::SeqCst);
     }
 
-    /// Send a request and await its response. Unlike the session-level wrapper
-    /// there is no respawn-and-retry here: a child that died is simply gone,
-    /// which is why callers that own a single child do not need the retry
-    /// distinction [`CodexChild::try_request`] makes.
-    pub(crate) async fn request(&self, method: &str, params: Value) -> Result<Value, String> {
-        self.try_request(method, params).await.map_err(Into::into)
-    }
-
-    /// Send a prebuilt [`crate::codex::requests::Request`].
-    pub(crate) async fn send(
-        &self,
-        request: crate::codex::requests::Request,
-    ) -> Result<Value, String> {
-        self.request(request.method, request.params).await
-    }
-
-    /// As [`CodexChild::request`], but distinguishing a request that never left
-    /// this process from one that may already be executing on the other side.
-    /// Only the former is safe to resend.
+    /// Send a request and await its response, distinguishing a request that
+    /// never left this process from one that may already be executing on the
+    /// other side. Only the former is safe to resend.
     pub(crate) async fn try_request(
         &self,
         method: &str,
@@ -175,15 +151,6 @@ impl CodexChild {
         }))
     }
 
-    /// The tail of the child's stderr, newest last, as one block. Empty when
-    /// the process has said nothing.
-    pub(crate) fn stderr_tail(&self) -> String {
-        self.stderr_tail
-            .lock()
-            .map(|lines| lines.iter().cloned().collect::<Vec<_>>().join("\n"))
-            .unwrap_or_default()
-    }
-
     pub(crate) fn kill(&self) {
         self.mark_dead();
         if let Ok(mut child) = self.child.lock() {
@@ -225,9 +192,6 @@ impl CodexChild {
 /// transport — so a paired phone keeps talking to the orphan and this fresh
 /// process never sees those threads. Reaping the orphan lets the new
 /// app-server reclaim the relay.
-///
-/// Subagent children are covered by the same rule: they are `codex app-server`
-/// too, so one that outlives a crashed app is reaped on the next launch.
 ///
 /// Reaps on every host given: natively where `ps` exists, and inside each
 /// distribution, where killing the `wsl.exe` launcher may have left the Linux
@@ -290,8 +254,8 @@ fn reader_loop(
     }
     child.mark_dead();
     child.fail_pending("Codex exited before responding");
-    // Reap the process. Without a `wait` every respawn, home switch and
-    // subagent run leaves a zombie behind until the app exits. Killing first
+    // Reap the process. Without a `wait` every respawn and home switch
+    // leaves a zombie behind until the app exits. Killing first
     // covers a child that closed stdout but is still running.
     if let Ok(mut process) = child.child.lock() {
         let _ = process.kill();
@@ -313,8 +277,7 @@ pub const APP_SERVER_ARGS: [&str; 4] = [
 ];
 
 /// Start a `codex app-server` child, complete the `initialize` handshake, and
-/// return it ready for use. `client_name` identifies us in the server's logs;
-/// subagents use a distinct one so their traffic is separable.
+/// return it ready for use. `client_name` identifies us in the server's logs.
 pub(crate) async fn spawn_child(
     host: &Host,
     program: &str,
@@ -344,19 +307,14 @@ pub(crate) async fn spawn_child(
         .stdout
         .take()
         .ok_or("Codex stdout was unavailable")?;
-    let stderr = process.stderr.take();
-    let stderr_tail = Arc::new(Mutex::new(VecDeque::new()));
-    if let Some(stderr) = stderr {
-        let tail = stderr_tail.clone();
-        std::thread::spawn(move || {
-            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                let Ok(mut tail) = tail.lock() else { break };
-                if tail.len() == STDERR_TAIL_LINES {
-                    tail.pop_front();
-                }
-                tail.push_back(line);
-            }
-        });
+    // Drained continuously: an undrained pipe fills at 64 KiB and then blocks
+    // the child mid-write.
+    if let Some(stderr) = process.stderr.take() {
+        std::thread::spawn(
+            move || {
+                for _ in BufReader::new(stderr).lines().map_while(Result::ok) {}
+            },
+        );
     }
     let child = Arc::new(CodexChild {
         stdin: Mutex::new(stdin),
@@ -365,7 +323,6 @@ pub(crate) async fn spawn_child(
         pending: Mutex::new(HashMap::new()),
         alive: AtomicBool::new(true),
         wire,
-        stderr_tail,
         app: app.clone(),
         server_info: Mutex::new(Value::Null),
     });

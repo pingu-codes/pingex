@@ -37,21 +37,16 @@ pub fn initialize(client_name: &str) -> Request {
     )
 }
 
-/// `thread/start`. `developer_instructions` and `dynamic_tools` are only sent
-/// when present; `runtime_workspace_roots` when the thread belongs to a
+/// `thread/start`. `developer_instructions` is only sent when present; `runtime_workspace_roots` when the thread belongs to a
 /// workspace.
 pub fn thread_start(
     cwd: &str,
     runtime_workspace_roots: Option<&[String]>,
     developer_instructions: Option<&str>,
-    dynamic_tools: Option<Value>,
 ) -> Request {
     let mut params = json!({"cwd": cwd});
     if let Some(roots) = runtime_workspace_roots {
         params["runtimeWorkspaceRoots"] = json!(roots);
-    }
-    if let Some(tools) = dynamic_tools {
-        params["dynamicTools"] = tools;
     }
     if let Some(instructions) = developer_instructions.filter(|text| !text.is_empty()) {
         params["developerInstructions"] = json!(instructions);
@@ -155,6 +150,21 @@ pub fn thread_list(limit: u32, cursor: Option<&str>, cwd: Option<&str>, archived
         params["cwd"] = json!(cwd);
     }
     request("thread/list", params)
+}
+
+/// `thread/list` for every agent a thread has spawned, at any depth, oldest
+/// first. `ancestorThreadId` is experimental.
+pub fn subagent_list(thread_id: &str, limit: usize) -> Request {
+    request(
+        "thread/list",
+        json!({
+            "limit": limit,
+            "sortKey": "created_at",
+            "sortDirection": "asc",
+            "archived": false,
+            "ancestorThreadId": thread_id,
+        }),
+    )
 }
 
 pub fn model_list(limit: u32, include_hidden: bool) -> Request {
@@ -382,7 +392,6 @@ pub fn namer_thread_start(instructions: &str) -> Request {
         &std::env::temp_dir().display().to_string(),
         None,
         Some(instructions),
-        None,
     )
 }
 
@@ -399,47 +408,6 @@ pub fn naming_turn(namer_id: &str, seed: &str, model: Option<&str>) -> Request {
         params["model"] = json!(model);
     }
     request("turn/start", params)
-}
-
-/// The thread an app-owned subagent runs in. No `dynamicTools`: an agent that
-/// could spawn agents is a fork bomb one prompt away.
-pub fn agent_thread_start(cwd: &str, preamble: &str) -> Request {
-    thread_start(cwd, None, Some(preamble), None)
-}
-
-/// A subagent's first turn. `sandbox_type` is already a protocol tag.
-pub fn agent_turn(
-    thread_id: &str,
-    prompt: &str,
-    sandbox_type: &str,
-    model: Option<&str>,
-    effort: Option<&str>,
-) -> Request {
-    let mut params = json!({
-        "threadId": thread_id,
-        "input": [{"type": "text", "text": prompt}],
-        "approvalPolicy": "never",
-        "sandboxPolicy": {"type": sandbox_type},
-    });
-    if let Some(model) = model {
-        params["model"] = json!(model);
-    }
-    if let Some(effort) = effort {
-        params["effort"] = json!(effort);
-    }
-    request("turn/start", params)
-}
-
-/// A follow-up message to a subagent that has finished its previous turn.
-pub fn agent_followup(thread_id: &str, text: &str) -> Request {
-    request(
-        "turn/start",
-        json!({
-            "threadId": thread_id,
-            "input": [{"type": "text", "text": text}],
-            "approvalPolicy": "never",
-        }),
-    )
 }
 
 /// Put a `thread/start` under an app-server project (`projectId`, experimental

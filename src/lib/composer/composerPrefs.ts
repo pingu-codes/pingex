@@ -14,13 +14,6 @@ import { can } from "$lib/utils/capabilities";
  * project nobody has configured, where model/effort/permission stay per-project.
  */
 export interface SubagentPrefs {
-  /**
-   * Whether new threads get the app's own agent tools. `null` follows the
-   * global setting. Only consulted when a thread is created: `dynamicTools` is
-   * accepted on `thread/start` and nowhere else, so an existing thread keeps
-   * whatever it was started with.
-   */
-  appSubagents: boolean | null;
   /** Models subagents may run on; `null` allows every model. */
   subagentModelPolicy: SubagentPolicy | null;
   /** Reasoning efforts subagents may run at; `null` allows every effort. */
@@ -122,13 +115,11 @@ const defaults = (): ComposerPrefs => ({
   permissionPreset: null,
   planMode: false,
   claudeMode: null,
-  appSubagents: null,
   subagentModelPolicy: null,
   subagentReasoningEffortPolicy: null,
 });
 
 const subagentDefaults = (): SubagentPrefs => ({
-  appSubagents: null,
   subagentModelPolicy: null,
   subagentReasoningEffortPolicy: null,
 });
@@ -136,7 +127,6 @@ const subagentDefaults = (): SubagentPrefs => ({
 /** Just the globally-carried fields, snapshotted off a full prefs object. */
 function pickSubagent(prefs: SubagentPrefs): SubagentPrefs {
   return {
-    appSubagents: prefs.appSubagents,
     subagentModelPolicy: prefs.subagentModelPolicy,
     subagentReasoningEffortPolicy: prefs.subagentReasoningEffortPolicy,
   };

@@ -1,7 +1,6 @@
 <script lang="ts">
 import { OctagonX } from "@lucide/svelte";
-import { elapsedLabel } from "$lib/services/agentRuns.svelte";
-import { processClock, type RunningProcess } from "$lib/services/processes.svelte";
+import { elapsedLabel, processClock, type RunningProcess } from "$lib/services/processes.svelte";
 
 let {
   process,

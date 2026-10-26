@@ -1,14 +1,8 @@
-import { fireEvent, render, screen, within } from "@testing-library/svelte";
+import { render, screen, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import SettingsView from "$lib/layout/SettingsView.svelte";
-import { commands } from "$lib/services/homeRouting";
 import { closeSettings, openSettings } from "$lib/services/settingsNav.svelte";
-
-vi.mock("$lib/services/homeRouting", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
-  return { ...actual, commands: { ...actual.commands, writeAgentSettings: vi.fn(actual.commands.writeAgentSettings) } };
-});
 
 function setup() {
   const onClose = vi.fn();
@@ -75,26 +69,6 @@ describe("SettingsView", () => {
     const { onClose } = setup();
     await user.click(screen.getByRole("button", { name: "Close settings" }));
     expect(onClose).toHaveBeenCalledOnce();
-  });
-
-  it("refuses an emptied or out-of-range agent limit instead of saving it", async () => {
-    const user = userEvent.setup();
-    setup();
-    await user.click(screen.getByRole("tab", { name: /Agent/ }));
-    const enable = await screen.findByRole("checkbox", { name: /Run subagents as separate processes/ });
-    if (!(enable as HTMLInputElement).checked) await user.click(enable);
-    vi.mocked(commands.writeAgentSettings).mockClear();
-
-    const timeLimit = screen.getByRole("spinbutton", { name: "Agent time limit in seconds" }) as HTMLInputElement;
-    const stored = timeLimit.value;
-    await fireEvent.change(timeLimit, { target: { value: "" } });
-    expect(timeLimit.value).toBe(stored);
-    await fireEvent.change(timeLimit, { target: { value: "5" } });
-    expect(timeLimit.value).toBe(stored);
-    expect(commands.writeAgentSettings).not.toHaveBeenCalled();
-
-    await fireEvent.change(timeLimit, { target: { value: "600" } });
-    expect(commands.writeAgentSettings).toHaveBeenCalledWith(expect.objectContaining({ timeoutSeconds: 600 }));
   });
 
   it("opens at the section a settingsNav request names", () => {

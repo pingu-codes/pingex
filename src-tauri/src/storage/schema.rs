@@ -160,6 +160,8 @@ const DDL: &str = "CREATE TABLE IF NOT EXISTS metadata (
      ON turn_usage(thread_id, recorded_at);
  CREATE INDEX IF NOT EXISTS turn_usage_recorded
      ON turn_usage(recorded_at);
+ -- Written by the app-owned subagents, since removed. Kept so the threads
+ -- they ran in stay hidden from the sidebar.
  CREATE TABLE IF NOT EXISTS agent_runs (
      run_id TEXT PRIMARY KEY,
      parent_thread_id TEXT NOT NULL,

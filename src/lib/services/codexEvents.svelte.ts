@@ -2,7 +2,6 @@ import { eventMatchesHome } from "$lib/app/launch.svelte";
 import { events, type HarnessKind, type HarnessRequestEnvelope } from "$lib/bindings";
 import { saveThreadClaudeMode } from "$lib/composer/composerPrefs";
 import { applyRateLimitUpdate } from "$lib/services/accountUsage.svelte";
-import { applyAgentActivity, applyAgentRunEvent } from "$lib/services/agentRuns.svelte";
 import { recordUserInputRequest } from "$lib/services/api";
 import { scopeEvent, threadBelongsToHome } from "$lib/services/homeRouting";
 import { applyProcessEvent } from "$lib/services/processes.svelte";
@@ -211,11 +210,6 @@ export function removeElicitation(requestId: number) {
 const reviewThreads = new Set<string>();
 
 function dispatch(event: CodexEvent, homeKey?: string) {
-  // A subagent's notifications arrive here under its own thread id, so every
-  // mounted view filters them out. Before that happens, fold them into the
-  // agent's activity line — otherwise the only sign of a working agent in the
-  // thread that spawned it is a status word that does not move for minutes.
-  applyAgentActivity(event);
   applyProcessEvent(event);
   const threadId = threadIdOf(event);
   if (threadId && reviewTransition(event) === "entered") reviewThreads.add(threadId);
@@ -394,8 +388,7 @@ function onServerRequest(payload: CodexServerRequestEvent) {
       break;
     }
     default:
-      // The app's own `pingex_*` agent tools never arrive here, and neither do
-      // the ones Rust answers by itself (`currentTime/read`, ...): a response
+      // The requests Rust answers by itself never arrive here (`currentTime/read`, ...): a response
       // held by the webview would not survive a reload. Anything still reaching
       // this branch is a method Codex has added since — and because an
       // unanswered request stalls its turn, it is worth saying so out loud
@@ -476,7 +469,6 @@ export async function startCodexListeners(): Promise<void> {
       await listenScoped(events.codexServerRequest, (payload) => onServerRequest(payload as CodexServerRequestEvent)),
     );
     attached.push(await listenScoped(events.harnessRequest, onHarnessRequest));
-    attached.push(await listenScoped(events.codexAgentRun, applyAgentRunEvent));
     attached.push(
       await events.codexDisconnected.listen(({ payload }) => {
         if (!eventMatchesHome(payload?.codexHome)) return;

@@ -19,28 +19,16 @@ import {
 import { Collapsible } from "@skeletonlabs/skeleton-svelte";
 import type { Snippet } from "svelte";
 import { openSubagent } from "$lib/app/actions.svelte";
-import { trackSubagent } from "$lib/app/appData.svelte";
-// Agent threads are hidden from the sidebar on purpose, and `openThreadById`
-// silently does nothing for a thread it cannot find there.
-import { openThreadInCwd } from "$lib/app/navigation.svelte";
 import DiffBlock from "$lib/components/DiffBlock.svelte";
 import TooltipButton from "$lib/components/TooltipButton.svelte";
 import { modelLabel } from "$lib/composer/models.svelte";
-import {
-  activityFor,
-  agentClock,
-  elapsedLabel,
-  isRunning,
-  runAsSubagent,
-  runForToolCall,
-} from "$lib/services/agentRuns.svelte";
-import { commands } from "$lib/services/homeRouting";
+import { commands, identity } from "$lib/services/homeRouting";
 import { openSettings } from "$lib/services/settingsNav.svelte";
 import { statusTone } from "$lib/thread/agentStatus";
 import QuestionCard from "$lib/thread/QuestionCard.svelte";
 import ThreadImage from "$lib/thread/ThreadImage.svelte";
 import { functionCallOutputText, reasoningContent } from "$lib/thread/turnSegments";
-import type { AgentRun, SubagentDetail, ThreadItem } from "$lib/types";
+import type { SubagentDetail, ThreadItem } from "$lib/types";
 import { copyCode, copyPlainOrMarkdown } from "$lib/utils/copy";
 import { flashFlag } from "$lib/utils/flash.svelte";
 import { renderMarkdown } from "$lib/utils/markdown";
@@ -89,16 +77,6 @@ function copyMessage(event: MouseEvent) {
 }
 
 /**
- * The app's own agent tools, rendered as agent cards rather than as the
- * anonymous tool rows every other dynamic tool gets.
- */
-const AGENT_TOOL_VERBS: Record<string, string> = {
-  pingex_spawn_agent: "Spawned agent",
-  pingex_wait_agents: "Waited for agents",
-  pingex_send_input: "Sent input to",
-  pingex_kill_agent: "Stopped agent",
-};
-/**
  * Codex's own collab agents report their activity as a separate item type,
  * alongside the `collabAgentToolCall` that carries the detail.
  */
@@ -134,62 +112,42 @@ function collabHeader(item: ThreadItem): string {
   return verb;
 }
 
-const isAgentTool = (tool: string | undefined) => Boolean(tool && tool in AGENT_TOOL_VERBS);
+/**
+ * A thread id as Codex wrote it. In a multi-home profile the listing's ids are
+ * scoped while ids inside a re-read transcript are not, so lookups compare the
+ * native half.
+ */
+const nativeId = (id: string) => identity(id)?.nativeId ?? id;
 
 /**
- * The Codex subagent an activity row refers to, when the thread's listing has
- * it. A row can arrive before the listing refreshes, so the lookup may miss;
- * the raw agent path still renders then.
+ * The Codex subagent a row refers to, when the thread's listing has it. A row
+ * can arrive before the listing refreshes, so the lookup may miss; the raw
+ * agent path or id still renders then.
  */
-const subagentById = $derived(new Map(subagents.map((agent) => [agent.id, agent])));
-const activityAgent = (item: ThreadItem) => (item.agentThreadId ? subagentById.get(item.agentThreadId) : undefined);
+const subagentById = $derived(new Map(subagents.map((agent) => [nativeId(agent.id), agent])));
+const subagentFor = (id: string | undefined) => (id ? subagentById.get(nativeId(id)) : undefined);
+const activityAgent = (item: ThreadItem) => subagentFor(item.agentThreadId);
 const activityLabel = (item: ThreadItem, agent: SubagentDetail | undefined) =>
   agent?.agentNickname ?? agent?.agentRole ?? item.agentPath ?? "";
 /** Once an agent has finished or been stopped, its live status is stale news. */
 const activityShowsStatus = (item: ThreadItem) => item.kind === "started" || item.kind === "interacted";
-const agentToolVerb = (tool: string | undefined) => AGENT_TOOL_VERBS[tool ?? ""] ?? "Agent";
 
 /**
- * What to call the agent. The tool call carries the name the model chose, so
- * the row reads correctly even before the run's first event reaches the store
- * — and still reads correctly for a thread reopened long after the fact.
+ * The agents a collab call addressed, each with the state the call last saw.
+ * `agentsStates` is keyed by native thread id whichever path the item came by.
  */
-function agentLabel(item: ThreadItem, runName: string | undefined): string {
-  const argued = item.arguments?.name;
-  if (typeof argued === "string" && argued.trim()) return argued.trim();
-  if (runName) return runName;
-  const ids = item.arguments?.agentIds;
-  if (Array.isArray(ids) && ids.length) return `${ids.length} agent${ids.length === 1 ? "" : "s"}`;
-  const id = item.arguments?.agentId;
-  return typeof id === "string" ? id : "";
-}
-
-/**
- * What the parent sent this agent: the opening prompt on a spawn, the follow-up
- * on a `send_input`. Both are otherwise visible only inside the agent's own
- * thread, so from the parent's transcript the model appears to hand work off
- * without ever saying what the work is.
- */
-function agentInputText(item: ThreadItem): string {
-  const sent =
-    item.tool === "pingex_spawn_agent"
-      ? item.arguments?.prompt
-      : item.tool === "pingex_send_input"
-        ? item.arguments?.text
-        : null;
-  return typeof sent === "string" ? sent.trim() : "";
-}
-
-/**
- * Open the thread an agent ran in. Registered first: agent threads are kept out
- * of the sidebar, and without a record of one the app has no parent to send the
- * back arrow to and no way to resolve the thread at all.
- */
-function openAgentRunThread(run: AgentRun) {
-  const agent = runAsSubagent(run);
-  if (!agent) return;
-  trackSubagent(agent);
-  openThreadInCwd(agent.id, run.cwd);
+function collabAgents(item: ThreadItem) {
+  const states = item.agentsStates ?? {};
+  const ids = item.receiverThreadIds?.length ? item.receiverThreadIds : Object.keys(states);
+  return ids.map((id) => {
+    const agent = subagentFor(id);
+    return {
+      id,
+      agent,
+      label: agent?.agentNickname ?? agent?.agentRole ?? nativeId(id).slice(0, 8),
+      state: states[nativeId(id)],
+    };
+  });
 }
 
 const rawReasoning = (item: ThreadItem) => reasoningContent(item).filter(Boolean).join("\n\n");
@@ -240,12 +198,11 @@ const commandStatusClass = (item: ThreadItem) =>
   </Collapsible>
 {/snippet}
 
-<!-- What a running agent or tool call is doing right now. -->
-{#snippet liveLine(text: string, since: number | null = null)}
+<!-- What a running tool call is doing right now. -->
+{#snippet liveLine(text: string)}
   <p class="mt-1 flex items-center gap-2 pl-5 text-[11px] leading-4 text-surface-500">
     <span class="shrink-0 animate-pulse text-primary-500" aria-hidden="true">▸</span>
     <span class="min-w-0 flex-1 truncate">{text}</span>
-    {#if since !== null}<span class="shrink-0 tabular-nums">{elapsedLabel(since, agentClock.now)}</span>{/if}
   </p>
 {/snippet}
 
@@ -434,11 +391,15 @@ const commandStatusClass = (item: ThreadItem) =>
     </span>
   {/snippet}
   {#snippet collabDetail()}
-    {#each Object.entries(item.agentsStates ?? {}) as [agentId, agentState] (agentId)}
+    {#each collabAgents(item) as entry (entry.id)}
       <div class="flex items-center gap-2">
-        <span class="font-mono text-[10px] text-surface-500">{agentId.slice(0, 8)}</span>
-        <span class={statusTone(agentState.status)}>{agentState.status}</span>
-        {#if agentState.message}<span class="min-w-0 flex-1 truncate text-surface-500">{agentState.message}</span>{/if}
+        <span class={entry.agent ? "text-surface-700-300" : "font-mono text-[10px] text-surface-500"}>{entry.label}</span>
+        {#if entry.state}<span class={statusTone(entry.state.status)}>{entry.state.status}</span>{/if}
+        <span class="min-w-0 flex-1 truncate text-surface-500">{entry.state?.message ?? ""}</span>
+        {#if entry.agent}
+          {@const agent = entry.agent}
+          {@render openThreadButton(() => openSubagent(agent))}
+        {/if}
       </div>
     {/each}
     {#if item.prompt}
@@ -446,49 +407,6 @@ const commandStatusClass = (item: ThreadItem) =>
     {/if}
   {/snippet}
   {@render expander(collabSummary, collabDetail, "space-y-1.5")}
-{:else if item.type === "dynamicToolCall" && isAgentTool(item.tool)}
-  {@const run = runForToolCall(item)}
-  {@const label = agentLabel(item, run?.name)}
-  {@const activity = run ? activityFor(run) : null}
-  {@const sent = agentInputText(item)}
-  <div class="flex items-center gap-2 text-xs">
-    <Bot size={12} class="shrink-0 text-surface-500" />
-    <span class="min-w-0 flex-1 truncate text-surface-500">
-      {agentToolVerb(item.tool)}
-      {#if label}<span class="text-surface-700-300">{label}</span>{/if}
-    </span>
-    {#if run}
-      <span class={`shrink-0 ${statusTone(run.status)}`}>{run.status}</span>
-      {#if run.childThreadId}
-        {@render openThreadButton(() => openAgentRunThread(run))}
-      {/if}
-      {#if isRunning(run)}
-        <button
-          type="button"
-          onclick={() => commands.killAgentRun(run.runId)}
-          class="shrink-0 text-[10px] text-surface-500 hover:text-error-500"
-        >
-          Stop
-        </button>
-      {/if}
-    {/if}
-  </div>
-  {#if sent}
-    <p class="mt-1 line-clamp-3 whitespace-pre-wrap break-words pl-5 text-[11px] leading-4 text-surface-500">
-      {sent}
-    </p>
-  {/if}
-  {#if activity}
-    {@render liveLine(activity.label, activity.since)}
-  {/if}
-  {#if run && !isRunning(run) && run.result}
-    <p class="mt-1 whitespace-pre-wrap break-words pl-5 text-[11px] leading-4 text-surface-600-400">
-      {run.result}
-    </p>
-  {/if}
-  {#if run?.error}
-    <p class="mt-1 pl-5 text-[11px] leading-4 text-error-500">{run.error}</p>
-  {/if}
 {:else if item.type === "subAgentActivity"}
   <!-- On Codex's path-based (V2) agents this row is all the parent transcript
        gets: the message sent lives only in the child thread, never on the
@@ -501,6 +419,11 @@ const commandStatusClass = (item: ThreadItem) =>
       {SUB_AGENT_VERBS[item.kind ?? ""] ?? "Agent"}
       {#if label}<span class="text-surface-700-300">{label}</span>{/if}
     </span>
+    {#if item.kind === "started" && (item.model || item.reasoningEffort)}
+      <span class="shrink-0 font-mono text-[10px] text-surface-500">
+        {item.model ?? "default model"} · {item.reasoningEffort ?? "default effort"}
+      </span>
+    {/if}
     {#if agent}
       {#if activityShowsStatus(item) && agent.status}
         <span class={`shrink-0 ${statusTone(agent.status)}`}>{agent.status}</span>

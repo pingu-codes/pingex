@@ -5,9 +5,9 @@ tiers of the Codex CLI at any time:
 
 | Tier | What it is | Version | Tag / ref | Commit | Date |
 |---|---|---|---|---|---|
-| **Unstable** | Upstream `main`, as mirrored in `../codex-mirror` | `0.0.0` (source builds report the workspace version) | `main` | `c0c230e6730b3b3c9101b8aff4b9aea4027cea5b` | 2026-10-06 |
-| **Stable** | The latest tagged release | `0.160.1` | `rust-v0.160.1` | `d27764b82f7118f674371e6d6e76271d9d606edb` | 2026-10-05 |
-| **Last stable** | The release before it | `0.159.3` | `rust-v0.159.3` | `01fc69f4026735edfdf6789820549727a4867b11` | 2026-09-30 |
+| **Unstable** | Upstream `main`, as mirrored in `../codex-mirror` | `0.0.0` (source builds report the workspace version) | `main` | `970111f6cb62cc02fe36a82ea7d71b37a2889c97` | 2026-10-23 |
+| **Stable** | The latest tagged release | `0.164.0` | `rust-v0.164.0` | `6aaac694803004a63c6f393d153c96d22521a6b9` | 2026-10-22 |
+| **Last stable** | The release before it | `0.163.0` | `rust-v0.163.0` | `83086188ae0614bd882818ff1aa23f3194962012` | 2026-10-15 |
 
 Older releases are not tested. They mostly keep working because nothing in
 the app branches on the version (see below), but a release older than *last
@@ -47,7 +47,7 @@ version. `deno task versions:check` does not cover Claude yet.
 
 Gated APIs (one row per `Feature`):
 
-| Feature | API | Last stable 0.159.3 | Stable 0.160.1 | Unstable |
+| Feature | API | Last stable 0.163.0 | Stable 0.164.0 | Unstable |
 |---|---|---|---|---|
 | `REVERT` | `thread/revert` (paginated-history threads only; others are refused per thread) | ✓ | ✓ | ✓ |
 | `QUEUE` | `thread/queue/*` (needs the experimental capability and a queue database) | ✓ | ✓ | ✓ |
@@ -66,7 +66,7 @@ update leaves the running status unchanged and applies the choice next turn.
 Payload additions the app reads when present (no gating needed — the field is
 simply absent on older tiers):
 
-| Field / notification | Where it shows | 0.159.3 | 0.160.1 | Unstable | Live-tested |
+| Field / notification | Where it shows | 0.163.0 | 0.164.0 | Unstable | Live-tested |
 |---|---|---|---|---|---|
 | `item/commandExecution/requestApproval.kind` (`command` \| `writeStdin`) | approval card title | ✓ | ✓ | ✓ | `command` only |
 | `McpServerStatus.runtimeStatus` | Integrations row | ✓ | ✓ | ✓ | ✓ |
@@ -148,15 +148,36 @@ Protocol added since 0.153 that the app does not read yet:
   `thread/realtime/start.backendReasoningStatus`. `Turn.error` is now also
   set on interrupted turns (e.g. a Guardian circuit-breaker stop); the app
   shows it only on failed turns. 0.160.x changed no protocol.
-- Unstable only: experimental `thread/prediction/request` and
-  `thread/prediction/updated`; `thread/attachmentOwner/list`; experimental
-  `account/bedrock/checkGovCloudRequirements`; goal `origin`
-  (`user` / `automatic`); `MisalignmentErrorDetails.reviewTarget`; `loginId` on
-  the MCP OAuth login response and completion notification;
-  `environment/add.skills.required`;
+- 0.161–0.163.x (every tier): `Turn.rootTurnId` and
+  `turn/start.{parentTurnId,rootTurnId}` (delegated-work attribution);
+  `turn/start.toolOutput.retain`; `thread/attachmentOwner/list`; goal
+  `origin` (`user` / `automatic`); `thread/list.excludedThreadIds`;
+  `MisalignmentErrorDetails.reviewTarget`; `loginId` on the MCP OAuth login
+  response and completion notification; an unknown `CodexErrorInfo` now
+  deserialises as `other` instead of failing;
+  `environment/add.{skills.required,websocketRequestId}`;
   `BrowserUseRequirements.extension.requestHeaders`;
   `ConfigRequirements.supportsIndependentSpeedModes` (Fast and Ultra Fast gated
-  separately); `modelProvider/capabilities/read` drops `namespaceTools`.
+  separately); `modelProvider/capabilities/read` drops `namespaceTools`;
+  experimental `thread/prediction/{request,updated}`,
+  `thread/readState/{update,changed}` (with `thread/list.readStates` and
+  `thread/read.readState`), `thread/items/read` and
+  `account/bedrock/checkGovCloudRequirements`.
+- 0.164.x (stable and unstable): `feedback/save`; `imageGeneration` items flatten a
+  `GeneratedImageRef`, so `result` is absent when the image is a `fileId`
+  (the app renders only `savedPath`), plus `inputImages`;
+  `McpServerStatus.toolListMeta`;
+  `PreModelRequest`/`PostModelRequest` hook events;
+  `ConfigRequirements.application.storage`;
+  `thread/realtime/start.voiceSessionId`; experimental
+  `thread/sample{,/cancel}` and `responsesapiClientMetadataPatch` on
+  `turn/start` and `turn/steer`.
+- Unstable only: experimental `thread/memory/read`; `CodexErrorInfo`
+  `modelNotFound`; experimental `thread/fork.{attachToSource,
+  experimentalPredictionMode,experimentalDisablePredictionMcp}` and
+  `thread/list.attachedToThreadId`; `ConfigRequirements.reviewDomains`; a
+  `gcp` model-provider account type. `HookRunSummary.sourcePath` and plugin
+  paths changed Rust path type but still serialise as strings.
 
 ## Bumping a tier
 

@@ -373,7 +373,6 @@ const resultMappers: Partial<Record<CommandName, ResultMapper>> = {
   gitRepoInfo: repoResult(false),
   gitContext: repoResult(true),
   listThreadsPage: pageResult,
-  listAgentRuns: each((entry, run) => scopeEvent(entry.homeKey, { run }).run),
 };
 
 function normalizeResult(name: string, entry: HomeSnapshot, result: unknown): unknown {

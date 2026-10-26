@@ -1,8 +1,11 @@
 //! The agents a thread has spawned.
 //!
 //! The descendant listing gives identity but not the model or effort each child
-//! was spawned with — that only appears in the parent's `spawnAgent` tool call.
-//! So the parents are read too, and the two views are joined per child.
+//! was spawned with — that only appears in the parent's transcript: on the
+//! `spawnAgent` tool call for Codex's original multi-agent tools, and on the
+//! `started` activity for path-based (v2) agents (Codex ≥0.164; older records
+//! omit it). So the parents are read too, and the two views are joined per
+//! child.
 
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -39,8 +42,8 @@ struct SpawnDetail {
     status: String,
 }
 
-/// Scan a parent thread's turns for `spawnAgent` calls, recording the model,
-/// effort and live state it holds for each child it spawned.
+/// Scan a parent thread's turns for spawns, recording the model, effort and
+/// (v1 only) live state it holds for each child it spawned.
 fn collect_spawn_details(thread: &Value, details: &mut HashMap<String, SpawnDetail>) {
     let Some(turns) = thread.get("turns").and_then(Value::as_array) else {
         return;
@@ -50,6 +53,21 @@ fn collect_spawn_details(thread: &Value, details: &mut HashMap<String, SpawnDeta
         .filter_map(|turn| turn.get("items").and_then(Value::as_array))
         .flatten()
     {
+        if str_at(item, "type") == Some("subAgentActivity")
+            && str_at(item, "kind") == Some("started")
+        {
+            if let Some(child_id) = str_at(item, "agentThreadId") {
+                details.insert(
+                    child_id.to_string(),
+                    SpawnDetail {
+                        model: str_at(item, "model").map(str::to_string),
+                        reasoning_effort: str_at(item, "reasoningEffort").map(str::to_string),
+                        status: String::new(),
+                    },
+                );
+            }
+            continue;
+        }
         if str_at(item, "type") != Some("collabAgentToolCall")
             || str_at(item, "tool") != Some("spawnAgent")
         {
@@ -96,16 +114,9 @@ pub(crate) async fn list_subagents(
     }
     let response = ctx
         .session
-        .request(
+        .send(
             &app,
-            "thread/list",
-            json!({
-                "limit": MAX_DESCENDANTS,
-                "sortKey": "created_at",
-                "sortDirection": "asc",
-                "archived": false,
-                "ancestorThreadId": thread_id,
-            }),
+            crate::codex::requests::subagent_list(&thread_id, MAX_DESCENDANTS),
         )
         .await?;
     let descendants = arr_or_empty(&response, "data").to_vec();
@@ -225,6 +236,42 @@ mod tests {
                 reasoning_effort: Some("high".into()),
                 status: "running".into(),
             })
+        );
+    }
+
+    #[test]
+    fn reads_a_path_based_agent_from_its_started_activity() {
+        let thread = json!({
+            "turns": [{
+                "items": [
+                    {
+                        "type": "subAgentActivity",
+                        "kind": "started",
+                        "agentThreadId": "child",
+                        "agentPath": "/root/scout",
+                        "model": "gpt-5.6-terra",
+                        "reasoningEffort": "low"
+                    },
+                    // Later activity carries no model and must not erase it.
+                    {"type": "subAgentActivity", "kind": "completed", "agentThreadId": "child"},
+                    // A pre-0.164 record has neither field.
+                    {"type": "subAgentActivity", "kind": "started", "agentThreadId": "old"}
+                ]
+            }]
+        });
+        let mut details = HashMap::new();
+        collect_spawn_details(&thread, &mut details);
+        assert_eq!(
+            details.get("child"),
+            Some(&SpawnDetail {
+                model: Some("gpt-5.6-terra".into()),
+                reasoning_effort: Some("low".into()),
+                status: String::new(),
+            })
+        );
+        assert_eq!(
+            details.get("old").and_then(|detail| detail.model.clone()),
+            None
         );
     }
 

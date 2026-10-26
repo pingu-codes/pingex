@@ -318,7 +318,6 @@ async fn delete_one_thread(
     // deleting is the one path that owns dropping it.
     storage::delete_thread_items(&ctx.database(), thread_id).await?;
     storage::delete_turn_settings(&ctx.database(), thread_id).await?;
-    storage::delete_agent_runs(&ctx.database(), thread_id).await?;
     storage::delete_thread_branch(&ctx.database(), thread_id).await?;
     remove_thread_locally(ctx, thread_id).await?;
     storage::unassign_thread_workspace(&ctx.database(), thread_id).await
@@ -409,7 +408,6 @@ pub(crate) async fn revert_thread(
     storage::invalidate_thread_detail(&ctx.database(), &thread_id).await?;
     storage::retain_thread_turns(&ctx.database(), &thread_id, &kept_turn_ids).await?;
     storage::retain_turn_settings(&ctx.database(), &thread_id, &kept_turn_ids).await?;
-    storage::retain_agent_runs(&ctx.database(), &thread_id, &kept_turn_ids).await?;
     crate::usage::ledger::send(
         &app,
         &ctx.home_key,
@@ -466,7 +464,6 @@ pub(crate) async fn fork_thread(
         // journal too — otherwise the copy loses every command that ran.
         storage::copy_thread_items(&ctx.database(), &thread_id, id).await?;
         storage::copy_turn_settings(&ctx.database(), &thread_id, id).await?;
-        storage::copy_agent_runs(&ctx.database(), &thread_id, id).await?;
         if inherits_workspace {
             if let Some(workspace_id) =
                 storage::workspace_for_thread(&ctx.database(), &thread_id).await?

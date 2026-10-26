@@ -307,17 +307,6 @@ export function syncPermissionMode(mode: string) {
 }
 
 /**
- * Whether a thread started from this composer should get the app's agent
- * tools: the per-thread choice, or `null` to follow the global setting.
- *
- * Read by ThreadView at `thread/start` time, because `dynamicTools` is only
- * accepted there — an existing thread cannot be switched over.
- */
-export function appSubagentsChoice(): boolean | null {
-  return prefs.appSubagents;
-}
-
-/**
  * Which harness a draft starts on. Read by ThreadView at thread creation;
  * an existing thread never switches.
  */
@@ -775,12 +764,9 @@ async function dispatchSend(sent: UserInputPart[], snapshot: ComposerPart[]) {
           efforts={settings.subagentEfforts}
           modelPolicy={subagentModelPolicy}
           effortPolicy={subagentReasoningEffortPolicy}
-          appSubagents={prefs.appSubagents}
-          appSubagentsLocked={Boolean(threadId)}
           onToggle={() => togglePopover("subagents")}
           onToggleModel={(id) => settings.toggleSubagentModel(id)}
           onToggleEffort={(effort) => settings.toggleSubagentEffort(effort)}
-          onSetAppSubagents={(value) => settings.setAppSubagents(value)}
         />
       {/snippet}
       {#snippet permissions()}

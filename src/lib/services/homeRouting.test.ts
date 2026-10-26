@@ -140,9 +140,9 @@ describe("Home routing", () => {
     const read = vi.spyOn(native, "readThread").mockResolvedValue({ id: "same-thread-id" });
     const start = vi.spyOn(native, "startThread").mockResolvedValue({ id: "new" });
     await commands.readThread(scopedId("original", "same-thread-id"));
-    await commands.startThread("C:\\repo", null, false, "codex");
+    await commands.startThread("C:\\repo", null, "codex");
     expect(read).toHaveBeenCalledWith("same-thread-id", { homeKey: "original" });
-    expect(start).toHaveBeenCalledWith("C:\\repo", null, false, "codex", { homeKey: "replacement" });
+    expect(start).toHaveBeenCalledWith("C:\\repo", null, "codex", { homeKey: "replacement" });
   });
 
   it("routes native side conversations and cancellation through the parent's Home", async () => {
@@ -201,10 +201,10 @@ describe("Home routing", () => {
       homes: [home("win", nativeHost, "codex", "C:\\repo"), home("linux", ubuntu, "claude", "/repo")],
     });
     const start = vi.spyOn(native, "startThread").mockResolvedValue({ id: "new", cwd: "/repo" });
-    const created = (await commands.startThread(localProjectPath(ubuntu, "/repo"), null, false, "claude")) as {
+    const created = (await commands.startThread(localProjectPath(ubuntu, "/repo"), null, "claude")) as {
       id: string;
     };
-    expect(start).toHaveBeenCalledWith("/repo", null, false, "claude", { homeKey: "linux" });
+    expect(start).toHaveBeenCalledWith("/repo", null, "claude", { homeKey: "linux" });
     expect(identity(created.id)).toEqual({ homeKey: "linux", nativeId: "new" });
     const turn = vi.spyOn(native, "startTurn").mockResolvedValue({ id: "turn" });
     const input = [{ type: "text", text: created.id }];

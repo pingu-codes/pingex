@@ -8,7 +8,6 @@ const mocks = vi.hoisted(() => ({
   readThread: vi.fn(),
   getThreadGoal: vi.fn().mockResolvedValue(null),
   listSubagents: vi.fn().mockResolvedValue([]),
-  listAgentRuns: vi.fn().mockResolvedValue([]),
   startTurn: vi.fn(),
   startReview: vi.fn(),
   compactThread: vi.fn(),
@@ -47,7 +46,6 @@ vi.mock("$lib/services/homeRouting", async (importOriginal) => {
     commands: {
       ...actual.commands,
       invalidateThreadCache: mocks.invalidateThreadCache,
-      listAgentRuns: mocks.listAgentRuns,
       compactThread: mocks.compactThread,
       interruptTurn: mocks.interruptTurn,
       queueReorder: vi.fn(),

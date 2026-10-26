@@ -296,11 +296,6 @@ export class ComposerSettings {
     );
   }
 
-  setAppSubagents(value: boolean | null): void {
-    this.prefs.appSubagents = value;
-    this.persist();
-  }
-
   /** Apply a subagent policy change to the thread and remember it for the next one. */
   private setSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: SubagentPolicy | null): void {
     this.prefs.subagentModelPolicy = modelPolicy;

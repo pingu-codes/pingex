@@ -299,7 +299,7 @@ async fn read_bootstrap_extras(ctx: &HomeContext) -> Result<BootstrapExtras, Str
         workspaces: storage::read_workspaces(&ctx.database()).await?,
         workspace_members: storage::read_all_workspace_members(&ctx.database()).await?,
         workspace_threads: storage::workspace_thread_map(&ctx.database()).await?,
-        agent_children: storage::read_agent_run_children(&ctx.database()).await?,
+        legacy_agent_threads: storage::read_legacy_agent_threads(&ctx.database()).await?,
         server_projects: storage::read_server_projects(&ctx.database()).await?,
         project_recency: storage::read_project_recency(&ctx.database()).await?,
         sections: storage::read_thread_sections(&ctx.database()).await?,
@@ -324,7 +324,7 @@ fn build_bootstrap(
         workspaces,
         workspace_members,
         workspace_threads,
-        agent_children,
+        legacy_agent_threads,
         temp_worktree_parents,
         server_projects,
         project_recency,
@@ -341,8 +341,8 @@ fn build_bootstrap(
             .map(|thread| thread.updated_at);
     }
     // Threads that belong under something else rather than in a project:
-    // side questions, message-version branches, and the threads app-owned
-    // subagents run in.
+    // side questions, message-version branches, and the threads the app's
+    // former own subagents ran in.
     let hidden_ids: HashSet<&str> = side_questions
         .iter()
         .map(|question| question.side_thread_id.as_str())
@@ -351,14 +351,8 @@ fn build_bootstrap(
                 .iter()
                 .map(|branch| branch.thread_id.as_str()),
         )
-        .chain(agent_children.iter().map(|(child, _)| child.as_str()))
+        .chain(legacy_agent_threads.iter().map(String::as_str))
         .collect();
-    // How many app-owned agents each thread spawned. Codex's own descendant
-    // links cannot see these, so they are counted separately and added on.
-    let mut agent_counts: HashMap<&str, usize> = HashMap::new();
-    for (_, parent) in &agent_children {
-        *agent_counts.entry(parent.as_str()).or_default() += 1;
-    }
     let visible_threads: Vec<_> = all_threads
         .iter()
         .filter(|thread| !hidden_ids.contains(thread.id.as_str()))
@@ -378,8 +372,7 @@ fn build_bootstrap(
     let visible_threads: Vec<_> = visible_threads
         .into_iter()
         .map(|mut thread| {
-            thread.subagent_count = descendant_counts.get(&thread.id).copied().unwrap_or(0)
-                + agent_counts.get(thread.id.as_str()).copied().unwrap_or(0);
+            thread.subagent_count = descendant_counts.get(&thread.id).copied().unwrap_or(0);
             thread.in_temp_worktree = in_temp_worktree(&thread.cwd);
             thread
         })
@@ -737,7 +730,7 @@ mod tests {
                     "workspace-thread".into(),
                     "workspace-1".into(),
                 )]),
-                agent_children: Vec::new(),
+                legacy_agent_threads: Vec::new(),
                 temp_worktree_parents: Vec::new(),
                 server_projects: HashMap::new(),
                 sections: Vec::new(),
@@ -828,7 +821,7 @@ mod tests {
                 workspaces: Vec::new(),
                 workspace_members: Vec::new(),
                 workspace_threads: HashMap::new(),
-                agent_children: Vec::new(),
+                legacy_agent_threads: Vec::new(),
                 temp_worktree_parents: Vec::new(),
                 server_projects: HashMap::new(),
                 sections: Vec::new(),
@@ -892,7 +885,7 @@ mod tests {
                 workspaces: Vec::new(),
                 workspace_members: Vec::new(),
                 workspace_threads: HashMap::new(),
-                agent_children: Vec::new(),
+                legacy_agent_threads: Vec::new(),
                 temp_worktree_parents: vec![
                     (live_path, project_path.clone()),
                     (gone_path, project_path),
@@ -962,7 +955,7 @@ mod tests {
             workspaces: Vec::new(),
             workspace_members: Vec::new(),
             workspace_threads: HashMap::new(),
-            agent_children: Vec::new(),
+            legacy_agent_threads: Vec::new(),
             temp_worktree_parents: Vec::new(),
             server_projects: HashMap::new(),
             sections: Vec::new(),
@@ -1074,7 +1067,7 @@ mod tests {
                 workspaces: Vec::new(),
                 workspace_members: Vec::new(),
                 workspace_threads: HashMap::new(),
-                agent_children: Vec::new(),
+                legacy_agent_threads: Vec::new(),
                 temp_worktree_parents: Vec::new(),
                 server_projects: HashMap::from([
                     ("srv-web".to_string(), web_path.clone()),
@@ -1156,7 +1149,7 @@ mod tests {
                 workspaces: Vec::new(),
                 workspace_members: Vec::new(),
                 workspace_threads: HashMap::new(),
-                agent_children: Vec::new(),
+                legacy_agent_threads: Vec::new(),
                 temp_worktree_parents: Vec::new(),
                 server_projects: HashMap::from([("srv-parent".to_string(), parent_path.clone())]),
                 sections: Vec::new(),
@@ -1220,10 +1213,7 @@ mod tests {
                 workspaces: Vec::new(),
                 workspace_members: Vec::new(),
                 workspace_threads: HashMap::new(),
-                agent_children: vec![
-                    ("agent-thread-1".into(), "main-thread".into()),
-                    ("agent-thread-2".into(), "main-thread".into()),
-                ],
+                legacy_agent_threads: vec!["agent-thread-1".into(), "agent-thread-2".into()],
                 temp_worktree_parents: Vec::new(),
                 server_projects: HashMap::new(),
                 sections: Vec::new(),
@@ -1239,6 +1229,5 @@ mod tests {
         let threads = &data.projects[0].threads;
         assert_eq!(threads.len(), 1);
         assert_eq!(threads[0].id, "main-thread");
-        assert_eq!(threads[0].subagent_count, 2);
     }
 }

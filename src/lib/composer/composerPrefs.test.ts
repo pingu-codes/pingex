@@ -110,7 +110,6 @@ describe("scoped prefs", () => {
       permissionPreset: null,
       planMode: false,
       claudeMode: null,
-      appSubagents: null,
       subagentModelPolicy: null,
       subagentReasoningEffortPolicy: null,
     });
@@ -157,7 +156,6 @@ describe("scoped prefs", () => {
       JSON.stringify({ version: 2, fallback: null, projects: {}, threads: { "thread-a": { model: "gpt-5.2" } } }),
     );
     expect(loadScopedPrefs("/repo", "thread-a")).toMatchObject({
-      appSubagents: null,
       subagentModelPolicy: null,
       subagentReasoningEffortPolicy: null,
     });
@@ -166,12 +164,11 @@ describe("scoped prefs", () => {
 
 describe("subagent prefs", () => {
   const prefs = (patch: Partial<ComposerPrefs> = {}): ComposerPrefs => ({ ...loadPrefs(), ...patch });
-  const configured = () => prefs({ appSubagents: true, subagentModelPolicy: { allowed: ["gpt-5.2"] } });
+  const configured = () => prefs({ subagentModelPolicy: { allowed: ["gpt-5.2"] } });
 
   it("carries the last-used choices to a project nobody has configured", () => {
     saveScopedPrefs("/repo", "thread-a", configured());
     expect(loadScopedPrefs("/other", null)).toMatchObject({
-      appSubagents: true,
       subagentModelPolicy: { allowed: ["gpt-5.2"] },
       // The rest of the prefs stay scoped to their own project.
       model: null,
@@ -180,9 +177,9 @@ describe("subagent prefs", () => {
 
   it("lets a project keep subagent choices that differ from the global ones", () => {
     saveScopedPrefs("/repo", null, configured());
-    saveScopedPrefs("/other", null, prefs({ appSubagents: false }));
-    expect(loadScopedPrefs("/repo", null).appSubagents).toBe(true);
-    expect(loadScopedPrefs("/other", null).appSubagents).toBe(false);
+    saveScopedPrefs("/other", null, prefs({ subagentModelPolicy: { excluded: ["gpt-5.2"] } }));
+    expect(loadScopedPrefs("/repo", null).subagentModelPolicy).toEqual({ allowed: ["gpt-5.2"] });
+    expect(loadScopedPrefs("/other", null).subagentModelPolicy).toEqual({ excluded: ["gpt-5.2"] });
   });
 
   it("round-trips the policies through localStorage", () => {

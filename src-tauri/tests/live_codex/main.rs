@@ -18,10 +18,7 @@ mod fixtures;
 
 use harness::{Server, TurnOutcome, MCP_SERVER, MCP_TOOL, SKILL_NAME, TURN_TIMEOUT};
 use pingex_app_lib::e2e::requests::{self, TurnOptions};
-use pingex_app_lib::e2e::{
-    agent_tool_specs, collect_model_ids, parse_skills, sandbox_tag, Feature, AGENT_PREAMBLE,
-    DELEGATION_POLICY, NAMER_INSTRUCTIONS,
-};
+use pingex_app_lib::e2e::{parse_skills, Feature, NAMER_INSTRUCTIONS};
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -54,15 +51,17 @@ fn text_input(text: &str) -> Vec<Value> {
 fn model_list_offers_the_configured_model() {
     live!(server);
     let response = server.call(requests::model_list(100, true));
-    let ids = collect_model_ids(&response);
+    let ids: Vec<&str> = response["data"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|model| model["id"].as_str())
+        .collect();
     assert!(
-        ids.iter().any(|id| id == &server.model),
+        ids.contains(&server.model.as_str()),
         "{} not in model/list: {ids:?}",
         server.model
     );
-    // The frontend's `dynamicTools` enum is built from this list.
-    let specs = agent_tool_specs(&ids);
-    assert!(specs.is_array(), "agent tool specs are an array: {specs}");
 }
 
 #[test]
@@ -356,25 +355,6 @@ fn a_workspace_turn_with_additional_context_is_accepted() {
 }
 
 #[test]
-fn a_thread_started_with_dynamic_agent_tools_is_accepted() {
-    live!(server);
-    let models = collect_model_ids(&server.call(requests::model_list(100, false)));
-    let response = server.call(requests::thread_start(
-        &server.cwd.display().to_string(),
-        None,
-        Some(DELEGATION_POLICY),
-        Some(agent_tool_specs(&models)),
-    ));
-    let thread_id = harness::thread_id_of(&response);
-    let outcome = server.run_turn(requests::turn_start(
-        &thread_id,
-        text_input("Do not use any tools. Reply with exactly TOOLS-OK"),
-        low_effort(server),
-    ));
-    assert_reply_contains(&outcome, "TOOLS-OK", "dynamic tools thread");
-}
-
-#[test]
 fn resume_then_follow_up_keeps_context() {
     live!(server);
     let thread_id = server.start_thread();
@@ -576,32 +556,44 @@ fn autoname_thread_and_turn_produce_a_title() {
 }
 
 #[test]
-fn subagent_thread_turn_and_follow_up_are_accepted() {
+fn a_spawned_codex_subagent_is_reported_and_listed_under_its_parent() {
     live!(server);
-    let started = server.call(requests::agent_thread_start(
-        &server.cwd.display().to_string(),
-        AGENT_PREAMBLE,
+    let thread_id = server.start_thread();
+    let outcome = server.run_turn(requests::turn_start(
+        &thread_id,
+        text_input(
+            "Spawn exactly one subagent whose whole task is to reply with exactly CHILD-OK. \
+             Wait for it to finish, then reply with exactly PARENT-OK.",
+        ),
+        low_effort(server),
     ));
-    let agent_id = harness::thread_id_of(&started);
-    let outcome = server.run_turn(requests::agent_turn(
-        &agent_id,
-        "Reply with exactly AGENT-OK",
-        sandbox_tag("read-only"),
-        Some(&server.model),
-        Some("low"),
-    ));
-    assert_reply_contains(&outcome, "AGENT-OK", "agent first turn");
-    let follow = server.run_turn(requests::agent_followup(
-        &agent_id,
-        "Reply with exactly AGENT-AGAIN",
-    ));
-    assert_reply_contains(&follow, "AGENT-AGAIN", "agent follow-up");
-    server.call(requests::thread_delete(&agent_id));
+    assert_reply_contains(&outcome, "PARENT-OK", "parent after its subagent");
+
+    // What `WorkItem` renders and `list_subagents` joins on: a spawn call
+    // naming its child.
+    let spawn = outcome
+        .items
+        .iter()
+        .find(|item| item["type"] == "collabAgentToolCall" && item["tool"] == "spawnAgent")
+        .unwrap_or_else(|| panic!("no spawnAgent call: {:?}", outcome.item_types()));
+    let child = spawn["receiverThreadIds"][0]
+        .as_str()
+        .unwrap_or_else(|| panic!("spawn names no child: {spawn}"))
+        .to_string();
+
+    let listed = server.call(requests::subagent_list(&thread_id, 100));
+    let entry = listed["data"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|thread| thread["id"] == child.as_str())
+        .unwrap_or_else(|| panic!("{child} not listed under {thread_id}: {listed}"));
+    assert_eq!(entry["parentThreadId"], thread_id.as_str());
 }
 
 // ── version-dependent APIs ────────────────────────────────────────────────
 //
-// The app supports the last stable (0.159.3), the current stable (0.160.1)
+// The app supports the last stable (0.163.0), the current stable (0.164.0)
 // and the unreleased mirror HEAD — see `docs/SUPPORTED_VERSIONS.md`. Each of
 // these tests takes the modern branch
 // where the API exists and, where it does not, checks that the refusal is

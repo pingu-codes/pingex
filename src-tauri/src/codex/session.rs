@@ -143,18 +143,6 @@ impl ChildSink for MainSessionSink {
             }
             _ => {}
         }
-        // Our own agent tools are answered in Rust and never reach the
-        // frontend: a `wait_agents` response can be outstanding for many
-        // minutes, and one held by the webview would not survive a reload.
-        // Anything else — including a dynamic tool we do not own — falls
-        // through untouched.
-        if method == "item/tool/call" && crate::agents::tools::owns(params) {
-            let (app, home_key, params) = (self.app.clone(), self.home_key.clone(), params.clone());
-            tauri::async_runtime::spawn(async move {
-                crate::agents::handle_tool_call(app, home_key, id, params).await;
-            });
-            return;
-        }
         let mut request = ServerRequest::decode(method, params);
         if let ServerRequest::ToolRequestUserInput(question) = &mut request {
             if let (Some(turn_id), Some(item_id)) = (&question.turn_id, &question.item_id) {

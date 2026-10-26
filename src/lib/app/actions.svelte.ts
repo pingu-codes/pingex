@@ -70,7 +70,7 @@ export function threadCreated(id: string, cwd: string, inTempWorktree = false): 
 
 export function openSubagent(agent: SubagentDetail): void {
   trackSubagent(agent);
-  // App-owned agents run in threads deliberately hidden from the sidebar, and
+  // Subagent threads are kept out of the sidebar's project listings, and
   // `openThreadById` silently does nothing for a thread it cannot find there.
   openThreadInCwd(agent.id, agent.cwd);
 }

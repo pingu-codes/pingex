@@ -628,7 +628,6 @@ impl Server {
             &self.cwd.display().to_string(),
             None,
             None,
-            None,
         ));
         thread_id_of(&response)
     }

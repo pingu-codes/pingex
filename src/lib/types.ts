@@ -454,10 +454,7 @@ interface TurnOptionsOverrides {
 
 export type SubagentPolicy = { allowed: string[] } | { excluded: string[] };
 
-export type SubagentDetail = GenSubagentDetail & {
-  source?: "codex" | "app";
-  runId?: string;
-};
+export type SubagentDetail = GenSubagentDetail;
 
 export interface ArchivedThread {
   id: string;

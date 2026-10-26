@@ -4,7 +4,6 @@
 //! holds its `#[tauri::command]` entry points):
 //!
 //! - `codex`       — the app-server client: CLI discovery, the child process, pairing
-//! - `agents`      — app-owned subagents: the `pingex_*` tools and the processes behind them
 //! - `storage`     — the frontend SQLite database, one file per Codex home
 //! - `projects`    — the project/thread tree and the bootstrap payload the app opens with
 //! - `threads`     — reading a thread, running turns, and thread lifecycle
@@ -27,7 +26,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use tauri::Manager;
 
-mod agents;
 mod claude;
 mod codex;
 mod composer;
@@ -59,8 +57,6 @@ use util::host::Host;
 /// a real `codex` binary: the exact request payloads the app sends and the
 /// parsers it reads responses with. Not an API for anything else.
 pub mod e2e {
-    pub use crate::agents::supervisor::{collect_model_ids, sandbox_tag, AGENT_PREAMBLE};
-    pub use crate::agents::tools::{specs as agent_tool_specs, DELEGATION_POLICY};
     pub use crate::claude::child::BASE_ARGS as CLAUDE_BASE_ARGS;
     pub use crate::claude::driver::turn_args as claude_turn_args;
     pub use crate::claude::permissions::permission_result as claude_permission_result;
@@ -141,9 +137,6 @@ pub(crate) struct HomeContext {
     /// The Claude Code driver for this home: one `claude` process per active
     /// Claude thread. Spawned lazily, like the app-server child.
     pub(crate) claude: claude::ClaudeDriver,
-    /// Subagent processes this home owns. Same lifetime as `session`: reached
-    /// from Tauri commands and from the session's reader thread.
-    pub(crate) agents: agents::supervisor::AgentSupervisor,
     /// The token-usage ledger: one consumer per home turning usage
     /// notifications into `turn_usage` rows.
     pub(crate) usage: usage::ledger::UsageLedger,
@@ -177,7 +170,6 @@ impl HomeContext {
             profile_key,
             session,
             claude,
-            agents: agents::supervisor::AgentSupervisor::default(),
             usage: usage::ledger::UsageLedger::default(),
             rollouts: codex::rollout::RolloutCache::default(),
             runtime,
@@ -218,10 +210,8 @@ impl HomeContext {
             .codex_binary = binary;
     }
 
-    /// Kill everything this home is running. Agents first: they are children
-    /// of this process too, and nothing else will reap them once dropped.
+    /// Kill everything this home is running.
     pub(crate) fn shutdown(&self) {
-        self.agents.kill_all();
         self.claude.kill_all();
         self.session.kill_child();
     }
@@ -416,7 +406,6 @@ impl AppState {
             return Ok(existing);
         }
         composer::attachments::cleanup_on_startup(&host.to_local(&home));
-        let _ = storage::orphan_running_agent_runs(&database).await;
         let default = self.default_context().runtime();
         let codex_binary = if default.host == host {
             default.codex_binary
@@ -630,11 +619,6 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             settings::commands::read_home_overview,
             settings::commands::read_config_settings,
             settings::commands::write_config_setting,
-            settings::commands::read_agent_settings,
-            settings::commands::write_agent_settings,
-            // App-owned subagents
-            agents::commands::list_agent_runs,
-            agents::commands::kill_agent_run,
             // Codex app-server pairing
             codex::pairing::remote_pairing_start,
             codex::pairing::remote_pairing_status,
@@ -733,7 +717,6 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             codex::events::CodexDisconnected,
             harness::HarnessEventEnvelope,
             harness::HarnessRequestEnvelope,
-            agents::supervisor::CodexAgentRun,
         ])
 }
 
@@ -816,9 +799,6 @@ pub fn run() {
     .expect("error while opening Pingex database");
     // Evict stale staged attachments so the directory stays bounded across runs.
     composer::attachments::cleanup_on_startup(&runtime.host.to_local(&runtime.codex_home_str()));
-    // Agent processes died with the previous run, so any row still claiming to
-    // be running never will be; otherwise the GUI shows a permanent spinner.
-    let _ = tauri::async_runtime::block_on(storage::orphan_running_agent_runs(&database));
     // An explicitly-chosen home boots straight away; record it so it shows up
     // in the picker on a later, non-explicit launch.
     if launch_explicit {

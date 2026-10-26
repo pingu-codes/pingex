@@ -369,16 +369,6 @@ describe("Composer", () => {
     expect(loadScopedPrefs("/repo", null).subagentModelPolicy).toEqual({ allowed: ["gpt-5.2-codex"] });
   });
 
-  it("remembers the separate-processes choice", async () => {
-    const user = userEvent.setup();
-    setup({ projectKey: "/repo" });
-
-    await user.click(screen.getByRole("button", { name: "Set subagent models and effort" }));
-    await user.click(screen.getByRole("button", { name: "On" }));
-
-    expect(loadScopedPrefs("/repo", null).appSubagents).toBe(true);
-  });
-
   it("seeds a draft thread with the remembered subagent policy", async () => {
     const { onSubagentPolicyChange } = setup({
       projectKey: "/repo",

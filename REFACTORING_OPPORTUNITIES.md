@@ -771,16 +771,12 @@ See §3.2.
   describes (no `Driver` type exists in `harness/` today).
 - ~30 lines now, more with the enum.
 
-### 9.9 `spawn_agent`: four identical failure exits
-- `agents/supervisor.rs:493-687` is a 195-line function with 4 copies of an
-  8-line `finish(…Failed…); return Err` block. It also has 3 hand-rolled
-  `.get("thread").and_then(|t| t.get("id"))` lookups.
-- Extract `launch()` and handle the error once. Use `pointer("/turn/id")`
-  and an `AgentRun::new` constructor. ~40 lines.
+### 9.9 `spawn_agent`: four identical failure exits: obsolete
+- The app-owned subagents (`agents/`) were removed in favour of Codex's own.
 
-### 9.10 Char-boundary truncation, 5 copies
+### 9.10 Char-boundary truncation, 4 copies
 - `codex/journal.rs:637-651`, `codex/wire.rs:96-99`,
-  `agents/tools.rs:368-385`, `claude/child.rs:377-381` and
+  `claude/child.rs:377-381` and
   `git/actions.rs:161-166`. "Keep the tail with a marker" appears twice.
 - Add `util::text::{floor_boundary, head, tail}`. ~35 lines.
 

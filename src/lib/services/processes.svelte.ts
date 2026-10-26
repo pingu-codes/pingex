@@ -33,6 +33,13 @@ export const processes = $state<{ list: RunningProcess[] }>({ list: [] });
 export const processClock = $state<{ now: number }>({ now: 0 });
 let ticker: ReturnType<typeof setInterval> | null = null;
 
+/** How long something has been running, as `1m 04s`. */
+export function elapsedLabel(since: number, now: number): string {
+  const seconds = Math.max(0, Math.floor(((now || Date.now()) - since) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+}
+
 /** A finished process's tail is worth keeping; an unbounded mirror is not. */
 const OUTPUT_CAP = 200_000;
 /** Finished entries retained per session before the oldest are dropped. */

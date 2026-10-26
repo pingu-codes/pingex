@@ -1,7 +1,5 @@
 import type {
   AccountRateLimits,
-  AgentRun,
-  AgentSettings,
   BootstrapData,
   CategoryTokens,
   ConfigSetting,
@@ -249,24 +247,18 @@ export const previewThread: ThreadDetail = {
             "3:export function clamp(value: number, min: number, max: number) {\n8:export function sleep(ms: number) {",
         },
         {
-          // The item id is the callId the spawn was answered under, which is
-          // what links the transcript row to its agent run.
-          type: "dynamicToolCall",
+          // Receiver ids match `previewData.subagents`, so the row names the
+          // agent and links to its thread.
+          type: "collabAgentToolCall",
           id: "call-1",
-          tool: "pingex_spawn_agent",
-          arguments: {
-            name: "debounce audit",
-            prompt: "Check every call site of the new debounce helper.",
-          },
-        },
-        {
-          type: "dynamicToolCall",
-          id: "call-2",
-          tool: "pingex_spawn_agent",
-          arguments: {
-            name: "test sweep",
-            prompt: "Run the test suite and summarise failures.",
-          },
+          tool: "spawnAgent",
+          status: "completed",
+          senderThreadId: "1",
+          receiverThreadIds: ["agent-1"],
+          prompt: "Check every call site of the new debounce helper.",
+          model: "gpt-5.6-terra",
+          reasoningEffort: "high",
+          agentsStates: { "agent-1": { status: "running", message: null } },
         },
         {
           type: "webSearch",
@@ -1215,52 +1207,6 @@ export const previewConnections: RemoteConnection[] = [
 // Quick-chat window: a mutable holder so browser-preview shortcut edits stick
 // across the settings recorder round-trip.
 export const previewQuickShortcut = { value: "CmdOrCtrl+Shift+Space" };
-
-/** One finished agent and one still working, so both card states render. */
-export const previewAgentRuns: AgentRun[] = [
-  {
-    runId: "agt_1",
-    parentThreadId: "1",
-    parentTurnId: "t1",
-    callId: "call-1",
-    childThreadId: "agent-thread-1",
-    name: "debounce audit",
-    prompt: "Check every call site of the new debounce helper.",
-    cwd: "/Users/ciaran/Projects/codex-custom",
-    model: "gpt-5.2",
-    reasoningEffort: "medium",
-    status: "done",
-    result: "Found 3 call sites; all pass a delay. No changes needed.",
-    error: null,
-    createdAt: Date.now() - 120_000,
-    finishedAt: Date.now() - 90_000,
-  },
-  {
-    runId: "agt_2",
-    parentThreadId: "1",
-    parentTurnId: "t1",
-    callId: "call-2",
-    childThreadId: "agent-thread-2",
-    name: "test sweep",
-    prompt: "Run the test suite and summarise failures.",
-    cwd: "/Users/ciaran/Projects/codex-custom",
-    model: "gpt-5.2",
-    reasoningEffort: null,
-    status: "running",
-    result: null,
-    error: null,
-    createdAt: Date.now() - 30_000,
-    finishedAt: null,
-  },
-];
-
-export const previewAgentSettings: AgentSettings = {
-  enabled: true,
-  sandbox: "workspace-write",
-  maxConcurrent: 4,
-  timeoutSeconds: 900,
-  sandboxOptions: ["read-only", "workspace-write"],
-};
 
 // Mutable so the browser preview reflects add/remove/enable actions.
 export const previewIntegrations: IntegrationsList = {

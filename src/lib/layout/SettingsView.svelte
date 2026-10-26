@@ -4,7 +4,6 @@ import TooltipButton from "$lib/components/TooltipButton.svelte";
 import IntegrationsSection from "$lib/integrations/IntegrationsSection.svelte";
 import Connections from "$lib/layout/Connections.svelte";
 import Advanced from "$lib/layout/settings/Advanced.svelte";
-import Agents from "$lib/layout/settings/Agents.svelte";
 import Appearance from "$lib/layout/settings/Appearance.svelte";
 import ConfigToml from "$lib/layout/settings/ConfigToml.svelte";
 import General from "$lib/layout/settings/General.svelte";
@@ -122,9 +121,6 @@ async function reveal(path: string | null | undefined) {
         {:else if currentSection === "appearance"}
           <Appearance />
         {:else if current && (currentSection === "agent" || currentSection === "modelFeatures" || currentSection === "coding")}
-          {#if currentSection === "agent"}
-            <Agents />
-          {/if}
           <ConfigToml section={current.id} title={current.label} />
         {:else if currentSection === "integrations"}
           <IntegrationsSection

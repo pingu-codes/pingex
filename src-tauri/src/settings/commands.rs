@@ -344,57 +344,6 @@ fn claude_home_label(config_dir: &str) -> String {
     }
 }
 
-/// How app-owned subagents are configured, as the settings form sees them.
-#[derive(serde::Serialize, serde::Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-#[serde(rename = "AgentSettings")]
-pub(crate) struct AgentSettingsPayload {
-    pub(crate) enabled: bool,
-    pub(crate) sandbox: String,
-    pub(crate) max_concurrent: u32,
-    pub(crate) timeout_seconds: u64,
-    /// The sandboxes the form may offer, so the choices live in one place.
-    /// The form echoes them back; they are ignored on the way in.
-    pub(crate) sandbox_options: Vec<String>,
-}
-
-fn agent_payload(settings: prefs::AgentSettings) -> AgentSettingsPayload {
-    AgentSettingsPayload {
-        enabled: settings.enabled,
-        sandbox: settings.sandbox,
-        max_concurrent: settings.max_concurrent as u32,
-        timeout_seconds: settings.timeout_seconds,
-        sandbox_options: prefs::AGENT_SANDBOXES
-            .iter()
-            .map(|value| value.to_string())
-            .collect(),
-    }
-}
-
-#[tauri::command]
-#[specta::specta]
-pub(crate) fn read_agent_settings() -> AgentSettingsPayload {
-    agent_payload(prefs::read_agent_settings(&prefs::settings_path()))
-}
-
-#[tauri::command]
-#[specta::specta]
-pub(crate) fn write_agent_settings(
-    settings: AgentSettingsPayload,
-) -> Result<AgentSettingsPayload, String> {
-    let path = prefs::settings_path();
-    prefs::write_agent_settings(
-        &path,
-        &prefs::AgentSettings {
-            enabled: settings.enabled,
-            sandbox: settings.sandbox,
-            max_concurrent: settings.max_concurrent as usize,
-            timeout_seconds: settings.timeout_seconds,
-        },
-    )?;
-    Ok(agent_payload(prefs::read_agent_settings(&path)))
-}
-
 /// The WSL distributions installed on this machine, for the host pickers.
 /// Empty off Windows.
 #[tauri::command(async)]

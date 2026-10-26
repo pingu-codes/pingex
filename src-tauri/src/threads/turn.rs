@@ -19,9 +19,6 @@ struct StartInputs {
     workspace: Option<WorkspaceRuntime>,
     /// Stored instructions for the project containing `cwd` (empty when none).
     project_instructions: String,
-    app_subagents: bool,
-    /// Model ids the spawn tool may offer as an enum; empty leaves it free-form.
-    models: Vec<String>,
     /// Codex-side project to file the thread under (`None` before Codex 0.149
     /// or when the cwd is not under a mirrored project).
     project_id: Option<String>,
@@ -58,17 +55,6 @@ fn build_start_request(inputs: &StartInputs) -> Request {
     if let Some(workspace) = &inputs.workspace {
         append_section(&mut instructions, &workspace.context);
     }
-    // The app's own agent tools are declared here or not at all: `dynamicTools`
-    // is only accepted on `thread/start`, so this is a property of the thread
-    // rather than something that can be toggled part-way through. (Codex does
-    // restore them across `thread/resume`, so the choice survives a restart.)
-    let mut dynamic_tools = None;
-    if inputs.app_subagents {
-        dynamic_tools = Some(crate::agents::tools::specs(&inputs.models));
-        // Codex's built-in subagents cannot be switched off, so the delegation
-        // policy is what actually steers the model onto ours.
-        append_section(&mut instructions, crate::agents::tools::DELEGATION_POLICY);
-    }
     let mut request = requests::thread_start(
         &inputs.cwd,
         inputs
@@ -76,7 +62,6 @@ fn build_start_request(inputs: &StartInputs) -> Request {
             .as_ref()
             .map(|workspace| workspace.roots.as_slice()),
         Some(&instructions),
-        dynamic_tools,
     );
     // File the thread under its sidebar entry's mirrored Codex project from
     // the start (Codex ≥0.149), so the assignment holds even if its cwd
@@ -89,10 +74,8 @@ fn build_start_request(inputs: &StartInputs) -> Request {
 /// in the order it has to happen.
 async fn fetch_start_inputs(
     ctx: &HomeContext,
-    app: &AppHandle,
     cwd: Option<String>,
     workspace_id: Option<String>,
-    app_subagents: Option<bool>,
 ) -> Result<StartInputs, String> {
     let workspace = match workspace_id.as_deref() {
         Some(workspace_id) => Some(workspaces::runtime_for_workspace(ctx, workspace_id).await?),
@@ -102,22 +85,6 @@ async fn fetch_start_inputs(
     let project_instructions = storage::read_instructions_for_cwd(&ctx.database(), &cwd)
         .await?
         .unwrap_or_default();
-    let app_subagents = app_subagents.unwrap_or_else(|| {
-        crate::settings::prefs::read_agent_settings(&crate::settings::prefs::settings_path())
-            .enabled
-    });
-    // Fetched here, while nothing is in flight, so the spawn tool can offer
-    // the real slugs as an enum. Best effort: an unavailable list leaves the
-    // field free-form rather than blocking the tools entirely.
-    let models = if app_subagents {
-        ctx.session
-            .send(app, requests::model_list(100, false))
-            .await
-            .map(|response| crate::agents::supervisor::collect_model_ids(&response))
-            .unwrap_or_default()
-    } else {
-        Vec::new()
-    };
     let project_key = match &workspace {
         // A workspace's cwd is its hub, which is also its local key.
         Some(workspace) => Some(workspace.cwd.clone()),
@@ -137,8 +104,6 @@ async fn fetch_start_inputs(
         cwd,
         workspace,
         project_instructions,
-        app_subagents,
-        models,
         project_id,
     })
 }
@@ -148,7 +113,6 @@ async fn fetch_start_inputs(
 pub(crate) async fn start_thread(
     cwd: Option<String>,
     workspace_id: Option<String>,
-    app_subagents: Option<bool>,
     harness: Option<String>,
     app: AppHandle,
     window: crate::HomeWindow,
@@ -168,7 +132,7 @@ pub(crate) async fn start_thread(
     if harness.as_deref() == Some("claude") {
         return start_claude_thread(&ctx, cwd, workspace_id).await;
     }
-    let inputs = fetch_start_inputs(&ctx, &app, cwd, workspace_id, app_subagents).await?;
+    let inputs = fetch_start_inputs(&ctx, cwd, workspace_id).await?;
     let request = build_start_request(&inputs);
     let response = ctx.session.send(&app, request).await?;
     let thread = response
@@ -177,10 +141,6 @@ pub(crate) async fn start_thread(
         .ok_or_else(|| "Codex returned no thread data".to_string())?;
     if let Some(id) = str_at(&thread, "id") {
         ctx.session.mark_resumed(&app, id, &response).await?;
-        // Remembered now so a `pingex_spawn_agent` on this thread's very first
-        // message can bound the agent without asking Codex about a thread whose
-        // turn is at that moment blocked waiting for the tool's answer.
-        ctx.agents.remember_cwd(id, &inputs.cwd);
         if let Some(workspace) = &inputs.workspace {
             storage::assign_thread_workspace(&ctx.database(), id, &workspace.workspace_id).await?;
         }
@@ -311,9 +271,6 @@ pub(crate) async fn start_turn(
             &workspace.roots,
             &workspace.context,
         );
-        // The workspace hub is where this turn actually runs, so it is also
-        // what bounds any agent the turn spawns.
-        ctx.agents.remember_cwd(&thread_id, &workspace.cwd);
     }
     let response = ctx.session.send(&app, request).await?;
     if let Some(tier) = speed_tier.as_deref() {
@@ -603,8 +560,6 @@ mod tests {
             cwd: "/proj".into(),
             workspace: None,
             project_instructions: String::new(),
-            app_subagents: false,
-            models: Vec::new(),
             project_id: None,
         }
     }
@@ -640,17 +595,13 @@ mod tests {
     }
 
     #[test]
-    fn instructions_order_is_project_then_workspace_then_policy() {
+    fn instructions_order_is_project_then_workspace() {
         let request = build_start_request(&StartInputs {
             workspace: Some(workspace("/hub", "ctx")),
             project_instructions: "proj".into(),
-            app_subagents: true,
             ..inputs()
         });
-        assert_eq!(
-            request.params["developerInstructions"],
-            format!("proj\n\nctx\n\n{}", crate::agents::tools::DELEGATION_POLICY)
-        );
+        assert_eq!(request.params["developerInstructions"], "proj\n\nctx");
     }
 
     #[test]
@@ -666,39 +617,6 @@ mod tests {
     fn no_instructions_field_when_everything_empty() {
         let request = build_start_request(&inputs());
         assert!(request.params.get("developerInstructions").is_none());
-    }
-
-    #[test]
-    fn subagents_off_sends_no_dynamic_tools_and_no_policy() {
-        let request = build_start_request(&StartInputs {
-            project_instructions: "proj".into(),
-            ..inputs()
-        });
-        assert!(request.params.get("dynamicTools").is_none());
-        assert_eq!(request.params["developerInstructions"], "proj");
-    }
-
-    #[test]
-    fn subagents_on_sends_tool_specs_with_model_enum() {
-        let models = vec!["gpt-5.6".to_string()];
-        let request = build_start_request(&StartInputs {
-            app_subagents: true,
-            models: models.clone(),
-            ..inputs()
-        });
-        assert_eq!(
-            request.params["dynamicTools"],
-            crate::agents::tools::specs(&models)
-        );
-        // No models still declares the tools, just with a free-form model field.
-        let request = build_start_request(&StartInputs {
-            app_subagents: true,
-            ..inputs()
-        });
-        assert_eq!(
-            request.params["dynamicTools"],
-            crate::agents::tools::specs(&[])
-        );
     }
 
     #[test]
@@ -824,15 +742,6 @@ mod tests {
             },
         );
         assert_eq!(params, json!({}));
-    }
-
-    #[test]
-    fn the_agent_tool_specs_are_a_start_only_concern() {
-        // `dynamicTools` is not accepted on `turn/start`, so nothing in the
-        // per-turn options may try to smuggle it through.
-        let mut params = json!({});
-        apply_turn_options(&mut params, TurnOptions::default());
-        assert!(params.get("dynamicTools").is_none());
     }
 
     #[test]

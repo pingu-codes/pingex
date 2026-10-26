@@ -11,12 +11,9 @@ let {
   efforts,
   modelPolicy,
   effortPolicy,
-  appSubagents,
-  appSubagentsLocked = false,
   onToggle,
   onToggleModel,
   onToggleEffort,
-  onSetAppSubagents,
 }: {
   open: boolean;
   models: Model[] | null;
@@ -24,24 +21,10 @@ let {
   efforts: string[];
   modelPolicy: SubagentPolicy | null;
   effortPolicy: SubagentPolicy | null;
-  /** Per-thread override; `null` follows the global setting. */
-  appSubagents: boolean | null;
-  /**
-   * True once the thread exists. `dynamicTools` is only accepted on
-   * `thread/start`, so the choice cannot be changed after that point.
-   */
-  appSubagentsLocked?: boolean;
   onToggle: () => void;
   onToggleModel: (id: string) => void;
   onToggleEffort: (effort: string) => void;
-  onSetAppSubagents: (value: boolean | null) => void;
 } = $props();
-
-const APP_SUBAGENT_CHOICES: { value: boolean | null; label: string }[] = [
-  { value: null, label: "Default" },
-  { value: true, label: "On" },
-  { value: false, label: "Off" },
-];
 
 const noModels = $derived(
   policyIsEmpty(
@@ -112,34 +95,4 @@ const noEfforts = $derived(policyIsEmpty(effortPolicy, efforts));
     Applies to agents spawned from this thread. Subagents may use any checked value, so at least
     one has to stay checked.
   </p>
-  <div class="mt-2 border-t border-surface-200-800 pt-2">
-    <div class="flex items-center justify-between gap-2 px-1">
-      <span class="eyebrow text-[10px]">
-        Run in separate processes
-      </span>
-      <div class="flex shrink-0 gap-0.5">
-        {#each APP_SUBAGENT_CHOICES as choice (choice.label)}
-          <button
-            type="button"
-            disabled={appSubagentsLocked}
-            aria-pressed={appSubagents === choice.value}
-            onclick={() => onSetAppSubagents(choice.value)}
-            class="rounded px-1.5 py-0.5 text-[10px] transition disabled:opacity-40
-              {appSubagents === choice.value
-              ? 'preset-filled-primary-500'
-              : 'text-surface-500 hover:preset-tonal'}"
-          >
-            {choice.label}
-          </button>
-        {/each}
-      </div>
-    </div>
-    <p class="mt-1 px-1 text-[10px] leading-4 text-surface-500">
-      {#if appSubagentsLocked}
-        Fixed when this thread was created — start a new thread to change it.
-      {:else}
-        Uses Pingex's own spawn tools so each subagent runs in a process you can watch and stop.
-      {/if}
-    </p>
-  </div>
 </ComposerPopover>

@@ -6,7 +6,7 @@ describe("browser preview commands", () => {
   it("answers from the fixtures and resolves undefined for commands it does not fake", async () => {
     expect(await commands.sideQuestionMode("1")).toBe("fork");
     expect(await commands.listWslDistros()).toEqual([]);
-    expect(await commands.killAgentRun("run-1")).toBeUndefined();
+    expect(await commands.clearWireLog()).toBeUndefined();
   });
 
   it("moves an unarchived thread back into its project", async () => {

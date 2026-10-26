@@ -50,74 +50,6 @@ pub(crate) struct RuntimeOverrides {
     /// Model slug for the naming turn. `None` leaves the model unset so the
     /// app-server picks its own default.
     pub(crate) auto_name_model: Option<String>,
-    /// Whether new threads get the app's own `pingex_*` agent tools. `None`
-    /// means off: this replaces how Codex would otherwise delegate, so it is
-    /// opt-in rather than something a user discovers by surprise.
-    pub(crate) app_subagents: Option<bool>,
-    /// The most permissive sandbox a spawned agent may run under. A tool call
-    /// may ask for less but never more.
-    pub(crate) app_subagent_sandbox: Option<String>,
-    /// How many spawned agents may run at once.
-    pub(crate) app_subagent_max_concurrent: Option<u32>,
-    /// How long a single agent may run before it is killed.
-    pub(crate) app_subagent_timeout_seconds: Option<u64>,
-}
-
-/// Sandbox ceiling applied when the tool call does not ask for something
-/// narrower. Deliberately not `danger-full-access`: an agent the user never
-/// sees being prompted should not be able to escape the workspace.
-pub(crate) const DEFAULT_AGENT_SANDBOX: &str = "workspace-write";
-const DEFAULT_AGENT_MAX_CONCURRENT: usize = 4;
-const DEFAULT_AGENT_TIMEOUT_SECONDS: u64 = 900;
-
-/// Sandboxes a spawned agent may be given, narrowest first. `danger-full-access`
-/// is absent on purpose — it is not reachable from a tool call.
-pub(crate) const AGENT_SANDBOXES: [&str; 2] = ["read-only", "workspace-write"];
-
-/// How app-owned subagents are configured, with the defaults already applied.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AgentSettings {
-    pub(crate) enabled: bool,
-    pub(crate) sandbox: String,
-    pub(crate) max_concurrent: usize,
-    pub(crate) timeout_seconds: u64,
-}
-
-pub(crate) fn read_agent_settings(path: &Path) -> AgentSettings {
-    let overrides = read_overrides(path);
-    AgentSettings {
-        enabled: overrides.app_subagents.unwrap_or(false),
-        sandbox: overrides
-            .app_subagent_sandbox
-            .map(|value| value.trim().to_string())
-            .filter(|value| AGENT_SANDBOXES.contains(&value.as_str()))
-            .unwrap_or_else(|| DEFAULT_AGENT_SANDBOX.to_string()),
-        // Zero would mean "no agent can ever start", which is what the toggle
-        // is for; treat it as unset rather than a deadlock.
-        max_concurrent: overrides
-            .app_subagent_max_concurrent
-            .filter(|value| *value > 0)
-            .map(|value| value as usize)
-            .unwrap_or(DEFAULT_AGENT_MAX_CONCURRENT),
-        timeout_seconds: overrides
-            .app_subagent_timeout_seconds
-            .filter(|value| *value > 0)
-            .unwrap_or(DEFAULT_AGENT_TIMEOUT_SECONDS),
-    }
-}
-
-/// Persist the agent settings while preserving the other overrides.
-pub(crate) fn write_agent_settings(path: &Path, settings: &AgentSettings) -> Result<(), String> {
-    if !AGENT_SANDBOXES.contains(&settings.sandbox.as_str()) {
-        return Err(format!("Unknown agent sandbox: {}", settings.sandbox));
-    }
-    update_overrides(path, |overrides| {
-        overrides.app_subagents = Some(settings.enabled);
-        overrides.app_subagent_sandbox = Some(settings.sandbox.clone());
-        overrides.app_subagent_max_concurrent = Some(settings.max_concurrent.max(1) as u32);
-        overrides.app_subagent_timeout_seconds = Some(settings.timeout_seconds.max(1));
-        Ok(())
-    })
 }
 
 /// How thread auto-naming is configured, with the defaults already applied.
@@ -297,10 +229,6 @@ mod tests {
             quick_shortcut: None,
             auto_name_threads: None,
             auto_name_model: None,
-            app_subagents: Some(true),
-            app_subagent_sandbox: Some("read-only".into()),
-            app_subagent_max_concurrent: Some(2),
-            app_subagent_timeout_seconds: Some(60),
         };
         write_overrides(&path, &overrides).unwrap();
         assert_eq!(read_overrides(&path), overrides);
@@ -393,86 +321,6 @@ mod tests {
                 model: None
             }
         );
-    }
-
-    #[test]
-    fn agent_settings_default_to_off_inside_the_workspace() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("settings.json");
-        assert_eq!(
-            read_agent_settings(&path),
-            AgentSettings {
-                enabled: false,
-                sandbox: DEFAULT_AGENT_SANDBOX.into(),
-                max_concurrent: 4,
-                timeout_seconds: 900,
-            }
-        );
-    }
-
-    #[test]
-    fn agent_settings_round_trip_and_preserve_other_overrides() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("settings.json");
-        write_quick_shortcut(&path, Some("Alt+Space".into())).unwrap();
-
-        let settings = AgentSettings {
-            enabled: true,
-            sandbox: "read-only".into(),
-            max_concurrent: 8,
-            timeout_seconds: 120,
-        };
-        write_agent_settings(&path, &settings).unwrap();
-
-        assert_eq!(read_agent_settings(&path), settings);
-        assert_eq!(read_quick_shortcut(&path), "Alt+Space");
-    }
-
-    #[test]
-    fn agent_settings_reject_an_unknown_sandbox_and_ignore_a_stored_one() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("settings.json");
-        assert!(write_agent_settings(
-            &path,
-            &AgentSettings {
-                enabled: true,
-                sandbox: "danger-full-access".into(),
-                max_concurrent: 1,
-                timeout_seconds: 60,
-            }
-        )
-        .is_err());
-
-        // A value that reached the file some other way still cannot widen the
-        // sandbox: the read falls back to the default.
-        write_overrides(
-            &path,
-            &RuntimeOverrides {
-                app_subagent_sandbox: Some("danger-full-access".into()),
-                ..RuntimeOverrides::default()
-            },
-        )
-        .unwrap();
-        assert_eq!(read_agent_settings(&path).sandbox, DEFAULT_AGENT_SANDBOX);
-    }
-
-    #[test]
-    fn agent_limits_of_zero_fall_back_to_the_defaults() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("settings.json");
-        write_overrides(
-            &path,
-            &RuntimeOverrides {
-                app_subagent_max_concurrent: Some(0),
-                app_subagent_timeout_seconds: Some(0),
-                ..RuntimeOverrides::default()
-            },
-        )
-        .unwrap();
-
-        let settings = read_agent_settings(&path);
-        assert_eq!(settings.max_concurrent, 4);
-        assert_eq!(settings.timeout_seconds, 900);
     }
 
     #[test]

@@ -9,7 +9,6 @@
  * arrives is decided in exactly one place regardless of what is on screen.
  */
 
-import { setAgentRuns } from "$lib/services/agentRuns.svelte";
 import {
   getThreadGoal,
   isRevertUnsupported,
@@ -494,10 +493,8 @@ export class ThreadSession {
     return this.settingsUpdate;
   }
 
-  // Deliberately two independent requests rather than one `Promise.all`:
-  // `listSubagents` resumes and re-reads every descendant thread, so it is slow
-  // and can stall. Gating our own runs behind it would leave the transcript's
-  // agent cards inert and the menu empty for as long as Codex takes — or forever.
+  // `listSubagents` resumes and re-reads every descendant thread, so it is
+  // slow; callers fire it and move on.
   async refreshSubagents(): Promise<void> {
     const id = this.id;
     if (!id) return;
@@ -506,19 +503,11 @@ export class ThreadSession {
     // listing overwrites a fresher one.
     const request = ++this.#subagentsRequest;
     const current = () => request === this.#subagentsRequest && id === this.id;
-    void (async () => {
-      try {
-        const runs = await commands.listAgentRuns(id);
-        if (current()) setAgentRuns(id, runs);
-      } catch {
-        // Leave whatever the store already had rather than blanking the menu.
-      }
-    })();
     try {
       const codex = await listSubagents(id);
       if (current()) this.subagents = codex;
     } catch {
-      // Same: a failed refresh keeps the last good list.
+      // A failed refresh keeps the last good list rather than blanking the menu.
     }
   }
 

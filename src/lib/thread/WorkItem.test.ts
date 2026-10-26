@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { commands } from "$lib/services/homeRouting";
+import { commands, scopedId } from "$lib/services/homeRouting";
 import WorkItem from "$lib/thread/WorkItem.svelte";
 import type { SubagentDetail, ThreadItem } from "$lib/types";
 
@@ -92,6 +92,55 @@ describe("WorkItem — Codex collab tool calls", () => {
   ])("labels a %s call", (tool, receivers, label) => {
     render(WorkItem, { item: collab(tool, receivers) });
     expect(screen.getByText(label)).toBeInTheDocument();
+  });
+
+  it("names each addressed agent, shows its state and opens its thread", async () => {
+    const user = userEvent.setup();
+    const item: ThreadItem = {
+      ...collab("spawnAgent", ["child-1", "child-unknown"]),
+      agentsStates: { "child-1": { status: "running", message: "reading files" } },
+    };
+    render(WorkItem, { item, subagents: [agent] });
+    await user.click(screen.getByText("Spawned 2 subagents"));
+
+    expect(screen.getByText("Scout")).toBeInTheDocument();
+    expect(screen.getByText("reading files")).toBeInTheDocument();
+    // An agent the listing has not caught up with yet shows its id, unlinked.
+    expect(screen.getByText("child-un")).toBeInTheDocument();
+    const open = screen.getAllByRole("button", { name: "Open thread" });
+    expect(open).toHaveLength(1);
+    await user.click(open[0]);
+    expect(openSubagent).toHaveBeenCalledWith(expect.objectContaining({ id: "child-1" }));
+  });
+
+  it("matches a profile-scoped listing against the native ids a transcript holds", async () => {
+    const user = userEvent.setup();
+    const scoped = { ...agent, id: scopedId("home-a", "child-1") };
+    const item: ThreadItem = {
+      ...collab("wait", ["child-1"]),
+      agentsStates: { "child-1": { status: "completed" } },
+    };
+    render(WorkItem, { item, subagents: [scoped] });
+    await user.click(screen.getByText("Waited for a subagent"));
+
+    expect(screen.getByText("Scout")).toBeInTheDocument();
+    expect(screen.getByText("completed")).toBeInTheDocument();
+  });
+});
+
+describe("WorkItem — path-based agent spawn", () => {
+  it("shows the model and effort a v2 agent started with", () => {
+    const item: ThreadItem = {
+      type: "subAgentActivity",
+      id: "a4",
+      kind: "started",
+      agentThreadId: "child-1",
+      agentPath: "/root/x",
+      model: "gpt-5.6-terra",
+      reasoningEffort: "low",
+    };
+    render(WorkItem, { item, subagents: [agent] });
+    expect(screen.getByText("gpt-5.6-terra · low")).toBeInTheDocument();
   });
 });
 

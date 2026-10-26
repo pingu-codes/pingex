@@ -120,11 +120,9 @@ pub(crate) struct BootstrapExtras {
     pub(crate) workspaces: Vec<StoredWorkspace>,
     pub(crate) workspace_members: Vec<StoredWorkspaceMember>,
     pub(crate) workspace_threads: HashMap<String, String>,
-    /// `(agent thread, the thread that spawned it)` for every app-owned
-    /// subagent. Codex does not set `parentThreadId` on them — they run in
-    /// separate processes — so without this they would show up as ordinary
-    /// top-level threads and count against nobody.
-    pub(crate) agent_children: Vec<(String, String)>,
+    /// Threads the app's former own subagents ran in; hidden from listings
+    /// (see `storage::read_legacy_agent_threads`).
+    pub(crate) legacy_agent_threads: Vec<String>,
     /// `(temporary worktree, the repository it was cut from)`. Temporary
     /// worktrees are throwaway, so their threads are listed under that
     /// repository instead of under a project of their own.

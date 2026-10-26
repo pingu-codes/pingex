@@ -172,8 +172,8 @@ pub(crate) async fn write_thread_name_source(
 }
 
 /// Threads that belong under something else rather than in a project listing:
-/// side questions, message-version branches, and the threads app-owned
-/// subagents run in.
+/// side questions, message-version branches, and the threads the app's former
+/// own subagents ran in (see [`read_legacy_agent_threads`]).
 ///
 /// All are ordinary Codex threads in an ordinary cwd, so every path that lists
 /// threads has to exclude them explicitly or they surface as if the user had
@@ -194,6 +194,21 @@ pub(crate) async fn read_hidden_thread_ids(
     )
     .await?;
     Ok(ids.into_iter().collect())
+}
+
+/// Threads the app-owned subagents ran in before that system was removed in
+/// favour of Codex's own. They were separate processes, so Codex has no
+/// `parentThreadId` for them and they would otherwise list as top-level
+/// threads.
+pub(crate) async fn read_legacy_agent_threads(database: &Database) -> Result<Vec<String>, String> {
+    let connection = db::conn(database)?;
+    db::rows(
+        &connection,
+        "SELECT child_thread_id FROM agent_runs WHERE child_thread_id IS NOT NULL",
+        (),
+        |row| db::text(row, 0),
+    )
+    .await
 }
 
 pub(crate) async fn delete_thread_summary(
@@ -444,25 +459,12 @@ mod tests {
         )
         .await
         .unwrap();
-        crate::storage::record_agent_run(
-            &database,
-            &crate::storage::AgentRunRow {
-                run_id: "agt_1".into(),
-                parent_thread_id: "parent-1".into(),
-                parent_turn_id: "turn-1".into(),
-                call_id: None,
-                child_thread_id: Some("agent-thread-1".into()),
-                name: "probe".into(),
-                prompt: "go".into(),
-                cwd: "/proj".into(),
-                model: None,
-                reasoning_effort: None,
-                status: crate::storage::STATUS_RUNNING.into(),
-                result: None,
-                error: None,
-                created_at: 1,
-                finished_at: None,
-            },
+        db::exec(
+            &db::conn(&database).unwrap(),
+            "INSERT INTO agent_runs(run_id, parent_thread_id, parent_turn_id, child_thread_id,
+                 name, prompt, cwd, status, created_at)
+             VALUES ('agt_1', 'parent-1', 'turn-1', 'agent-thread-1', 'probe', 'go', '/proj', 'done', 1)",
+            (),
         )
         .await
         .unwrap();

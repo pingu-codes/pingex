@@ -11,7 +11,6 @@ import TypingDots from "$lib/components/TypingDots.svelte";
 import Composer from "$lib/composer/Composer.svelte";
 import type { SlashCommandId } from "$lib/composer/slashCommands";
 import RightPanel, { type PanelView } from "$lib/panels/RightPanel.svelte";
-import { runAsSubagent, runsFor } from "$lib/services/agentRuns.svelte";
 import { forkThread, gitWorktreeAdd, isPromptPartsTextUnsupported, startThread, startTurn } from "$lib/services/api";
 import { approvals, elicitations, turnPlans, userInputRequests } from "$lib/services/codexEvents.svelte";
 import { commands } from "$lib/services/homeRouting";
@@ -274,21 +273,6 @@ async function ensureNewThreadCwd(): Promise<string> {
   return path;
 }
 
-/**
- * The two kinds of agent a thread can have, as one list.
- *
- * The app's half is derived rather than snapshotted: agents are spawned
- * mid-turn, and nothing re-runs `refreshSubagents` at that point — Codex's
- * `subagentsChanged` outcome does not fire for our tools. Reading the store keeps
- * the menu live while they work.
- */
-const appSubagentDetails = $derived(runsFor(liveThreadId).flatMap((run) => runAsSubagent(run) ?? []));
-
-const subagentDetails = $derived([
-  ...session.subagents.map((detail) => ({ ...detail, source: "codex" as const })),
-  ...appSubagentDetails,
-]);
-
 // Follow the transcript as it streams: `revision` moves on every applied event.
 let seenRevision = untrack(() => session.revision);
 $effect(() => {
@@ -314,12 +298,11 @@ $effect(() => {
 async function ensureLiveThread(owner = session): Promise<string> {
   if (owner.id) return owner.id;
   const workspace = workspaceId;
-  const subagents = composer?.appSubagentsChoice() ?? null;
   const harness = composer?.harnessChoice() ?? null;
   const createdCallback = onThreadCreated;
   const temporary = newThreadLocation === "temporary";
   const newCwd = await ensureNewThreadCwd();
-  const created = await startThread(newCwd, workspace, subagents, harness);
+  const created = await startThread(newCwd, workspace, harness);
   if (!attachSession(owner, created.id)) throw new Error("Thread creation was interrupted.");
   if (owner.thread) {
     owner.thread.harness = created.harness ?? null;
@@ -564,12 +547,7 @@ async function startPlanThread(input: UserInputPart[], options?: TurnOptions) {
   session.streamError = null;
   const dir = workDir;
   try {
-    const created = await startThread(
-      dir,
-      workspaceId,
-      composer?.appSubagentsChoice() ?? null,
-      thread?.harness === "claude" ? "claude" : null,
-    );
+    const created = await startThread(dir, workspaceId, thread?.harness === "claude" ? "claude" : null);
     await startTurn(created.id, input, options);
     // Adopting the new thread re-drives the load effect, so the view swaps to it.
     onThreadCreated?.(created.id, created.cwd ?? dir);
@@ -755,7 +733,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
         outputs={outputChanges}
         sources={sourceQueries}
         sideQuestionCount={sideQuestions.filter((entry) => entry.parentThreadId === liveThreadId).length}
-        subagents={subagentDetails}
+        subagents={session.subagents}
         processes={processes.list}
         currentThreadId={liveThreadId}
         {contextStats}
@@ -778,11 +756,6 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
         onShowMessageLog={() => (panelView = { kind: "messageLog" })}
         onShowStatus={() => (panelView = { kind: "status" })}
         onOpenSubagent={(agent) => (onOpenSubagent ? onOpenSubagent(agent) : onSelectThread?.(agent.id))}
-        onStopSubagent={async (agent) => {
-          if (!agent.runId) return;
-          await commands.killAgentRun(agent.runId).catch(() => {});
-          session.refreshSubagents();
-        }}
         onOpenProcess={(process) => (panelView = { kind: "process", processKey: process.key })}
       />
     {/if}
@@ -834,7 +807,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
                   stranded={strandedContext(segment.item, turn.id)}
                   model={turn.model}
                   effort={turn.reasoningEffort}
-                  subagents={subagentDetails}
+                  subagents={session.subagents}
                 />
               {:else if segment === liveSegment && !segment.collapsed}
                 {@const liveSegments = turnSegments(segment.items)}
@@ -845,7 +818,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
                       live={liveIndex === liveSegments.length - 1}
                     />
                   {:else}
-                    <WorkItem item={liveSeg.item} {collapseDiffs} subagents={subagentDetails} />
+                    <WorkItem item={liveSeg.item} {collapseDiffs} subagents={session.subagents} />
                   {/if}
                 {/each}
               {:else}
@@ -864,7 +837,7 @@ function changeSubagentPolicy(modelPolicy: SubagentPolicy | null, effortPolicy: 
                       {#if openWork.has(key)}
                         <div class="mt-3 space-y-4 border-l-2 border-surface-200-800 pl-4">
                           {#each segment.items as item (item.id)}
-                            <WorkItem {item} {collapseDiffs} subagents={subagentDetails} />
+                            <WorkItem {item} {collapseDiffs} subagents={session.subagents} />
                           {/each}
                         </div>
                       {/if}

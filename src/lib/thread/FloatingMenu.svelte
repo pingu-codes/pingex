@@ -19,8 +19,7 @@ import { Menu, Portal, ToggleGroup } from "@skeletonlabs/skeleton-svelte";
 import { messageLog } from "$lib/layout/messageLogPrefs.svelte";
 import UsageMeter from "$lib/layout/UsageMeter.svelte";
 import { accountUsage } from "$lib/services/accountUsage.svelte";
-import { elapsedLabel } from "$lib/services/agentRuns.svelte";
-import { processClock, type RunningProcess } from "$lib/services/processes.svelte";
+import { elapsedLabel, processClock, type RunningProcess } from "$lib/services/processes.svelte";
 import { type StatusBucket, statusBucket, statusTone } from "$lib/thread/agentStatus";
 import type { ContextStats } from "$lib/thread/contextUsage";
 import { changeLabel } from "$lib/thread/fileChanges";
@@ -52,7 +51,6 @@ let {
   onShowMessageLog,
   onShowStatus = () => {},
   onOpenSubagent = () => {},
-  onStopSubagent = () => {},
   onOpenProcess = () => {},
 }: {
   plan: string | null;
@@ -82,8 +80,6 @@ let {
   /** Open the status panel: context composition, spend and account limits. */
   onShowStatus?: () => void;
   onOpenSubagent?: (agent: SubagentDetail) => void;
-  /** Only ever called for app-owned agents, which are the only ones we can stop. */
-  onStopSubagent?: (agent: SubagentDetail) => void;
   onOpenProcess?: (process: RunningProcess) => void;
 } = $props();
 
@@ -380,16 +376,6 @@ const visibleProcesses = $derived(
                   </span>
                 </span>
               </button>
-              <!-- Only app-owned agents have a process we can stop. -->
-              {#if agent.source === "app" && agent.runId && state === "Active"}
-                <button
-                  onclick={() => onStopSubagent(agent)}
-                  class="shrink-0 self-center px-2 py-1.5 text-[10px] text-surface-500 hover:text-error-500"
-                  aria-label={`Stop subagent ${subagentLabel(agent)}`}
-                >
-                  Stop
-                </button>
-              {/if}
             </div>
           {/each}
         </div>

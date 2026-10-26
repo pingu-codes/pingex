@@ -401,7 +401,7 @@ Codex home in Ubuntu and a native Claude coexist in one window. Rationale:
   process. Native is a plain `Command`; WSL is `wsl.exe -d <distro> [--cd
   <cwd>] --exec /usr/bin/env [-u VAR].. K=V.. <program> args..`. `--exec`
   skips the distribution's shell, so nothing is re-quoted; `env(1)` sets the
-  variables without `WSLENV`. Both drivers, the app-owned subagents, the git
+  variables without `WSLENV`. Both drivers, the git
   runner (`util/process.rs`, `git/run.rs`) and every worktree and hub
   operation spawn through it. The live suites build their argv from the same
   function.
@@ -537,8 +537,6 @@ Deliberate differences from the sections above, to land a working slice:
 
 ## Not yet specified
 
-- Pingex app-owned subagents on Claude (likely an SDK-hosted MCP server over
-  `mcp_message`).
 - The generic ACP driver: process model, capability negotiation, which agents
   to validate against. The interface above must not rule it out; nothing here
   builds it.

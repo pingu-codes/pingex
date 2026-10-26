@@ -35,6 +35,7 @@ pub(crate) enum SettingSource {
 
 /// Static metadata for one supported key.
 struct KeySpec {
+    /// A dotted path for a key inside a table (`features.multi_agent_v2`).
     key: &'static str,
     /// Section the control lives under in the settings UI.
     section: &'static str,
@@ -86,6 +87,15 @@ const KEYS: &[KeySpec] = &[
         kind: SettingKind::Enum,
         default: Some("read-only"),
         options: &["read-only", "workspace-write", "danger-full-access"],
+        restart_required: false,
+    },
+    KeySpec {
+        key: "features.multi_agent_v2",
+        section: "agent",
+        label: "Path-based subagents (multi-agent v2)",
+        kind: SettingKind::Bool,
+        default: Some("false"),
+        options: &[],
         restart_required: false,
     },
     KeySpec {
@@ -190,9 +200,72 @@ fn scalar_string(value: &toml::Value) -> Option<String> {
     }
 }
 
+/// The value at a dotted key. A feature may be written as a table
+/// (`[features.multi_agent_v2]` with `enabled = true` beside its options), in
+/// which case its `enabled` is the value.
+fn stored_value<'a>(config: &'a toml::Table, key: &str) -> Option<&'a toml::Value> {
+    let (path, leaf) = split_key(key);
+    let mut table = config;
+    for part in path {
+        table = table.get(part)?.as_table()?;
+    }
+    match table.get(leaf)? {
+        toml::Value::Table(feature) => feature.get("enabled"),
+        value => Some(value),
+    }
+}
+
+/// `features.multi_agent_v2` → (`["features"]`, `"multi_agent_v2"`).
+fn split_key(key: &str) -> (Vec<&str>, &str) {
+    let mut parts: Vec<&str> = key.split('.').collect();
+    let leaf = parts.pop().unwrap_or(key);
+    (parts, leaf)
+}
+
+/// Set or remove the value at a dotted key, creating parent tables as needed
+/// and writing a table-form feature's `enabled` instead of replacing its
+/// options.
+fn edit_key(
+    document: &mut toml_edit::DocumentMut,
+    key: &str,
+    value: Option<toml_edit::Value>,
+) -> Result<(), String> {
+    let (path, leaf) = split_key(key);
+    let mut table: &mut dyn toml_edit::TableLike = document.as_table_mut();
+    for part in path {
+        if table.get(part).is_none() {
+            if value.is_none() {
+                return Ok(());
+            }
+            let mut created = toml_edit::Table::new();
+            created.set_implicit(true);
+            table.insert(part, toml_edit::Item::Table(created));
+        }
+        table = table
+            .get_mut(part)
+            .and_then(toml_edit::Item::as_table_like_mut)
+            .ok_or_else(|| format!("{part} in config.toml is not a table"))?;
+    }
+    if let Some(feature) = table
+        .get_mut(leaf)
+        .and_then(toml_edit::Item::as_table_like_mut)
+    {
+        match value {
+            Some(value) => feature.insert("enabled", toml_edit::value(value)),
+            None => feature.remove("enabled"),
+        };
+        return Ok(());
+    }
+    match value {
+        Some(value) => table.insert(leaf, toml_edit::value(value)),
+        None => table.remove(leaf),
+    };
+    Ok(())
+}
+
 fn setting_for(spec: &KeySpec, config: Option<&toml::Table>) -> ConfigSetting {
     let stored = config
-        .and_then(|table| table.get(spec.key))
+        .and_then(|table| stored_value(table, spec.key))
         .and_then(scalar_string);
     let (value, source) = match stored {
         Some(value) => (Some(value), SettingSource::Config),
@@ -273,13 +346,13 @@ pub(crate) fn write_config_setting(
     let spec = spec_for(key).ok_or_else(|| format!("{key} is not an editable setting"))?;
 
     edit_doc(codex_home, |document| {
-        if unset {
-            document.as_table_mut().remove(spec.key);
+        let value = if unset {
+            None
         } else {
             let value = value.ok_or_else(|| "No value supplied".to_string())?;
-            document[spec.key] = toml_edit::value(edit_value(spec, value)?);
-        }
-        Ok(())
+            Some(edit_value(spec, value)?)
+        };
+        edit_key(document, spec.key, value)
     })?;
     Ok(read_config_settings(codex_home))
 }
@@ -420,6 +493,79 @@ mod tests {
         );
         // Nothing should have been written for a rejected request.
         assert!(!directory.path().join("config.toml").exists());
+    }
+
+    #[test]
+    fn a_dotted_key_round_trips_inside_its_table() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(
+            directory.path().join("config.toml"),
+            "model = \"m\"\n\n[features]\nother = true\n",
+        )
+        .unwrap();
+        let key = "features.multi_agent_v2";
+        assert_eq!(
+            find(&read_config_settings(directory.path()), key).source,
+            SettingSource::Default
+        );
+
+        let settings = write_config_setting(directory.path(), key, Some("true"), false).unwrap();
+        assert_eq!(find(&settings, key).value.as_deref(), Some("true"));
+        let text = fs::read_to_string(directory.path().join("config.toml")).unwrap();
+        assert!(
+            text.contains("[features]\nother = true\nmulti_agent_v2 = true"),
+            "{text}"
+        );
+
+        let settings = write_config_setting(directory.path(), key, None, true).unwrap();
+        assert_eq!(find(&settings, key).source, SettingSource::Default);
+        let text = fs::read_to_string(directory.path().join("config.toml")).unwrap();
+        assert!(
+            text.contains("other = true") && !text.contains("multi_agent_v2"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_dotted_key_creates_its_table_and_unset_leaves_none_behind() {
+        let directory = tempfile::tempdir().unwrap();
+        let key = "features.multi_agent_v2";
+        write_config_setting(directory.path(), key, Some("false"), false).unwrap();
+        let text = fs::read_to_string(directory.path().join("config.toml")).unwrap();
+        assert!(
+            text.contains("[features]\nmulti_agent_v2 = false"),
+            "{text}"
+        );
+        // Unsetting a key whose table never existed writes nothing new.
+        let empty = tempfile::tempdir().unwrap();
+        write_config_setting(empty.path(), key, None, true).unwrap();
+        let text = fs::read_to_string(empty.path().join("config.toml")).unwrap_or_default();
+        assert!(!text.contains("features"), "{text}");
+    }
+
+    #[test]
+    fn a_table_form_feature_reads_and_writes_its_enabled_flag() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(
+            directory.path().join("config.toml"),
+            "[features.multi_agent_v2]\nenabled = true\nmax_concurrent_threads_per_session = 3\n",
+        )
+        .unwrap();
+        let key = "features.multi_agent_v2";
+        let settings = read_config_settings(directory.path());
+        let setting = find(&settings, key);
+        assert_eq!(
+            (setting.source, setting.value.as_deref()),
+            (SettingSource::Config, Some("true"))
+        );
+
+        write_config_setting(directory.path(), key, Some("false"), false).unwrap();
+        let text = fs::read_to_string(directory.path().join("config.toml")).unwrap();
+        assert!(text.contains("enabled = false"), "{text}");
+        assert!(
+            text.contains("max_concurrent_threads_per_session = 3"),
+            "{text}"
+        );
     }
 
     #[test]

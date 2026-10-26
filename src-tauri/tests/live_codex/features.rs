@@ -591,7 +591,7 @@ fn temp_worktree_link_survives_restart_and_removal() {
     drop(db);
 
     // A thread whose cwd is the worktree; its turn edits the worktree only.
-    let started = server.call(requests::thread_start(&worktree_path, None, None, None));
+    let started = server.call(requests::thread_start(&worktree_path, None, None));
     let thread_id = harness::thread_id_of(&started);
     let outcome = server.run_turn(requests::turn_start(
         &thread_id,

@@ -15,7 +15,6 @@ use turso::{Builder, Database};
 pub(crate) mod db;
 
 mod account;
-mod agent_runs;
 mod branches;
 mod harness;
 pub(crate) use harness::set_harness_permission_mode;
@@ -40,11 +39,6 @@ mod turn_usage;
 mod workspaces;
 
 pub(crate) use account::{read_account_cache, write_account_cache};
-pub(crate) use agent_runs::{
-    copy_agent_runs, delete_agent_runs, orphan_running_agent_runs, read_agent_run_children,
-    read_agent_runs, record_agent_run, retain_agent_runs, update_agent_run, AgentRunRow,
-    STATUS_DONE, STATUS_FAILED, STATUS_KILLED, STATUS_RUNNING,
-};
 pub use branches::{
     add_thread_branch, delete_thread_branch, read_thread_branches, set_branch_edit_turn,
     ThreadBranch,
@@ -97,10 +91,10 @@ pub(crate) use sources::{
     IndexedLine, StoredProjectSource,
 };
 pub(crate) use threads::{
-    delete_thread_summary, invalidate_thread_detail, read_hidden_thread_ids, read_thread_detail,
-    read_thread_name_source, read_thread_summaries, rename_thread_summary,
-    replace_thread_summaries, search_thread_summaries, thread_updated_at, write_thread_detail,
-    write_thread_name_source, StoredThreadSummary,
+    delete_thread_summary, invalidate_thread_detail, read_hidden_thread_ids,
+    read_legacy_agent_threads, read_thread_detail, read_thread_name_source, read_thread_summaries,
+    rename_thread_summary, replace_thread_summaries, search_thread_summaries, thread_updated_at,
+    write_thread_detail, write_thread_name_source, StoredThreadSummary,
 };
 pub(crate) use turn_settings::{
     copy_turn_settings, delete_turn_settings, read_turn_settings, record_turn_settings,

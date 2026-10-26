@@ -27,8 +27,6 @@ import {
   nextPreviewId,
   previewAddSource,
   previewAddWorktreeProject,
-  previewAgentRuns,
-  previewAgentSettings,
   previewBranches,
   previewCommits,
   previewConfigSettings,
@@ -356,7 +354,7 @@ export const previewCommands: PreviewCommands = {
       reasoningEffort: index === 0 ? "high" : "xhigh",
     }));
   },
-  startThread: (cwd, _workspaceId, _appSubagents, harness) => ({
+  startThread: (cwd, _workspaceId, harness) => ({
     id: `preview-${nextPreviewId()}`,
     cwd,
     harness: harness ?? null,
@@ -754,14 +752,6 @@ export const previewCommands: PreviewCommands = {
   setQuickShortcut(accelerator) {
     previewQuickShortcut.value = accelerator.trim() || defaultQuickShortcut;
     return previewQuickShortcut.value;
-  },
-
-  // --- App-owned subagents ---
-  listAgentRuns: (threadId) => previewAgentRuns.filter((run) => run.parentThreadId === threadId),
-  readAgentSettings: () => structuredClone(previewAgentSettings),
-  writeAgentSettings(settings) {
-    Object.assign(previewAgentSettings, settings);
-    return structuredClone(previewAgentSettings);
   },
 
   // --- Integrations (MCP servers, skills, plugins) and memories ---

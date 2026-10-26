@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { scopedId } from "$lib/services/homeRouting";
 import {
   applyProcessEvent as applyTyped,
+  elapsedLabel,
   processByKey,
   processes,
   resetProcesses,
@@ -10,6 +11,15 @@ import {
 import { type FakeEvent, fakeEvent } from "$lib/testing/codexEvents";
 
 const applyProcessEvent = (event: FakeEvent) => applyTyped(fakeEvent(event));
+
+describe("elapsedLabel", () => {
+  it("reads as seconds under a minute and minutes above", () => {
+    expect(elapsedLabel(1_000, 13_000)).toBe("12s");
+    expect(elapsedLabel(0, 64_000)).toBe("1m 04s");
+    // A clock that has not ticked yet must not render a negative age.
+    expect(elapsedLabel(9_000, 1_000)).toBe("0s");
+  });
+});
 
 const started = (threadId: string, itemId: string, command = "sleep 60") => ({
   method: "item/started",

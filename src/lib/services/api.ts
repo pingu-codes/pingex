@@ -77,15 +77,9 @@ interface StartedThread {
 export async function startThread(
   cwd: string,
   workspaceId?: string | null,
-  appSubagents?: boolean | null,
   harness?: HarnessKind | null,
 ): Promise<StartedThread> {
-  return commands.startThread(
-    cwd,
-    workspaceId ?? null,
-    appSubagents ?? null,
-    harness ?? null,
-  ) as Promise<StartedThread>;
+  return commands.startThread(cwd, workspaceId ?? null, harness ?? null) as Promise<StartedThread>;
 }
 
 /** The models a harness offers. Codex answers `model/list`; Claude has a fixed alias list. */
