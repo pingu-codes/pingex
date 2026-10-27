@@ -10,5 +10,6 @@ pub(crate) mod json;
 pub(crate) mod media;
 pub(crate) mod migration;
 pub(crate) mod process;
+pub(crate) mod stdio;
 pub(crate) mod time;
 pub(crate) mod walk;

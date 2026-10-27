@@ -19,6 +19,7 @@ let {
   repoDir,
   cwd,
   inTempWorktree = false,
+  canFork = true,
   threadId,
   onMovedToWorktree,
   onError,
@@ -31,6 +32,9 @@ let {
   cwd: string;
   /** `cwd` is a temporary worktree, which can be handed off to a local checkout. */
   inTempWorktree?: boolean;
+  /** Moving to a worktree or handing off forks the thread, which not every
+   *  harness can do. */
+  canFork?: boolean;
   /** Live thread id; null for an unsaved draft (Handoff is disabled). */
   threadId: string | null;
   onMovedToWorktree: (forkedThreadId: string) => void;
@@ -161,16 +165,18 @@ const handoffActions: Record<string, () => void> = {
             <TerminalSquare size={14} class="shrink-0 text-surface-500" />
             <Menu.ItemText class="min-w-0 flex-1">Continue in terminal</Menu.ItemText>
           </Menu.Item>
-          {#if inTempWorktree}
+          {#if inTempWorktree && canFork}
             <Menu.Item value="local" class="menu-row">
               <ArrowLeftRight size={14} class="shrink-0 text-surface-500" />
               <Menu.ItemText class="min-w-0 flex-1">Hand off to local</Menu.ItemText>
             </Menu.Item>
           {/if}
-          <Menu.Item value="worktree" class="menu-row">
-            <GitBranch size={14} class="shrink-0 text-surface-500" />
-            <Menu.ItemText class="min-w-0 flex-1">Move to worktree</Menu.ItemText>
-          </Menu.Item>
+          {#if canFork}
+            <Menu.Item value="worktree" class="menu-row">
+              <GitBranch size={14} class="shrink-0 text-surface-500" />
+              <Menu.ItemText class="min-w-0 flex-1">Move to worktree</Menu.ItemText>
+            </Menu.Item>
+          {/if}
           <Menu.Item value="link" class="menu-row">
             {#if linkCopied.on}<Copy size={14} class="shrink-0 text-primary-500" />{:else}<Link2 size={14} class="shrink-0 text-surface-500" />{/if}
             <Menu.ItemText class="min-w-0 flex-1">{linkCopied.on ? "Link copied" : "Copy thread link"}</Menu.ItemText>

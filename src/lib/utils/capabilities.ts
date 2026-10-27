@@ -1,5 +1,5 @@
-import { HARNESS_CAPABILITIES } from "$lib/bindings";
-import type { Capability } from "$lib/types";
+import { HARNESS_CAPABILITIES, HARNESS_INFO } from "$lib/bindings";
+import type { Capability, HarnessKind } from "$lib/types";
 
 /**
  * Whether the harness behind a thread or composer can do `capability`. The
@@ -13,9 +13,19 @@ export function can(harness: string | null | undefined, capability: Capability):
   return declared.includes(capability);
 }
 
-const NAMES: Record<string, string> = { codex: "Codex", claude: "Claude" };
+/** `value` as a harness this build knows, else `null`. */
+export function harnessKind(value: string | null | undefined): HarnessKind | null {
+  return value && Object.hasOwn(HARNESS_INFO, value) ? (value as HarnessKind) : null;
+}
 
 /** The short name an agent goes by in prompts like "Claude wants to…". */
 export function harnessName(harness: string | null | undefined): string {
-  return NAMES[harness ?? "codex"] ?? harness ?? "Codex";
+  const kind = harnessKind(harness ?? "codex");
+  return kind ? HARNESS_INFO[kind].name : (harness ?? "Codex");
+}
+
+/** The product name, for menus: "Claude Code", "maki". */
+export function harnessLabel(harness: string | null | undefined): string {
+  const kind = harnessKind(harness ?? "codex");
+  return kind ? HARNESS_INFO[kind].label : (harness ?? "Codex");
 }

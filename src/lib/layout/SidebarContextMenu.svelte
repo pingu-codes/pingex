@@ -26,6 +26,7 @@ import {
 import { Menu, Portal, type useMenu } from "@skeletonlabs/skeleton-svelte";
 import type { Component } from "svelte";
 import type { MenuAction, MenuTarget } from "$lib/types";
+import { can } from "$lib/utils/capabilities";
 
 let {
   menu,
@@ -104,7 +105,7 @@ function entries(target: MenuTarget): Entry[] {
       { action: "moveToWorkspace", icon: Layers3, label: "Move to workspace" },
       { action: "moveToSection", icon: Bookmark, label: "Move to section", show: sectionsSupported },
       { action: "createWorktree", icon: GitBranch, label: "Create worktree", show: !multi },
-      { action: "fork", icon: GitFork, label: "Fork thread" },
+      { action: "fork", icon: GitFork, label: "Fork thread", show: can(target.thread.harness, "fork") },
       { action: "archive", icon: Archive, label: "Archive thread" },
       { action: "delete", icon: Trash2, label: "Delete thread", danger: true },
     ];

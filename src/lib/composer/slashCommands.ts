@@ -1,3 +1,6 @@
+import type { Capability } from "$lib/types";
+import { can } from "$lib/utils/capabilities";
+
 /** Slash commands available from the composer, mirroring the Codex TUI set. */
 
 export type SlashCommandId =
@@ -35,6 +38,8 @@ export interface SlashCommand {
   scope: "composer" | "thread" | "settings";
   /** What a trailing argument means, shown as a hint once one is being typed. */
   argument?: string;
+  /** Offered only where the thread's harness can do this. */
+  requires?: Capability;
 }
 
 export const SLASH_COMMANDS: SlashCommand[] = [
@@ -43,24 +48,32 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     description: "Ask a side question without interrupting the main conversation",
     scope: "thread",
     argument: "question",
+    requires: "sideQuestions",
   },
   { id: "plan", description: "Toggle plan mode for the next turns", scope: "composer" },
   { id: "model", description: "Choose the model and reasoning effort", scope: "composer" },
   { id: "permissions", description: "Set the approval and sandbox level", scope: "composer" },
   { id: "init", description: "Write an AGENTS.md for this project", scope: "composer" },
-  { id: "compact", description: "Summarise the thread to free up context", scope: "thread" },
+  { id: "compact", description: "Summarise the thread to free up context", scope: "thread", requires: "compact" },
   { id: "new", description: "Start a new thread", scope: "thread" },
-  { id: "fork", description: "Fork the current thread", scope: "thread" },
+  { id: "fork", description: "Fork the current thread", scope: "thread", requires: "fork" },
   { id: "archive", description: "Archive the current thread", scope: "thread" },
   { id: "rename", description: "Rename the current thread", scope: "thread", argument: "new name" },
-  { id: "review", description: "Review the working changes", scope: "thread", argument: "what to review" },
+  {
+    id: "review",
+    description: "Review the working changes",
+    scope: "thread",
+    argument: "what to review",
+    requires: "review",
+  },
   { id: "diff", description: "Show the working diff against the remote", scope: "thread" },
-  { id: "undo", description: "Rewind the last turn", scope: "thread", argument: "turns to drop" },
+  { id: "undo", description: "Rewind the last turn", scope: "thread", argument: "turns to drop", requires: "revert" },
   {
     id: "goal",
     description: "Toggle goal mode, or set, view, cap (budget <tokens>) or clear the goal for a long-running task",
     scope: "thread",
     argument: "objective, or clear",
+    requires: "goals",
   },
   { id: "copy", description: "Copy the last response as markdown", scope: "thread" },
   { id: "export", description: "Copy the conversation as markdown", scope: "thread" },
@@ -108,12 +121,13 @@ export function parseSlashCommand(text: string): ParsedSlashCommand | null {
  * then anywhere in the id or description — so `/sum` finds `compact` by its
  * "Summarise the thread" wording rather than coming up empty.
  */
-export function filterSlashCommands(query: string): SlashCommand[] {
+export function filterSlashCommands(query: string, harness?: string | null): SlashCommand[] {
   const lowered = query.trim().toLowerCase();
-  if (!lowered) return SLASH_COMMANDS;
+  const offered = SLASH_COMMANDS.filter((command) => !command.requires || can(harness, command.requires));
+  if (!lowered) return offered;
   const prefix: SlashCommand[] = [];
   const elsewhere: SlashCommand[] = [];
-  for (const command of SLASH_COMMANDS) {
+  for (const command of offered) {
     if (command.id.startsWith(lowered)) prefix.push(command);
     else if (command.id.includes(lowered) || command.description.toLowerCase().includes(lowered)) {
       elsewhere.push(command);

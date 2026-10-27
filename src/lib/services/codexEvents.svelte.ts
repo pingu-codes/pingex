@@ -1,6 +1,6 @@
 import { eventMatchesHome } from "$lib/app/launch.svelte";
 import { events, type HarnessKind, type HarnessRequestEnvelope } from "$lib/bindings";
-import { saveThreadClaudeMode } from "$lib/composer/composerPrefs";
+import { saveThreadMode } from "$lib/composer/composerPrefs";
 import { applyRateLimitUpdate } from "$lib/services/accountUsage.svelte";
 import { recordUserInputRequest } from "$lib/services/api";
 import { scopeEvent, threadBelongsToHome } from "$lib/services/homeRouting";
@@ -227,7 +227,7 @@ function dispatch(event: CodexEvent, homeKey?: string) {
   }
   switch (event.method) {
     case "thread/permissionMode/changed":
-      if (threadId && event.params.mode) saveThreadClaudeMode(threadId, event.params.mode);
+      if (threadId && event.params.mode) saveThreadMode(threadId, event.params.mode);
       break;
     case "disconnected": {
       const matches = (id: string) => !event.homeKey || threadBelongsToHome(id, event.homeKey);

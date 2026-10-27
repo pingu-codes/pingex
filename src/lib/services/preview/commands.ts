@@ -361,7 +361,7 @@ export const previewCommands: PreviewCommands = {
   }),
   listHarnessModels: () => ({ data: previewModels }),
   listModels: () => ({ data: previewModels }),
-  readHomeClaudeStatus: () => ({ ...claudeStatus }),
+  readHomeStatus: () => ({ ...claudeStatus }),
   startTurn(threadId, input) {
     const turn = previewTurn();
     const text = (input as UserInputPart[]).find((part) => part.type === "text")?.text ?? "";

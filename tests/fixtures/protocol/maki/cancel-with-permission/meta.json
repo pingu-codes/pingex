@@ -1,0 +1,6 @@
+{
+  "agent": "maki",
+  "version": "0.6.5",
+  "model": "openai/gpt-6-luna",
+  "recorded": "2026-10-27"
+}

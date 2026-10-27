@@ -84,26 +84,32 @@ pub(crate) async fn initialize(database: &Database) -> Result<(), String> {
     Ok(())
 }
 
+/// Every Home of the Profile. A row naming a harness this build does not
+/// know (written by a newer version) is skipped rather than failing them all.
 pub(crate) async fn homes(database: &Database) -> Result<Vec<ProfileHome>, String> {
-    db::rows(
+    let rows = db::rows(
         &db::conn(database)?,
         "SELECT id, harness, host, config_dir, binary, label, is_default, shares_profile_db
          FROM profile_homes ORDER BY rowid",
         (),
         |row| {
-            Ok(ProfileHome {
+            let Ok(harness) = decode(db::text(row, 1)?) else {
+                return Ok(None);
+            };
+            Ok(Some(ProfileHome {
                 id: db::text(row, 0)?,
-                harness: decode(db::text(row, 1)?)?,
+                harness,
                 host: decode(db::text(row, 2)?)?,
                 config_dir: db::text(row, 3)?,
                 binary: db::text(row, 4)?,
                 label: db::text(row, 5)?,
                 is_default: db::flag(row, 6)?,
                 shares_profile_db: db::flag(row, 7)?,
-            })
+            }))
         },
     )
-    .await
+    .await?;
+    Ok(rows.into_iter().flatten().collect())
 }
 
 /// Caller settles and canonicalizes the path on its Host before registering it.
@@ -225,8 +231,11 @@ pub(crate) async fn delete_home(database: &Database, id: &str) -> Result<(), Str
         .ok_or("Home does not belong to this Profile")?;
     let heir = existing
         .iter()
-        .find(|other| other.id != id && other.harness == home.harness && other.host == home.host)
-        .ok_or("A Host needs at least one Home for each harness")?;
+        .find(|other| other.id != id && other.harness == home.harness && other.host == home.host);
+    // An optional harness can leave a Host altogether.
+    if heir.is_none() && home.harness.required_per_host() {
+        return Err("A Host needs at least one Home for each harness".into());
+    }
     let connection = db::conn(database)?;
     let transaction = connection
         .unchecked_transaction()
@@ -241,7 +250,7 @@ pub(crate) async fn delete_home(database: &Database, id: &str) -> Result<(), Str
         (id,),
     )
     .await?;
-    if home.is_default {
+    if let Some(heir) = heir.filter(|_| home.is_default) {
         db::exec(
             &transaction,
             "UPDATE profile_homes SET is_default = 1 WHERE id = ?",
@@ -505,5 +514,34 @@ mod tests {
         assert!(!new.shares_profile_db);
         initialize(&database).await.unwrap();
         assert_eq!(owner(&homes(&database).await.unwrap()), vec!["old"]);
+    }
+
+    #[tokio::test]
+    async fn an_optional_harness_can_leave_a_host_and_unknown_rows_are_skipped() {
+        let database = database().await;
+        let host = Host::Native;
+        let claude = register_home(&database, HarnessKind::Claude, &host, "/c", "claude", "C")
+            .await
+            .unwrap();
+        let maki = register_home(&database, HarnessKind::Maki, &host, "/m", "maki", "maki")
+            .await
+            .unwrap();
+        assert!(delete_home(&database, &claude.id).await.is_err());
+        delete_home(&database, &maki.id).await.unwrap();
+        db::exec(
+            &db::conn(&database).unwrap(),
+            "INSERT INTO profile_homes(id, harness, host, config_dir, binary, label, is_default)
+             VALUES ('future', '\"future\"', ?, '/f', 'f', 'F', 1)",
+            (encode(&host).unwrap(),),
+        )
+        .await
+        .unwrap();
+        let ids: Vec<String> = homes(&database)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|h| h.id)
+            .collect();
+        assert_eq!(ids, vec![claude.id]);
     }
 }

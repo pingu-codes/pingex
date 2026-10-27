@@ -175,13 +175,24 @@ pub fn model_list(limit: u32, include_hidden: bool) -> Request {
     request("model/list", params)
 }
 
+/// A harness's own mode for a turn: Claude's permission mode and the mode a
+/// plan approval returns to, or an ACP agent's mode (`HARNESS_MODES`). Each
+/// driver checks the value against its own list.
+#[derive(Deserialize, Debug, Clone, PartialEq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessMode {
+    pub mode: String,
+    #[serde(default)]
+    pub exit_plan_mode: Option<String>,
+}
+
 /// Per-turn overrides the composer can set. All optional: an absent field means
 /// "keep whatever the thread already resolved to".
 #[derive(Default, Deserialize, Debug, Clone, specta::Type)]
 #[serde(rename_all = "camelCase", default)]
 pub struct TurnOptions {
-    /// Native Claude settings, never forwarded to Codex.
-    pub claude_mode: Option<crate::claude::modes::ClaudeModeSettings>,
+    /// The harness's own mode, never forwarded to Codex.
+    pub mode: Option<HarnessMode>,
     pub model: Option<String>,
     pub effort: Option<String>,
     /// An explicit speed selection; absent inherits the thread. "default" disables fast mode.

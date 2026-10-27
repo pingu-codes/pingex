@@ -6,7 +6,6 @@ import TooltipButton from "$lib/components/TooltipButton.svelte";
 import AdaptiveToolbar from "$lib/composer/AdaptiveToolbar.svelte";
 import { AttachmentStager } from "$lib/composer/attachments.svelte";
 import ContextMeter from "$lib/composer/ContextMeter.svelte";
-import { CLAUDE_MODES } from "$lib/composer/claudeModes";
 import { ComposerDraft, HistoryRecall } from "$lib/composer/composerDraft.svelte";
 import {
   buildGoalObjective,
@@ -557,7 +556,7 @@ async function dispatchSend(sent: UserInputPart[], snapshot: ComposerPart[]) {
           onclick={implementPlan}
           class="shrink-0 rounded-full px-2.5 py-1 text-[11px] preset-filled-primary-500"
         >
-          {permissionModes ? `Implement with ${CLAUDE_MODES.find((mode) => mode.id === settings.claudeMode?.exitPlanMode)?.label ?? "Default"}` : "Implement the plan"}
+          {permissionModes ? `Implement with ${settings.modeOptions.find((mode) => mode.id === settings.harnessMode?.exitPlanMode)?.label ?? "Default"}` : "Implement the plan"}
         </button>
       </div>
     {/if}
@@ -608,6 +607,7 @@ async function dispatchSend(sent: UserInputPart[], snapshot: ComposerPart[]) {
     {:else if queries.slashQuery !== null}
       <SlashCommandPicker
         query={queries.slashQuery}
+        harness={settings.harness}
         scope={editor}
         onPick={(command) => runCommand(command)}
         onClose={() => richEditor.closeQueries()}
@@ -772,7 +772,7 @@ async function dispatchSend(sent: UserInputPart[], snapshot: ComposerPart[]) {
       {#snippet permissions()}
         <PermissionsPopover
           open={popover === "permissions"}
-          selectedId={permissionModes ? settings.claudeMode?.mode ?? null : prefs.permissionPreset}
+          selectedId={permissionModes ? settings.harnessMode?.mode ?? null : prefs.permissionPreset}
           onToggle={() => togglePopover("permissions")}
           harness={harness}
           onChoose={choosePermission}
@@ -790,7 +790,7 @@ async function dispatchSend(sent: UserInputPart[], snapshot: ComposerPart[]) {
             stats={contextStats}
             {compacting}
             busy={busy || disabled}
-            onCompact={onCommand ? () => onCommand("compact") : undefined}
+            onCompact={onCommand && can(settings.harness, "compact") ? () => onCommand("compact") : undefined}
           />
       {/snippet}
       <AdaptiveToolbar

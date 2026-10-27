@@ -46,7 +46,8 @@ pub use branches::{
 pub(crate) use branches::{branch_descendants, branch_group_for_turn};
 pub(crate) use harness::{
     delete_harness_thread, read_harness_threads, record_harness_thread, rename_harness_thread,
-    set_harness_thread_archived, thread_harness, touch_harness_thread, HarnessThread,
+    set_harness_thread_archived, set_native_session_id, thread_harness, touch_harness_thread,
+    HarnessThread,
 };
 pub(crate) use items::{
     copy_thread_items, delete_thread_items, has_thread_items, mark_turn_complete,

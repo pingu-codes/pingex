@@ -649,7 +649,7 @@ mod tests {
         apply_turn_options(
             &mut params,
             TurnOptions {
-                claude_mode: None,
+                mode: None,
                 model: Some("gpt-5.6".into()),
                 effort: Some("high".into()),
                 speed_tier: Some("default".into()),

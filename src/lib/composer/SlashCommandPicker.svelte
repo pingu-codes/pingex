@@ -4,12 +4,15 @@ import { filterSlashCommands, type SlashCommand } from "$lib/composer/slashComma
 
 let {
   query,
+  harness = null,
   scope = null,
   onPick,
   onClose,
   onCount,
 }: {
   query: string;
+  /** The thread's harness: commands it cannot run are left out. */
+  harness?: string | null;
   scope?: HTMLElement | null;
   /** Reports the visible result count to the composer's key handling. */
   onCount?: (count: number) => void;
@@ -19,7 +22,7 @@ let {
 
 // The window keydown listener can fire once after the composer has cleared its
 // query but before this component is torn down, so `query` is briefly absent.
-const results = $derived(query == null ? [] : filterSlashCommands(query));
+const results = $derived(query == null ? [] : filterSlashCommands(query, harness));
 </script>
 
 <PickerList

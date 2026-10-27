@@ -1,9 +1,9 @@
 <script lang="ts">
 import { Check, ChevronDown, Shield } from "@lucide/svelte";
 import ComposerPopover from "$lib/composer/ComposerPopover.svelte";
-import { CLAUDE_MODES } from "$lib/composer/claudeModes";
 import { type HarnessChoice, PERMISSION_PRESETS, presetFor } from "$lib/composer/composerPrefs";
-import { can } from "$lib/utils/capabilities";
+import { modesFor } from "$lib/composer/harnessModes";
+import { can, harnessName } from "$lib/utils/capabilities";
 
 let {
   open,
@@ -20,17 +20,16 @@ let {
 } = $props();
 
 const permissionModes = $derived(can(harness, "permissionModes"));
-const presets = $derived(permissionModes ? CLAUDE_MODES : PERMISSION_PRESETS);
-const selected = $derived(
-  permissionModes ? CLAUDE_MODES.find((mode) => mode.id === selectedId) : presetFor(selectedId),
-);
+const modes = $derived(modesFor(harness));
+const presets = $derived(permissionModes ? modes : PERMISSION_PRESETS);
+const selected = $derived(permissionModes ? modes.find((mode) => mode.id === selectedId) : presetFor(selectedId));
 const selectedLabel = $derived(selected?.label ?? "Permissions");
 </script>
 
 <ComposerPopover
   {open}
   {onToggle}
-  triggerLabel={permissionModes ? "Set Claude mode" : "Set permissions level"}
+  triggerLabel={permissionModes ? `Set ${harnessName(harness)} mode` : "Set permissions level"}
   triggerClass={selectedId === null ? "text-error-500 hover:text-error-500" : ""}
   label="Permission options"
   contentClass="w-[270px]"

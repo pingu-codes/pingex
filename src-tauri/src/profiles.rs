@@ -1,6 +1,7 @@
 //! A window's project list spans Homes without rebinding the window or
 //! changing a running conversation's runtime.
 
+use crate::acp::spec::AcpRuntime;
 use crate::harness::driver::DriverRuntimes;
 use crate::harness::HarnessKind;
 use crate::projects::types::BootstrapData;
@@ -85,7 +86,16 @@ fn context_key(profile: &HomeContext, home: &ProfileHome) -> String {
 /// the others under their defaults, so a window bound to it can start any
 /// conversation.
 fn driver_runtimes_for(home: &ProfileHome) -> DriverRuntimes {
+    let acp = HarnessKind::ALL
+        .into_iter()
+        .filter_map(|kind| {
+            let spec = kind.acp_spec()?;
+            let binary = (home.harness == kind).then_some(home.binary.as_str());
+            Some((kind, AcpRuntime::resolve(spec, binary, home.host.clone())))
+        })
+        .collect();
     DriverRuntimes {
+        acp,
         claude: crate::claude::driver::ClaudeRuntime {
             binary: PathBuf::from(if home.harness == HarnessKind::Claude {
                 &home.binary
@@ -396,28 +406,40 @@ pub(crate) async fn remove_profile_home(
     Ok(())
 }
 
-/// Whether one Home's Claude CLI is installed and logged in. Probed per Home
+/// Whether one Home's CLI is installed and logged in. Probed per Home
 /// rather than folded into the bootstrap snapshot: `status` shells out twice
 /// and a WSL Home's probe can hang, which is not worth putting on the launch
 /// path for something only the Settings list reads.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn read_home_claude_status(
+pub(crate) async fn read_home_status(
     id: String,
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<crate::claude::driver::ClaudeStatus, String> {
+) -> Result<crate::harness::HarnessStatus, String> {
     let profile = state.ctx(&window);
     let home = registry::homes(&profile.database())
         .await?
         .into_iter()
         .find(|home| home.id == id)
         .ok_or("Home does not belong to this Profile")?;
-    if home.harness != HarnessKind::Claude {
-        return Err("This Home does not run Claude Code".into());
-    }
-    let runtime = driver_runtimes_for(&home).claude;
-    tauri::async_runtime::spawn_blocking(move || crate::claude::driver::status(&runtime))
+    let mut runtimes = driver_runtimes_for(&home);
+    let probe: Box<dyn FnOnce() -> crate::harness::HarnessStatus + Send> = match home.harness {
+        HarnessKind::Codex => return Err("Codex Homes report their status elsewhere".into()),
+        HarnessKind::Claude => {
+            let runtime = runtimes.claude;
+            Box::new(move || crate::claude::driver::status(&runtime))
+        }
+        kind => {
+            let spec = kind.acp_spec().ok_or("This Home has no status probe")?;
+            let runtime = runtimes
+                .acp
+                .remove(&kind)
+                .ok_or("This Home has no runtime")?;
+            Box::new(move || crate::acp::spec::status(spec, &runtime))
+        }
+    };
+    tauri::async_runtime::spawn_blocking(probe)
         .await
         .map_err(|error| error.to_string())
 }
@@ -479,7 +501,10 @@ pub(crate) async fn add_profile_project(
     };
     let path = crate::projects::commands::canonical_project_path(&host, &path)?;
     let mut homes = legacy_homes(&profile).await?;
-    for harness in [HarnessKind::Codex, HarnessKind::Claude] {
+    for harness in HarnessKind::ALL
+        .into_iter()
+        .filter(|kind| kind.required_per_host())
+    {
         if !homes
             .iter()
             .any(|home| home.host == host && home.harness == harness)
@@ -490,6 +515,7 @@ pub(crate) async fn add_profile_project(
             let (folder, binary, label) = match harness {
                 HarnessKind::Codex => (".codex", "codex", "Codex"),
                 HarnessKind::Claude => (".claude", "claude", "Claude Code"),
+                HarnessKind::Maki => continue,
             };
             homes.push(
                 registry::register_home(

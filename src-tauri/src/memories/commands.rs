@@ -41,6 +41,8 @@ fn read_home(home: &ProfileHome, projects: &[String]) -> MemoryHome {
             claude::stores(host, &home.config_dir, projects),
             claude::toggles(&local),
         ),
+        // maki's memory tool keeps its own store, not one this page edits.
+        HarnessKind::Maki => (Vec::new(), Ok(Vec::new())),
     };
     let (toggles, error) = match toggles {
         Ok(toggles) => (toggles, None),
@@ -67,6 +69,7 @@ fn local_roots(home: &ProfileHome) -> Vec<PathBuf> {
             .into_iter()
             .map(|(_, local, _)| local)
             .collect(),
+        HarnessKind::Maki => Vec::new(),
     }
 }
 
@@ -145,6 +148,7 @@ pub(crate) async fn delete_memory(
     let (file, root) = files::guard(&home.host.to_local(&path), &local_roots(home))?;
     match home.harness {
         HarnessKind::Claude => claude::delete(&file, &root)?,
+        HarnessKind::Maki => return Err("maki memories are not managed here".into()),
         HarnessKind::Codex => {
             fs::remove_file(&file).map_err(|error| format!("Could not delete {path}: {error}"))?
         }
@@ -171,6 +175,7 @@ pub(crate) async fn set_memory_toggle(
     match home.harness {
         HarnessKind::Codex => codex::set_toggle(&local, &key, value)?,
         HarnessKind::Claude => claude::set_toggle(&local, &key, value)?,
+        HarnessKind::Maki => return Err("maki memories are not managed here".into()),
     }
     list(homes, projects).await
 }

@@ -65,6 +65,7 @@ import { rootThreadId } from "$lib/thread/messageVersions";
 import ThreadDebugPopover from "$lib/thread/ThreadDebugPopover.svelte";
 import ThreadHeader from "$lib/thread/ThreadHeader.svelte";
 import ThreadView from "$lib/thread/ThreadView.svelte";
+import { can } from "$lib/utils/capabilities";
 import { dragRegion } from "$lib/utils/dragRegion";
 import { loadSize, resizeHandle } from "$lib/utils/resize";
 
@@ -175,6 +176,7 @@ init();
             repoDir={project?.path ?? view.draftCwd ?? thread?.cwd ?? ""}
             cwd={project?.workspaceId ? project.path : (thread?.cwd ?? view.draftCwd ?? project?.path ?? "")}
             inTempWorktree={thread?.inTempWorktree}
+            canFork={can(thread?.harness, "fork")}
             threadId={view.threadId}
             onMovedToWorktree={movedToWorktree}
             onError={(message) => (handoff.error = message)}

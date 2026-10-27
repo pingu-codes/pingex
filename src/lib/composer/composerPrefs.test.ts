@@ -59,7 +59,7 @@ describe("turnOptionsFrom", () => {
   it("migrates Claude Auto to its native mode and keeps Codex presets", () => {
     const prefs = { ...loadPrefs(), permissionPreset: "auto-review" };
     expect(turnOptionsFrom(prefs, undefined, undefined, null, null, "claude")).toEqual({
-      claudeMode: { mode: "auto", exitPlanMode: "auto" },
+      mode: { mode: "auto", exitPlanMode: "auto" },
     });
     expect(turnOptionsFrom(prefs, undefined, undefined, null, null, "codex")).toEqual({
       approvalPolicy: "on-request",

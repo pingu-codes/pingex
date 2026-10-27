@@ -10,6 +10,7 @@
 
 pub(crate) mod driver;
 pub(crate) mod project;
+pub(crate) mod sink;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -25,16 +26,19 @@ use crate::util::json::Json;
 pub(crate) enum HarnessKind {
     Codex,
     Claude,
+    Maki,
 }
 
 impl HarnessKind {
-    pub(crate) const ALL: [HarnessKind; 2] = [HarnessKind::Codex, HarnessKind::Claude];
+    pub(crate) const ALL: [HarnessKind; 3] =
+        [HarnessKind::Codex, HarnessKind::Claude, HarnessKind::Maki];
 
     /// The tag stored in `harness_threads.harness` and sent over IPC.
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             HarnessKind::Codex => "codex",
             HarnessKind::Claude => "claude",
+            HarnessKind::Maki => "maki",
         }
     }
 
@@ -47,8 +51,51 @@ impl HarnessKind {
         match self {
             HarnessKind::Codex => "Codex",
             HarnessKind::Claude => "Claude",
+            HarnessKind::Maki => "maki",
         }
     }
+
+    /// The ACP agent behind this harness, for one that speaks ACP.
+    pub(crate) fn acp_spec(self) -> Option<&'static dyn crate::acp::spec::AcpSpec> {
+        match self {
+            HarnessKind::Maki => Some(&crate::acp::maki::Maki),
+            HarnessKind::Codex | HarnessKind::Claude => None,
+        }
+    }
+
+    /// Every Host gets a Home of this harness when a project is added. The
+    /// others are registered by hand, when the user wants them.
+    pub(crate) fn required_per_host(self) -> bool {
+        matches!(self, HarnessKind::Codex | HarnessKind::Claude)
+    }
+}
+
+/// What the settings page and the harness picker need to know: whether a
+/// harness's binary resolves, where, what it reports as its version, and
+/// whether it is logged in.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HarnessStatus {
+    pub available: bool,
+    pub path: Option<String>,
+    pub version: Option<String>,
+    pub config_dir: String,
+    /// Whether the CLI is logged in under `config_dir`. `None` when the
+    /// probe could not tell (no binary, or no way to check).
+    pub logged_in: Option<bool>,
+    /// The oldest CLI the driver can drive.
+    pub protocol_floor: String,
+    pub message: Option<String>,
+}
+
+/// Whether dotted `version` is older than `floor`, compared numerically.
+pub(crate) fn version_below(version: &str, floor: &str) -> bool {
+    let parse = |text: &str| -> Vec<u64> {
+        text.split('.')
+            .map(|part| part.trim().parse::<u64>().unwrap_or(0))
+            .collect()
+    };
+    parse(version) < parse(floor)
 }
 
 /// Something a harness can do beyond the required core (`CONTEXT.md`). This
@@ -70,16 +117,121 @@ pub(crate) enum Capability {
     /// Tool calls report completion while the turn continues, so finished
     /// work can fold before the turn ends.
     LiveToolResults,
+    /// Summarising the thread to free context (`/compact`).
+    Compact,
+    /// Branching a thread into a new one, also behind "Move to worktree".
+    Fork,
+    /// A review turn over the working changes (`/review`).
+    Review,
+    /// Asking aside without disturbing the thread (`/btw`).
+    SideQuestions,
 }
 
 impl HarnessKind {
     pub(crate) fn capabilities(self) -> &'static [Capability] {
         use Capability::*;
         match self {
-            HarnessKind::Codex => &[Goals, Revert, CollaborationModes],
-            HarnessKind::Claude => &[PermissionModes, LiveToolResults],
+            HarnessKind::Codex => &[
+                Goals,
+                Revert,
+                CollaborationModes,
+                Compact,
+                Fork,
+                Review,
+                SideQuestions,
+            ],
+            HarnessKind::Claude => &[PermissionModes, LiveToolResults, Compact, SideQuestions],
+            HarnessKind::Maki => &[PermissionModes, LiveToolResults],
         }
     }
+}
+
+/// What the frontend shows for a harness without asking it anything.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HarnessInfo {
+    /// The product name, for menus and Home rows.
+    pub label: &'static str,
+    /// The short name, for prompts like "Claude wants to…".
+    pub name: &'static str,
+    pub default_binary: &'static str,
+    /// Where the config lives, relative to the user's home directory.
+    pub config_dir: &'static str,
+    /// Whether a Home can point at another config directory. maki has no
+    /// override short of the XDG variables, which its tools would inherit.
+    pub config_dir_editable: bool,
+    /// Registered by hand rather than on every Host.
+    pub optional: bool,
+    /// `read_home_status` can probe its install and login.
+    pub probes_status: bool,
+}
+
+impl HarnessKind {
+    pub(crate) fn info(self) -> HarnessInfo {
+        let (label, binary, config_dir) = match self {
+            HarnessKind::Codex => ("Codex", "codex", ".codex"),
+            HarnessKind::Claude => ("Claude Code", "claude", ".claude"),
+            HarnessKind::Maki => ("maki", "maki", ".config/maki"),
+        };
+        HarnessInfo {
+            label,
+            name: self.label(),
+            default_binary: binary,
+            config_dir,
+            config_dir_editable: self.acp_spec().is_none(),
+            optional: !self.required_per_host(),
+            probes_status: self != HarnessKind::Codex,
+        }
+    }
+
+    /// The modes the composer's permissions menu offers, default first.
+    pub(crate) fn modes(self) -> Vec<ModeInfo> {
+        if let Some(spec) = self.acp_spec() {
+            return spec
+                .modes()
+                .iter()
+                .map(|mode| ModeInfo {
+                    id: mode.id,
+                    label: mode.label,
+                    description: mode.description,
+                    plan: mode.plan,
+                })
+                .collect();
+        }
+        match self {
+            HarnessKind::Claude => crate::claude::modes::mode_infos(),
+            _ => Vec::new(),
+        }
+    }
+}
+
+/// One entry in a harness's permissions menu (`HARNESS_MODES`).
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ModeInfo {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub description: &'static str,
+    /// The mode plans instead of acting.
+    pub plan: bool,
+}
+
+/// [`HarnessKind::info`] for every harness, exported as `HARNESS_INFO`.
+pub(crate) fn harness_info() -> BTreeMap<HarnessKind, HarnessInfo> {
+    HarnessKind::ALL
+        .into_iter()
+        .map(|kind| (kind, kind.info()))
+        .collect()
+}
+
+/// [`HarnessKind::modes`] for every harness that has any, exported as
+/// `HARNESS_MODES`.
+pub(crate) fn harness_modes() -> BTreeMap<HarnessKind, Vec<ModeInfo>> {
+    HarnessKind::ALL
+        .into_iter()
+        .map(|kind| (kind, kind.modes()))
+        .filter(|(_, modes)| !modes.is_empty())
+        .collect()
 }
 
 /// [`HarnessKind::capabilities`] for every harness, exported as the

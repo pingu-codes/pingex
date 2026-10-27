@@ -7,7 +7,6 @@
  */
 
 import { untrack } from "svelte";
-import { claudeModeFromPrefs, isClaudeMode, selectClaudeMode } from "$lib/composer/claudeModes";
 import {
   type ComposerPrefs,
   type HarnessChoice,
@@ -18,6 +17,7 @@ import {
   turnOptionsFrom,
 } from "$lib/composer/composerPrefs";
 import { fastModeState, fastTier } from "$lib/composer/fastMode";
+import { isModeOf, isPlanMode, modeFromPrefs, modesFor, selectMode } from "$lib/composer/harnessModes";
 import { ensureHarnessModels, harnessModels, harnessModelsError } from "$lib/composer/models.svelte";
 import type { Model, SubagentPolicy, TurnOptions } from "$lib/types";
 import { can } from "$lib/utils/capabilities";
@@ -54,13 +54,15 @@ export class ComposerSettings {
   // `$derived.by` wherever `deps` is read: it is assigned after the field
   // initialisers run, and only a function body defers the read for TypeScript.
   readonly harness = $derived.by<HarnessChoice>(() => this.deps.threadHarness() ?? this.prefs.harness ?? "codex");
-  readonly claudeMode = $derived(claudeModeFromPrefs(this.prefs));
+  /** The harness's own mode, for a harness with permission modes. */
+  readonly harnessMode = $derived(modeFromPrefs(this.prefs, this.harness));
+  readonly modeOptions = $derived(modesFor(this.harness));
   /** The harness switches named permission modes itself (plan among them),
    *  rather than taking presets plus a per-turn collaboration mode. */
   readonly permissionModes = $derived(can(this.harness, "permissionModes"));
   /** Plan or default is sent as a collaboration mode with every turn. */
   readonly collaborationModes = $derived(can(this.harness, "collaborationModes"));
-  readonly planMode = $derived(this.permissionModes ? this.claudeMode?.mode === "plan" : this.prefs.planMode);
+  readonly planMode = $derived(this.permissionModes ? isPlanMode(this.harnessMode?.mode) : this.prefs.planMode);
 
   readonly models = $derived(harnessModels(this.harness));
   readonly modelsError = $derived(harnessModelsError(this.harness));
@@ -117,7 +119,7 @@ export class ComposerSettings {
       return "Pick at least one subagent effort level";
     }
     if (!this.prefs.model) return "Choose a model";
-    if (this.permissionModes ? !isClaudeMode(this.claudeMode?.mode) : !this.prefs.permissionPreset) {
+    if (this.permissionModes ? !isModeOf(this.harness, this.harnessMode?.mode) : !this.prefs.permissionPreset) {
       return "Choose a permission mode";
     }
     return null;
@@ -249,16 +251,16 @@ export class ComposerSettings {
    *  to "unset": a turn needs one, and sending is blocked without it. */
   choosePermission(id: string): void {
     if (this.permissionModes) {
-      if (!isClaudeMode(id)) return;
-      selectClaudeMode(this.prefs, id);
+      if (!isModeOf(this.harness, id)) return;
+      selectMode(this.prefs, id);
     } else this.prefs.permissionPreset = id;
     this.persist();
   }
 
   /** Follow a mode the harness switched to on its own. */
   syncPermissionMode(mode: string): boolean {
-    if (!this.permissionModes || !isClaudeMode(mode)) return false;
-    selectClaudeMode(this.prefs, mode);
+    if (!this.permissionModes || !isModeOf(this.harness, mode)) return false;
+    selectMode(this.prefs, mode);
     this.persist();
     return true;
   }
@@ -266,7 +268,10 @@ export class ComposerSettings {
   /** Enter plan mode, or leave it for the mode it was entered from. */
   setPlanMode(on: boolean): void {
     if (this.permissionModes) {
-      selectClaudeMode(this.prefs, on ? "plan" : (this.claudeMode?.exitPlanMode ?? "default"));
+      const plan = this.modeOptions.find((mode) => mode.plan)?.id;
+      const back = this.harnessMode?.exitPlanMode ?? this.modeOptions.find((mode) => !mode.plan)?.id;
+      const next = on ? plan : back;
+      if (next) selectMode(this.prefs, next);
     } else this.prefs.planMode = on;
     this.persist();
   }

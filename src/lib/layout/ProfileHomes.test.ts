@@ -10,7 +10,7 @@ vi.mock("$lib/services/tauri", async (importOriginal) => ({
   isTauri: () => true,
 }));
 
-const readHomeClaudeStatus = vi.fn();
+const readHomeStatus = vi.fn();
 const updateProfileHome = vi.fn(
   async (_id: string, _dir: string, _binary: string, _label: string) => ({}) as ProfileHome,
 );
@@ -23,7 +23,7 @@ vi.mock("$lib/bindings", async (importOriginal) => {
     ...actual,
     commands: {
       ...actual.commands,
-      readHomeClaudeStatus: (id: string) => readHomeClaudeStatus(id),
+      readHomeStatus: (id: string) => readHomeStatus(id),
       updateProfileHome: (id: string, configDir: string, binary: string, label: string) =>
         updateProfileHome(id, configDir, binary, label),
       removeProfileHome: (id: string) => removeProfileHome(id),
@@ -88,7 +88,7 @@ function rowFor(configDir: string): HTMLElement {
 
 beforeEach(() => {
   acceptProfile({ profileKey: "p", homes: snapshots() });
-  readHomeClaudeStatus.mockImplementation(async (id: string) => status(id === "personal"));
+  readHomeStatus.mockImplementation(async (id: string) => status(id === "personal"));
 });
 
 afterEach(() => {
@@ -107,7 +107,7 @@ describe("ProfileHomes", () => {
   });
 
   it("says so when the login cannot be checked", async () => {
-    readHomeClaudeStatus.mockImplementation(async () => status(null));
+    readHomeStatus.mockImplementation(async () => status(null));
     render(ProfileHomes);
     await waitFor(() => {
       expect(within(rowFor("/home/u/.claude")).getByTestId("home-login")).toHaveTextContent("Login unknown");

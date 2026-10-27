@@ -14,12 +14,12 @@ export const commands = {
 	updateProfileHome: (id: string, configDir: string, binary: string, label: string) => __TAURI_INVOKE<ProfileHome>("update_profile_home", { id, configDir, binary, label }),
 	removeProfileHome: (id: string) => __TAURI_INVOKE<null>("remove_profile_home", { id }),
 	/**
-	 *  Whether one Home's Claude CLI is installed and logged in. Probed per Home
+	 *  Whether one Home's CLI is installed and logged in. Probed per Home
 	 *  rather than folded into the bootstrap snapshot: `status` shells out twice
 	 *  and a WSL Home's probe can hang, which is not worth putting on the launch
 	 *  path for something only the Settings list reads.
 	 */
-	readHomeClaudeStatus: (id: string) => __TAURI_INVOKE<ClaudeStatus>("read_home_claude_status", { id }),
+	readHomeStatus: (id: string) => __TAURI_INVOKE<HarnessStatus>("read_home_status", { id }),
 	/**
 	 *  A workspace's directories belong to its Host. Another harness on that
 	 *  Host uses the same hub and worktrees, with its own conversation records.
@@ -98,8 +98,8 @@ export const commands = {
 	readThread: (threadId: string, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("read_thread", { threadId, window }),
 	startThread: (cwd: string | null, workspaceId: string | null, harness: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("start_thread", { cwd, workspaceId, harness, window }),
 	startTurn: (threadId: string, input: unknown[], options: {
-	/**  Native Claude settings, never forwarded to Codex. */
-	claudeMode?: ClaudeModeSettings | null,
+	/**  The harness's own mode, never forwarded to Codex. */
+	mode?: HarnessMode | null,
 	model?: string | null,
 	effort?: string | null,
 	/**  An explicit speed selection; absent inherits the thread. "default" disables fast mode. */
@@ -542,7 +542,13 @@ export const events = {
 };
 
 /* Constants */
-export const HARNESS_CAPABILITIES = {"claude":["permissionModes","liveToolResults"],"codex":["goals","revert","collaborationModes"]} as const;
+export const HARNESS_CAPABILITIES = {"claude":["permissionModes","liveToolResults","compact","sideQuestions"],"codex":["goals","revert","collaborationModes","compact","fork","review","sideQuestions"],"maki":["permissionModes","liveToolResults"]} as const;
+
+export const HARNESS_INFO = {"claude":{"configDir":".claude","configDirEditable":true,"defaultBinary":"claude","label":"Claude Code","name":"Claude","optional":false,"probesStatus":true},"codex":{"configDir":".codex","configDirEditable":true,"defaultBinary":"codex","label":"Codex","name":"Codex","optional":false,"probesStatus":false},"maki":{"configDir":".config/maki","configDirEditable":false,"defaultBinary":"maki","label":"maki","name":"maki","optional":true,"probesStatus":true}} as const;
+
+export const HARNESS_KINDS = ["codex","claude","maki"] as const;
+
+export const HARNESS_MODES = {"claude":[{"description":"Ask for approval when an action needs permission","id":"default","label":"Default","plan":false},{"description":"Allow file edits; other actions can still require approval","id":"acceptEdits","label":"Accept edits","plan":false},{"description":"Claude’s classifier reviews actions","id":"auto","label":"Auto","plan":false},{"description":"Explore and plan before implementing","id":"plan","label":"Plan","plan":true},{"description":"Skip permission prompts","id":"bypassPermissions","label":"Bypass permissions","plan":false}],"maki":[{"description":"Asks before commands, web fetches and writes outside the project","id":"build","label":"Build","plan":false},{"description":"Runs everything without asking; maki's deny rules still apply","id":"yolo","label":"Build without prompts","plan":false},{"description":"Reads and plans without changing anything","id":"plan","label":"Plan","plan":true}]} as const;
 
 /* Types */
 export type Account = {
@@ -647,7 +653,15 @@ export type Capability =
  *  Tool calls report completion while the turn continues, so finished
  *  work can fold before the turn ends.
  */
-"liveToolResults";
+"liveToolResults" | 
+/**  Summarising the thread to free context (`/compact`). */
+"compact" | 
+/**  Branching a thread into a new one, also behind "Move to worktree". */
+"fork" | 
+/**  A review turn over the working changes (`/review`). */
+"review" | 
+/**  Asking aside without disturbing the thread (`/btw`). */
+"sideQuestions";
 
 export type CategoryTokens = {
 	system: number,
@@ -697,25 +711,6 @@ export type ClaudeModeSettings = {
 };
 
 export type ClaudePermissionMode = "default" | "acceptEdits" | "auto" | "plan" | "bypassPermissions";
-
-/**
- *  What the settings page and the harness picker need to know: whether a
- *  `claude` binary resolves, where, and what it reports as its version.
- */
-export type ClaudeStatus = {
-	available: boolean,
-	path: string | null,
-	version: string | null,
-	configDir: string,
-	/**
-	 *  Whether the CLI is logged in under `config_dir`. `None` when the
-	 *  probe could not tell (no binary, or no way to check).
-	 */
-	loggedIn: boolean | null,
-	/**  The oldest CLI the driver can drive. */
-	protocolFloor: string,
-	message: string | null,
-};
 
 /**  `codex:disconnected` — the app-server child for this home went away. */
 export type CodexDisconnected = {
@@ -1039,7 +1034,17 @@ export type HarnessEventEnvelope = {
 };
 
 /**  Which agent CLI a thread runs on. */
-export type HarnessKind = "codex" | "claude";
+export type HarnessKind = "codex" | "claude" | "maki";
+
+/**
+ *  A harness's own mode for a turn: Claude's permission mode and the mode a
+ *  plan approval returns to, or an ACP agent's mode (`HARNESS_MODES`). Each
+ *  driver checks the value against its own list.
+ */
+export type HarnessMode = {
+	mode: string,
+	exitPlanMode?: string | null,
+};
 
 /**  A question the harness needs answered before it can go on. */
 export type HarnessRequest = { type: "permission"; title: string; description: string | null; kind: ToolKind; name: string; content: ToolCallContent[]; options: PermissionOption[]; 
@@ -1065,6 +1070,26 @@ export type HarnessRequestEnvelope = {
 	turnId: string,
 	itemId: string,
 	request: HarnessRequest,
+};
+
+/**
+ *  What the settings page and the harness picker need to know: whether a
+ *  harness's binary resolves, where, what it reports as its version, and
+ *  whether it is logged in.
+ */
+export type HarnessStatus = {
+	available: boolean,
+	path: string | null,
+	version: string | null,
+	configDir: string,
+	/**
+	 *  Whether the CLI is logged in under `config_dir`. `None` when the
+	 *  probe could not tell (no binary, or no way to check).
+	 */
+	loggedIn: boolean | null,
+	/**  The oldest CLI the driver can drive. */
+	protocolFloor: string,
+	message: string | null,
 };
 
 /**
@@ -2031,8 +2056,8 @@ export type ToolKind = "read" | "edit" | "delete" | "move" | "search" | "execute
  *  "keep whatever the thread already resolved to".
  */
 export type TurnOptions = {
-	/**  Native Claude settings, never forwarded to Codex. */
-	claudeMode?: ClaudeModeSettings | null,
+	/**  The harness's own mode, never forwarded to Codex. */
+	mode?: HarnessMode | null,
 	model?: string | null,
 	effort?: string | null,
 	/**  An explicit speed selection; absent inherits the thread. "default" disables fast mode. */
@@ -2262,4 +2287,4 @@ function makeEvent<T>(name: string, serialize?: (payload: T) => unknown, deseria
 
 
 /** Command argument names for explicit Home routing. */
-export const commandArguments = {"addNativeSideQuestion":["parentThreadId","sideThreadId","title","window"],"addProfileProject":["path","host"],"addProject":["path","window"],"addProjectSource":["projectPath","sourcePath","kind","window"],"addSideQuestion":["parentThreadId","sideThreadId","title","inheritedTurns","window"],"addThreadBranch":["parentThreadId","threadId","replacedTurnId","inheritedTurns","window"],"addWorktreeProject":["path","window"],"allowThreadImage":["path","window"],"answerNativeSideQuestion":["parentThreadId","sideThreadId","requestId","window"],"applySessionFocus":["hide","collapseProjects","collapseFolders","window"],"archiveThread":["threadId","window"],"autoNameThread":["threadId","seed","window"],"bootstrap":["window"],"bootstrapProfile":["refresh"],"cancelNativeSideQuestion":["parentThreadId","sideThreadId","requestId","window"],"clearWireLog":[],"compactThread":["threadId","window"],"copyText":["text"],"createSidebarFolder":["scope","parentId","name","window"],"createSkill":["name","description","body","cwds","window"],"createThreadSection":["name","color","window"],"createWorkspace":["input","window"],"deleteDraft":["project","window"],"deleteMemory":["homeId","path","projects"],"deleteSidebarFolder":["id","window"],"deleteSkill":["path","cwds","window"],"deleteThread":["threadId","window"],"deleteThreadSection":["sectionId","window"],"disconnectConnection":["clientId","window"],"forkThread":["threadId","beforeTurnId","lastTurnId","cwd","window"],"getQuickShortcut":[],"gitBranches":["dir","limit","window"],"gitChangesSummary":["dir","window"],"gitCheckoutBranch":["dir","name","force","window"],"gitCommit":["dir","message","window"],"gitContext":["dir","window"],"gitCreateBranch":["dir","name","base","checkout","window"],"gitDiscard":["dir","paths","untrackedPaths","window"],"gitFetch":["dir","window"],"gitFileDiff":["dir","base","path","untracked","maxBytes","window"],"gitPull":["dir","window"],"gitPush":["dir","setUpstream","window"],"gitRecentCommits":["dir","limit","window"],"gitRepoInfo":["dir","window"],"gitStage":["dir","paths","window"],"gitStagedFileDiff":["dir","path","maxBytes","window"],"gitStatus":["dir","window"],"gitUnstage":["dir","paths","window"],"gitWorktreeAdd":["repoDir","request","window"],"gitWorktreeAddTemp":["repoDir","window"],"gitWorktreeHandoff":["worktreePath","targetDir","commitUncommitted","branchName","window"],"gitWorktreeHandoffPreflight":["worktreePath","targetDir","window"],"gitWorktreeLock":["repoDir","path","reason","window"],"gitWorktreePrune":["repoDir","window"],"gitWorktreeRemove":["repoDir","path","force","window"],"gitWorktreeUnlock":["repoDir","path","window"],"gitWorktrees":["repoDir","window"],"handoffCommand":["threadId","cwd","window"],"handoffLaunchTerminal":["threadId","cwd","window"],"handoffThreadLink":["threadId","cwd","label","window"],"interruptTurn":["threadId","turnId","window"],"invalidateThreadCache":["threadId","window"],"listConnections":["window"],"listHarnessModels":["harness","window"],"listIntegrations":["cwds","forceReload","window"],"listMcpServerStatus":["window"],"listMemories":["projects"],"listModels":["window"],"listProjectFiles":["root","window"],"listProjectSources":["projectPath","window"],"listSkillsFor":["cwds","window"],"listSubagents":["threadId","window"],"listThreadsPage":["cursor","pageSize","archived","projectPath","window"],"listWslDistros":[],"loadDraft":["project","window"],"mcpOauthLogin":["name","window"],"moveThreadToSection":["threadId","sectionId","window"],"moveThreadToWorkspace":["threadId","workspaceId","window"],"openExternalUrl":["url"],"openHomeWindow":["path","host"],"openInZed":["path","window"],"placeSidebarItem":["scope","item","parentId","siblings","window"],"prepareNativeSideQuestion":["parentThreadId","sideThreadId","question","window"],"prepareProfileWorkspace":["sourceHomeKey","workspaceId","targetHomeKey"],"queueAdd":["threadId","input","clientUserMessageId","window"],"queueDelete":["threadId","queuedSubmissionId","window"],"queueList":["threadId","cursor","window"],"queueReorder":["threadId","queuedSubmissionIds","window"],"queueUpdate":["threadId","queuedSubmissionId","input","window"],"quickOpenFullThread":["threadId"],"readAccountRateLimits":["window"],"readCodexServerInfo":["window"],"readConfigSettings":["window"],"readContextBreakdown":["threadId","window"],"readFilePreview":["path","maxBytes","window"],"readHomeClaudeStatus":["id"],"readHomeOverview":["window"],"readLaunchState":["window"],"readMemory":["homeId","path"],"readNativeSideQuestion":["parentThreadId","sideThreadId","window"],"readPromptPartsText":["threadId","window"],"readRuntimeSettings":["window"],"readSkill":["path","window"],"readThread":["threadId","window"],"readThreadUsage":["threadId","window"],"readUsageBreakdown":["scope","since","window"],"readWireLog":["window"],"recordUserInputRequest":["threadId","turnId","itemId","item","afterItemId","window"],"refreshConnections":["window"],"registerProfileHome":["harness","host","configDir","binary","label"],"reindexSource":["id","window"],"remotePairingStart":["window"],"remotePairingStatus":["pairingCode","window"],"removeMcpServer":["name","window"],"removeProfileHome":["id"],"removeProject":["path","window"],"removeProjectSource":["id","projectPath","window"],"removeRecentHome":["path","host","window"],"removeSideQuestion":["sideThreadId","window"],"removeStaged":["id","window"],"renameConnection":["clientId","name","window"],"renameProject":["path","name","window"],"renameSidebarFolder":["id","name","window"],"renameThread":["threadId","name","window"],"resetSidebarOrder":["scope","window"],"respondApproval":["requestId","decision","window"],"respondServerRequest":["requestId","result","window"],"respondUserInput":["requestId","answers","threadId","turnId","itemId","item","window"],"revealInFinder":["path","window"],"revertThread":["threadId","beforeTurnId","keptTurnIds","window"],"reviewCheckFresh":["repoDir","number","knownHead","knownUpdatedAt"],"reviewDeleteDraft":["provider","repo","prNumber","window"],"reviewListPrs":["repoDir"],"reviewLoadDraft":["provider","repo","prNumber","window"],"reviewLocalDiff":["repoDir","base","head","window"],"reviewPrDetail":["repoDir","number"],"reviewProviderStatus":["repoDir"],"reviewReply":["repoDir","number","commentId","body"],"reviewResolveThread":["repoDir","threadId"],"reviewSaveDraft":["provider","repo","prNumber","headSha","payload","window"],"reviewSubmit":["repoDir","number","event","body","comments"],"revokeConnection":["clientId","window"],"saveDraft":["project","content","window"],"saveMcpServer":["server","window"],"saveProjectInstructions":["projectPath","instructions","window"],"searchProjectFiles":["root","query","limit","window"],"searchThreads":["query","cursor","filter","generation","window"],"searchWorkspace":["projectPath","query","cursor","generation","window"],"selectCodexHome":["path","host","window"],"setCodexBinary":["path","window"],"setIntegrationEnabled":["kind","id","enabled","projectPath","window"],"setMcpEnabled":["name","enabled","window"],"setMemoryToggle":["homeId","key","value","projects"],"setProfileDefaultHome":["id"],"setProjectArchived":["path","archived","window"],"setProjectExpanded":["path","expanded","window"],"setProjectPinned":["path","pinned","window"],"setQuickShortcut":["accelerator"],"setSidebarFolderExpanded":["id","expanded","window"],"setSkillEnabled":["name","enabled","path","window"],"setThreadBranchEditTurn":["threadId","editTurnId","window"],"setThreadPinned":["threadId","pinned","window"],"setThreadsHidden":["threadIds","hidden","window"],"setWireLogging":["enabled","window"],"sideQuestionMode":["parentThreadId","window"],"stageAttachment":["sourcePath","window"],"stageClipboardImage":["filename","mime","bytes","window"],"startReview":["threadId","target","window"],"startThread":["cwd","workspaceId","harness","window"],"startTurn":["threadId","input","options","window"],"threadGoalClear":["threadId","window"],"threadGoalGet":["threadId","window"],"threadGoalSet":["threadId","objective","status","tokenBudget","clearTokenBudget","window"],"threadsWithActiveTurns":["window"],"threadsWithUnansweredQuestions":["window"],"unarchiveThread":["threadId","window"],"updateProfileHome":["id","configDir","binary","label"],"updateRuntimeSettings":["codexHome","codexBinary","claudeBinary","claudeConfigDir","codexHost","claudeHost","window"],"updateSubagentPolicy":["threadId","modelPolicy","reasoningEffortPolicy","window"],"updateThreadSection":["sectionId","name","color","window"],"updateTurnSettings":["threadId","turnId","model","effort","speedTier","window"],"updateWorkspace":["input","window"],"writeConfigSetting":["key","value","unset","window"],"writeMemory":["homeId","path","contents","projects"]} as const;
+export const commandArguments = {"addNativeSideQuestion":["parentThreadId","sideThreadId","title","window"],"addProfileProject":["path","host"],"addProject":["path","window"],"addProjectSource":["projectPath","sourcePath","kind","window"],"addSideQuestion":["parentThreadId","sideThreadId","title","inheritedTurns","window"],"addThreadBranch":["parentThreadId","threadId","replacedTurnId","inheritedTurns","window"],"addWorktreeProject":["path","window"],"allowThreadImage":["path","window"],"answerNativeSideQuestion":["parentThreadId","sideThreadId","requestId","window"],"applySessionFocus":["hide","collapseProjects","collapseFolders","window"],"archiveThread":["threadId","window"],"autoNameThread":["threadId","seed","window"],"bootstrap":["window"],"bootstrapProfile":["refresh"],"cancelNativeSideQuestion":["parentThreadId","sideThreadId","requestId","window"],"clearWireLog":[],"compactThread":["threadId","window"],"copyText":["text"],"createSidebarFolder":["scope","parentId","name","window"],"createSkill":["name","description","body","cwds","window"],"createThreadSection":["name","color","window"],"createWorkspace":["input","window"],"deleteDraft":["project","window"],"deleteMemory":["homeId","path","projects"],"deleteSidebarFolder":["id","window"],"deleteSkill":["path","cwds","window"],"deleteThread":["threadId","window"],"deleteThreadSection":["sectionId","window"],"disconnectConnection":["clientId","window"],"forkThread":["threadId","beforeTurnId","lastTurnId","cwd","window"],"getQuickShortcut":[],"gitBranches":["dir","limit","window"],"gitChangesSummary":["dir","window"],"gitCheckoutBranch":["dir","name","force","window"],"gitCommit":["dir","message","window"],"gitContext":["dir","window"],"gitCreateBranch":["dir","name","base","checkout","window"],"gitDiscard":["dir","paths","untrackedPaths","window"],"gitFetch":["dir","window"],"gitFileDiff":["dir","base","path","untracked","maxBytes","window"],"gitPull":["dir","window"],"gitPush":["dir","setUpstream","window"],"gitRecentCommits":["dir","limit","window"],"gitRepoInfo":["dir","window"],"gitStage":["dir","paths","window"],"gitStagedFileDiff":["dir","path","maxBytes","window"],"gitStatus":["dir","window"],"gitUnstage":["dir","paths","window"],"gitWorktreeAdd":["repoDir","request","window"],"gitWorktreeAddTemp":["repoDir","window"],"gitWorktreeHandoff":["worktreePath","targetDir","commitUncommitted","branchName","window"],"gitWorktreeHandoffPreflight":["worktreePath","targetDir","window"],"gitWorktreeLock":["repoDir","path","reason","window"],"gitWorktreePrune":["repoDir","window"],"gitWorktreeRemove":["repoDir","path","force","window"],"gitWorktreeUnlock":["repoDir","path","window"],"gitWorktrees":["repoDir","window"],"handoffCommand":["threadId","cwd","window"],"handoffLaunchTerminal":["threadId","cwd","window"],"handoffThreadLink":["threadId","cwd","label","window"],"interruptTurn":["threadId","turnId","window"],"invalidateThreadCache":["threadId","window"],"listConnections":["window"],"listHarnessModels":["harness","window"],"listIntegrations":["cwds","forceReload","window"],"listMcpServerStatus":["window"],"listMemories":["projects"],"listModels":["window"],"listProjectFiles":["root","window"],"listProjectSources":["projectPath","window"],"listSkillsFor":["cwds","window"],"listSubagents":["threadId","window"],"listThreadsPage":["cursor","pageSize","archived","projectPath","window"],"listWslDistros":[],"loadDraft":["project","window"],"mcpOauthLogin":["name","window"],"moveThreadToSection":["threadId","sectionId","window"],"moveThreadToWorkspace":["threadId","workspaceId","window"],"openExternalUrl":["url"],"openHomeWindow":["path","host"],"openInZed":["path","window"],"placeSidebarItem":["scope","item","parentId","siblings","window"],"prepareNativeSideQuestion":["parentThreadId","sideThreadId","question","window"],"prepareProfileWorkspace":["sourceHomeKey","workspaceId","targetHomeKey"],"queueAdd":["threadId","input","clientUserMessageId","window"],"queueDelete":["threadId","queuedSubmissionId","window"],"queueList":["threadId","cursor","window"],"queueReorder":["threadId","queuedSubmissionIds","window"],"queueUpdate":["threadId","queuedSubmissionId","input","window"],"quickOpenFullThread":["threadId"],"readAccountRateLimits":["window"],"readCodexServerInfo":["window"],"readConfigSettings":["window"],"readContextBreakdown":["threadId","window"],"readFilePreview":["path","maxBytes","window"],"readHomeOverview":["window"],"readHomeStatus":["id"],"readLaunchState":["window"],"readMemory":["homeId","path"],"readNativeSideQuestion":["parentThreadId","sideThreadId","window"],"readPromptPartsText":["threadId","window"],"readRuntimeSettings":["window"],"readSkill":["path","window"],"readThread":["threadId","window"],"readThreadUsage":["threadId","window"],"readUsageBreakdown":["scope","since","window"],"readWireLog":["window"],"recordUserInputRequest":["threadId","turnId","itemId","item","afterItemId","window"],"refreshConnections":["window"],"registerProfileHome":["harness","host","configDir","binary","label"],"reindexSource":["id","window"],"remotePairingStart":["window"],"remotePairingStatus":["pairingCode","window"],"removeMcpServer":["name","window"],"removeProfileHome":["id"],"removeProject":["path","window"],"removeProjectSource":["id","projectPath","window"],"removeRecentHome":["path","host","window"],"removeSideQuestion":["sideThreadId","window"],"removeStaged":["id","window"],"renameConnection":["clientId","name","window"],"renameProject":["path","name","window"],"renameSidebarFolder":["id","name","window"],"renameThread":["threadId","name","window"],"resetSidebarOrder":["scope","window"],"respondApproval":["requestId","decision","window"],"respondServerRequest":["requestId","result","window"],"respondUserInput":["requestId","answers","threadId","turnId","itemId","item","window"],"revealInFinder":["path","window"],"revertThread":["threadId","beforeTurnId","keptTurnIds","window"],"reviewCheckFresh":["repoDir","number","knownHead","knownUpdatedAt"],"reviewDeleteDraft":["provider","repo","prNumber","window"],"reviewListPrs":["repoDir"],"reviewLoadDraft":["provider","repo","prNumber","window"],"reviewLocalDiff":["repoDir","base","head","window"],"reviewPrDetail":["repoDir","number"],"reviewProviderStatus":["repoDir"],"reviewReply":["repoDir","number","commentId","body"],"reviewResolveThread":["repoDir","threadId"],"reviewSaveDraft":["provider","repo","prNumber","headSha","payload","window"],"reviewSubmit":["repoDir","number","event","body","comments"],"revokeConnection":["clientId","window"],"saveDraft":["project","content","window"],"saveMcpServer":["server","window"],"saveProjectInstructions":["projectPath","instructions","window"],"searchProjectFiles":["root","query","limit","window"],"searchThreads":["query","cursor","filter","generation","window"],"searchWorkspace":["projectPath","query","cursor","generation","window"],"selectCodexHome":["path","host","window"],"setCodexBinary":["path","window"],"setIntegrationEnabled":["kind","id","enabled","projectPath","window"],"setMcpEnabled":["name","enabled","window"],"setMemoryToggle":["homeId","key","value","projects"],"setProfileDefaultHome":["id"],"setProjectArchived":["path","archived","window"],"setProjectExpanded":["path","expanded","window"],"setProjectPinned":["path","pinned","window"],"setQuickShortcut":["accelerator"],"setSidebarFolderExpanded":["id","expanded","window"],"setSkillEnabled":["name","enabled","path","window"],"setThreadBranchEditTurn":["threadId","editTurnId","window"],"setThreadPinned":["threadId","pinned","window"],"setThreadsHidden":["threadIds","hidden","window"],"setWireLogging":["enabled","window"],"sideQuestionMode":["parentThreadId","window"],"stageAttachment":["sourcePath","window"],"stageClipboardImage":["filename","mime","bytes","window"],"startReview":["threadId","target","window"],"startThread":["cwd","workspaceId","harness","window"],"startTurn":["threadId","input","options","window"],"threadGoalClear":["threadId","window"],"threadGoalGet":["threadId","window"],"threadGoalSet":["threadId","objective","status","tokenBudget","clearTokenBudget","window"],"threadsWithActiveTurns":["window"],"threadsWithUnansweredQuestions":["window"],"unarchiveThread":["threadId","window"],"updateProfileHome":["id","configDir","binary","label"],"updateRuntimeSettings":["codexHome","codexBinary","claudeBinary","claudeConfigDir","codexHost","claudeHost","window"],"updateSubagentPolicy":["threadId","modelPolicy","reasoningEffortPolicy","window"],"updateThreadSection":["sectionId","name","color","window"],"updateTurnSettings":["threadId","turnId","model","effort","speedTier","window"],"updateWorkspace":["input","window"],"writeConfigSetting":["key","value","unset","window"],"writeMemory":["homeId","path","contents","projects"]} as const;

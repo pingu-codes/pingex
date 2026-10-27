@@ -36,12 +36,12 @@ describe("Claude native mode selector", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Set Claude mode" }));
     await user.click(screen.getByRole("button", { name: /^Plan Explore/ }));
-    expect(component.turnOptions()?.claudeMode).toEqual({ mode: "plan", exitPlanMode: "bypassPermissions" });
+    expect(component.turnOptions()?.mode).toEqual({ mode: "plan", exitPlanMode: "bypassPermissions" });
     expect(loadScopedPrefs("", "claude-plan").claudeMode).toEqual({ mode: "plan", exitPlanMode: "bypassPermissions" });
     await user.click(screen.getByRole("button", { name: "Implement with Bypass permissions" }));
     expect(onSend).toHaveBeenCalledWith(
       textInput("Implement the plan."),
-      expect.objectContaining({ claudeMode: { mode: "bypassPermissions", exitPlanMode: "bypassPermissions" } }),
+      expect.objectContaining({ mode: { mode: "bypassPermissions", exitPlanMode: "bypassPermissions" } }),
     );
     expect(screen.getByRole("button", { name: "Set Claude mode" })).toHaveTextContent("Bypass permissions");
     component.syncPermissionMode("auto");

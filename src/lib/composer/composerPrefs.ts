@@ -1,11 +1,5 @@
-import { claudeModeFromPrefs, isClaudeMode, selectClaudeMode } from "$lib/composer/claudeModes";
-import type {
-  ClaudeExecutionMode,
-  ClaudeModeSettings,
-  ClaudePermissionMode,
-  SubagentPolicy,
-  TurnOptions,
-} from "$lib/types";
+import { isKnownMode, isPlanMode, modeFromPrefs, selectMode } from "$lib/composer/harnessModes";
+import type { HarnessKind, HarnessMode, SubagentPolicy, TurnOptions } from "$lib/types";
 import { can } from "$lib/utils/capabilities";
 
 /**
@@ -20,7 +14,7 @@ export interface SubagentPrefs {
   subagentReasoningEffortPolicy: SubagentPolicy | null;
 }
 
-export type HarnessChoice = "codex" | "claude";
+export type HarnessChoice = HarnessKind;
 
 /** Composer model/effort/permission choices, persisted in localStorage. */
 export interface ComposerPrefs extends SubagentPrefs {
@@ -33,7 +27,9 @@ export interface ComposerPrefs extends SubagentPrefs {
   effort: string | null;
   permissionPreset: string | null;
   planMode: boolean;
-  claudeMode: ClaudeModeSettings | null;
+  /** The mode of a harness with its own modes (`HARNESS_MODES`). One slot
+   *  for all of them; the key predates the others. */
+  claudeMode: HarnessMode | null;
 }
 
 export interface PermissionPreset {
@@ -45,7 +41,7 @@ export interface PermissionPreset {
 }
 
 /** Codex's permission levels. A harness with native permission modes picks
- *  from `CLAUDE_MODES` instead, so these only ever apply where it can't. */
+ *  from `HARNESS_MODES` instead, so these only ever apply where it can't. */
 export const PERMISSION_PRESETS: PermissionPreset[] = [
   {
     id: "read-only",
@@ -72,7 +68,7 @@ export const PERMISSION_PRESETS: PermissionPreset[] = [
 
 /** Saved preset ids that no longer name a preset, mapped to the one with the
  *  same approval and sandbox. Claude's old Auto preset is now its native
- *  `auto` mode (see `claudeModeFromPrefs`); elsewhere it reads as Auto. */
+ *  `auto` mode (see `modeFromPrefs`); elsewhere it reads as Auto. */
 const LEGACY_PRESET: Record<string, string> = { "auto-review": "auto" };
 
 /** The preset a saved `id` names, so an old choice never leaves the picker unset. */
@@ -104,7 +100,7 @@ interface PrefsStore {
   subagentDefaults: SubagentPrefs | null;
   projects: Record<string, ComposerPrefs>;
   threads: Record<string, ComposerPrefs>;
-  threadModes: Record<string, { mode: ClaudePermissionMode; exitPlanMode?: ClaudeExecutionMode }>;
+  threadModes: Record<string, { mode: string; exitPlanMode?: string }>;
 }
 
 const defaults = (): ComposerPrefs => ({
@@ -176,7 +172,7 @@ function readStore(): PrefsStore {
         threads: coerceScope(parsed.threads),
         threadModes: Object.fromEntries(
           Object.entries(parsed.threadModes ?? {}).filter(
-            ([, value]) => value && typeof value === "object" && "mode" in value && isClaudeMode(value.mode),
+            ([, value]) => value && typeof value === "object" && "mode" in value && isKnownMode(value.mode),
           ),
         ) as PrefsStore["threadModes"],
       };
@@ -223,8 +219,8 @@ export function loadScopedPrefs(project: string, threadId: string | null): Compo
   if (!own && store.subagentDefaults) Object.assign(prefs, store.subagentDefaults);
   const mode = threadId ? store.threadModes[threadId] : null;
   if (mode) {
-    selectClaudeMode(prefs, mode.mode);
-    if (mode.mode === "plan" && mode.exitPlanMode && prefs.claudeMode)
+    selectMode(prefs, mode.mode);
+    if (isPlanMode(mode.mode) && mode.exitPlanMode && prefs.claudeMode)
       prefs.claudeMode.exitPlanMode = mode.exitPlanMode;
   }
   return prefs;
@@ -244,8 +240,8 @@ export function saveScopedPrefs(project: string, threadId: string | null, prefs:
 }
 
 /** Persist events even when this conversation's composer is not mounted. */
-export function saveThreadClaudeMode(threadId: string, mode: string): void {
-  if (!isClaudeMode(mode)) return;
+export function saveThreadMode(threadId: string, mode: string): void {
+  if (!isKnownMode(mode)) return;
   const store = readStore();
   // A mode event must not turn inherited project/model settings into empty
   // thread overrides. Apply it after inheritance when the composer loads.
@@ -253,7 +249,7 @@ export function saveThreadClaudeMode(threadId: string, mode: string): void {
   delete store.threadModes[threadId];
   store.threadModes[threadId] = {
     mode,
-    ...(mode === "plan" ? (previousExitMode ? { exitPlanMode: previousExitMode } : {}) : { exitPlanMode: mode }),
+    ...(isPlanMode(mode) ? (previousExitMode ? { exitPlanMode: previousExitMode } : {}) : { exitPlanMode: mode }),
   };
   for (const stale of Object.keys(store.threadModes).slice(0, -MAX_THREADS)) delete store.threadModes[stale];
   writeStore(store);
@@ -323,8 +319,8 @@ export function turnOptionsFrom(
   if (prefs.model) options.model = prefs.model;
   if (prefs.effort) options.effort = prefs.effort;
   if (can(harness, "permissionModes")) {
-    const mode = claudeModeFromPrefs(prefs);
-    if (mode) options.claudeMode = mode;
+    const mode = modeFromPrefs(prefs, harness);
+    if (mode) options.mode = mode;
   } else if (preset) {
     options.approvalPolicy = preset.approvalPolicy;
     options.sandboxMode = preset.sandboxMode;

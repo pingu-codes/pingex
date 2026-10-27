@@ -41,6 +41,38 @@ impl ClaudeExecutionMode {
     }
 }
 
+/// Claude's permission modes as the composer lists them.
+pub(crate) fn mode_infos() -> Vec<crate::harness::ModeInfo> {
+    let mode = |id, label, description, plan| crate::harness::ModeInfo {
+        id,
+        label,
+        description,
+        plan,
+    };
+    vec![
+        mode(
+            "default",
+            "Default",
+            "Ask for approval when an action needs permission",
+            false,
+        ),
+        mode(
+            "acceptEdits",
+            "Accept edits",
+            "Allow file edits; other actions can still require approval",
+            false,
+        ),
+        mode("auto", "Auto", "Claude’s classifier reviews actions", false),
+        mode("plan", "Plan", "Explore and plan before implementing", true),
+        mode(
+            "bypassPermissions",
+            "Bypass permissions",
+            "Skip permission prompts",
+            false,
+        ),
+    ]
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ClaudePermissionMode {

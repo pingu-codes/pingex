@@ -8,6 +8,7 @@ use super::tools;
 use crate::harness::{HarnessRequest, PermissionOption};
 use crate::util::host::Host;
 use crate::util::json::{arr_or_empty, str_at, Json};
+use crate::util::stdio::strip_ansi;
 
 pub(crate) const ALLOW: &str = "allow";
 pub(crate) const ALLOW_ALWAYS: &str = "allow_always";
@@ -24,26 +25,6 @@ fn normalise(option_id: &str) -> &str {
         "decline" => REJECT,
         other => other,
     }
-}
-
-fn strip_ansi(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '\u{1b}' {
-            if chars.peek() == Some(&'[') {
-                chars.next();
-                for next in chars.by_ref() {
-                    if next.is_ascii_alphabetic() {
-                        break;
-                    }
-                }
-            }
-            continue;
-        }
-        out.push(ch);
-    }
-    out
 }
 
 fn describe_suggestion(suggestions: &[Value]) -> String {

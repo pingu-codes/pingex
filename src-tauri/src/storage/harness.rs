@@ -17,6 +17,10 @@ pub(crate) struct HarnessThread {
     pub(crate) archived: bool,
     pub(crate) permission_mode: Option<String>,
     pub(crate) plan_exit_mode: Option<String>,
+    /// The harness's own id for the session, where the harness picks it
+    /// (ACP's `session/new`). `None` when the thread id is the session id,
+    /// as for Claude, or before the first turn.
+    pub(crate) native_session_id: Option<String>,
 }
 
 fn from_row(row: &turso::Row) -> Result<HarnessThread, String> {
@@ -30,11 +34,12 @@ fn from_row(row: &turso::Row) -> Result<HarnessThread, String> {
         archived: db::int(row, 6)? != 0,
         permission_mode: db::opt_text(row, 7)?,
         plan_exit_mode: db::opt_text(row, 8)?,
+        native_session_id: db::opt_text(row, 9)?,
     })
 }
 
-const COLUMNS: &str =
-    "thread_id, harness, cwd, title, created_at, updated_at, archived, permission_mode, plan_exit_mode";
+const COLUMNS: &str = "thread_id, harness, cwd, title, created_at, updated_at, archived, \
+     permission_mode, plan_exit_mode, native_session_id";
 
 pub(crate) async fn set_harness_permission_mode(
     database: &Database,
@@ -46,6 +51,19 @@ pub(crate) async fn set_harness_permission_mode(
         &db::conn(database)?,
         "UPDATE harness_threads SET permission_mode = ?, plan_exit_mode = COALESCE(?, plan_exit_mode) WHERE thread_id = ?",
         params![mode, exit_mode, thread],
+    )
+    .await
+}
+
+pub(crate) async fn set_native_session_id(
+    database: &Database,
+    thread: &str,
+    session_id: &str,
+) -> Result<(), String> {
+    db::exec(
+        &db::conn(database)?,
+        "UPDATE harness_threads SET native_session_id = ? WHERE thread_id = ?",
+        params![session_id, thread],
     )
     .await
 }

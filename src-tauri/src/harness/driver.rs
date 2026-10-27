@@ -5,11 +5,14 @@
 
 use async_trait::async_trait;
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 use tauri::AppHandle;
 
 use super::HarnessKind;
+use crate::acp::driver::AcpDriver;
+use crate::acp::spec::AcpRuntime;
 use crate::claude::driver::{ClaudeDriver, ClaudeRuntime};
 use crate::codex::requests::TurnOptions;
 use crate::codex::wire::WireLog;
@@ -119,17 +122,46 @@ pub(crate) trait Driver: Send + Sync {
 /// Where each driver of a context finds its binary and config.
 pub(crate) struct DriverRuntimes {
     pub(crate) claude: ClaudeRuntime,
+    /// Per ACP harness. One left out runs its default binary on the Claude
+    /// runtime's host.
+    pub(crate) acp: BTreeMap<HarnessKind, AcpRuntime>,
+}
+
+impl DriverRuntimes {
+    pub(crate) fn with_claude(claude: ClaudeRuntime) -> Self {
+        Self {
+            claude,
+            acp: BTreeMap::new(),
+        }
+    }
 }
 
 /// The non-Codex drivers of one context. Every context carries all of them;
 /// none spawns anything until a thread of its kind runs a turn.
 pub(crate) struct Drivers {
     claude: Arc<ClaudeDriver>,
+    acp: Vec<Arc<AcpDriver>>,
 }
 
 impl Drivers {
-    pub(crate) fn new(home_key: &str, runtimes: DriverRuntimes, wire: Arc<WireLog>) -> Self {
+    pub(crate) fn new(home_key: &str, mut runtimes: DriverRuntimes, wire: Arc<WireLog>) -> Self {
         let ids = RequestIds::default();
+        let acp = HarnessKind::ALL
+            .into_iter()
+            .filter_map(|kind| {
+                let spec = kind.acp_spec()?;
+                let runtime = runtimes.acp.remove(&kind).unwrap_or_else(|| {
+                    AcpRuntime::resolve(spec, None, runtimes.claude.host.clone())
+                });
+                Some(Arc::new(AcpDriver::new(
+                    spec,
+                    home_key.to_string(),
+                    runtime,
+                    wire.clone(),
+                    ids.clone(),
+                )))
+            })
+            .collect();
         Self {
             claude: Arc::new(ClaudeDriver::new(
                 home_key.to_string(),
@@ -137,6 +169,7 @@ impl Drivers {
                 wire,
                 ids,
             )),
+            acp,
         }
     }
 
@@ -147,7 +180,13 @@ impl Drivers {
     }
 
     pub(crate) fn all(&self) -> Vec<Arc<dyn Driver>> {
-        vec![self.claude.clone()]
+        let mut all: Vec<Arc<dyn Driver>> = vec![self.claude.clone()];
+        all.extend(
+            self.acp
+                .iter()
+                .map(|driver| driver.clone() as Arc<dyn Driver>),
+        );
+        all
     }
 
     /// The driver for `kind`; `None` for Codex, which is not behind this seam.

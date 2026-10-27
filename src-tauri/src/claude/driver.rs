@@ -20,7 +20,8 @@ use crate::codex::wire::WireLog;
 use crate::harness::driver::{Driver, RequestAnswer, RequestIds};
 use crate::harness::project::Projector;
 use crate::harness::{
-    HarnessEvent, HarnessEventEnvelope, HarnessKind, HarnessRequest, HarnessRequestEnvelope,
+    version_below, HarnessEvent, HarnessEventEnvelope, HarnessKind, HarnessRequest,
+    HarnessRequestEnvelope, HarnessStatus,
 };
 use crate::util::host::Host;
 use crate::util::json::str_at;
@@ -53,9 +54,9 @@ struct Settings {
 }
 
 impl Settings {
-    fn from_options(options: Option<&TurnOptions>) -> Self {
+    fn from_options(options: Option<&TurnOptions>) -> Result<Self, String> {
         let Some(options) = options else {
-            return Self::default();
+            return Ok(Self::default());
         };
         let plan = options
             .collaboration_mode
@@ -74,7 +75,14 @@ impl Settings {
             (_, Some("workspace-write")) => ClaudeExecutionMode::AcceptEdits,
             _ => ClaudeExecutionMode::Default,
         };
-        let (mode, exit_plan_mode) = match &options.claude_mode {
+        let native = options
+            .mode
+            .as_ref()
+            .map(|native| {
+                ClaudeModeSettings::restore(Some(&native.mode), native.exit_plan_mode.as_deref())
+            })
+            .transpose()?;
+        let (mode, exit_plan_mode) = match &native {
             Some(native) => {
                 let mode = native.mode.as_str();
                 (
@@ -91,12 +99,12 @@ impl Settings {
                 legacy_execution,
             ),
         };
-        Self {
+        Ok(Self {
             model: options.model.clone().filter(|m| !m.is_empty()),
             effort: options.effort.clone().filter(|e| !e.is_empty()),
             mode: Some(mode.to_string()),
             exit_plan_mode: Some(exit_plan_mode),
-        }
+        })
     }
 
     /// The permission mode a fresh process starts in.
@@ -455,23 +463,6 @@ pub(crate) struct ClaudeDriver {
     mode_store: Arc<ModeStore>,
 }
 
-/// What the settings page and the harness picker need to know: whether a
-/// `claude` binary resolves, where, and what it reports as its version.
-#[derive(Debug, Clone, serde::Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ClaudeStatus {
-    pub available: bool,
-    pub path: Option<String>,
-    pub version: Option<String>,
-    pub config_dir: String,
-    /// Whether the CLI is logged in under `config_dir`. `None` when the
-    /// probe could not tell (no binary, or no way to check).
-    pub logged_in: Option<bool>,
-    /// The oldest CLI the driver can drive.
-    pub protocol_floor: String,
-    pub message: Option<String>,
-}
-
 /// [`crate::codex::binary::missing_message_on`], reworded for Claude.
 fn missing_claude_message(host: &Host, binary: &str) -> String {
     crate::codex::binary::missing_message_on(host, binary)
@@ -480,11 +471,11 @@ fn missing_claude_message(host: &Host, binary: &str) -> String {
         .replace("which codex", "which claude")
 }
 
-pub(crate) fn status(runtime: &ClaudeRuntime) -> ClaudeStatus {
+pub(crate) fn status(runtime: &ClaudeRuntime) -> HarnessStatus {
     let host = &runtime.host;
     let config_dir = runtime.config_dir_str();
     let Some(path) = host.resolve_binary(&runtime.binary_str()) else {
-        return ClaudeStatus {
+        return HarnessStatus {
             available: false,
             path: None,
             version: None,
@@ -505,7 +496,7 @@ pub(crate) fn status(runtime: &ClaudeRuntime) -> ClaudeStatus {
     let below_floor = version
         .as_deref()
         .is_some_and(|version| version_below(version, PROTOCOL_FLOOR));
-    ClaudeStatus {
+    HarnessStatus {
         available: !below_floor,
         path: Some(path),
         logged_in,
@@ -548,15 +539,6 @@ fn logged_in(host: &Host, path: &str, config_dir: &str) -> Option<bool> {
     host.to_local(&host.join_str(config_dir, ".credentials.json"))
         .is_file()
         .then_some(true)
-}
-
-fn version_below(version: &str, floor: &str) -> bool {
-    let parse = |text: &str| -> Vec<u64> {
-        text.split('.')
-            .map(|part| part.trim().parse::<u64>().unwrap_or(0))
-            .collect()
-    };
-    parse(version) < parse(floor)
 }
 
 /// The Claude models the composer offers. Claude has no `model/list`; the
@@ -893,7 +875,7 @@ impl ClaudeDriver {
         input: &[Value],
         options: Option<&TurnOptions>,
     ) -> Result<String, String> {
-        let settings = Settings::from_options(options);
+        let settings = Settings::from_options(options)?;
         // Read attachments before spawning or locking anything: a bad image
         // fails the send up front instead of being dropped silently.
         let (text, content) = user_content(input, &self.runtime().host)?;
@@ -1144,11 +1126,15 @@ impl Driver for ClaudeDriver {
         thread: &crate::storage::HarnessThread,
         has_history: bool,
     ) -> Result<String, String> {
+        let saved = ClaudeModeSettings::restore(
+            thread.permission_mode.as_deref(),
+            thread.plan_exit_mode.as_deref(),
+        )?;
         let options = Some(TurnOptions {
-            claude_mode: Some(ClaudeModeSettings::restore(
-                thread.permission_mode.as_deref(),
-                thread.plan_exit_mode.as_deref(),
-            )?),
+            mode: Some(crate::codex::requests::HarnessMode {
+                mode: saved.mode.as_str().to_string(),
+                exit_plan_mode: Some(saved.exit_plan_mode.as_str().to_string()),
+            }),
             ..Default::default()
         });
         ClaudeDriver::start_turn(
@@ -1224,7 +1210,7 @@ const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
 /// into one block, then each image inline. Returns the joined text too, for
 /// the transcript. Images arrive as the composer's `localImage` (a host path
 /// of a staged file) or a protocol `image` with a `file://` url or path.
-fn user_content(input: &[Value], host: &Host) -> Result<(String, Vec<Value>), String> {
+pub(crate) fn user_content(input: &[Value], host: &Host) -> Result<(String, Vec<Value>), String> {
     let text = input
         .iter()
         .filter(|part| str_at(part, "type") == Some("text"))
@@ -1263,7 +1249,7 @@ fn image_block(path: &std::path::Path) -> Result<Value, String> {
         Some("webp") => "image/webp",
         _ => {
             return Err(format!(
-                "{name}: Claude accepts PNG, JPEG, GIF or WebP images"
+                "{name}: only PNG, JPEG, GIF or WebP images can be sent"
             ))
         }
     };
@@ -1315,30 +1301,30 @@ mod tests {
     fn native_modes_override_legacy_presets_and_retain_the_plan_exit_mode() {
         for mode in ClaudeExecutionMode::ALL {
             let options: TurnOptions = serde_json::from_value(json!({
-                "claudeMode": {"mode":"plan", "exitPlanMode":mode.as_str()},
+                "mode": {"mode":"plan", "exitPlanMode":mode.as_str()},
                 "approvalPolicy":"never", "sandboxMode":"danger-full-access"
             }))
             .unwrap();
-            let settings = Settings::from_options(Some(&options));
+            let settings = Settings::from_options(Some(&options)).unwrap();
             assert_eq!(settings.mode.as_deref(), Some("plan"));
             assert_eq!(settings.exit_plan_mode, Some(mode));
             let options: TurnOptions = serde_json::from_value(json!({
-                "claudeMode": {"mode":mode.as_str(), "exitPlanMode":"default"},
+                "mode": {"mode":mode.as_str(), "exitPlanMode":"default"},
                 "collaborationMode": {"mode":"plan"}
             }))
             .unwrap();
-            let settings = Settings::from_options(Some(&options));
+            let settings = Settings::from_options(Some(&options)).unwrap();
             assert_eq!(settings.mode.as_deref(), Some(mode.as_str()));
             assert_eq!(settings.exit_plan_mode, Some(mode));
         }
-        assert!(serde_json::from_value::<TurnOptions>(
-            json!({"claudeMode":{"mode":"unknown", "exitPlanMode":"default"}})
-        )
-        .is_err());
-        assert!(serde_json::from_value::<TurnOptions>(
-            json!({"claudeMode":{"mode":"plan", "exitPlanMode":"plan"}})
-        )
-        .is_err());
+        for refused in [
+            json!({"mode":{"mode":"unknown", "exitPlanMode":"default"}}),
+            json!({"mode":{"mode":"plan", "exitPlanMode":"plan"}}),
+            json!({"mode":{"mode":"build"}}),
+        ] {
+            let options: TurnOptions = serde_json::from_value(refused).unwrap();
+            assert!(Settings::from_options(Some(&options)).is_err());
+        }
     }
 
     #[test]
@@ -1350,18 +1336,21 @@ mod tests {
         };
         assert_eq!(
             Settings::from_options(Some(&options("on-request", "read-only")))
+                .unwrap()
                 .mode
                 .as_deref(),
             Some("default")
         );
         assert_eq!(
             Settings::from_options(Some(&options("on-request", "workspace-write")))
+                .unwrap()
                 .mode
                 .as_deref(),
             Some("acceptEdits")
         );
         assert_eq!(
             Settings::from_options(Some(&options("never", "danger-full-access")))
+                .unwrap()
                 .mode
                 .as_deref(),
             Some("bypassPermissions")
@@ -1371,12 +1360,15 @@ mod tests {
             ..options("on-request", "workspace-write")
         };
         assert_eq!(
-            Settings::from_options(Some(&auto)).mode.as_deref(),
+            Settings::from_options(Some(&auto)).unwrap().mode.as_deref(),
             Some("auto")
         );
         // A mode-less turn keeps whatever the process runs in.
-        assert_eq!(Settings::from_options(None).mode, None);
-        assert_eq!(Settings::from_options(None).mode_or_default(), "default");
+        assert_eq!(Settings::from_options(None).unwrap().mode, None);
+        assert_eq!(
+            Settings::from_options(None).unwrap().mode_or_default(),
+            "default"
+        );
     }
 
     #[test]
@@ -1436,7 +1428,10 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            Settings::from_options(Some(&options)).mode.as_deref(),
+            Settings::from_options(Some(&options))
+                .unwrap()
+                .mode
+                .as_deref(),
             Some("plan")
         );
     }

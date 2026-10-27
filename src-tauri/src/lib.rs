@@ -26,6 +26,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use tauri::Manager;
 
+mod acp;
 mod claude;
 mod codex;
 mod composer;
@@ -57,6 +58,10 @@ use util::host::Host;
 /// a real `codex` binary: the exact request payloads the app sends and the
 /// parsers it reads responses with. Not an API for anything else.
 pub mod e2e {
+    pub use crate::acp::maki::args as maki_args;
+    pub use crate::acp::permissions::{cancelled as acp_cancelled, selected as acp_selected};
+    pub use crate::acp::session as acp;
+    pub use crate::acp::spec::SpawnSettings as AcpSpawnSettings;
     pub use crate::claude::child::BASE_ARGS as CLAUDE_BASE_ARGS;
     pub use crate::claude::driver::turn_args as claude_turn_args;
     pub use crate::claude::permissions::permission_result as claude_permission_result;
@@ -147,11 +152,10 @@ pub(crate) struct HomeContext {
 impl HomeContext {
     fn new(runtime: RuntimeConfig, database: turso::Database) -> Arc<Self> {
         let home_key = home_key_for(&runtime.host, &runtime.codex_home_str());
-        let runtimes = harness::driver::DriverRuntimes {
-            claude: claude::driver::ClaudeRuntime::resolve(&settings::prefs::read_overrides(
-                &settings::prefs::settings_path(),
-            )),
-        };
+        let runtimes =
+            harness::driver::DriverRuntimes::with_claude(claude::driver::ClaudeRuntime::resolve(
+                &settings::prefs::read_overrides(&settings::prefs::settings_path()),
+            ));
         Self::in_profile(
             runtime,
             database,
@@ -535,7 +539,11 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         // unified mode cannot express `skip_serializing_if`, so we do not use it.
         .disable_serde_phases()
         .typ::<harness::Capability>()
+        .typ::<claude::modes::ClaudeModeSettings>()
         .constant("HARNESS_CAPABILITIES", harness::declared_capabilities())
+        .constant("HARNESS_KINDS", harness::HarnessKind::ALL)
+        .constant("HARNESS_INFO", harness::harness_info())
+        .constant("HARNESS_MODES", harness::harness_modes())
         .commands(tauri_specta::collect_commands![
             // Projects and the bootstrap payload
             profiles::bootstrap_profile,
@@ -544,7 +552,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             profiles::set_profile_default_home,
             profiles::update_profile_home,
             profiles::remove_profile_home,
-            profiles::read_home_claude_status,
+            profiles::read_home_status,
             profiles::prepare_profile_workspace,
             projects::commands::bootstrap,
             projects::commands::add_project,
@@ -960,9 +968,7 @@ mod tests {
             root.database(),
             "member".into(),
             root.profile_key.clone(),
-            harness::driver::DriverRuntimes {
-                claude: root.drivers.claude().runtime(),
-            },
+            harness::driver::DriverRuntimes::with_claude(root.drivers.claude().runtime()),
             Some(harness::HarnessKind::Codex),
         );
         state.insert_context(member.clone());
@@ -997,9 +1003,7 @@ mod tests {
                 root.database(),
                 key.into(),
                 root.profile_key.clone(),
-                harness::driver::DriverRuntimes {
-                    claude: root.drivers.claude().runtime(),
-                },
+                harness::driver::DriverRuntimes::with_claude(root.drivers.claude().runtime()),
                 Some(harness::HarnessKind::Claude),
             )
         };
