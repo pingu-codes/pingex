@@ -14,7 +14,7 @@ _Avoid_: backend, provider, agent (the thing inside the harness), engine
 
 **Home**:
 One harness's config directory: `CODEX_HOME` for Codex, `CLAUDE_CONFIG_DIR`
-or `~/.claude` for Claude Code, on one Host. A conversation keeps its Home;
+or `~/.claude` for Claude Code, maki's fixed `~/.config/maki`, on one Host. A conversation keeps its Home;
 changing the default affects new conversations.
 _Avoid_: account, workspace (already the multi-project hub), config dir (fine in code, not in prose)
 
@@ -31,9 +31,23 @@ _Avoid_: machine, remote, target, platform (the OS Pingex is built for), environ
 
 **Driver**:
 The Rust implementation of the harness interface (`Driver` trait) for one
-harness: `CodexDriver`, `ClaudeDriver`, later `AcpDriver`. Owns the child
-processes and translates the wire into `HarnessEvent`s.
+harness: `ClaudeDriver`, and one `AcpDriver` per ACP harness. Codex still runs
+through `CodexSession`, outside the trait. Owns the child processes and
+translates the wire into `HarnessEvent`s.
 _Avoid_: adapter (that is what the ACP projects call theirs), session, client
+
+**ACP spec**:
+What one ACP harness needs beyond the protocol (`AcpSpec`): how to launch it,
+how to check its login, its models and modes, and the habits of its wire the
+translator must know. maki is the first. A new ACP harness is a `HarnessKind`
+and an ACP spec.
+_Avoid_: agent spec, profile, adapter
+
+**Native session id**:
+A harness's own id for a conversation when the harness picks it (ACP's
+`session/new`), stored beside the Pingex thread id. Claude's session id is the
+thread id, so it has none.
+_Avoid_: external id, remote id
 
 **Capability**:
 Something a Driver can do beyond the required core (chat, streaming, tool

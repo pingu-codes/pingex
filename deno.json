@@ -22,6 +22,7 @@
     "rust:test:lib": "cd src-tauri && cargo test --lib",
     "test:e2e:codex": "cd src-tauri && PINGEX_LIVE_E2E=1 RUST_TEST_THREADS=2 cargo test --test live_codex",
     "test:e2e:claude": "cd src-tauri && PINGEX_LIVE_E2E=1 cargo test --test live_claude",
+    "test:e2e:maki": "cd src-tauri && PINGEX_LIVE_E2E=1 cargo test --test live_maki",
     "test:e2e:wsl": "cd src-tauri && cargo test --test live_wsl -- --test-threads=1 --nocapture",
     "rust:lint": "cd src-tauri && cargo clippy --all-targets",
     "rust:preflight": "cd src-tauri && cargo fmt --check && cargo clippy --all-targets -q && cargo test --lib -q",

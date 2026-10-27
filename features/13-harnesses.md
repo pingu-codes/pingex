@@ -487,6 +487,50 @@ whichever channel has text; turn-level cancellation marks unfinished calls;
 Claude text-block item ids are synthesised as `<turn>-m<n>-b<index>` and the
 journal accepts driver-made ids.
 
+## The ACP driver
+
+`src-tauri/src/acp/` drives any agent that speaks ACP over stdio and has no
+native driver. maki (`maki acp`) is the first. Everything that differs per
+agent lives in an `AcpSpec` (`acp/spec.rs`): the launch arguments, the login
+and model probes, the modes the composer offers, the version floor, and a few
+wire habits (notices sent as tool calls, writes that carry no diff). A new ACP
+harness is a `HarnessKind` variant and one `AcpSpec`; it needs no protocol
+code.
+
+- **Processes.** One agent process per active thread. maki's `session/new`
+  closes whatever session the process held, so threads cannot share one.
+  `initialize` offers no file system and no terminals, so the agent runs its
+  own tools.
+- **Sessions.** The agent picks the session id. The thread row keeps it in
+  `harness_threads.native_session_id`, and a later process reopens it with
+  `session/load`.
+- **Replay.** `session/load` replays the whole conversation as
+  `session/update` notifications before it answers. The journal already holds
+  that history, so the translator (`acp/translate.rs`) drops content whenever
+  no prompt is in flight.
+- **Tool calls.** maki opens a call as `pending` with only the tool's name,
+  and sends the input with `in_progress`; the translator announces the card
+  then. Output arrives whole each time, so a longer copy becomes an output
+  delta and anything else replaces what the card shows. Edits are held back
+  until a diff exists, built from the input when the agent sends none.
+- **Approvals.** `session/request_permission` becomes the usual permission
+  card with the agent's own option ids. Interrupt answers every open request
+  `cancelled`, sends `session/cancel`, and kills the process if the prompt has
+  not answered within 10 s.
+- **Modes and models.** The composer's modes come from the spec
+  (`HARNESS_MODES`). maki's Build and Plan switch with `session/set_mode`;
+  Build without prompts needs a process started with `--yolo`, so moving in
+  or out of it restarts the idle process and reloads the session. Models
+  switch with `session/set_config_option`, falling back to `-m` on a fresh
+  process.
+- **Usage.** `usage_update` reports context used and size, plus a running
+  cost per process. A turn's cost is the difference since the turn started.
+  There is no token split.
+- **Not built.** `elicitation/create` (maki's question tool is dropped when
+  the client does not offer forms), `session/list` import of sessions started
+  in the TUI, and per-Home config directories: maki has no override short of
+  the XDG variables, which the tools it runs would inherit.
+
 ## Implementation status
 
 Branch `feat/claude-harness`, first slice, verified against Claude Code
@@ -535,11 +579,30 @@ Deliberate differences from the sections above, to land a working slice:
 - `MultiEdit` diffs, `AskUserQuestion` and `ExitPlanMode` are mapped and unit
   tested but not yet exercised live.
 
+Branch `feat/maki-harness`, 2026-10-27, verified against maki 0.6.5:
+
+- Non-Codex drivers sit behind `harness::driver::Driver`, held in a
+  `Drivers` registry on `HomeContext`. The trait is narrower than the sketch
+  above: turns, interrupt, answers, models, process bookkeeping, and
+  defaulted compact, rename, context usage and session deletion. Codex stays
+  on `HomeContext.session`, not behind the trait.
+- Commands find a thread's driver from its recorded kind
+  (`HomeContext::harness_thread`). Codex-only verbs (review, goals, undo,
+  live turn settings, fork) refuse harness threads instead of reaching the
+  app-server.
+- `Capability` gained `compact`, `fork`, `review` and `sideQuestions`; the
+  frontend hides the matching slash commands and menu items.
+- `HARNESS_INFO`, `HARNESS_KINDS` and `HARNESS_MODES` replace the frontend's
+  hard-coded harness names and Claude's mode list. The turn option is
+  `mode`, checked by each driver against its own list.
+- maki is optional: a Home is added by hand in Settings, and only Codex and
+  Claude Homes are created for every Host.
+- Tests: translator tests over streams recorded from maki 0.6.5
+  (`tests/fixtures/protocol/maki/`), and `deno task test:e2e:maki`.
+
 ## Not yet specified
 
-- The generic ACP driver: process model, capability negotiation, which agents
-  to validate against. The interface above must not rule it out; nothing here
-  builds it.
+- Which further ACP agents to validate against, beyond maki.
 - Import UX for external Claude sessions beyond the Settings action.
 - Codex `thread/read` projection defects under the neutral item model.
 - Handoff commands and deep links per harness (`codex resume` vs
@@ -551,7 +614,7 @@ Deliberate differences from the sections above, to land a working slice:
 ## Out of scope
 
 Driving Codex through ACP. Native drivers for harnesses other than Codex and
-Claude Code. Voice, browser and computer use, scheduled tasks. Claude Code
+Claude Code: every other harness goes through the ACP driver. Voice, browser and computer use, scheduled tasks. Claude Code
 remote control and teleport.
 
 ## Acceptance checks

@@ -19,11 +19,18 @@ stable* gets a warning banner on connect, and so does anything newer than
 | Harness | Tested version | Protocol floor | Where the floor is enforced |
 |---|---|---|---|
 | Claude Code (`claude`) | `2.1.251` | `1.0.59` (`--permission-prompt-tool stdio`) | `src-tauri/src/claude/driver.rs` `status()`; the harness picker is disabled below it |
+| maki (`maki acp`) | `0.6.5` | `0.6.5` (oldest release tested) | `src-tauri/src/acp/maki.rs` `version_floor()`, checked by `acp::spec::status()` |
 
 Claude Code has no tiers: the driver supports whatever is installed, probes
 `system/init.capabilities[]`, and refuses to start only below the floor. The
 recorded streams under `tests/fixtures/protocol/claude/` are from the tested
 version. `deno task versions:check` does not cover Claude yet.
+
+maki is driven through the generic ACP driver (`src-tauri/src/acp/`). It
+releases about twice a week, so the floor is the release the live suite last
+passed on (`deno task test:e2e:maki`), not a protocol boundary; raise both
+together. Its recorded streams are under `tests/fixtures/protocol/maki/`, and
+`versions:check` does not cover it.
 
 ## What "support" means
 

@@ -1,6 +1,7 @@
 This is a custom desktop frontend for agent CLIs. Codex is the first harness;
-Claude Code is specified in `features/13-harnesses.md` and
-`docs/adr/0002-harness-interface.md`. Vocabulary is in `CONTEXT.md`.
+Claude Code and maki (through the generic ACP driver) are specified in
+`features/13-harnesses.md` and `docs/adr/0002-harness-interface.md`.
+Vocabulary is in `CONTEXT.md`.
 
 A mirror codex source code can be found at `../codex-mirror`
 
@@ -33,14 +34,17 @@ that crosses the IPC boundary as raw JSON uses `crate::util::json::Json`.
 
 ## Harness drivers
 
-Each harness is a `Driver` (`src-tauri/src/harness/`). Drivers translate their
-wire protocol into `HarnessEvent`s and never leak protocol vocabulary past
-their module: the frontend reducer, the journal and the item types are
-harness-neutral. Anything one harness can do that another cannot is a
-`Capability`, declared by the driver or probed once; the frontend hides what
-is absent and never checks the harness kind. Codex-only verbs go through
-`Driver::extension`. When adding a driver, add a golden fixture case under
-`tests/fixtures/protocol/<harness>/` and a live suite under
+Each non-Codex harness is a `Driver` (`src-tauri/src/harness/driver.rs`);
+commands reach a thread's driver through `ctx.harness_thread(id)`, and Codex
+stays on `ctx.session`. Drivers translate their wire protocol into
+`HarnessEvent`s and never leak protocol vocabulary past their module: the
+frontend reducer, the journal and the item types are harness-neutral.
+Anything one harness can do that another cannot is a `Capability`, declared
+by the driver or probed once; the frontend reads `can()`, `HARNESS_INFO` and
+`HARNESS_MODES` and never checks the harness kind. A harness that speaks ACP
+is a `HarnessKind` variant plus an `AcpSpec` (`src-tauri/src/acp/maki.rs` is
+the model), with no new protocol code. When adding a harness, add a golden
+fixture case under `tests/fixtures/protocol/<harness>/` and a live suite under
 `src-tauri/tests/live_<harness>/`.
 
 ## Hosts
