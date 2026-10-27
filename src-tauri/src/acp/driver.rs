@@ -521,21 +521,13 @@ impl AcpDriver {
         let session_id = process.state.session_id().unwrap_or_default();
         let current_model = process.state.model.lock().ok().and_then(|m| m.clone());
         if let Some(model) = model.filter(|model| Some(model) != current_model.as_ref()) {
-            let switched = if model == DEFAULT_MODEL {
-                Err(RpcError {
-                    code: 0,
-                    message: "the default model needs a new process".into(),
-                    data: None,
-                })
-            } else {
-                process
-                    .connection
-                    .request(
-                        "session/set_config_option",
-                        acp::set_model(&session_id, &model),
-                    )
-                    .await
-            };
+            let switched = process
+                .connection
+                .request(
+                    "session/set_config_option",
+                    acp::set_model(&session_id, &model),
+                )
+                .await;
             match switched {
                 Ok(_) => {
                     if let Ok(mut slot) = process.state.model.lock() {
@@ -645,9 +637,11 @@ impl Driver for AcpDriver {
     ) -> Result<String, String> {
         let label = self.spec.kind().label();
         let mode = self.mode_for(thread, options)?;
+        // The default entry means "no preference": keep whatever the process
+        // runs rather than restarting it to let the agent choose again.
         let model = options
             .and_then(|options| options.model.clone())
-            .filter(|model| !model.is_empty());
+            .filter(|model| !model.is_empty() && model != DEFAULT_MODEL);
         let process = self
             .ensure_process(app, thread, has_history, mode, model.clone())
             .await?;
