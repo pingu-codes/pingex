@@ -50,7 +50,8 @@ pub(crate) async fn remove_side_question(
     let ctx = state.ctx(&window);
     storage::delete_side_question(&ctx.database(), &side_thread_id).await?;
     for exchange in native::read(&ctx.database(), &side_thread_id).await? {
-        ctx.claude
+        ctx.drivers
+            .claude()
             .side_questions
             .cancel(&side_thread_id, &exchange.id);
     }
@@ -154,7 +155,7 @@ pub(crate) async fn answer_native_side_question(
     native::require_owner(&database, &parent_thread_id, &side_thread_id).await?;
     let Some(operation) = begin_answer(
         &database,
-        &ctx.claude.side_questions,
+        &ctx.drivers.claude().side_questions,
         &side_thread_id,
         &request_id,
     )
@@ -171,13 +172,14 @@ pub(crate) async fn answer_native_side_question(
         return Ok(exchanges);
     }
     let result = async {
-        ctx.claude.flush_modes().await;
+        ctx.drivers.claude().flush_modes().await;
         let thread = parent(&ctx, &parent_thread_id).await?;
         let resume = !storage::read_thread_items(&database, &parent_thread_id)
             .await?
             .is_empty();
         let settings = storage::read_turn_settings(&database, &parent_thread_id).await?;
-        ctx.claude
+        ctx.drivers
+            .claude()
             .ask_side_question(
                 &app,
                 &parent_thread_id,
@@ -273,7 +275,8 @@ pub(crate) async fn cancel_native_side_question(
         None,
     )
     .await?;
-    ctx.claude
+    ctx.drivers
+        .claude()
         .side_questions
         .cancel(&side_thread_id, &request_id);
     native::read(&ctx.database(), &side_thread_id).await

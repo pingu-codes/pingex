@@ -5,6 +5,8 @@ use tauri::{AppHandle, State};
 
 use crate::codex::compat::Feature;
 use crate::codex::requests::{self, Request};
+use crate::harness::driver::{unsupported, Driver, RequestAnswer};
+use crate::harness::HarnessKind;
 use crate::util::json::str_at;
 use crate::util::json::Json;
 use crate::workspaces::WorkspaceRuntime;
@@ -119,18 +121,17 @@ pub(crate) async fn start_thread(
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
+    let requested = match harness.as_deref() {
+        None => HarnessKind::Codex,
+        Some(text) => HarnessKind::parse(text).ok_or_else(|| format!("Unknown harness: {text}"))?,
+    };
     if let Some(kind) = ctx.harness_kind {
-        let requested = if harness.as_deref() == Some("claude") {
-            crate::harness::HarnessKind::Claude
-        } else {
-            crate::harness::HarnessKind::Codex
-        };
         if requested != kind {
             return Err("Choose a Home for the selected harness".into());
         }
     }
-    if harness.as_deref() == Some("claude") {
-        return start_claude_thread(&ctx, cwd, workspace_id).await;
+    if requested != HarnessKind::Codex {
+        return start_harness_thread(&ctx, requested, cwd, workspace_id).await;
     }
     let inputs = fetch_start_inputs(&ctx, cwd, workspace_id).await?;
     let request = build_start_request(&inputs);
@@ -151,10 +152,11 @@ pub(crate) async fn start_thread(
     )))
 }
 
-/// A Claude thread is a row and an id; the process is spawned by its first
+/// A harness thread is a row and an id; the process is spawned by its first
 /// turn, which is what carries the model and mode to start it with.
-async fn start_claude_thread(
+async fn start_harness_thread(
     ctx: &HomeContext,
+    kind: HarnessKind,
     cwd: Option<String>,
     workspace_id: Option<String>,
 ) -> Result<Json, String> {
@@ -167,7 +169,7 @@ async fn start_claude_thread(
     storage::record_harness_thread(
         &ctx.database(),
         &id,
-        "claude",
+        kind.as_str(),
         &cwd,
         "Untitled thread",
         crate::util::time::unix_secs(),
@@ -177,16 +179,17 @@ async fn start_claude_thread(
         storage::assign_thread_workspace(&ctx.database(), &id, &workspace.workspace_id).await?;
     }
     Ok(Json(
-        serde_json::json!({"id": id, "cwd": cwd, "harness": "claude"}),
+        serde_json::json!({"id": id, "cwd": cwd, "harness": kind.as_str()}),
     ))
 }
 
-/// The driver checks Claude's transcript before spawning. Journal history
+/// The driver checks its native transcript before spawning. Journal history
 /// prevents silently replacing a conversation whose native session is missing.
-async fn start_claude_turn(
+async fn start_harness_turn(
     ctx: &HomeContext,
     app: &AppHandle,
     thread: &storage::HarnessThread,
+    driver: &dyn Driver,
     input: Vec<Json>,
     options: Option<TurnOptions>,
 ) -> Result<Json, String> {
@@ -202,19 +205,10 @@ async fn start_claude_turn(
         })
         .unwrap_or_default();
     let parts: Vec<serde_json::Value> = input.into_iter().map(|item| item.0).collect();
-    let turn_id = ctx
-        .claude
-        .start_turn(
-            app,
-            thread_id,
-            &thread.cwd,
-            resume,
-            &parts,
-            options.as_ref(),
-        )
+    let turn_id = driver
+        .start_turn(app, thread, resume, &parts, options.as_ref())
         .await?;
     let (model, effort) = &resolved;
-    ctx.claude.flush_modes().await;
     storage::record_turn_settings(
         &ctx.database(),
         thread_id,
@@ -241,8 +235,8 @@ pub(crate) async fn start_turn(
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
-    if let Some(thread) = storage::thread_harness(&ctx.database(), &thread_id).await? {
-        return start_claude_turn(&ctx, &app, &thread, input, options).await;
+    if let Some((thread, driver)) = ctx.harness_thread(&thread_id).await? {
+        return start_harness_turn(&ctx, &app, &thread, driver.as_ref(), input, options).await;
     }
     ctx.session.ensure_resumed(&app, &thread_id).await?;
     storage::invalidate_thread_detail(&ctx.database(), &thread_id).await?;
@@ -325,11 +319,8 @@ pub(crate) async fn interrupt_turn(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
-    if storage::thread_harness(&ctx.database(), &thread_id)
-        .await?
-        .is_some()
-    {
-        return ctx.claude.interrupt(&thread_id).await;
+    if let Some((thread, driver)) = ctx.harness_thread(&thread_id).await? {
+        return driver.interrupt(&thread.thread_id).await;
     }
     let mut turn_id = turn_id;
     // One retry, and only for a turn-id mismatch: Codex has told us which turn
@@ -376,6 +367,9 @@ pub(crate) async fn update_turn_settings(
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
+    if let Some((_, driver)) = ctx.harness_thread(&thread_id).await? {
+        return Err(unsupported(driver.kind(), "changing a running turn"));
+    }
     if let Some(tier) = speed_tier {
         let request = requests::turn_speed_update(
             &thread_id,
@@ -412,10 +406,10 @@ pub(crate) async fn respond_approval(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
-    if ctx.claude.owns_request(request_id) {
-        ctx.claude.respond_option(request_id, &decision)?;
-        ctx.claude.flush_modes().await;
-        return Ok(());
+    if let Some(driver) = ctx.drivers.owner_of(request_id) {
+        return driver
+            .respond(request_id, RequestAnswer::Option(decision))
+            .await;
     }
     ctx.session
         .respond(request_id, requests::approval_result(&decision))
@@ -434,16 +428,17 @@ pub(crate) async fn respond_server_request(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
-    if ctx.claude.owns_request(request_id) {
+    if let Some(driver) = ctx.drivers.owner_of(request_id) {
         // A permission-profile answer: a non-empty grant is an allow.
         let granted = result
             .0
             .get("permissions")
             .and_then(serde_json::Value::as_object)
             .is_some_and(|profile| !profile.is_empty());
-        return ctx
-            .claude
-            .respond_option(request_id, if granted { "accept" } else { "decline" });
+        let decision = if granted { "accept" } else { "decline" };
+        return driver
+            .respond(request_id, RequestAnswer::Option(decision.into()))
+            .await;
     }
     ctx.session.respond(request_id, result.0).await
 }
@@ -498,7 +493,7 @@ pub(crate) async fn threads_with_active_turns(
 ) -> Result<Vec<String>, String> {
     let ctx = state.ctx(&window);
     let mut threads = ctx.session.active_threads().await;
-    threads.extend(ctx.claude.active_threads());
+    threads.extend(ctx.drivers.active_threads());
     Ok(threads)
 }
 
@@ -520,8 +515,10 @@ pub(crate) async fn respond_user_input(
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
     if let Some(request_id) = request_id {
-        if ctx.claude.owns_request(request_id) {
-            ctx.claude.respond_user_input(request_id, &answers.0)?;
+        if let Some(driver) = ctx.drivers.owner_of(request_id) {
+            driver
+                .respond(request_id, RequestAnswer::UserInput(answers.0.clone()))
+                .await?;
         } else {
             ctx.session
                 .respond(request_id, requests::user_input_result(answers.0))

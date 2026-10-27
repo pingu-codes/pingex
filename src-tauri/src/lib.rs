@@ -134,9 +134,9 @@ pub(crate) struct HomeContext {
     runtime: SharedRuntime,
     database: RwLock<turso::Database>,
     pub(crate) session: CodexSession,
-    /// The Claude Code driver for this home: one `claude` process per active
-    /// Claude thread. Spawned lazily, like the app-server child.
-    pub(crate) claude: claude::ClaudeDriver,
+    /// The drivers for every non-Codex harness: one process per active
+    /// thread, spawned lazily like the app-server child.
+    pub(crate) drivers: harness::driver::Drivers,
     /// The token-usage ledger: one consumer per home turning usage
     /// notifications into `turn_usage` rows.
     pub(crate) usage: usage::ledger::UsageLedger,
@@ -147,10 +147,19 @@ pub(crate) struct HomeContext {
 impl HomeContext {
     fn new(runtime: RuntimeConfig, database: turso::Database) -> Arc<Self> {
         let home_key = home_key_for(&runtime.host, &runtime.codex_home_str());
-        let claude = claude::driver::ClaudeRuntime::resolve(&settings::prefs::read_overrides(
-            &settings::prefs::settings_path(),
-        ));
-        Self::in_profile(runtime, database, home_key.clone(), home_key, claude, None)
+        let runtimes = harness::driver::DriverRuntimes {
+            claude: claude::driver::ClaudeRuntime::resolve(&settings::prefs::read_overrides(
+                &settings::prefs::settings_path(),
+            )),
+        };
+        Self::in_profile(
+            runtime,
+            database,
+            home_key.clone(),
+            home_key,
+            runtimes,
+            None,
+        )
     }
 
     pub(crate) fn in_profile(
@@ -158,18 +167,17 @@ impl HomeContext {
         database: turso::Database,
         home_key: String,
         profile_key: String,
-        claude_runtime: claude::driver::ClaudeRuntime,
+        runtimes: harness::driver::DriverRuntimes,
         harness_kind: Option<harness::HarnessKind>,
     ) -> Arc<Self> {
         let runtime: SharedRuntime = Arc::new(RwLock::new(runtime));
         let session = CodexSession::new(runtime.clone(), home_key.clone());
-        let claude =
-            claude::ClaudeDriver::new(home_key.clone(), claude_runtime, session.wire().clone());
+        let drivers = harness::driver::Drivers::new(&home_key, runtimes, session.wire().clone());
         Arc::new(Self {
             harness_kind,
             profile_key,
             session,
-            claude,
+            drivers,
             usage: usage::ledger::UsageLedger::default(),
             rollouts: codex::rollout::RolloutCache::default(),
             runtime,
@@ -210,9 +218,36 @@ impl HomeContext {
             .codex_binary = binary;
     }
 
+    /// The harness thread `thread_id` names and the driver that runs it, or
+    /// `None` for a Codex thread. A kind this build cannot drive is an error,
+    /// never a silent fall-through to Codex.
+    pub(crate) async fn harness_thread(
+        &self,
+        thread_id: &str,
+    ) -> Result<Option<(storage::HarnessThread, Arc<dyn harness::driver::Driver>)>, String> {
+        let Some(thread) = storage::thread_harness(&self.database(), thread_id).await? else {
+            return Ok(None);
+        };
+        let driver = harness::HarnessKind::parse(&thread.harness)
+            .and_then(|kind| self.drivers.get(kind))
+            .ok_or_else(|| {
+                format!(
+                    "This thread runs on {}, which this version of the app cannot drive",
+                    thread.harness
+                )
+            })?;
+        Ok(Some((thread, driver)))
+    }
+
+    /// Whether this context talks to a Codex app-server: a Codex Home, or a
+    /// legacy window that predates Homes.
+    pub(crate) fn runs_codex(&self) -> bool {
+        matches!(self.harness_kind, None | Some(harness::HarnessKind::Codex))
+    }
+
     /// Kill everything this home is running.
     pub(crate) fn shutdown(&self) {
-        self.claude.kill_all();
+        self.drivers.kill_all();
         self.session.kill_child();
     }
 }
@@ -500,10 +535,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         // unified mode cannot express `skip_serializing_if`, so we do not use it.
         .disable_serde_phases()
         .typ::<harness::Capability>()
-        .constant(
-            "HARNESS_CAPABILITIES",
-            harness::HarnessCapabilities::declared(),
-        )
+        .constant("HARNESS_CAPABILITIES", harness::declared_capabilities())
         .commands(tauri_specta::collect_commands![
             // Projects and the bootstrap payload
             profiles::bootstrap_profile,
@@ -928,7 +960,9 @@ mod tests {
             root.database(),
             "member".into(),
             root.profile_key.clone(),
-            root.claude.runtime(),
+            harness::driver::DriverRuntimes {
+                claude: root.drivers.claude().runtime(),
+            },
             Some(harness::HarnessKind::Codex),
         );
         state.insert_context(member.clone());
@@ -963,7 +997,9 @@ mod tests {
                 root.database(),
                 key.into(),
                 root.profile_key.clone(),
-                root.claude.runtime(),
+                harness::driver::DriverRuntimes {
+                    claude: root.drivers.claude().runtime(),
+                },
                 Some(harness::HarnessKind::Claude),
             )
         };

@@ -360,10 +360,7 @@ impl LedgerCore {
 }
 
 fn harness_name(kind: HarnessKind) -> &'static str {
-    match kind {
-        HarnessKind::Codex => "codex",
-        HarnessKind::Claude => "claude",
-    }
+    kind.as_str()
 }
 
 /// Close the open turn: its reply is now part of the context.

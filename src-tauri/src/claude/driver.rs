@@ -4,7 +4,7 @@
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::AppHandle;
 use tauri_specta::Event;
@@ -17,16 +17,13 @@ use crate::codex::events::{CodexEvent, CodexNotification};
 use crate::codex::journal::TurnJournal;
 use crate::codex::requests::TurnOptions;
 use crate::codex::wire::WireLog;
+use crate::harness::driver::{Driver, RequestAnswer, RequestIds};
 use crate::harness::project::Projector;
 use crate::harness::{
     HarnessEvent, HarnessEventEnvelope, HarnessKind, HarnessRequest, HarnessRequestEnvelope,
 };
 use crate::util::host::Host;
 use crate::util::json::str_at;
-
-/// Request ids handed to the frontend for Claude prompts start here, so they
-/// never collide with the app-server's JSON-RPC ids.
-const REQUEST_ID_BASE: i64 = 1 << 40;
 
 /// The oldest CLI whose `--permission-prompt-tool stdio` exists.
 pub(crate) const PROTOCOL_FLOOR: &str = "1.0.59";
@@ -118,7 +115,7 @@ struct ThreadSink {
     projector: Mutex<Projector>,
     journal: TurnJournal,
     pending: PendingMap,
-    next_request: Arc<AtomicI64>,
+    next_request: RequestIds,
     settings: Arc<Mutex<Settings>>,
     lifecycle: Mutex<()>,
     mode_store: Arc<ModeStore>,
@@ -296,7 +293,7 @@ impl FrameSink for ThreadSink {
                     .unwrap_or_default();
                 let harness_request =
                     permissions::request_for_mode(request, &cwd, &host, exit_mode);
-                let id = self.next_request.fetch_add(1, Ordering::SeqCst);
+                let id = self.next_request.next();
                 if let Ok(mut pending) = self.pending.lock() {
                     pending.insert(
                         id,
@@ -452,7 +449,7 @@ pub(crate) struct ClaudeDriver {
     wire: Arc<WireLog>,
     processes: Mutex<HashMap<String, Arc<ThreadProcess>>>,
     pending: PendingMap,
-    next_request: Arc<AtomicI64>,
+    next_request: RequestIds,
     pub(crate) side_questions: super::side_questions::SideRequests,
     process_start: tokio::sync::Mutex<()>,
     mode_store: Arc<ModeStore>,
@@ -593,14 +590,19 @@ pub(crate) fn models() -> Value {
 }
 
 impl ClaudeDriver {
-    pub(crate) fn new(home_key: String, runtime: ClaudeRuntime, wire: Arc<WireLog>) -> Self {
+    pub(crate) fn new(
+        home_key: String,
+        runtime: ClaudeRuntime,
+        wire: Arc<WireLog>,
+        next_request: RequestIds,
+    ) -> Self {
         Self {
             home_key,
             runtime: Mutex::new(runtime),
             wire,
             processes: Mutex::new(HashMap::new()),
             pending: Arc::new(Mutex::new(HashMap::new())),
-            next_request: Arc::new(AtomicI64::new(REQUEST_ID_BASE)),
+            next_request,
             side_questions: Default::default(),
             process_start: tokio::sync::Mutex::new(()),
             mode_store: Arc::new(ModeStore::new()),
@@ -624,16 +626,6 @@ impl ClaudeDriver {
         if let Ok(mut slot) = self.runtime.lock() {
             *slot = runtime;
         }
-    }
-
-    /// Whether a request id belongs to one of this driver's prompts.
-    pub(crate) fn owns_request(&self, request_id: i64) -> bool {
-        request_id >= REQUEST_ID_BASE
-            && self
-                .pending
-                .lock()
-                .map(|pending| pending.contains_key(&request_id))
-                .unwrap_or(false)
     }
 
     pub(crate) async fn flush_modes(&self) {
@@ -661,34 +653,6 @@ impl ClaudeDriver {
             .ok()
             .and_then(|processes| processes.get(thread_id).cloned())
             .filter(|process| process.child.is_alive())
-    }
-
-    /// Ask a live thread's process what its context holds
-    /// (`get_context_usage`). `None` when this driver has no live process for
-    /// the thread — a Codex thread, or a Claude thread between processes.
-    pub(crate) async fn context_usage(&self, thread_id: &str) -> Result<Option<Value>, String> {
-        let Some(process) = self.process(thread_id) else {
-            return Ok(None);
-        };
-        process
-            .child
-            .control(json!({"subtype": "get_context_usage"}))
-            .await
-            .map(Some)
-    }
-
-    /// Threads with a turn in flight on a live process.
-    pub(crate) fn active_threads(&self) -> Vec<String> {
-        self.processes
-            .lock()
-            .map(|processes| {
-                processes
-                    .iter()
-                    .filter(|(_, p)| p.child.is_alive() && p.sink.turn_id().is_some())
-                    .map(|(id, _)| id.clone())
-                    .collect()
-            })
-            .unwrap_or_default()
     }
 
     /// `has_history`: the journal holds turns for this thread, so its Claude
@@ -984,17 +948,6 @@ impl ClaudeDriver {
         Ok(turn_id)
     }
 
-    pub(crate) async fn interrupt(&self, thread_id: &str) -> Result<(), String> {
-        let Some(process) = self.process(thread_id) else {
-            return Ok(());
-        };
-        process.sink.deny_pending("Interrupted");
-        // The receipt only exists on newer CLIs; the turn's `result` is what
-        // actually ends it either way.
-        let _ = process.child.control(json!({"subtype": "interrupt"})).await;
-        Ok(())
-    }
-
     fn take_pending(&self, request_id: i64) -> Option<Pending> {
         self.pending
             .lock()
@@ -1055,32 +1008,6 @@ impl ClaudeDriver {
         Ok(())
     }
 
-    /// Ask the CLI to compact the thread's context: `/compact` runs as a turn
-    /// and lands as a `compact_boundary`, which the projector turns into the
-    /// same `thread/compacted` Codex sends.
-    pub(crate) async fn compact(
-        &self,
-        app: &AppHandle,
-        thread_id: &str,
-        cwd: &str,
-        resume: bool,
-        saved_modes: ClaudeModeSettings,
-    ) -> Result<String, String> {
-        let options = Some(TurnOptions {
-            claude_mode: Some(saved_modes),
-            ..Default::default()
-        });
-        self.start_turn(
-            app,
-            thread_id,
-            cwd,
-            resume,
-            &[json!({"type": "text", "text": "/compact"})],
-            options.as_ref(),
-        )
-        .await
-    }
-
     /// Answer an `AskUserQuestion` with Codex-shaped answers.
     pub(crate) fn respond_user_input(
         &self,
@@ -1101,20 +1028,90 @@ impl ClaudeDriver {
             permissions::user_input_result(&input, tool_use_id, answers),
         )
     }
+}
 
-    /// Rename the session on the Claude side too, so `claude --resume` by
-    /// name works from a terminal.
-    pub(crate) async fn rename(&self, thread_id: &str, title: &str) {
-        if let Some(process) = self.process(thread_id) {
-            let _ = process
-                .child
-                .control(json!({"subtype": "rename_session", "title": title}))
-                .await;
+#[async_trait::async_trait]
+impl Driver for ClaudeDriver {
+    fn kind(&self) -> HarnessKind {
+        HarnessKind::Claude
+    }
+
+    async fn start_turn(
+        &self,
+        app: &AppHandle,
+        thread: &crate::storage::HarnessThread,
+        has_history: bool,
+        input: &[Value],
+        options: Option<&TurnOptions>,
+    ) -> Result<String, String> {
+        let turn_id = ClaudeDriver::start_turn(
+            self,
+            app,
+            &thread.thread_id,
+            &thread.cwd,
+            has_history,
+            input,
+            options,
+        )
+        .await?;
+        self.flush_modes().await;
+        Ok(turn_id)
+    }
+
+    async fn interrupt(&self, thread_id: &str) -> Result<(), String> {
+        let Some(process) = self.process(thread_id) else {
+            return Ok(());
+        };
+        process.sink.deny_pending("Interrupted");
+        // The receipt only exists on newer CLIs; the turn's `result` is what
+        // actually ends it either way.
+        let _ = process.child.control(json!({"subtype": "interrupt"})).await;
+        Ok(())
+    }
+
+    fn owns_request(&self, request_id: i64) -> bool {
+        self.pending
+            .lock()
+            .map(|pending| pending.contains_key(&request_id))
+            .unwrap_or(false)
+    }
+
+    async fn respond(&self, request_id: i64, answer: RequestAnswer) -> Result<(), String> {
+        match answer {
+            RequestAnswer::Option(option) => {
+                self.respond_option(request_id, &option)?;
+                self.flush_modes().await;
+                Ok(())
+            }
+            RequestAnswer::UserInput(answers) => self.respond_user_input(request_id, &answers),
         }
     }
 
-    /// Drop the process for a thread that was deleted or archived.
-    pub(crate) fn close_thread(&self, thread_id: &str) {
+    async fn models(&self) -> Result<Value, String> {
+        Ok(models())
+    }
+
+    fn active_threads(&self) -> Vec<String> {
+        self.processes
+            .lock()
+            .map(|processes| {
+                processes
+                    .iter()
+                    .filter(|(_, p)| p.child.is_alive() && p.sink.turn_id().is_some())
+                    .map(|(id, _)| id.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn is_busy(&self) -> bool {
+        self.processes
+            .lock()
+            .map(|processes| processes.values().any(|process| process.child.is_alive()))
+            .unwrap_or(true)
+    }
+
+    fn close_thread(&self, thread_id: &str) {
         let removed = self
             .processes
             .lock()
@@ -1126,23 +1123,68 @@ impl ClaudeDriver {
         }
     }
 
-    /// Whether a conversation is live here. Editing or removing a Home tears
-    /// its context down, so the caller refuses rather than killing a turn
-    /// mid-stream.
-    pub(crate) fn is_busy(&self) -> bool {
-        self.processes
-            .lock()
-            .map(|processes| processes.values().any(|process| process.child.is_alive()))
-            .unwrap_or(true)
-    }
-
-    pub(crate) fn kill_all(&self) {
+    fn kill_all(&self) {
         let Ok(mut processes) = self.processes.lock() else {
             return;
         };
         for (_, process) in processes.drain() {
             process.child.kill();
         }
+    }
+
+    async fn flush(&self) {
+        self.flush_modes().await;
+    }
+
+    /// `/compact` runs as a turn and lands as a `compact_boundary`, which the
+    /// projector turns into the same `thread/compacted` Codex sends.
+    async fn compact(
+        &self,
+        app: &AppHandle,
+        thread: &crate::storage::HarnessThread,
+        has_history: bool,
+    ) -> Result<String, String> {
+        let options = Some(TurnOptions {
+            claude_mode: Some(ClaudeModeSettings::restore(
+                thread.permission_mode.as_deref(),
+                thread.plan_exit_mode.as_deref(),
+            )?),
+            ..Default::default()
+        });
+        ClaudeDriver::start_turn(
+            self,
+            app,
+            &thread.thread_id,
+            &thread.cwd,
+            has_history,
+            &[json!({"type": "text", "text": "/compact"})],
+            options.as_ref(),
+        )
+        .await
+    }
+
+    /// Rename the session on the Claude side too, so `claude --resume` by
+    /// name works from a terminal.
+    async fn rename(&self, thread_id: &str, title: &str) {
+        if let Some(process) = self.process(thread_id) {
+            let _ = process
+                .child
+                .control(json!({"subtype": "rename_session", "title": title}))
+                .await;
+        }
+    }
+
+    /// Ask a live thread's process what its context holds
+    /// (`get_context_usage`). `None` between processes.
+    async fn context_usage(&self, thread_id: &str) -> Result<Option<Value>, String> {
+        let Some(process) = self.process(thread_id) else {
+            return Ok(None);
+        };
+        process
+            .child
+            .control(json!({"subtype": "get_context_usage"}))
+            .await
+            .map(Some)
     }
 }
 

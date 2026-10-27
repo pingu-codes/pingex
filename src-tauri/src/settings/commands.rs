@@ -305,7 +305,11 @@ pub(crate) async fn update_runtime_settings(
     // their runtime.
     let previous = crate::claude::driver::ClaudeRuntime::resolve(&saved);
     let next = crate::claude::driver::ClaudeRuntime::resolve(&overrides);
-    state.ctx(&window).claude.set_runtime(next.clone());
+    state
+        .ctx(&window)
+        .drivers
+        .claude()
+        .set_runtime(next.clone());
     // Conversations run under a registered Home, so the field only takes
     // effect once a Home exists for its directory. Register on every save so
     // the Homes list shows it straight away, but move the default only when

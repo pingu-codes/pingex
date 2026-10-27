@@ -256,17 +256,14 @@ pub(crate) async fn read_context_breakdown(
     state: State<'_, AppState>,
 ) -> Result<ContextComposition, String> {
     let ctx = state.ctx(&window);
-    if let Some(reported) = ctx.claude.context_usage(&thread_id).await? {
+    if let Some((_, driver)) = ctx.harness_thread(&thread_id).await? {
+        let Some(reported) = driver.context_usage(&thread_id).await? else {
+            return Err(format!(
+                "{CONTEXT_BREAKDOWN_UNSUPPORTED}: no live process can report this thread's context"
+            ));
+        };
         let estimate = ctx.usage.snapshot(&app, &ctx.home_key, &thread_id).await;
         return Ok(harness_composition(&reported, estimate.as_ref()));
-    }
-    if storage::thread_harness(&ctx.database(), &thread_id)
-        .await?
-        .is_some()
-    {
-        return Err(format!(
-            "{CONTEXT_BREAKDOWN_UNSUPPORTED}: no live process can report this thread's context"
-        ));
     }
     let local_home = ctx.runtime().local_home();
     let Some(path) = ctx.rollouts.locate(&local_home, &thread_id) else {

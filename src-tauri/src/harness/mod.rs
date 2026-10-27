@@ -8,19 +8,47 @@
 //! onto `kind`-shaped items, the projection goes away and `harness:event`
 //! becomes the only channel.
 
+pub(crate) mod driver;
 pub(crate) mod project;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
+use std::collections::BTreeMap;
 
 use crate::util::json::Json;
 
 /// Which agent CLI a thread runs on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Type,
+)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum HarnessKind {
     Codex,
     Claude,
+}
+
+impl HarnessKind {
+    pub(crate) const ALL: [HarnessKind; 2] = [HarnessKind::Codex, HarnessKind::Claude];
+
+    /// The tag stored in `harness_threads.harness` and sent over IPC.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            HarnessKind::Codex => "codex",
+            HarnessKind::Claude => "claude",
+        }
+    }
+
+    pub(crate) fn parse(text: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|kind| kind.as_str() == text)
+    }
+
+    /// The short name the harness goes by in messages.
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            HarnessKind::Codex => "Codex",
+            HarnessKind::Claude => "Claude",
+        }
+    }
 }
 
 /// Something a harness can do beyond the required core (`CONTEXT.md`). This
@@ -54,20 +82,13 @@ impl HarnessKind {
     }
 }
 
-/// [`HarnessKind::capabilities`] for every harness, exported as a constant.
-#[derive(Debug, Clone, Serialize, Type)]
-pub(crate) struct HarnessCapabilities {
-    pub(crate) codex: Vec<Capability>,
-    pub(crate) claude: Vec<Capability>,
-}
-
-impl HarnessCapabilities {
-    pub(crate) fn declared() -> Self {
-        Self {
-            codex: HarnessKind::Codex.capabilities().to_vec(),
-            claude: HarnessKind::Claude.capabilities().to_vec(),
-        }
-    }
+/// [`HarnessKind::capabilities`] for every harness, exported as the
+/// `HARNESS_CAPABILITIES` constant.
+pub(crate) fn declared_capabilities() -> BTreeMap<HarnessKind, Vec<Capability>> {
+    HarnessKind::ALL
+        .into_iter()
+        .map(|kind| (kind, kind.capabilities().to_vec()))
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq)]

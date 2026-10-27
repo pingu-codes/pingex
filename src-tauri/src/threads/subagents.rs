@@ -106,10 +106,7 @@ pub(crate) async fn list_subagents(
     state: State<'_, AppState>,
 ) -> Result<Vec<SubagentDetail>, String> {
     let ctx = state.ctx(&window);
-    if crate::storage::thread_harness(&ctx.database(), &thread_id)
-        .await?
-        .is_some()
-    {
+    if ctx.harness_thread(&thread_id).await?.is_some() {
         return Ok(Vec::new());
     }
     let response = ctx

@@ -222,7 +222,7 @@ export const commands = {
 	 *  this keeps the thread id — which is what editing a past message wants: the
 	 *  conversation rewinds instead of branching into a second sidebar entry.
 	 *  The models a harness offers the composer. Codex answers `model/list`;
-	 *  Claude has a fixed alias list.
+	 *  every other driver builds the same shape from what its CLI offers.
 	 */
 	listHarnessModels: (harness: string, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("list_harness_models", { harness, window }),
 	forkThread: (threadId: string, beforeTurnId: string | null, lastTurnId: string | null, cwd: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("fork_thread", { threadId, beforeTurnId, lastTurnId, cwd, window }),

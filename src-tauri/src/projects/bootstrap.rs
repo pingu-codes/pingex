@@ -59,7 +59,7 @@ pub(crate) async fn bootstrap_inner(
     app: &AppHandle,
     ctx: &HomeContext,
 ) -> Result<BootstrapData, String> {
-    if ctx.harness_kind == Some(crate::harness::HarnessKind::Claude) {
+    if !ctx.runs_codex() {
         return bootstrap_cached(ctx).await;
     }
     let store = storage::read_store(&ctx.database()).await?;

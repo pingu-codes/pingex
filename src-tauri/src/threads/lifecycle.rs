@@ -10,10 +10,21 @@ use tauri::{AppHandle, State};
 
 use crate::codex::compat::{method_unsupported, Feature};
 use crate::codex::requests;
+use crate::harness::driver::unsupported;
+use crate::harness::HarnessKind;
 use crate::projects::{bootstrap_cached, bootstrap_inner, BootstrapData};
 use crate::storage;
 use crate::util::json::Json;
-use crate::AppState;
+use crate::{AppState, HomeContext};
+
+/// Refuse a Codex-only verb on a harness thread, rather than sending it to an
+/// app-server that has never heard of the thread.
+async fn codex_only(ctx: &HomeContext, thread_id: &str, what: &str) -> Result<(), String> {
+    match ctx.harness_thread(thread_id).await? {
+        Some((_, driver)) => Err(unsupported(driver.kind(), what)),
+        None => Ok(()),
+    }
+}
 
 #[tauri::command]
 #[specta::specta]
@@ -26,12 +37,9 @@ pub(crate) async fn rename_thread(
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
     let name = name.trim();
-    if storage::thread_harness(&ctx.database(), &thread_id)
-        .await?
-        .is_some()
-    {
+    if let Some((_, driver)) = ctx.harness_thread(&thread_id).await? {
         storage::rename_harness_thread(&ctx.database(), &thread_id, name).await?;
-        ctx.claude.rename(&thread_id, name).await;
+        driver.rename(&thread_id, name).await;
     } else {
         ctx.session
             .request(
@@ -61,23 +69,14 @@ pub(crate) async fn compact_thread(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
-    ctx.claude.flush_modes().await;
-    if let Some(thread) = storage::thread_harness(&ctx.database(), &thread_id).await? {
+    // The compacting turn starts in the thread's saved mode, so any mode
+    // change still buffered has to land first.
+    ctx.drivers.flush().await;
+    if let Some((thread, driver)) = ctx.harness_thread(&thread_id).await? {
         let resume = !storage::read_thread_items(&ctx.database(), &thread_id)
             .await?
             .is_empty();
-        ctx.claude
-            .compact(
-                &app,
-                &thread_id,
-                &thread.cwd,
-                resume,
-                crate::claude::modes::ClaudeModeSettings::restore(
-                    thread.permission_mode.as_deref(),
-                    thread.plan_exit_mode.as_deref(),
-                )?,
-            )
-            .await?;
+        driver.compact(&app, &thread, resume).await?;
         return Ok(());
     }
     ctx.session.ensure_resumed(&app, &thread_id).await?;
@@ -110,6 +109,7 @@ pub(crate) async fn start_review(
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
+    codex_only(&ctx, &thread_id, "reviews").await?;
     ctx.session.ensure_resumed(&app, &thread_id).await?;
     let target = target
         .map(|target| target.0)
@@ -149,6 +149,7 @@ pub(crate) async fn thread_goal_set(
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
+    codex_only(&ctx, &thread_id, "goals").await?;
     ctx.session.ensure_resumed(&app, &thread_id).await?;
     let budget = if clear_token_budget.unwrap_or(false) {
         Some(None)
@@ -178,10 +179,7 @@ pub(crate) async fn thread_goal_get(
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
-    if storage::thread_harness(&ctx.database(), &thread_id)
-        .await?
-        .is_some()
-    {
+    if ctx.harness_thread(&thread_id).await?.is_some() {
         return Ok(Json(Value::Null));
     }
     ctx.session.ensure_resumed(&app, &thread_id).await?;
@@ -203,6 +201,7 @@ pub(crate) async fn thread_goal_clear(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
+    codex_only(&ctx, &thread_id, "goals").await?;
     ctx.session.ensure_resumed(&app, &thread_id).await?;
     let request = requests::thread_goal_clear(&thread_id);
     ctx.session
@@ -243,11 +242,8 @@ pub(crate) async fn archive_thread(
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
-    if storage::thread_harness(&ctx.database(), &thread_id)
-        .await?
-        .is_some()
-    {
-        ctx.claude.close_thread(&thread_id);
+    if let Some((_, driver)) = ctx.harness_thread(&thread_id).await? {
+        driver.close_thread(&thread_id);
         storage::set_harness_thread_archived(&ctx.database(), &thread_id, true).await?;
     } else {
         ctx.session
@@ -270,9 +266,13 @@ pub(crate) async fn unarchive_thread(
     state: State<'_, AppState>,
 ) -> Result<BootstrapData, String> {
     let ctx = state.ctx(&window);
-    ctx.session
-        .send(&app, requests::thread_unarchive(&thread_id))
-        .await?;
+    if ctx.harness_thread(&thread_id).await?.is_some() {
+        storage::set_harness_thread_archived(&ctx.database(), &thread_id, false).await?;
+    } else {
+        ctx.session
+            .send(&app, requests::thread_unarchive(&thread_id))
+            .await?;
+    }
     storage::set_thread_search_archived(&ctx.database(), &thread_id, false).await?;
     // A full bootstrap, not a cached one: the thread has to come back from the
     // app-server's active listing before it can reappear in the sidebar.
@@ -302,11 +302,9 @@ async fn delete_one_thread(
     ctx: &crate::HomeContext,
     thread_id: &str,
 ) -> Result<(), String> {
-    if storage::thread_harness(&ctx.database(), thread_id)
-        .await?
-        .is_some()
-    {
-        ctx.claude.close_thread(thread_id);
+    if let Some((thread, driver)) = ctx.harness_thread(thread_id).await? {
+        driver.close_thread(thread_id);
+        driver.forget_thread(&thread).await;
         storage::delete_harness_thread(&ctx.database(), thread_id).await?;
     } else {
         ctx.session
@@ -341,7 +339,7 @@ pub(crate) async fn list_models(
 /// this keeps the thread id — which is what editing a past message wants: the
 /// conversation rewinds instead of branching into a second sidebar entry.
 /// The models a harness offers the composer. Codex answers `model/list`;
-/// Claude has a fixed alias list.
+/// every other driver builds the same shape from what its CLI offers.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn list_harness_models(
@@ -350,10 +348,11 @@ pub(crate) async fn list_harness_models(
     window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
-    if harness == "claude" {
-        return Ok(Json(crate::claude::driver::models()));
-    }
+    let kind = HarnessKind::parse(&harness).ok_or_else(|| format!("Unknown harness: {harness}"))?;
     let ctx = state.ctx(&window);
+    if let Some(driver) = ctx.drivers.get(kind) {
+        return driver.models().await.map(Json);
+    }
     // The same listing as `list_models`, so the composer can ask for any
     // harness's models through this one command.
     ctx.session
@@ -376,6 +375,7 @@ pub(crate) async fn revert_thread(
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
+    codex_only(&ctx, &thread_id, "undo").await?;
     ctx.session.ensure_resumed(&app, &thread_id).await?;
     // Codex 0.146.0 has no `thread/revert`, and every version refuses it for
     // threads outside paginated history mode (created before 0.152). Both
@@ -430,11 +430,8 @@ pub(crate) async fn fork_thread(
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
-    if storage::thread_harness(&ctx.database(), &thread_id)
-        .await?
-        .is_some()
-    {
-        return Err("Only Codex threads can be forked".to_string());
+    if let Some((_, driver)) = ctx.harness_thread(&thread_id).await? {
+        return Err(unsupported(driver.kind(), "forking"));
     }
     let mut params = json!({"threadId": thread_id});
     // An explicit cwd is the existing "Move to worktree" operation. It must

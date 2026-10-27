@@ -169,7 +169,7 @@ pub(crate) async fn search_threads(
         .as_deref()
         .filter(|value| !value.is_empty());
     let scope = filter.message_scope();
-    if ctx.harness_kind == Some(crate::harness::HarnessKind::Claude) {
+    if !ctx.runs_codex() {
         let body_matches =
             storage::thread_ids_with_message_match(&ctx.database(), &query, scope).await?;
         let query = query.trim().to_lowercase();

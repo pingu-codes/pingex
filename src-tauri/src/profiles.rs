@@ -1,6 +1,7 @@
 //! A window's project list spans Homes without rebinding the window or
 //! changing a running conversation's runtime.
 
+use crate::harness::driver::DriverRuntimes;
 use crate::harness::HarnessKind;
 use crate::projects::types::BootstrapData;
 use crate::storage::{
@@ -42,7 +43,7 @@ async fn legacy_homes(profile: &HomeContext) -> Result<Vec<ProfileHome>, String>
         "Codex",
     )
     .await?;
-    let claude = profile.claude.runtime();
+    let claude = profile.drivers.claude().runtime();
     registry::register_home(
         &database,
         HarnessKind::Claude,
@@ -80,17 +81,21 @@ fn context_key(profile: &HomeContext, home: &ProfileHome) -> String {
     }
 }
 
-/// The Claude runtime a Home implies. A Codex Home still carries one, so a
-/// window bound to it can start a Claude conversation under the defaults.
-fn claude_runtime_for(home: &ProfileHome) -> crate::claude::driver::ClaudeRuntime {
-    crate::claude::driver::ClaudeRuntime {
-        binary: PathBuf::from(if home.harness == HarnessKind::Claude {
-            &home.binary
-        } else {
-            "claude"
-        }),
-        config_dir: (home.harness == HarnessKind::Claude).then(|| PathBuf::from(&home.config_dir)),
-        host: home.host.clone(),
+/// The driver runtimes a Home implies. A Home of one harness still carries
+/// the others under their defaults, so a window bound to it can start any
+/// conversation.
+fn driver_runtimes_for(home: &ProfileHome) -> DriverRuntimes {
+    DriverRuntimes {
+        claude: crate::claude::driver::ClaudeRuntime {
+            binary: PathBuf::from(if home.harness == HarnessKind::Claude {
+                &home.binary
+            } else {
+                "claude"
+            }),
+            config_dir: (home.harness == HarnessKind::Claude)
+                .then(|| PathBuf::from(&home.config_dir)),
+            host: home.host.clone(),
+        },
     }
 }
 
@@ -118,7 +123,7 @@ async fn context_for(
             .join("pingex.db");
         storage::open_profile_cache(&path).await?
     };
-    let claude = claude_runtime_for(home);
+    let runtimes = driver_runtimes_for(home);
     let context = HomeContext::in_profile(
         RuntimeConfig {
             host: home.host.clone(),
@@ -132,7 +137,7 @@ async fn context_for(
         database,
         key,
         profile.profile_key.clone(),
-        claude,
+        runtimes,
         Some(home.harness),
     );
     Ok(state.insert_context(context))
@@ -182,14 +187,15 @@ async fn snapshot(
                 None,
             )
         };
-        let is_claude = home.harness == HarnessKind::Claude;
+        // A context lists every thread in its database; each Home shows only
+        // the ones its harness runs.
+        let runs_here = |harness: &Option<String>| {
+            harness.as_deref().unwrap_or(HarnessKind::Codex.as_str()) == home.harness.as_str()
+        };
         for project in &mut data.projects {
-            project
-                .threads
-                .retain(|thread| (thread.harness.as_deref() == Some("claude")) == is_claude);
+            project.threads.retain(|thread| runs_here(&thread.harness));
         }
-        data.subagents
-            .retain(|thread| (thread.harness.as_deref() == Some("claude")) == is_claude);
+        data.subagents.retain(|thread| runs_here(&thread.harness));
         snapshots.push(HomeSnapshot {
             home_key: context.home_key.clone(),
             home,
@@ -327,7 +333,7 @@ async fn settled_home(
         .ok_or("Home does not belong to this Profile")?;
     guard_settings_home(&home)?;
     if let Some(context) = state.context_for_home(&context_key(profile, &home)) {
-        if context.claude.is_busy() {
+        if context.drivers.is_busy() {
             return Err("A conversation is running in this Home. Stop it first.".into());
         }
     }
@@ -410,7 +416,7 @@ pub(crate) async fn read_home_claude_status(
     if home.harness != HarnessKind::Claude {
         return Err("This Home does not run Claude Code".into());
     }
-    let runtime = claude_runtime_for(&home);
+    let runtime = driver_runtimes_for(&home).claude;
     tauri::async_runtime::spawn_blocking(move || crate::claude::driver::status(&runtime))
         .await
         .map_err(|error| error.to_string())
