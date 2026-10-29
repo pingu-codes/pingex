@@ -15,15 +15,15 @@ describe("classifyVersion", () => {
     expect(classifyVersion(LAST_STABLE)).toBe("supported");
     expect(classifyVersion(STABLE)).toBe("supported");
     expect(classifyVersion("0.146.0")).toBe("older");
-    expect(classifyVersion("0.162.0")).toBe("older");
-    expect(classifyVersion("0.165.0-alpha.1")).toBe("newer");
+    expect(classifyVersion("0.163.0")).toBe("older");
+    expect(classifyVersion("0.166.0-alpha.1")).toBe("newer");
     // A source build of the mirror reports the workspace version.
     expect(classifyVersion("0.0.0")).toBe("unstable");
   });
 
   it("wording names the tier boundary the version crossed", () => {
     expect(bannerText({ tier: "older", version: "0.146.0", dismissed: false })).toContain(LAST_STABLE);
-    expect(bannerText({ tier: "newer", version: "0.165.0", dismissed: false })).toContain(STABLE);
+    expect(bannerText({ tier: "newer", version: "0.166.0", dismissed: false })).toContain(STABLE);
     expect(bannerText({ tier: "unstable", version: "0.0.0", dismissed: false })).toContain("unreleased");
     expect(bannerText({ tier: "supported", version: STABLE, dismissed: false })).toBe("");
   });

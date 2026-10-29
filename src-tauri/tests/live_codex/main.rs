@@ -593,7 +593,7 @@ fn a_spawned_codex_subagent_is_reported_and_listed_under_its_parent() {
 
 // ── version-dependent APIs ────────────────────────────────────────────────
 //
-// The app supports the last stable (0.163.0), the current stable (0.164.0)
+// The app supports the last stable (0.164.0), the current stable (0.165.0)
 // and the unreleased mirror HEAD — see `docs/SUPPORTED_VERSIONS.md`. Each of
 // these tests takes the modern branch
 // where the API exists and, where it does not, checks that the refusal is
