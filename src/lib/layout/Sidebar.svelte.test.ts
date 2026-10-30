@@ -380,6 +380,38 @@ describe("Sidebar", () => {
     expect(onNewThread).toHaveBeenCalledWith(source);
   });
 
+  it("starts a new thread in the clicked one of two same-named worktrees", async () => {
+    const user = userEvent.setup();
+    const worktree = (hash: string): Project => ({
+      ...project(),
+      name: "inspekt-permanent-worktree",
+      kind: "worktree",
+      path: `/home/.codex/worktrees/${hash}/inspekt`,
+      threads: [],
+    });
+    const onNewThread = vi.fn();
+    const projects = $state([worktree("1152"), worktree("e0e0")]);
+    render(Sidebar, {
+      projects,
+      account: null,
+      selectedThread: null,
+      loading: false,
+      sideQuestions: [],
+      onAddProject: vi.fn(),
+      onSelectThread: vi.fn(),
+      onNewThread,
+      onOpenSettings: vi.fn(),
+      onMenuAction: vi.fn(),
+      onSelectArchived: vi.fn(),
+      onUnarchived: vi.fn(),
+    });
+
+    const buttons = screen.getAllByRole("button", { name: "New thread in inspekt-permanent-worktree" });
+    await user.click(buttons[1]);
+
+    expect(onNewThread).toHaveBeenCalledWith(expect.objectContaining({ path: "/home/.codex/worktrees/e0e0/inspekt" }));
+  });
+
   it("routes the fork action for threads", async () => {
     const user = userEvent.setup();
     const { onMenuAction, source } = setup();

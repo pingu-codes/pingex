@@ -476,18 +476,36 @@ fn build_bootstrap(
         })
         .collect();
 
-    let mut projects = Vec::new();
-    for entry in entries {
-        let worktree = entry.worktree || is_worktree_path(runtime, &entry.path);
+    let entries: Vec<_> = entries
+        .into_iter()
+        .map(|entry| {
+            let worktree = entry.worktree || is_worktree_path(runtime, &entry.path);
+            (entry, worktree)
+        })
         // A worktree that has been deleted on disk is simply gone; a plain
         // folder is kept so the user can still remove it from the sidebar.
-        if worktree && !runtime.host.is_dir(&entry.path) {
-            continue;
+        .filter(|(entry, worktree)| !worktree || runtime.host.is_dir(&entry.path))
+        .collect();
+    // Codex names every worktree of a repository after it
+    // (`worktrees/<group>/<repo>`), so unnamed ones would all read the same.
+    let mut default_names: HashMap<String, usize> = HashMap::new();
+    for (entry, worktree) in &entries {
+        if entry.name.is_none() {
+            *default_names
+                .entry(default_project_name(&entry.path, *worktree))
+                .or_default() += 1;
         }
-        let name = entry
-            .name
-            .clone()
-            .unwrap_or_else(|| default_project_name(&entry.path, worktree));
+    }
+
+    let mut projects = Vec::new();
+    for (entry, worktree) in entries {
+        let name = entry.name.clone().unwrap_or_else(|| {
+            let name = default_project_name(&entry.path, worktree);
+            match worktree_group(&entry.path) {
+                Some(group) if worktree && default_names[&name] > 1 => format!("{name} ({group})"),
+                _ => name,
+            }
+        });
         let mut threads: Vec<_> = visible_threads
             .iter()
             .filter(|thread| thread.parent_thread_id.is_none())
@@ -605,6 +623,12 @@ fn default_project_name(path: &str, worktree: bool) -> String {
     } else {
         base
     }
+}
+
+/// The folder a worktree sits in (`<group>` in `worktrees/<group>/<name>`),
+/// which tells same-named worktrees apart.
+fn worktree_group(path: &str) -> Option<&str> {
+    Path::new(path).parent()?.file_name()?.to_str()
 }
 
 #[cfg(test)]
@@ -918,6 +942,83 @@ mod tests {
             .map(|thread| thread.in_temp_worktree)
             .collect();
         assert_eq!(in_temp, [false, true, true]);
+    }
+
+    #[test]
+    fn same_named_permanent_worktrees_keep_their_own_threads() {
+        let directory = tempfile::tempdir().unwrap();
+        let home = directory.path().join("codex-home");
+        let first = home.join("worktrees/h1/repo");
+        let second = home.join("worktrees/h2/repo");
+        std::fs::create_dir_all(&first).unwrap();
+        std::fs::create_dir_all(&second).unwrap();
+        let first_path = first.display().to_string();
+        let second_path = second.display().to_string();
+
+        let data = build_bootstrap(
+            &RuntimeConfig {
+                codex_home: home,
+                codex_binary: PathBuf::from("codex"),
+                host: crate::util::host::Host::Native,
+            },
+            Store {
+                projects: Vec::new(),
+                pinned_threads: Vec::new(),
+                hidden_threads: Vec::new(),
+            },
+            vec![
+                thread("first-thread", &first_path, 2),
+                thread("second-thread", &second_path, 1),
+            ],
+            None,
+            Vec::new(),
+            Vec::new(),
+            BootstrapExtras {
+                instructions: HashMap::new(),
+                sources_by_project: HashMap::new(),
+                project_expansion: HashMap::new(),
+                workspaces: Vec::new(),
+                workspace_members: Vec::new(),
+                workspace_threads: HashMap::new(),
+                legacy_agent_threads: Vec::new(),
+                temp_worktree_parents: Vec::new(),
+                server_projects: HashMap::new(),
+                sections: Vec::new(),
+                project_recency: HashMap::new(),
+                sections_supported: false,
+                sidebar_layout: Default::default(),
+            },
+        )
+        .unwrap();
+
+        let listed: Vec<_> = data
+            .projects
+            .iter()
+            .map(|project| {
+                let ids: Vec<_> = project.threads.iter().map(|t| t.id.as_str()).collect();
+                (project.path.as_str(), ids)
+            })
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                (first_path.as_str(), vec!["first-thread"]),
+                (second_path.as_str(), vec!["second-thread"]),
+            ]
+        );
+        // Both are `repo`, so each is told apart by the folder it sits in.
+        let names: Vec<_> = data
+            .projects
+            .iter()
+            .map(|project| project.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "repo-permanent-worktree (h1)",
+                "repo-permanent-worktree (h2)"
+            ]
+        );
     }
 
     #[test]
