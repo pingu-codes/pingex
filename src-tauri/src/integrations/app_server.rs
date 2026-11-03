@@ -86,8 +86,12 @@ pub(crate) async fn list_skills_for(
         .map(Json)
 }
 
-/// Enable or disable a skill by name. `skills/config/write` requires exactly
-/// one of `name` or `path`; we always key by name.
+/// Enable or disable a skill. `skills/config/write` takes exactly one of
+/// `name` or `path`, and a disable may be stored under either: Codex's own
+/// app writes `name = "..."` entries, we write `path = "..."` ones. Enabling
+/// only removes the entry matching the selector it was given, so enabling by
+/// path alone leaves a name entry in place and the skill stays disabled.
+/// Enabling therefore clears both; disabling keys by path when we have one.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn set_skill_enabled(
@@ -99,16 +103,23 @@ pub(crate) async fn set_skill_enabled(
     state: State<'_, AppState>,
 ) -> Result<Json, String> {
     let ctx = state.ctx(&window);
-    ctx.session
-        .send(
-            &app,
-            match path {
-                Some(path) => requests::skill_config_write_path(&path, enabled),
-                None => requests::skill_config_write(&name, enabled),
-            },
-        )
-        .await
-        .map(Json)
+    let Some(path) = path else {
+        return ctx
+            .session
+            .send(&app, requests::skill_config_write(&name, enabled))
+            .await
+            .map(Json);
+    };
+    let response = ctx
+        .session
+        .send(&app, requests::skill_config_write_path(&path, enabled))
+        .await?;
+    if enabled && !name.trim().is_empty() {
+        ctx.session
+            .send(&app, requests::skill_config_write(&name, true))
+            .await?;
+    }
+    Ok(Json(response))
 }
 
 /// Skills for the typed `IntegrationsList`, deduped by name across the

@@ -5,9 +5,9 @@ tiers of the Codex CLI at any time:
 
 | Tier | What it is | Version | Tag / ref | Commit | Date |
 |---|---|---|---|---|---|
-| **Unstable** | Upstream `main`, as mirrored in `../codex-mirror` | `0.0.0` (source builds report the workspace version) | `main` | `9def09afa71e1443a1028866ac22dc82aedea00e` | 2026-10-29 |
-| **Stable** | The latest tagged release | `0.165.0` | `rust-v0.165.0` | `360319d8dee62d87e2d59fc0c21805d79519cfed` | 2026-10-27 |
-| **Last stable** | The release before it | `0.164.0` | `rust-v0.164.0` | `6aaac694803004a63c6f393d153c96d22521a6b9` | 2026-10-22 |
+| **Unstable** | Upstream `main`, as mirrored in `../codex-mirror` | `0.0.0` (source builds report the workspace version) | `main` | `86b2eca691445e69d0d88c539ea3d41b515e181a` | 2026-11-03 |
+| **Stable** | The latest tagged release | `0.166.0` | `rust-v0.166.0` | `6ff1e1ca3b30fc8b914720681fcf5fe62e95f856` | 2026-10-29 |
+| **Last stable** | The release before it | `0.165.0` | `rust-v0.165.0` | `360319d8dee62d87e2d59fc0c21805d79519cfed` | 2026-10-27 |
 
 Older releases are not tested. They mostly keep working because nothing in
 the app branches on the version (see below), but a release older than *last
@@ -54,7 +54,7 @@ together. Its recorded streams are under `tests/fixtures/protocol/maki/`, and
 
 Gated APIs (one row per `Feature`):
 
-| Feature | API | Last stable 0.164.0 | Stable 0.165.0 | Unstable |
+| Feature | API | Last stable 0.165.0 | Stable 0.166.0 | Unstable |
 |---|---|---|---|---|
 | `REVERT` | `thread/revert` (paginated-history threads only; others are refused per thread) | ✓ | ✓ | ✓ |
 | `QUEUE` | `thread/queue/*` (needs the experimental capability and a queue database) | ✓ | ✓ | ✓ |
@@ -73,7 +73,7 @@ update leaves the running status unchanged and applies the choice next turn.
 Payload additions the app reads when present (no gating needed — the field is
 simply absent on older tiers):
 
-| Field / notification | Where it shows | 0.164.0 | 0.165.0 | Unstable | Live-tested |
+| Field / notification | Where it shows | 0.165.0 | 0.166.0 | Unstable | Live-tested |
 |---|---|---|---|---|---|
 | `item/commandExecution/requestApproval.kind` (`command` \| `writeStdin`) | approval card title | ✓ | ✓ | ✓ | `command` only |
 | `McpServerStatus.runtimeStatus` | Integrations row | ✓ | ✓ | ✓ | ✓ |
@@ -179,27 +179,34 @@ Protocol added since 0.153 that the app does not read yet:
   `thread/realtime/start.voiceSessionId`; experimental
   `thread/sample{,/cancel}` and `responsesapiClientMetadataPatch` on
   `turn/start` and `turn/steer`.
-- 0.165.x (stable and unstable): experimental `thread/memory/read` (the
+- 0.165.x (every tier): experimental `thread/memory/read` (the
   thread's memory summary); `CodexErrorInfo` `modelNotFound`; experimental
   `thread/fork.attachToSource` and `thread/list.attachedToThreadId` (hidden
   forks attached to a source thread); `ConfigRequirements.reviewDomains`; a
   `gcp` model-provider account type; `thread/sample` responses carry
   `threadSource`. `HookRunSummary.sourcePath` and plugin paths changed Rust
   path type but still serialise as strings.
-- Unstable only: `ThreadItem.{startedAtMs,completedAtMs}` on every item (flat
-  on the wire; previously only on `item/started`/`item/completed` and
-  `thread/items/list`); `Account.chatgpt.workspaceName`; experimental
+- 0.166.x (stable and unstable): `ThreadItem.{startedAtMs,completedAtMs}` on
+  every item (flat on the wire; previously only on `item/started`/`item/completed`
+  and `thread/items/list`); `Account.chatgpt.workspaceName`; experimental
   `accountSession/{list,switch}` (multi-account switching) and
   `account/gcp/setup`; `CodexErrorInfo` `policyCapacityUnavailable`; a
   structured `ModelProviderError` in JSON-RPC error data
   (`modelProviderMismatch`, `modelProviderNotConfigured`,
-  `modelProviderPolicyConflict`); experimental `initialize`
-  capability `requiredHumanApproval` and approval kind `humanCommand`;
-  `hooks/list.threadId` and `HookMetadata.environmentId`;
-  `ThreadUsage.nativeUsageUsdMicros`; `imageGeneration.generationId`;
-  `AdditionalContextEntry.name`; `ProcessExitedNotification.outputDrainTimedOut`;
-  `ConfigRequirements.otel`. `review/start` no longer accepts
-  `delivery: "detached"` (the app never sends `delivery`).
+  `modelProviderPolicyConflict`); `hooks/list.threadId` and
+  `HookMetadata.environmentId`; `ThreadUsage.nativeUsageUsdMicros`;
+  `imageGeneration.generationId`; `AdditionalContextEntry.name`;
+  `ProcessExitedNotification.outputDrainTimedOut`; `ConfigRequirements.otel`.
+  `review/start` no longer accepts `delivery: "detached"` (the app never sends
+  `delivery`).
+- Unstable only: experimental `initialize` capability `requiredHumanApproval`
+  and approval kind `humanCommand`; `modelProvider/list` and
+  `modelProvider/config/write` (provider summaries and OpenAI / custom gateway /
+  Bedrock / GCP settings); `thread/section/changed` (a thread moved between
+  sections; a candidate for the sidebar); experimental `thread/guardianReview`;
+  `item/completed.contentTokenCount`; `Config.clientSearchProvider`;
+  `OtelRequirements.logSseDeltas`; `thread/list.currentAccountOnly` and
+  `thread/search.currentAccountOnly`.
 
 ## Bumping a tier
 
