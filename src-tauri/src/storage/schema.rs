@@ -327,6 +327,19 @@ CREATE TABLE IF NOT EXISTS review_inbox_snapshots (
      scope TEXT NOT NULL,
      parent_id TEXT,
      ordinal INTEGER NOT NULL
+ );
+ CREATE TABLE IF NOT EXISTS repository_settings (
+     repo_key TEXT PRIMARY KEY,
+     setup_command TEXT,
+     review_checkout_policy TEXT NOT NULL DEFAULT 'ask',
+     skip_checkout_confirm INTEGER NOT NULL DEFAULT 0,
+     worktree_dir TEXT,
+     pr_source TEXT NOT NULL DEFAULT 'origin',
+     updated_at INTEGER NOT NULL
+ );
+ CREATE TABLE IF NOT EXISTS review_prs_only_repos (
+     slug TEXT PRIMARY KEY,
+     added_at INTEGER NOT NULL
  );";
 
 /// Columns added after their table shipped. Re-running these on an up-to-date

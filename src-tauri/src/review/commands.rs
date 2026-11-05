@@ -9,12 +9,14 @@ use tauri::State;
 use super::desk::ReviewDesk;
 use super::github::GhCli;
 use super::pending::PendingReview;
+use super::repository::{FolderFacts, KnownClone, Repository};
 use super::types::{
-    ChangesSince, CheckLog, CommentRef, FetchedPr, FileBlob, GitHubRepo, Inbox, MergeRequest,
-    NewPr, PendingComment, PrDetail, PrFile, PrFileContents, PrFreshness, PrSummary,
+    ChangesSince, CheckLog, CommentRef, FetchedPr, FileBlob, GitHubAccount, GitHubRepo, Inbox,
+    MergeRequest, NewPr, PendingComment, PrDetail, PrFile, PrFileContents, PrFreshness, PrSummary,
     ProviderStatus, ReviewRequests, ReviewSubmission, ReviewVerdict, ShaDiff, StackListing,
 };
-use crate::storage::{self, ReviewDraft};
+use crate::storage::{self, RepositorySettings, ReviewDraft};
+use crate::util::host::Host;
 use crate::AppState;
 
 /// The desk for the repository at `repo_dir` on the window's Home.
@@ -554,4 +556,171 @@ pub(crate) async fn review_delete_draft(
 ) -> Result<(), String> {
     let ctx = state.ctx(&window);
     storage::delete_review_draft(&ctx.database(), &provider, &repo, pr_number).await
+}
+
+// --- Repositories (Add repository, the sidebar's repository states) ---
+
+/// A desk over `path` on an explicitly chosen Host, as Add repository picks
+/// it: a share path picked in a distribution runs there unless `host` says
+/// otherwise.
+fn desk_on(
+    window: &crate::HomeWindow,
+    state: &State<'_, AppState>,
+    path: &str,
+    host: Option<Host>,
+) -> ReviewDesk {
+    let (host, dir) = match host {
+        Some(host) => {
+            let dir = host.to_host_path(path.trim());
+            (host, dir)
+        }
+        None => Host::from_local(path.trim()),
+    };
+    let dir = PathBuf::from(dir);
+    let github = Arc::new(GhCli::new(host.clone(), dir.clone()));
+    ReviewDesk::new(host, dir, github, state.ctx(window).database())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_github_account(
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<GitHubAccount, String> {
+    account_desk(&window, &state).github_account().await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_switch_github_account(
+    login: String,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    account_desk(&window, &state)
+        .switch_github_account(login)
+        .await
+}
+
+/// What a local folder holds before it is added as a repository.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_inspect_folder(
+    folder: String,
+    host: Option<Host>,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<FolderFacts, String> {
+    desk_on(&window, &state, &folder, host)
+        .inspect_folder()
+        .await
+}
+
+/// A project's repository state: cloned, or with no GitHub remote feeding it.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_repository(
+    repo_dir: String,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<Repository, String> {
+    desk(&window, &state, repo_dir).repository().await
+}
+
+/// `repo_dir` is the clone's path, or a PRs-only repository's slug.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_repository_settings(
+    repo_dir: String,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<RepositorySettings, String> {
+    desk(&window, &state, repo_dir).repository_settings().await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_save_repository_settings(
+    repo_dir: String,
+    settings: RepositorySettings,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    desk(&window, &state, repo_dir)
+        .save_repository_settings(settings)
+        .await
+}
+
+/// Make the clone at `repo_dir` feed GitHub repository `slug`'s PRs.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_link_clone(
+    repo_dir: String,
+    slug: String,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<Repository, String> {
+    desk(&window, &state, repo_dir).link_clone(slug).await
+}
+
+/// For each of `slugs`, a clone of it among `cwds` (folders Pingex knows).
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_find_clones(
+    slugs: Vec<String>,
+    cwds: Vec<String>,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<Vec<KnownClone>, String> {
+    account_desk(&window, &state).find_clones(slugs, cwds).await
+}
+
+/// Clone `url` into `<parent_dir>/<name>` on `host`; returns the clone's path
+/// on that Host, ready to add as a project.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_clone_repository(
+    parent_dir: String,
+    url: String,
+    name: String,
+    host: Option<Host>,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    desk_on(&window, &state, &parent_dir, host)
+        .clone_repository(url, name)
+        .await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_prs_only_repositories(
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<Vec<Repository>, String> {
+    account_desk(&window, &state).prs_only_repositories().await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_add_prs_only_repository(
+    slug: String,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    account_desk(&window, &state)
+        .add_prs_only_repository(slug)
+        .await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_remove_prs_only_repository(
+    slug: String,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    account_desk(&window, &state)
+        .remove_prs_only_repository(slug)
+        .await
 }

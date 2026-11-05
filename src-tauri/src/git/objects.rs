@@ -63,7 +63,7 @@ fn require_remote(remote: &str) -> Result<&str, String> {
 /// `owner/name` from a GitHub remote URL, in any of the spellings git accepts:
 /// `https://github.com/o/n(.git)`, `git@github.com:o/n.git`, an SSH host
 /// alias (`git@github-personal:o/n.git`) or `ssh://git@host/o/n`.
-fn url_slug(url: &str) -> Option<String> {
+pub(crate) fn url_slug(url: &str) -> Option<String> {
     let url = url.trim().trim_end_matches('/');
     let url = url.strip_suffix(".git").unwrap_or(url);
     let path = match url.split_once("://") {

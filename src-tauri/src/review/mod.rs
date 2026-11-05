@@ -21,5 +21,6 @@ mod feed;
 pub(crate) mod github;
 pub(crate) mod pending;
 pub(crate) mod provider;
+pub(crate) mod repository;
 pub(crate) mod requirements;
 pub(crate) mod types;

@@ -544,6 +544,18 @@ pub(crate) struct GitHubRepo {
     pub(crate) ssh_url: String,
 }
 
+/// The GitHub account the provider signs in as.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GitHubAccount {
+    /// The active login; `None` when signed out.
+    pub(crate) login: Option<String>,
+    /// Where its token comes from, e.g. `keyring` or `GH_TOKEN`.
+    pub(crate) token_source: Option<String>,
+    /// Every signed-in login, the active one included, to switch between.
+    pub(crate) logins: Vec<String>,
+}
+
 /// A repository with open PRs that ask the signed-in account for review.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]

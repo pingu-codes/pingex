@@ -23,8 +23,6 @@ import type {
 import { basename } from "$lib/utils/path";
 import { previewStageBytes, previewStageFromPath } from "./attachments";
 import {
-  DESK_REPOS,
-  DESK_VIEWER,
   deskDiscardPendingReview,
   deskInbox,
   deskMarkActivitySeen,
@@ -93,6 +91,7 @@ import {
   previewSetMemoryToggle,
   previewWriteMemory,
 } from "./memories";
+import { repositoryCommands } from "./repositories";
 import { previewCompact, previewInterrupt, previewStreamTurn } from "./stream";
 
 type Commands = typeof commands;
@@ -764,24 +763,7 @@ export const previewCommands: PreviewCommands = {
   reviewCheckLogs: () => [],
   reviewRerunFailedChecks: () => {},
   reviewCreatePr: () => nextPreviewId(),
-  reviewMyRepositories: () =>
-    DESK_REPOS.filter((repo) => repo.slug.startsWith(`${DESK_VIEWER}/`)).map((repo) => ({
-      slug: repo.slug,
-      private: false,
-      fork: false,
-      parent: null,
-      defaultBranch: "main",
-      cloneUrl: `https://github.com/${repo.slug}.git`,
-      sshUrl: `git@github.com:${repo.slug}.git`,
-    })),
-  reviewRepositoriesRequestingReview: () =>
-    DESK_REPOS.filter((repo) => repo.slug)
-      .map((repo) => ({
-        slug: repo.slug,
-        count: deskInbox(repo.slug).prs.filter((pr) => pr.reviewRequests.includes(DESK_VIEWER)).length,
-      }))
-      .filter((repo) => repo.count > 0)
-      .sort((a, b) => b.count - a.count),
+  ...repositoryCommands,
   reviewPendingReview: (repoDir, number) => deskPendingReview(repoDir, number),
   reviewSavePendingReview: (repoDir, number, review) => deskSavePendingReview(repoDir, number, review),
   reviewDiscardPendingReview: (repoDir, number) => deskDiscardPendingReview(repoDir, number),

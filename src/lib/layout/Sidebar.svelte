@@ -45,6 +45,10 @@
     type TreeNode,
   } from "$lib/layout/sidebarTree";
   import UsageMeter from "$lib/layout/UsageMeter.svelte";
+  import type { AddRepositoryInitial } from "$lib/repositories/AddRepositoryDialog.svelte";
+  import RepositoryMark from "$lib/repositories/RepositoryMark.svelte";
+  import { ensureRepositories } from "$lib/repositories/repositoryStore.svelte";
+  import SidebarRepositories from "$lib/repositories/SidebarRepositories.svelte";
   import { accountUsage } from "$lib/services/accountUsage.svelte";
   import { activeTurns, approvals, unansweredQuestions, userInputRequests } from "$lib/services/codexEvents.svelte";
   import { remoteConnections } from "$lib/services/connections.svelte";
@@ -84,6 +88,7 @@
     sections = [],
     sectionsSupported = false,
     onAddProject,
+    onAddRepository,
     onAddWorkspace,
     onSelectThread,
     onNewThread,
@@ -119,6 +124,8 @@
     /** False hides every section affordance (older Codex). */
     sectionsSupported?: boolean;
     onAddProject: () => void;
+    /** Opens Add repository; omitted, the sidebar shows no repository UI. */
+    onAddRepository?: (initial?: AddRepositoryInitial) => void;
     onAddWorkspace?: () => void;
     onSelectThread: (project: Project, threadId: string) => void;
     onNewThread: (project?: Project) => void;
@@ -174,6 +181,10 @@
   $effect(() => {
     if (nesting) ensureWorktrees(repoPaths);
   });
+  // Each repository's state: cloned, PRs only or no GitHub remote.
+  $effect(() => {
+    if (onAddRepository) void ensureRepositories(repoPaths);
+  });
   const nested = $derived(nesting ? nestProjects(visibleProjects, worktreeMap.byRepo, unfiledThreads) : null);
   $effect(() => {
     worktreeMap.unaddedParents = nested?.unaddedParents ?? {};
@@ -227,6 +238,7 @@
           testId: "nest-worktrees",
           active: nesting,
         },
+        onAddRepository && { label: "Add repository", icon: GitPullRequest, onclick: () => onAddRepository() },
         { label: "Add project folder", icon: Plus, onclick: onAddProject },
       ] as (HeaderAction | false | undefined)[]
     ).filter((action): action is HeaderAction => Boolean(action)),
@@ -729,6 +741,9 @@
           >{project.name}</TooltipAnchor
         >
         <span class="shrink-0 text-[10px] text-surface-500">{projectHostLabel(project.path)}</span>
+        {#if onAddRepository}
+          <RepositoryMark path={project.path} />
+        {/if}
         {#if project.pinned}
           <Pin class="shrink-0 text-surface-500" size={11} />
         {/if}
@@ -982,6 +997,9 @@
             {@render rootNode(node)}
           {/each}
         </div>
+      {/if}
+      {#if onAddRepository && !loading}
+        <SidebarRepositories {onAddRepository} />
       {/if}
     </div>
 

@@ -16,8 +16,8 @@
 //! `GhCli`, and in `FakeGitHub` (with a `Sent` variant for a write).
 
 use super::types::{
-    CheckLog, CommentRef, GitHubRepo, InboxRead, MergeRequest, NewPr, PrDetail, PrHead, PrSummary,
-    ProviderStatus, ReviewRequests, ReviewSubmission, StackListing,
+    CheckLog, CommentRef, GitHubAccount, GitHubRepo, InboxRead, MergeRequest, NewPr, PrDetail,
+    PrHead, PrSummary, ProviderStatus, ReviewRequests, ReviewSubmission, StackListing,
 };
 
 pub(crate) trait GitHubProvider: Send + Sync {
@@ -33,6 +33,12 @@ pub(crate) trait GitHubProvider: Send + Sync {
     /// Repositories with open PRs that ask the signed-in account for review,
     /// most requests first.
     fn repositories_requesting_review(&self) -> Result<Vec<ReviewRequests>, String>;
+    /// The signed-in account, where its token comes from, and the other
+    /// accounts signed in alongside it.
+    fn account(&self) -> Result<GitHubAccount, String>;
+    /// Make `login`, already signed in, the active account. Changes only the
+    /// local sign-in, nothing on GitHub.
+    fn switch_account(&self, login: &str) -> Result<(), String>;
 
     // --- Reads ---
 

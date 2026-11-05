@@ -15,7 +15,15 @@
     slashCommand,
     threadCreated,
   } from "$lib/app/actions.svelte";
-  import { addProject, appData, applyData, projectForCwd, projects, refresh } from "$lib/app/appData.svelte";
+  import {
+    addProject,
+    addRepository,
+    appData,
+    applyData,
+    projectForCwd,
+    projects,
+    refresh,
+  } from "$lib/app/appData.svelte";
   import { expectedCwdFor, handoff, movedToWorktree } from "$lib/app/handoff.svelte";
   import {
     browseForHome,
@@ -61,6 +69,7 @@
   import Sidebar from "$lib/layout/Sidebar.svelte";
   import MemoriesView from "$lib/memories/MemoriesView.svelte";
   import ProjectDetail from "$lib/panels/ProjectDetail.svelte";
+  import EmptyInbox from "$lib/repositories/EmptyInbox.svelte";
   import ReviewView from "$lib/review/ReviewView.svelte";
   import { commands } from "$lib/services/homeRouting";
   import { closeSettings, openSettings, settingsNav } from "$lib/services/settingsNav.svelte";
@@ -131,6 +140,7 @@
         selectedThread={rootThreadId(view.threadId, appData.data?.threadBranches ?? []) ?? view.threadId}
         loading={appData.loading}
         onAddProject={addProject}
+        onAddRepository={addRepository}
         onAddWorkspace={() => openWorkspaceDialog()}
         onSelectThread={openThread}
         onNewThread={newThread}
@@ -278,7 +288,7 @@
             {/key}
           {:else}
             <div class="grid h-full place-items-center p-8">
-              <div class="empty-state max-w-sm">Add a repository folder to see its pull requests here.</div>
+              <div class="max-w-sm"><EmptyInbox onAddRepository={() => addRepository()} /></div>
             </div>
           {/if}
         </div>

@@ -26,7 +26,9 @@ mod projects;
 pub(crate) use profile_import::{open_profile_root, open_profile_root_at, profile_root_path_in};
 pub(crate) mod native_side_questions;
 mod questions;
+mod repository_settings;
 mod review;
+mod review_repositories;
 mod review_seen;
 mod review_viewed;
 mod schema;
@@ -69,9 +71,15 @@ pub(crate) use questions::{
 pub use questions::{
     add_side_question, delete_side_question, read_side_questions, SideQuestion, SideQuestionKind,
 };
+pub(crate) use repository_settings::{
+    read_repository_settings, write_repository_settings, PrSource, RepositorySettings,
+};
 pub(crate) use review::{
     delete_review_draft, read_inbox_snapshot, read_review_draft, write_inbox_snapshot,
     write_review_draft, ReviewDraft,
+};
+pub(crate) use review_repositories::{
+    add_prs_only_repository, prs_only_repositories, remove_prs_only_repository,
 };
 pub(crate) use review_seen::{
     append_feed, mark_prs_seen, mute_pr, read_feed, read_seen_prs, SeenPr,
