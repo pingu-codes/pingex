@@ -5,6 +5,7 @@
 // here polls git.
 
 import { syncDelay } from "$lib/inbox/inbox";
+import { reloadPrLinks } from "$lib/review/prLinks.svelte";
 import { commands } from "$lib/services/homeRouting";
 import type { Inbox, StackListing } from "$lib/types";
 import { errorMessage } from "$lib/utils/errors";
@@ -38,6 +39,14 @@ export async function syncInbox(repoDir: string): Promise<void> {
     state.inbox = inbox;
     state.stacks = stacks;
     state.error = null;
+    // What closed PRs left behind: refs now, review checkouts after 7 days,
+    // and their threads leave the Reviews group.
+    void commands
+      .reviewPruneClosed(repoDir)
+      .then((report) => {
+        if (report.closed.length > 0) void reloadPrLinks();
+      })
+      .catch(() => {});
   } catch (cause) {
     state.error = errorMessage(cause);
   } finally {

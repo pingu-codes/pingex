@@ -70,6 +70,7 @@
   import MemoriesView from "$lib/memories/MemoriesView.svelte";
   import ProjectDetail from "$lib/panels/ProjectDetail.svelte";
   import EmptyInbox from "$lib/repositories/EmptyInbox.svelte";
+  import { checkoutHandlers } from "$lib/review/inboxCheckouts";
   import ReviewView from "$lib/review/ReviewView.svelte";
   import { commands } from "$lib/services/homeRouting";
   import { closeSettings, openSettings, settingsNav } from "$lib/services/settingsNav.svelte";
@@ -283,6 +284,7 @@
                     if (target) openReview(target, pr.number);
                   },
                   newThread: (repoDir) => newThreadInDir(repoDir),
+                  ...checkoutHandlers((repoDir) => projectForCwd(repoDir)?.name ?? repoDir),
                 }}
               />
             {/key}
