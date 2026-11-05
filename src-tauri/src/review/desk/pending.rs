@@ -132,7 +132,6 @@ mod tests {
         // It reads back from the profile database, as after a restart.
         let stored = fixture.desk.pending_review(4).await.unwrap().unwrap();
         assert_eq!(stored.entries.len(), 4);
-        assert_eq!(stored.posted_comment_count(), 4);
 
         fixture.desk.submit_pending_review(4).await.unwrap();
 

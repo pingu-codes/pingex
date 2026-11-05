@@ -168,9 +168,7 @@ export function upNext(inbox: Inbox | null, current: number): InboxPr[] {
   if (!inbox) return [];
   const requested = new Set(inbox.triage.filter((pr) => pr.reviewRequested).map((pr) => pr.number));
   return inbox.prs
-    .filter(
-      (pr) => pr.number !== current && (requested.has(pr.number) || pr.reviewRequests.includes(inbox.viewer)),
-    )
+    .filter((pr) => pr.number !== current && (requested.has(pr.number) || pr.reviewRequests.includes(inbox.viewer)))
     .sort((a, b) => a.number - b.number);
 }
 

@@ -2,8 +2,8 @@
   import { ArrowLeft, Bot, FileDiff, GitBranch, GitPullRequest, LogIn, RefreshCw } from "@lucide/svelte";
   import { onMount } from "svelte";
   import DiffBlock from "$lib/components/DiffBlock.svelte";
-  import { inboxes } from "$lib/inbox/inboxStore.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
+  import { inboxes } from "$lib/inbox/inboxStore.svelte";
   import ReviewPage from "$lib/review/ReviewPage.svelte";
   import { changeStat, fileChange, reviewPrompt } from "$lib/review/review";
   import { type AskAgentRequest, askAgentPrompt } from "$lib/review/reviewPage";

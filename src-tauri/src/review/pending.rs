@@ -66,17 +66,6 @@ pub(crate) enum PendingEntry {
     },
 }
 
-impl PendingEntry {
-    pub(crate) fn id(&self) -> &str {
-        match self {
-            Self::Comment { id, .. }
-            | Self::Suggestion { id, .. }
-            | Self::Reply { id, .. }
-            | Self::AcceptedFinding { id, .. } => id,
-        }
-    }
-}
-
 /// The reviewer's unsubmitted review of one PR.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -96,12 +85,6 @@ impl PendingReview {
     /// Nothing worth keeping: no entries and no summary.
     pub(crate) fn is_empty(&self) -> bool {
         self.entries.is_empty() && self.summary.trim().is_empty()
-    }
-
-    /// How many comments the submission posts, replies included: what the
-    /// Submit button names.
-    pub(crate) fn posted_comment_count(&self) -> usize {
-        self.entries.len()
     }
 
     /// The one GitHub review this pending review posts.
