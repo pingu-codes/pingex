@@ -27,6 +27,8 @@ import {
   DESK_VIEWER,
   deskDiscardPendingReview,
   deskInbox,
+  deskMarkActivitySeen,
+  deskMutePr,
   deskPendingReview,
   deskPrDetail,
   deskSavePendingReview,
@@ -734,6 +736,8 @@ export const previewCommands: PreviewCommands = {
   }),
   reviewLocalDiff: () => structuredClone(previewPrDetail.files),
   reviewInbox: (repoDir) => deskInbox(repoDir),
+  reviewMarkActivitySeen: (repoDir, numbers) => deskMarkActivitySeen(repoDir, numbers),
+  reviewMutePr: (repoDir, number, headSha) => deskMutePr(repoDir, number, headSha),
   reviewStacks: (repoDir) => deskStacks(repoDir),
   reviewFetchPrs: (repoDir, numbers) => {
     const prs = deskInbox(repoDir).prs;

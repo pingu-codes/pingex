@@ -206,6 +206,25 @@ CREATE TABLE IF NOT EXISTS review_inbox_snapshots (
      updated_at INTEGER NOT NULL,
      PRIMARY KEY (provider, repo)
  );
+ CREATE TABLE IF NOT EXISTS review_seen (
+     provider TEXT NOT NULL,
+     repo TEXT NOT NULL,
+     pr_number INTEGER NOT NULL,
+     seen_at INTEGER,
+     muted_head TEXT,
+     PRIMARY KEY (provider, repo, pr_number)
+ );
+ CREATE TABLE IF NOT EXISTS review_feed (
+     provider TEXT NOT NULL,
+     repo TEXT NOT NULL,
+     ordinal INTEGER NOT NULL,
+     pr_number INTEGER NOT NULL,
+     kind TEXT NOT NULL,
+     actor TEXT,
+     state TEXT,
+     at INTEGER NOT NULL,
+     PRIMARY KEY (provider, repo, ordinal)
+ );
  CREATE TABLE IF NOT EXISTS project_instructions (
      project_path TEXT PRIMARY KEY,
      instructions TEXT NOT NULL,

@@ -162,12 +162,15 @@ export function newSince(comments: PrComment[], seenAt: string | null): { index:
   return index < 0 ? null : { index, count: comments.length - index };
 }
 
-/** PRs asking the viewer for review, other than `current`, lowest number
- *  first. */
+/** PRs asking the viewer for review (re-requests included, as the inbox
+ *  triages them), other than `current`, lowest number first. */
 export function upNext(inbox: Inbox | null, current: number): InboxPr[] {
   if (!inbox) return [];
+  const requested = new Set(inbox.triage.filter((pr) => pr.reviewRequested).map((pr) => pr.number));
   return inbox.prs
-    .filter((pr) => pr.number !== current && pr.reviewRequests.includes(inbox.viewer))
+    .filter(
+      (pr) => pr.number !== current && (requested.has(pr.number) || pr.reviewRequests.includes(inbox.viewer)),
+    )
     .sort((a, b) => a.number - b.number);
 }
 

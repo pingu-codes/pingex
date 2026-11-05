@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { commands } from "$lib/services/homeRouting";
-import { DESK_REPOS, previewAgentReviews } from "$lib/services/preview/desk";
+import { DESK_REPOS, previewAgentReviews, resetDeskActivity } from "$lib/services/preview/desk";
+
+const MAIN = "/Users/ciaran/Projects/codex-custom";
 
 // The review desk's base data, served by the preview command fakes that
 // every desk UI test and the browser preview render over.
@@ -54,5 +56,33 @@ describe("review desk preview data", () => {
 
   it("has agent reviews queued and running", () => {
     expect(previewAgentReviews.map((review) => review.status).sort()).toEqual(["queued", "running"]);
+  });
+
+  describe("activity", () => {
+    beforeEach(resetDeskActivity);
+
+    it("classifies the inbox the way the desk service does", async () => {
+      const inbox = await commands.reviewInbox(MAIN);
+      expect(inbox.triage.map((triage) => triage.number)).toEqual(inbox.prs.map((pr) => pr.number));
+      expect(inbox.counts).toEqual({ needsMe: 8, mine: 4, reviewRequested: 4, everyone: 9 });
+      const triage = (number: number) => inbox.triage.find((entry) => entry.number === number);
+      expect(triage(412)?.needsMe).toBe("readyToMerge");
+      expect(triage(401)?.commitsSinceMyReview).toBe(2);
+    });
+
+    it("keeps the feed until activity is marked seen, and a muted PR leaves Needs me", async () => {
+      const before = await commands.reviewInbox(MAIN);
+      expect(before.feed.length).toBeGreaterThan(0);
+      const pr415 = before.triage.find((triage) => triage.number === 415);
+      expect(pr415?.newActivity).toBeGreaterThan(0);
+
+      await commands.reviewMarkActivitySeen(MAIN, [415]);
+      await commands.reviewMutePr(MAIN, 412, before.prs.find((pr) => pr.number === 412)?.headSha ?? "");
+      const after = await commands.reviewInbox(MAIN);
+      expect(after.feed.some((entry) => entry.number === 415)).toBe(false);
+      expect(after.triage.find((triage) => triage.number === 415)?.newActivity).toBe(0);
+      expect(after.triage.find((triage) => triage.number === 412)?.needsMe).toBeNull();
+      expect(after.counts.needsMe).toBe(before.counts.needsMe - 1);
+    });
   });
 });

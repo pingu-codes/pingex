@@ -14,6 +14,7 @@
 //! | --- | --- |
 //! | `sync` | Inbox sync and the "since you last looked" feed, native stacks |
 //! | `seen` | Seen head and "changes since" |
+//! | `activity` | Which inbox activity the viewer has seen, and muted PRs |
 //! | `review` | One PR under review: detail, freshness, the review and comments written on it |
 //! | `pending` | The pending review: stored per PR, submitted as one review |
 //! | `viewed` | Files marked viewed, keyed by blob id |
@@ -28,6 +29,7 @@
 //! Every operation is async and does its git and `gh` work on a blocking
 //! task, so callers never block the runtime.
 
+mod activity;
 mod checkouts;
 mod cleanup;
 mod pending;

@@ -1081,6 +1081,9 @@ export const previewInbox: Inbox = {
   rateLimit: { cost: 1, remaining: 4999, resetAt: "2026-07-22T15:30:00Z" },
   complete: true,
   syncedAt: Date.parse("2026-07-22T14:31:00Z"),
+  triage: [],
+  counts: { needsMe: 0, mine: 0, reviewRequested: 0, everyone: 0 },
+  feed: [],
 };
 
 const previewReviewPatch = [

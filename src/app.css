@@ -115,8 +115,9 @@ button {
   @apply rounded-md border border-surface-300-700 bg-surface-50-950 px-2.5 py-1.5 outline-none focus:border-primary-500;
 }
 
-/* Review desk: a compact state pill, paired with a `preset-tonal-*` tone
-   (Skeleton's `badge` is larger). */
+/* Compact status pill on inbox rows and stack cards ("Approved", "CI
+   failing"). Pair it with a `preset-tonal-*`; as a button it opens the
+   state's actions. */
 @utility status-badge {
   @apply inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] leading-[14px] font-medium whitespace-nowrap;
 }
@@ -148,6 +149,18 @@ button {
 /* A changed file's header row on the review page. */
 @utility file-head {
   @apply flex flex-wrap items-center gap-2 bg-surface-100-900 py-1.5 pr-2 pl-1;
+}
+
+/* A pull request row in the inbox. Its `row-action`s and shortcut hints
+   reveal with `group-hover/pr:` and `group-focus/pr:`; `data-selected`
+   marks a multi-selected row. */
+@utility pr-row {
+  @apply flex flex-wrap items-center gap-2.5 px-3 py-2.5 text-xs outline-none hover:bg-surface-500/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-500 data-[selected=true]:bg-primary-500/10;
+}
+
+/* The accent dot for activity not yet seen. */
+@utility unseen-dot {
+  @apply size-1.5 shrink-0 rounded-full bg-primary-500;
 }
 
 /* Copy button injected into markdown code blocks by renderMarkdown. */

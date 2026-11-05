@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ReviewPage from "$lib/review/ReviewPage.svelte";
 import { commands } from "$lib/services/homeRouting";
-import { DESK_REPOS, resetDeskReviewState, THREADED_PR } from "$lib/services/preview/desk";
+import { DESK_REPOS, deskInbox, resetDeskReviewState, THREADED_PR } from "$lib/services/preview/desk";
 
 vi.mock("$lib/services/homeRouting", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
@@ -166,5 +166,16 @@ describe("ReviewPage", () => {
 
     await user.click(screen.getByRole("radio", { name: /^Conversation/ }));
     expect(screen.getByRole("separator")).toHaveTextContent(/1 new since/);
+  });
+
+  it("lists the next review requests and steps back through them with k", async () => {
+    const user = userEvent.setup();
+    const onOpenPr = vi.fn();
+    renderPage({ inbox: deskInbox(repoDir), onOpenPr });
+    await opened();
+
+    expect(within(yourReview()).getByRole("button", { name: /#403 Trap focus in dialogs/ })).toBeInTheDocument();
+    await user.keyboard("k");
+    expect(onOpenPr).toHaveBeenCalledWith(403);
   });
 });

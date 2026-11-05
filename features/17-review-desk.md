@@ -13,7 +13,8 @@ desk**, **Inbox**, **Seen head**, **Stack**, **Review checkout**) is in
   "changes since", and the Seen head.
 - **Writes (next):** review checkouts, promote to worktree, restack, push
   stack.
-- **Desk UI (after that):** not started.
+- **Desk UI:** the Pull requests inbox (`src/lib/inbox/`) is in. The Stack
+  page, the review page and agent reviews are next.
 
 ## Screens (canvas boards)
 
@@ -48,6 +49,8 @@ button names the step it would create.
 | Commands | `src-tauri/src/review/commands.rs` | A thin wrapper that builds the desk with `desk(...)` and forwards. |
 | What each action needs | `src-tauri/src/review/requirements.rs`, exported as `DESK_ACTION_STEPS`; labels and tooltips in `src/lib/review/actions.ts` | A `DeskAction` variant, then `bun run typegen` and its label. |
 | Context menus | `src/lib/components/ActionMenu.svelte`, entries in `actionMenu.ts` | Passing entries (items, separators, submenus) with accelerator shortcuts. |
+| Inbox classification | `src-tauri/src/review/desk/sync.rs` (Needs me, Mine, Review requested, commits since my review) and `desk/activity.rs` (feed and seen state, muting), stored in `review_seen` and `review_feed` | Reading `inbox.triage` and `inbox.counts`; the frontend never re-derives them. |
+| Pull requests inbox | `src/lib/inbox/`: `PullRequestsView`, pure helpers in `inbox.ts`, the sync cadence in `inboxStore.svelte.ts`, menus in `menus.ts` | Passing an `InboxHandlers` entry from `App.svelte` (agent reviews, worktrees, Stack page, Fix CI); without one its buttons show disabled. |
 | Preview data | `src/lib/services/preview/desk.ts` | Extending its repositories and PRs rather than adding parallel fixtures. |
 
 ## Read commands (`src-tauri/src/review/commands.rs`)
@@ -61,6 +64,7 @@ button names the step it would create.
 | `review_file(repoDir, sha, path)` | One file at one commit. |
 | `review_changes_since(repoDir, number, baseSha, headSha)` | What changed since the Seen head, with a range diff after a rewrite. |
 | `review_mark_seen(repoDir, number, sha)` / `review_forget_pr` | Pins or drops the Seen head, or drops all of a closed PR's refs. |
+| `review_mark_activity_seen(repoDir, numbers)` / `review_mute_pr(repoDir, number, headSha)` | Clears PRs' "since you last looked" entries, or leaves a PR out of Needs me until new commits. |
 
 The writes that need no checkout are commands too: `review_merge`,
 `review_close`, `review_retarget`, `review_mark_ready`, `review_check_logs`,
