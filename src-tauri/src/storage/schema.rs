@@ -190,6 +190,13 @@ const DDL: &str = "CREATE TABLE IF NOT EXISTS metadata (
      updated_at INTEGER NOT NULL,
      PRIMARY KEY (provider, repo, pr_number)
  );
+ CREATE TABLE IF NOT EXISTS review_inbox_snapshots (
+     provider TEXT NOT NULL,
+     repo TEXT NOT NULL,
+     payload TEXT NOT NULL,
+     updated_at INTEGER NOT NULL,
+     PRIMARY KEY (provider, repo)
+ );
  CREATE TABLE IF NOT EXISTS project_instructions (
      project_path TEXT PRIMARY KEY,
      instructions TEXT NOT NULL,

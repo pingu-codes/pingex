@@ -153,3 +153,173 @@ pub(crate) struct PendingComment {
     pub(crate) side: Option<String>,
     pub(crate) body: String,
 }
+
+/// One open pull request in a repository's inbox, with everything the inbox
+/// row and its filters need, from one GraphQL query.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InboxPr {
+    pub(crate) number: i64,
+    pub(crate) title: String,
+    pub(crate) author: String,
+    pub(crate) url: String,
+    pub(crate) is_draft: bool,
+    pub(crate) created_at: String,
+    pub(crate) updated_at: String,
+    pub(crate) head_ref: String,
+    /// The head commit. Every diff and file read for this PR is keyed on it.
+    pub(crate) head_sha: String,
+    pub(crate) base_ref: String,
+    pub(crate) base_sha: String,
+    /// `owner/name` of the repository the head branch lives in; differs from
+    /// the inbox's repository for a fork PR. `None` when the fork is deleted.
+    pub(crate) head_repo: Option<String>,
+    /// The head repository's owner may push to the branch only if the author
+    /// allowed it.
+    pub(crate) maintainer_can_modify: bool,
+    /// `APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED`, or none.
+    pub(crate) review_decision: Option<String>,
+    /// Logins and team slugs asked to review.
+    pub(crate) review_requests: Vec<String>,
+    /// Each reviewer's latest approving or change-requesting review.
+    pub(crate) reviews: Vec<InboxReview>,
+    /// The head commit's combined check state: `SUCCESS`, `FAILURE`,
+    /// `PENDING`, `ERROR`, `EXPECTED`, or none when there are no checks.
+    pub(crate) checks: Option<String>,
+    pub(crate) unresolved_threads: i64,
+    pub(crate) additions: i64,
+    pub(crate) deletions: i64,
+    pub(crate) changed_files: i64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InboxReview {
+    pub(crate) author: String,
+    /// `APPROVED`, `CHANGES_REQUESTED`, `COMMENTED`, `DISMISSED`.
+    pub(crate) state: String,
+}
+
+/// What the last query cost against GitHub's GraphQL rate limit.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RateLimit {
+    pub(crate) cost: i64,
+    pub(crate) remaining: i64,
+    pub(crate) reset_at: String,
+}
+
+/// Something that changed on a PR since the previous sync, for the "since you
+/// last looked" feed. Derived by comparing two inbox snapshots, so it costs no
+/// extra requests and needs no notification permission.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InboxEvent {
+    pub(crate) number: i64,
+    /// `opened`, `pushed`, `reviewed`, `reviewRequested`, `checksFailed`,
+    /// `checksPassed`, `closed`.
+    pub(crate) kind: String,
+    /// Who did it, when the snapshot says.
+    pub(crate) actor: Option<String>,
+    /// The new state for `reviewed` (`APPROVED`, `CHANGES_REQUESTED`, ...).
+    pub(crate) state: Option<String>,
+}
+
+/// A repository's inbox: its open PRs as of `synced_at`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Inbox {
+    /// `owner/name`.
+    pub(crate) repo: String,
+    /// The signed-in GitHub login, for "needs me" and "mine".
+    pub(crate) viewer: String,
+    pub(crate) prs: Vec<InboxPr>,
+    /// Changes since the previous sync; empty on the first.
+    pub(crate) events: Vec<InboxEvent>,
+    pub(crate) rate_limit: Option<RateLimit>,
+    /// False when the repository has more open PRs than one sync reads; the
+    /// most recently updated ones are listed.
+    pub(crate) complete: bool,
+    /// Unix milliseconds.
+    pub(crate) synced_at: i64,
+}
+
+/// A stack of pull requests as GitHub records it (native stacked PRs), bottom
+/// first: each PR's base is the head of the one before it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PrStack {
+    /// GitHub's stack number, shown in its stack UI.
+    pub(crate) number: i64,
+    /// The branch the bottom PR merges into.
+    pub(crate) base_ref: String,
+    pub(crate) open: bool,
+    pub(crate) prs: Vec<StackPr>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StackPr {
+    pub(crate) number: i64,
+    /// `open` or `closed`.
+    pub(crate) state: String,
+    pub(crate) is_draft: bool,
+    pub(crate) merged: bool,
+    pub(crate) head_ref: String,
+    pub(crate) head_sha: String,
+}
+
+/// Whether a repository has native stacks, and the stacks if so.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StackListing {
+    /// False when GitHub does not offer stacks for this repository; the inbox
+    /// then shows its PRs ungrouped.
+    pub(crate) supported: bool,
+    pub(crate) stacks: Vec<PrStack>,
+}
+
+/// What a PR's head changed since the reviewer last marked it seen.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ChangesSince {
+    /// The head last marked seen; `None` if never.
+    pub(crate) seen_sha: Option<String>,
+    pub(crate) head_sha: String,
+    /// The seen head is an ancestor of the current one: `files` is exactly
+    /// the new commits. Otherwise the branch was rewritten (force-push or
+    /// rebase), `files` may include changes that came from the base branch,
+    /// and `range_diff` says commit by commit what changed.
+    pub(crate) fast_forward: bool,
+    pub(crate) files: Vec<PrFile>,
+    pub(crate) range_diff: Option<String>,
+    pub(crate) truncated: bool,
+}
+
+/// One file at one commit, read from the object database.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PrFileContents {
+    /// `None` for a binary file.
+    pub(crate) text: Option<String>,
+    pub(crate) size: i64,
+    pub(crate) truncated: bool,
+}
+
+/// A PR head fetched into the local repository.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FetchedPr {
+    pub(crate) number: i64,
+    /// `None` when the remote has no such PR.
+    pub(crate) head_sha: Option<String>,
+}
+
+/// A diff between two commits, read from the object database.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ShaDiff {
+    pub(crate) files: Vec<PrFile>,
+    /// The patch passed the read cap; the last files are missing or cut.
+    pub(crate) truncated: bool,
+}

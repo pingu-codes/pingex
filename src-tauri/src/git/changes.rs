@@ -7,12 +7,10 @@
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
-use std::process::Stdio;
-use std::time::Instant;
 
 use serde::Serialize;
 
-use super::run::{redact_git_error, run_git, READ_TIMEOUT, WRITE_TIMEOUT};
+use super::run::{redact_git_error, run_git, run_git_capped, READ_TIMEOUT, WRITE_TIMEOUT};
 use super::status::read_status;
 use super::worktrees::read_worktrees;
 use crate::util::host::Host;
@@ -265,16 +263,10 @@ pub(crate) fn read_file_diff(
     max_bytes: usize,
 ) -> Result<FileDiff, String> {
     let max_bytes = max_bytes.clamp(1024, MAX_DIFF_BYTES);
-    let dir_str = host.path_string(dir);
     let mut args: Vec<&str> = vec![
-        "-C",
-        &dir_str,
-        "-c",
-        "core.quotepath=off",
         // The path is a file name, not a glob (`[id]` would match `i`, `d`).
         "--literal-pathspecs",
         "diff",
-        "--no-color",
         "--no-ext-diff",
     ];
     // The empty side of an untracked file's diff: the null device as git on
@@ -291,43 +283,9 @@ pub(crate) fn read_file_diff(
     } else {
         args.extend([base, "--", path]);
     }
-    let mut command = host.command("git", &args, Some(&dir_str), &[], &[]);
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    let mut child = command
-        .spawn()
-        .map_err(|_| "Could not start git".to_string())?;
-    let mut stdout = child.stdout.take().ok_or("Could not read git output")?;
-    let mut buffer = Vec::with_capacity(max_bytes.min(64 * 1024));
-    let mut chunk = [0u8; 16 * 1024];
-    let mut truncated = false;
-    let started = Instant::now();
-    loop {
-        if started.elapsed() > READ_TIMEOUT {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err("git timed out".to_string());
-        }
-        match stdout.read(&mut chunk) {
-            Ok(0) => break,
-            Ok(n) => {
-                let room = max_bytes.saturating_sub(buffer.len());
-                if n > room {
-                    buffer.extend_from_slice(&chunk[..room]);
-                    truncated = true;
-                    let _ = child.kill();
-                    break;
-                }
-                buffer.extend_from_slice(&chunk[..n]);
-            }
-            Err(_) => break,
-        }
-    }
-    drop(stdout);
-    let _ = child.wait();
-    let mut patch = String::from_utf8_lossy(&buffer).into_owned();
+    let output = run_git_capped(host, dir, &args, max_bytes)?;
+    let truncated = output.truncated;
+    let mut patch = output.stdout;
     if truncated {
         // Do not leave a half line dangling in the rendered diff.
         if let Some(cut) = patch.rfind('\n') {

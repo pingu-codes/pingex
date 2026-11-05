@@ -626,41 +626,8 @@ pub(crate) async fn git_staged_file_diff(
 mod tests {
     use super::*;
     use crate::util::host::Host;
-    use std::process::{Command, Stdio};
 
-    /// Run git against the fixture repository, isolated from the developer's own
-    /// git configuration. Without `GIT_CONFIG_GLOBAL`/`SYSTEM` this test inherits
-    /// whatever the machine has set — notably `commit.gpgsign = true`, which
-    /// makes `git commit` block on a passphrase prompt it can never receive and
-    /// then fail. Test fixtures must not depend on who is running them.
-    fn git(dir: &Path, args: &[&str]) -> bool {
-        Command::new("git")
-            .arg("-C")
-            .arg(dir)
-            .args(args)
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_CONFIG_SYSTEM", "/dev/null")
-            .env("GIT_AUTHOR_NAME", "Test")
-            .env("GIT_AUTHOR_EMAIL", "test@example.com")
-            .env("GIT_COMMITTER_NAME", "Test")
-            .env("GIT_COMMITTER_EMAIL", "test@example.com")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-    }
-
-    fn git_available() -> bool {
-        Command::new("git")
-            .arg("--version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-    }
+    use crate::git::test_repo::{git_available, git_ok as git};
 
     /// SvelteKit/Next routes like `[id]` are glob character classes to git's
     /// default pathspec matching; discarding one must not touch `i` or `d`.
@@ -815,15 +782,6 @@ mod tests {
         if !git_available() {
             eprintln!("skipping: git not available");
             return;
-        }
-        // The functions under test spawn git themselves, so the isolation the
-        // `git()` helper applies has to come from this process's environment.
-        for (key, value) in [
-            ("GIT_CONFIG_GLOBAL", "/dev/null"),
-            ("GIT_CONFIG_SYSTEM", "/dev/null"),
-            ("GIT_TERMINAL_PROMPT", "0"),
-        ] {
-            std::env::set_var(key, value);
         }
         let temp = tempfile::tempdir().expect("temp dir");
         let repo = temp.path().join("repo");

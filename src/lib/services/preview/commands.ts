@@ -41,6 +41,7 @@ import {
   previewGitRepoInfo,
   previewGitStatus,
   previewHomeOverview,
+  previewInbox,
   previewIntegrations,
   previewLaunchState,
   previewListSources,
@@ -725,6 +726,25 @@ export const previewCommands: PreviewCommands = {
     remoteUpdatedAt: knownUpdatedAt,
   }),
   reviewLocalDiff: () => structuredClone(previewPrDetail.files),
+  reviewInbox: () => structuredClone(previewInbox),
+  reviewStacks: () => ({ supported: true, stacks: [] }),
+  reviewFetchPrs: (_repoDir, numbers) =>
+    numbers.map((number) => ({
+      number,
+      headSha: previewInbox.prs.find((pr) => pr.number === number)?.headSha ?? null,
+    })),
+  reviewDiff: () => ({ files: structuredClone(previewPrDetail.files), truncated: false }),
+  reviewFile: () => ({ text: "export const VERSION = 1;\n", size: 26, truncated: false }),
+  reviewChangesSince: (_repoDir, _number, _baseSha, headSha) => ({
+    seenSha: null,
+    headSha,
+    fastForward: false,
+    files: structuredClone(previewPrDetail.files),
+    rangeDiff: null,
+    truncated: false,
+  }),
+  reviewMarkSeen: () => {},
+  reviewForgetPr: () => {},
   reviewSaveDraft(provider, repo, prNumber, headSha, payload) {
     reviewDrafts.set(reviewDraftKey(provider, repo, prNumber), {
       headSha,

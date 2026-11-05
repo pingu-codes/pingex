@@ -20,26 +20,131 @@ pub(crate) const WRITE_TIMEOUT: Duration = Duration::from_secs(60);
 /// Network operations (fetch/pull/push) wait on a remote.
 pub(crate) const NETWORK_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// The environment every git invocation runs with, whatever the user's shell
+/// has set:
+///
+/// - `LC_ALL=C` keeps git's messages in English, so `classify_git_error` and
+///   `redact_git_error` match on any system locale.
+/// - `GIT_OPTIONAL_LOCKS=0` stops `status` and friends from taking
+///   `index.lock` to refresh the stat cache, so a background read never
+///   contends with an agent's own git commands. Required locks still apply.
+/// - `GIT_TERMINAL_PROMPT=0` makes a missing credential fail fast instead of
+///   waiting for a terminal that does not exist.
+/// - `GIT_PAGER=cat` and `GIT_ADVICE=0` keep output plain and parseable.
+pub(crate) const GIT_ENV: [(&str, &str); 5] = [
+    ("LC_ALL", "C"),
+    ("GIT_OPTIONAL_LOCKS", "0"),
+    ("GIT_TERMINAL_PROMPT", "0"),
+    ("GIT_PAGER", "cat"),
+    ("GIT_ADVICE", "0"),
+];
+
+/// Config every invocation sets ahead of the subcommand: paths are printed
+/// raw (no octal quoting) and output never carries colour codes, whatever the
+/// user's gitconfig says.
+const GIT_CONFIG: [&str; 4] = ["-c", "core.quotepath=off", "-c", "color.ui=never"];
+
+/// `GIT_ENV`, plus, in test builds, isolation from the developer's own git
+/// configuration (see `test_repo`).
+fn git_env() -> Vec<(&'static str, &'static str)> {
+    let env = GIT_ENV.to_vec();
+    #[cfg(test)]
+    let env = {
+        let mut env = env;
+        env.extend_from_slice(&super::test_repo::TEST_GIT_ENV);
+        env
+    };
+    env
+}
+
+/// `-C <dir>`, the fixed config, then `args`.
+fn git_argv<'a>(dir: &'a str, args: &[&'a str]) -> Vec<&'a str> {
+    // `-C <dir>` rather than only a working directory, so git resolves the
+    // repository the same way it would from a shell in that folder.
+    let mut argv = vec!["-C", dir];
+    argv.extend_from_slice(&GIT_CONFIG);
+    argv.extend_from_slice(args);
+    argv
+}
+
+fn spawn_git(
+    host: &Host,
+    dir: &Path,
+    args: &[&str],
+    timeout: Duration,
+    max_stdout: Option<usize>,
+    stdin: Option<&str>,
+    timeout_message: &str,
+) -> Result<CommandOutput, String> {
+    let dir_str = host.path_string(dir);
+    let argv = git_argv(&dir_str, args);
+    let env = git_env();
+    let spec = Run {
+        host,
+        program: "git",
+        dir: &dir_str,
+        args: &argv,
+        env: &env,
+        stdin,
+        timeout,
+        max_stdout,
+    };
+    process::run(spec).map_err(|error| match error {
+        RunError::Timeout => timeout_message.to_string(),
+        error => run_error(host, &dir_str, error),
+    })
+}
+
 /// Run `git -C <dir> <args...>` on `host` with a timeout. `dir` is a host
 /// path. Returns an error when the executable is missing or the command
 /// exceeds the timeout; a non-zero exit is surfaced through
-/// `CommandOutput::ok` so callers can classify it.
+/// `CommandOutput::ok` (and `code`) so callers can classify it.
 pub(crate) fn run_git(
     host: &Host,
     dir: &Path,
     args: &[&str],
     timeout: Duration,
 ) -> Result<CommandOutput, String> {
-    // `-C <dir>` rather than only a working directory, so git resolves the
-    // repository the same way it would from a shell in that folder.
-    let dir_str = host.path_string(dir);
-    let mut full_args: Vec<&str> = vec!["-C", &dir_str];
-    full_args.extend_from_slice(args);
+    spawn_git(host, dir, args, timeout, None, None, "git timed out")
+}
 
-    process::run(Run::on(host, "git", &dir_str, &full_args, timeout)).map_err(|error| match error {
-        RunError::Timeout => "git timed out".to_string(),
-        error => run_error(host, &dir_str, error),
-    })
+/// `run_git` with `input` written to stdin, for `update-ref --stdin` and
+/// other commands that take their instructions there. Write timeout.
+pub(crate) fn run_git_with_input(
+    host: &Host,
+    dir: &Path,
+    args: &[&str],
+    input: &str,
+) -> Result<CommandOutput, String> {
+    spawn_git(
+        host,
+        dir,
+        args,
+        WRITE_TIMEOUT,
+        None,
+        Some(input),
+        "git timed out",
+    )
+}
+
+/// `run_git` with a read timeout that stops after `max_bytes` of stdout and
+/// kills the child; `CommandOutput::truncated` says whether it did. For blobs
+/// and diffs whose size the caller cannot know in advance.
+pub(crate) fn run_git_capped(
+    host: &Host,
+    dir: &Path,
+    args: &[&str],
+    max_bytes: usize,
+) -> Result<CommandOutput, String> {
+    spawn_git(
+        host,
+        dir,
+        args,
+        READ_TIMEOUT,
+        Some(max_bytes),
+        None,
+        "git timed out",
+    )
 }
 
 /// The message for a git that never ran. Spawning in a folder that has been
@@ -60,31 +165,23 @@ fn run_error(host: &Host, dir: &str, error: RunError) -> String {
     }
 }
 
-/// Run a network command (fetch/pull/push). Credential prompts are disabled so
-/// a missing login fails fast with an `Auth` classification instead of
-/// hanging until the timeout.
+/// Run a network command (fetch/pull/push) with the longer network timeout.
+/// Credential prompts are disabled for every git call (`GIT_ENV`), so a
+/// missing login fails fast with an `Auth` classification.
 pub(crate) fn run_git_network(
     host: &Host,
     dir: &Path,
     args: &[&str],
 ) -> Result<CommandOutput, String> {
-    let mut full_args: Vec<&str> = vec!["-C"];
-    let dir_str = host.path_string(dir);
-    full_args.push(&dir_str);
-    full_args.extend_from_slice(args);
-    let spec = Run {
+    spawn_git(
         host,
-        program: "git",
-        dir: &dir_str,
-        args: &full_args,
-        env: &[("GIT_TERMINAL_PROMPT", "0")],
-        stdin: None,
-        timeout: NETWORK_TIMEOUT,
-    };
-    process::run(spec).map_err(|error| match error {
-        RunError::Timeout => "git timed out waiting for the remote".to_string(),
-        error => run_error(host, &dir_str, error),
-    })
+        dir,
+        args,
+        NETWORK_TIMEOUT,
+        None,
+        None,
+        "git timed out waiting for the remote",
+    )
 }
 
 /// Why a git mutation failed, coarse enough for the UI to pick a hint.
@@ -250,9 +347,8 @@ mod tests {
 
     fn output(stderr: &str) -> CommandOutput {
         CommandOutput {
-            ok: false,
-            stdout: String::new(),
             stderr: stderr.to_string(),
+            ..CommandOutput::default()
         }
     }
 

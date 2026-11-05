@@ -4,8 +4,10 @@
 use serde_json::Value;
 use std::path::Path;
 
+use crate::util::host::Host;
+
 use super::diff::parse_git_diff;
-use super::gh::{redact_gh_error, repo_name_with_owner, run_gh, READ_TIMEOUT};
+use super::gh::{gh_graphql, redact_gh_error, repo_name_with_owner, run_gh, GqlVar, READ_TIMEOUT};
 use super::parse::{
     compute_freshness, parse_files, parse_pr_list, parse_pr_view, parse_review_threads, str_field,
 };
@@ -20,10 +22,13 @@ const PR_LIST_FIELDS: &str =
 const PR_VIEW_FIELDS: &str = "number,title,author,state,isDraft,baseRefName,headRefName,\
     updatedAt,url,body,headRefOid,commits,comments,statusCheckRollup";
 
-const REVIEW_THREADS_QUERY: &str = "query($owner:String!,$repo:String!,$number:Int!){\
+/// Paginated on `reviewThreads` (see `gh_graphql`); a thread's first 100
+/// comments are plenty for display.
+const REVIEW_THREADS_QUERY: &str =
+    "query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){\
   repository(owner:$owner,name:$repo){\
     pullRequest(number:$number){\
-      reviewThreads(first:100){nodes{\
+      reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor} nodes{\
         id isResolved \
         comments(first:100){nodes{\
           databaseId body createdAt path line originalLine diffSide \
@@ -34,8 +39,9 @@ const REVIEW_THREADS_QUERY: &str = "query($owner:String!,$repo:String!,$number:I
   }\
 }";
 
-pub(crate) fn list_open_prs(dir: &Path) -> Result<Vec<PrSummary>, String> {
+pub(crate) fn list_open_prs(host: &Host, dir: &Path) -> Result<Vec<PrSummary>, String> {
     let output = run_gh(
+        host,
         dir,
         &[
             "pr",
@@ -57,9 +63,10 @@ pub(crate) fn list_open_prs(dir: &Path) -> Result<Vec<PrSummary>, String> {
     Ok(parse_pr_list(&json))
 }
 
-pub(crate) fn fetch_pr_detail(dir: &Path, number: i64) -> Result<PrDetail, String> {
+pub(crate) fn fetch_pr_detail(host: &Host, dir: &Path, number: i64) -> Result<PrDetail, String> {
     let number_str = number.to_string();
     let view = run_gh(
+        host,
         dir,
         &["pr", "view", &number_str, "--json", PR_VIEW_FIELDS],
         READ_TIMEOUT,
@@ -72,6 +79,7 @@ pub(crate) fn fetch_pr_detail(dir: &Path, number: i64) -> Result<PrDetail, Strin
     let parsed = parse_pr_view(&view_json);
 
     let files_output = run_gh(
+        host,
         dir,
         &[
             "api",
@@ -89,7 +97,7 @@ pub(crate) fn fetch_pr_detail(dir: &Path, number: i64) -> Result<PrDetail, Strin
     };
 
     let mut comments = parsed.conversation;
-    comments.extend(fetch_review_threads(dir, number));
+    comments.extend(fetch_review_threads(host, dir, number));
 
     Ok(PrDetail {
         summary: parsed.summary,
@@ -105,34 +113,25 @@ pub(crate) fn fetch_pr_detail(dir: &Path, number: i64) -> Result<PrDetail, Strin
 
 /// Inline review threads, which the `pr view` JSON does not carry. Best-effort:
 /// a failure just omits resolved state rather than failing the whole PR read.
-fn fetch_review_threads(dir: &Path, number: i64) -> Vec<PrComment> {
-    let Ok((owner, name)) = repo_name_with_owner(dir) else {
+fn fetch_review_threads(host: &Host, dir: &Path, number: i64) -> Vec<PrComment> {
+    let Ok((owner, name)) = repo_name_with_owner(host, dir) else {
         return Vec::new();
     };
-    let number = number.to_string();
-    let args = [
-        "api",
-        "graphql",
-        "-f",
-        &format!("query={REVIEW_THREADS_QUERY}"),
-        "-f",
-        &format!("owner={owner}"),
-        "-f",
-        &format!("repo={name}"),
-        "-F",
-        &format!("number={number}"),
+    let vars = [
+        ("owner", GqlVar::Str(&owner)),
+        ("repo", GqlVar::Str(&name)),
+        ("number", GqlVar::Int(number)),
     ];
-    match run_gh(dir, &args, READ_TIMEOUT) {
-        Ok(output) if output.ok => serde_json::from_str(&output.stdout)
-            .map(|json: Value| parse_review_threads(&json))
-            .unwrap_or_default(),
-        _ => Vec::new(),
+    // Up to 1,000 threads.
+    match gh_graphql(host, dir, REVIEW_THREADS_QUERY, &vars, 10) {
+        Ok(read) => read.pages.iter().flat_map(parse_review_threads).collect(),
+        Err(_) => Vec::new(),
     }
 }
 
 /// `gh api --paginate` emits one JSON array per page, concatenated. Flatten them
 /// into a single array of file objects.
-fn merge_paginated_arrays(stdout: &str) -> Value {
+pub(crate) fn merge_paginated_arrays(stdout: &str) -> Value {
     let mut merged = Vec::new();
     for page in serde_json::Deserializer::from_str(stdout).into_iter::<Value>() {
         match page {
@@ -146,6 +145,7 @@ fn merge_paginated_arrays(stdout: &str) -> Value {
 }
 
 pub(crate) fn check_freshness(
+    host: &Host,
     dir: &Path,
     number: i64,
     known_head: &str,
@@ -153,6 +153,7 @@ pub(crate) fn check_freshness(
 ) -> Result<PrFreshness, String> {
     let number_str = number.to_string();
     let output = run_gh(
+        host,
         dir,
         &["pr", "view", &number_str, "--json", "headRefOid,updatedAt"],
         READ_TIMEOUT,

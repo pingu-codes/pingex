@@ -16,8 +16,10 @@
 
 mod actions;
 pub(crate) mod commands;
-mod diff;
+pub(crate) mod diff;
 mod gh;
+mod inbox;
 mod parse;
 mod queries;
+mod stacks;
 mod types;

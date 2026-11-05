@@ -165,6 +165,13 @@ pub(crate) fn parse_git_diff(diff: &str) -> Vec<PrFile> {
             } else if let Some(old) = line.strip_prefix("rename from ") {
                 entry.1 = Some(old.to_string());
                 entry.2 = "renamed".to_string();
+            } else if let Some(new) = line.strip_prefix("rename to ") {
+                entry.0 = new.to_string();
+            } else if let Some(new) = line.strip_prefix("+++ b/").filter(|_| entry.3.is_empty()) {
+                // The `+++` header names the new path exactly, where splitting
+                // `a/x b/y` breaks on a path that itself contains " b/". Only
+                // before the first hunk: inside one, `+++ b/` is an added line.
+                entry.0 = new.to_string();
             } else if line.starts_with("@@")
                 || matches!(line.chars().next(), Some('+') | Some('-') | Some(' '))
             {

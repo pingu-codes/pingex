@@ -13,10 +13,16 @@ use crate::util::time::unix_millis;
 /// Upper bound on the per-status file list handed to the frontend.
 const MAX_STATUS_FILES: usize = 500;
 
-/// Parse the `# branch.*` header lines of `git status --porcelain=v2 --branch`.
+/// The records of `git status --porcelain=v2 -z`: each one NUL-terminated,
+/// paths raw (no quoting), so a name with spaces, tabs or newlines survives.
+fn records(stdout: &str) -> impl Iterator<Item = &str> {
+    stdout.split('\0').filter(|record| !record.is_empty())
+}
+
+/// Parse the `# branch.*` header records of `git status --porcelain=v2 --branch -z`.
 fn parse_branch_headers(stdout: &str) -> BranchInfo {
     let mut info = BranchInfo::default();
-    for line in stdout.lines() {
+    for line in records(stdout) {
         let Some(header) = line.strip_prefix("# branch.") else {
             continue;
         };
@@ -45,14 +51,20 @@ fn parse_branch_headers(stdout: &str) -> BranchInfo {
     info
 }
 
-/// Parse the entry lines of `git status --porcelain=v2` into counts and a
+/// Parse the entry records of `git status --porcelain=v2 -z` into counts and a
 /// bounded file list. Counts are always complete even when the list is capped.
 fn parse_status_entries(stdout: &str, max_files: usize) -> (StatusCounts, Vec<StatusFile>, bool) {
     let mut counts = StatusCounts::default();
     let mut files = Vec::new();
     let mut truncated = false;
 
-    for line in stdout.lines() {
+    // A rename/copy record (`2 …`) is followed by its original path as a
+    // record of its own.
+    let mut original_path_follows = false;
+    for line in records(stdout) {
+        if std::mem::take(&mut original_path_follows) {
+            continue;
+        }
         let mut push = |file: StatusFile| {
             if files.len() < max_files {
                 files.push(file);
@@ -73,16 +85,22 @@ fn parse_status_entries(stdout: &str, max_files: usize) -> (StatusCounts, Vec<St
                 state: "ignored".into(),
                 code: String::new(),
             });
-        } else if let Some(rest) = line.strip_prefix("u ") {
+        } else if line.starts_with("u ") {
+            // u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>
             counts.conflicted += 1;
-            let path = rest.split_whitespace().last().unwrap_or("").to_string();
+            let mut fields = line.splitn(11, ' ');
+            let code = fields.nth(1).unwrap_or("").to_string();
+            let path = fields.last().unwrap_or("").to_string();
             push(StatusFile {
                 path,
                 state: "conflicted".into(),
-                code: rest.split_whitespace().next().unwrap_or("").to_string(),
+                code,
             });
         } else if line.starts_with("1 ") || line.starts_with("2 ") {
+            // 1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
+            // 2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <Xscore> <path>
             let renamed = line.starts_with("2 ");
+            original_path_follows = renamed;
             let mut fields = line.splitn(if renamed { 10 } else { 9 }, ' ');
             fields.next(); // the "1"/"2" marker
             let xy = fields.next().unwrap_or("..");
@@ -94,9 +112,8 @@ fn parse_status_entries(stdout: &str, max_files: usize) -> (StatusCounts, Vec<St
             if unstaged {
                 counts.unstaged += 1;
             }
-            // The path is the final field; a rename joins new/orig with a tab.
-            let tail = fields.last().unwrap_or("");
-            let path = tail.split('\t').next().unwrap_or(tail).to_string();
+            // The path is the final field and may itself contain spaces.
+            let path = fields.last().unwrap_or("").to_string();
             // A path with a staged component is reported as staged; otherwise
             // it is a working-tree-only change.
             let state = if staged { "staged" } else { "unstaged" };
@@ -119,6 +136,7 @@ pub(crate) fn read_status(host: &Host, dir: &Path) -> Result<GitStatus, String> 
             "--porcelain=v2",
             "--branch",
             "--untracked-files=all",
+            "-z",
         ],
         READ_TIMEOUT,
     )?;
@@ -223,7 +241,7 @@ mod tests {
 
     #[test]
     fn parses_branch_headers_with_ahead_behind() {
-        let stdout = "# branch.oid abc123\n# branch.head main\n# branch.upstream origin/main\n# branch.ab +2 -3\n";
+        let stdout = "# branch.oid abc123\0# branch.head main\0# branch.upstream origin/main\0# branch.ab +2 -3\0";
         let info = parse_branch_headers(stdout);
         assert_eq!(info.branch.as_deref(), Some("main"));
         assert!(!info.detached);
@@ -234,7 +252,7 @@ mod tests {
 
     #[test]
     fn parses_detached_head_branch_header() {
-        let info = parse_branch_headers("# branch.oid abc123\n# branch.head (detached)\n");
+        let info = parse_branch_headers("# branch.oid abc123\0# branch.head (detached)\0");
         assert!(info.detached);
         assert_eq!(info.branch, None);
     }
@@ -243,12 +261,12 @@ mod tests {
     fn parses_status_v2_entries_and_counts() {
         // one staged modify, one unstaged modify, one untracked, one conflict.
         let stdout = concat!(
-            "# branch.head main\n",
-            "1 M. N... 100644 100644 100644 aaa bbb src/staged.rs\n",
-            "1 .M N... 100644 100644 100644 ccc ddd src/unstaged.rs\n",
-            "u UU N... 100644 100644 100644 100644 eee fff ggg src/conflict.rs\n",
-            "? untracked.txt\n",
-            "! ignored.log\n",
+            "# branch.head main\0",
+            "1 M. N... 100644 100644 100644 aaa bbb src/staged.rs\0",
+            "1 .M N... 100644 100644 100644 ccc ddd src/unstaged.rs\0",
+            "u UU N... 100644 100644 100644 100644 eee fff ggg src/con flict.rs\0",
+            "? untracked.txt\0",
+            "! ignored.log\0",
         );
         let (counts, files, truncated) = parse_status_entries(stdout, 500);
         assert_eq!(counts.staged, 1);
@@ -260,6 +278,8 @@ mod tests {
         assert_eq!(files.len(), 5);
         assert_eq!(files[0].path, "src/staged.rs");
         assert_eq!(files[0].state, "staged");
+        assert_eq!(files[2].path, "src/con flict.rs");
+        assert_eq!(files[2].code, "UU");
         assert_eq!(files[3].path, "untracked.txt");
         assert_eq!(files[3].state, "untracked");
         assert_eq!(files[4].state, "ignored");
@@ -267,15 +287,25 @@ mod tests {
 
     #[test]
     fn parses_renamed_status_entry_path() {
-        let stdout = "2 R. N... 100644 100644 100644 aaa bbb R100 new/name.rs\told/name.rs\n";
+        let stdout = concat!(
+            "2 R. N... 100644 100644 100644 aaa bbb R100 new/my name.rs\0old/name.rs\0",
+            "? line\nbreak.txt\0",
+        );
         let (counts, files, _) = parse_status_entries(stdout, 500);
         assert_eq!(counts.staged, 1);
-        assert_eq!(files[0].path, "new/name.rs");
+        assert_eq!(counts.untracked, 1);
+        assert_eq!(
+            files.len(),
+            2,
+            "the original path is not an entry of its own"
+        );
+        assert_eq!(files[0].path, "new/my name.rs");
+        assert_eq!(files[1].path, "line\nbreak.txt");
     }
 
     #[test]
     fn status_file_list_truncates_at_cap() {
-        let stdout: String = (0..10).map(|i| format!("? file{i}.txt\n")).collect();
+        let stdout: String = (0..10).map(|i| format!("? file{i}.txt\0")).collect();
         let (counts, files, truncated) = parse_status_entries(&stdout, 4);
         assert_eq!(counts.untracked, 10);
         assert_eq!(files.len(), 4);

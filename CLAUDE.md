@@ -66,6 +66,17 @@ distribution when the app runs on Windows. Spawn processes through
 directly. Vocabulary in `GLOSSARY.md`, mechanics in `features/13-harnesses.md`
 ("Hosts"), rationale in `docs/adr/0003-host-per-home.md`.
 
+## Git and GitHub
+
+Run git through `run_git*` in `src-tauri/src/git/run.rs`, which applies the
+fixed environment (`LC_ALL=C`, no optional locks, no prompts) that the error
+classifiers rely on. Run GitHub through `run_gh` / `gh_graphql` in
+`src-tauri/src/review/gh.rs`, with the window's `Host`. Read pull-request
+content by SHA from `refs/pingex/pr/*` (`git/objects.rs`); a branch name is
+only for display. Tests build repositories with `git::test_repo::TestRepo`
+and parse recorded GitHub JSON from `tests/fixtures/github/`. Rationale and
+the write-side design: `docs/adr/0004-git-and-github-io.md`.
+
 ## Working efficiently
 
 Cost in this repo is context size times turn count, and the 1M-context model

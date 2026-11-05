@@ -15,6 +15,7 @@ mod branches;
 mod changes;
 pub(crate) mod commands;
 mod commits;
+pub(crate) mod objects;
 pub(crate) mod run;
 
 /// Exposed so the review service's local-diff mode reuses the same runner
@@ -22,5 +23,7 @@ pub(crate) mod run;
 pub(crate) use run::run_git;
 
 mod status;
+#[cfg(test)]
+pub(crate) mod test_repo;
 mod types;
 mod worktrees;

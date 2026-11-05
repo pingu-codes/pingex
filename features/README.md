@@ -17,6 +17,10 @@ record design decisions.
 - [Usage](15-usage.md)
 - [Memories](16-memories.md)
 
+## In progress
+
+- [Review desk](17-review-desk.md): read layer done; writes and UI next
+
 ## Deferred
 
 Not planned for now. Don't treat these as pending work unless asked.

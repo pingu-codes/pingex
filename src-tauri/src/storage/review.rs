@@ -78,10 +78,72 @@ pub(crate) async fn delete_review_draft(
     .await
 }
 
+/// The last inbox read for a repository, as JSON: what "since you last
+/// looked" compares the next sync against.
+pub(crate) async fn read_inbox_snapshot(
+    database: &Database,
+    provider: &str,
+    repo: &str,
+) -> Result<Option<String>, String> {
+    let connection = db::conn(database)?;
+    db::one(
+        &connection,
+        "SELECT payload FROM review_inbox_snapshots WHERE provider = ? AND repo = ?",
+        params![provider, repo],
+        |row| db::text(row, 0),
+    )
+    .await
+}
+
+pub(crate) async fn write_inbox_snapshot(
+    database: &Database,
+    provider: &str,
+    repo: &str,
+    payload: &str,
+) -> Result<(), String> {
+    let connection = db::conn(database)?;
+    db::exec(
+        &connection,
+        "INSERT INTO review_inbox_snapshots(provider, repo, payload, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(provider, repo) DO UPDATE SET
+             payload = excluded.payload,
+             updated_at = excluded.updated_at",
+        params![provider, repo, payload, unix_secs()],
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::storage::open;
+
+    #[tokio::test]
+    async fn keeps_one_inbox_snapshot_per_repository() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = open(directory.path()).await.unwrap();
+        assert!(read_inbox_snapshot(&database, "github", "o/r")
+            .await
+            .unwrap()
+            .is_none());
+        write_inbox_snapshot(&database, "github", "o/r", "[1]")
+            .await
+            .unwrap();
+        write_inbox_snapshot(&database, "github", "o/r", "[2]")
+            .await
+            .unwrap();
+        write_inbox_snapshot(&database, "github", "o/other", "[3]")
+            .await
+            .unwrap();
+        assert_eq!(
+            read_inbox_snapshot(&database, "github", "o/r")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("[2]")
+        );
+    }
 
     #[tokio::test]
     async fn round_trips_and_replaces_review_drafts() {

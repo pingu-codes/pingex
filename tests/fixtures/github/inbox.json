@@ -1,0 +1,107 @@
+[
+  {
+    "data": {
+      "viewer": { "login": "pingu-codes" },
+      "rateLimit": { "cost": 1, "remaining": 4999, "resetAt": "2026-11-05T17:00:00Z" },
+      "repository": {
+        "pullRequests": {
+          "pageInfo": { "hasNextPage": true, "endCursor": "Y3Vyc29yOnYyOpK5" },
+          "nodes": [
+            {
+              "number": 415,
+              "title": "Claude Code driver over stream-json",
+              "url": "https://github.com/pingu-codes/pingex/pull/415",
+              "isDraft": false,
+              "createdAt": "2026-11-01T09:00:00Z",
+              "updatedAt": "2026-11-05T15:48:00Z",
+              "author": { "login": "pingu-codes" },
+              "headRefName": "feat/claude-driver",
+              "headRefOid": "3c1e9a2b7d4f60118e2c9a5b0d3e7f4a6b8c9d01",
+              "baseRefName": "feat/driver-trait",
+              "baseRefOid": "9f04b21c3d5e6f708192a3b4c5d6e7f809a1b2c3",
+              "headRepository": { "nameWithOwner": "pingu-codes/pingex" },
+              "maintainerCanModify": false,
+              "reviewDecision": "CHANGES_REQUESTED",
+              "additions": 1204,
+              "deletions": 86,
+              "changedFiles": 12,
+              "reviewRequests": {
+                "nodes": [
+                  { "requestedReviewer": { "login": "jo-r" } },
+                  { "requestedReviewer": { "slug": "core-team" } },
+                  { "requestedReviewer": null }
+                ]
+              },
+              "latestOpinionatedReviews": {
+                "nodes": [{ "state": "CHANGES_REQUESTED", "author": { "login": "mira-k" } }]
+              },
+              "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] },
+              "reviewThreads": {
+                "nodes": [{ "isResolved": false }, { "isResolved": true }, { "isResolved": false }]
+              }
+            },
+            {
+              "number": 409,
+              "title": "Reset the usage meter weekly",
+              "url": "https://github.com/pingu-codes/pingex/pull/409",
+              "isDraft": false,
+              "createdAt": "2026-11-04T10:00:00Z",
+              "updatedAt": "2026-11-05T15:35:00Z",
+              "author": { "login": "jo-r" },
+              "headRefName": "usage-weekly",
+              "headRefOid": "7e2c1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e",
+              "baseRefName": "main",
+              "baseRefOid": "1a627a2b3c4d5e6f708192a3b4c5d6e7f8091a2b",
+              "headRepository": { "nameWithOwner": "jo-r/pingex" },
+              "maintainerCanModify": true,
+              "reviewDecision": "REVIEW_REQUIRED",
+              "additions": 212,
+              "deletions": 40,
+              "changedFiles": 5,
+              "reviewRequests": { "nodes": [] },
+              "latestOpinionatedReviews": { "nodes": [] },
+              "commits": { "nodes": [{ "commit": { "statusCheckRollup": null } }] },
+              "reviewThreads": { "nodes": [] }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "data": {
+      "viewer": { "login": "pingu-codes" },
+      "rateLimit": { "cost": 1, "remaining": 4998, "resetAt": "2026-11-05T17:00:00Z" },
+      "repository": {
+        "pullRequests": {
+          "pageInfo": { "hasNextPage": false, "endCursor": "Y3Vyc29yOnYyOpK6" },
+          "nodes": [
+            {
+              "number": 399,
+              "title": "Readable theme focus rings",
+              "url": "https://github.com/pingu-codes/pingex/pull/399",
+              "isDraft": true,
+              "createdAt": "2026-10-30T08:00:00Z",
+              "updatedAt": "2026-11-02T12:00:00Z",
+              "author": null,
+              "headRefName": "focus-rings",
+              "headRefOid": "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c",
+              "baseRefName": "main",
+              "baseRefOid": "1a627a2b3c4d5e6f708192a3b4c5d6e7f8091a2b",
+              "headRepository": null,
+              "maintainerCanModify": false,
+              "reviewDecision": null,
+              "additions": 38,
+              "deletions": 12,
+              "changedFiles": 3,
+              "reviewRequests": { "nodes": [] },
+              "latestOpinionatedReviews": { "nodes": [] },
+              "commits": { "nodes": [] },
+              "reviewThreads": { "nodes": [] }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

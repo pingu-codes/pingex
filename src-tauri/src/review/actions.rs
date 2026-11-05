@@ -3,6 +3,8 @@
 use serde_json::json;
 use std::path::Path;
 
+use crate::util::host::Host;
+
 use super::gh::{redact_gh_error, run_gh, run_gh_with_input, WRITE_TIMEOUT};
 use super::types::PendingComment;
 
@@ -19,41 +21,18 @@ fn review_event(event: &str) -> &'static str {
     }
 }
 
-pub(crate) fn submit_review(
-    dir: &Path,
-    number: i64,
+/// The JSON body for `POST pulls/<n>/reviews`. `commit_id` pins the review
+/// and its inline comments to the head the reviewer actually read; without
+/// it GitHub anchors them to whatever the head is at submit time, so a push
+/// in between moves comments onto lines the reviewer never saw.
+fn review_payload(
     event: &str,
     body: &str,
+    commit_id: Option<&str>,
     comments: &[PendingComment],
-) -> Result<(), String> {
-    let event = review_event(event);
-    let number_str = number.to_string();
-
-    // A review carrying inline comments must go through the REST reviews
-    // endpoint; a plain approve/comment/request-changes can use `gh pr review`.
-    if comments.is_empty() {
-        let flag = match event {
-            "APPROVE" => "--approve",
-            "REQUEST_CHANGES" => "--request-changes",
-            _ => "--comment",
-        };
-        let mut args = vec!["pr", "review", &number_str, flag];
-        // `--comment` and `--request-changes` require a body.
-        if !body.is_empty() || event != "APPROVE" {
-            args.push("--body");
-            args.push(body);
-        }
-        let output = run_gh(dir, &args, WRITE_TIMEOUT)?;
-        if !output.ok {
-            return Err(redact_gh_error("Could not submit the review", &output));
-        }
-        return Ok(());
-    }
-
-    // A nested `comments` array can't be expressed with `-f` fields, so POST the
-    // JSON body through the endpoint's stdin (`--input -`).
-    let payload = json!({
-        "event": event,
+) -> serde_json::Value {
+    let mut payload = json!({
+        "event": review_event(event),
         "body": body,
         "comments": comments
             .iter()
@@ -65,8 +44,30 @@ pub(crate) fn submit_review(
             }))
             .collect::<Vec<_>>(),
     });
+    if let Some(commit_id) = commit_id {
+        payload["commit_id"] = json!(commit_id);
+    }
+    payload
+}
+
+pub(crate) fn submit_review(
+    host: &Host,
+    dir: &Path,
+    number: i64,
+    event: &str,
+    body: &str,
+    commit_id: Option<&str>,
+    comments: &[PendingComment],
+) -> Result<(), String> {
+    if let Some(commit_id) = commit_id {
+        crate::git::objects::require_sha(commit_id)?;
+    }
+    // Always the REST reviews endpoint, even for a bare approval: it is the
+    // one path that takes `commit_id`. The JSON goes through stdin
+    // (`--input -`) since nested `comments` cannot be `-f` fields.
+    let payload = review_payload(event, body, commit_id, comments);
     let endpoint = format!("repos/{{owner}}/{{repo}}/pulls/{number}/reviews");
-    let output = run_gh_with_input(dir, &endpoint, &payload.to_string())?;
+    let output = run_gh_with_input(host, dir, &endpoint, &payload.to_string())?;
     if !output.ok {
         return Err(redact_gh_error("Could not submit the review", &output));
     }
@@ -74,6 +75,7 @@ pub(crate) fn submit_review(
 }
 
 pub(crate) fn reply_to_comment(
+    host: &Host,
     dir: &Path,
     number: i64,
     comment_id: i64,
@@ -81,6 +83,7 @@ pub(crate) fn reply_to_comment(
 ) -> Result<(), String> {
     let endpoint = format!("repos/{{owner}}/{{repo}}/pulls/{number}/comments/{comment_id}/replies");
     let output = run_gh(
+        host,
         dir,
         &[
             "api",
@@ -98,8 +101,9 @@ pub(crate) fn reply_to_comment(
     Ok(())
 }
 
-pub(crate) fn resolve_thread(dir: &Path, thread_id: &str) -> Result<(), String> {
+pub(crate) fn resolve_thread(host: &Host, dir: &Path, thread_id: &str) -> Result<(), String> {
     let output = run_gh(
+        host,
         dir,
         &[
             "api",
@@ -130,5 +134,23 @@ mod tests {
         assert_eq!(review_event("comment"), "COMMENT");
         // An unknown event must never escalate to an approval.
         assert_eq!(review_event("merge-it-please"), "COMMENT");
+    }
+
+    #[test]
+    fn a_review_is_pinned_to_the_head_it_was_written_against() {
+        let sha = "a".repeat(40);
+        let comments = [PendingComment {
+            path: "src/lib.rs".into(),
+            line: 3,
+            side: None,
+            body: "nit".into(),
+        }];
+        let payload = review_payload("approve", "", Some(&sha), &comments);
+        assert_eq!(payload["commit_id"], sha);
+        assert_eq!(payload["event"], "APPROVE");
+        assert_eq!(payload["comments"][0]["side"], "RIGHT");
+        assert!(review_payload("comment", "x", None, &[])
+            .get("commit_id")
+            .is_none());
     }
 }

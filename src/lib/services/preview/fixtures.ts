@@ -12,6 +12,7 @@ import type {
   GitRepoInfo,
   GitStatus,
   HomeOverview,
+  Inbox,
   IntegrationsList,
   LaunchState,
   McpServerStatus,
@@ -1047,6 +1048,40 @@ export const previewPrs: PrSummary[] = [
     url: "https://github.com/ciaran/codex-custom/pull/126",
   },
 ];
+
+/** The inbox the review desk shows in the browser preview: the PR picker's
+ *  PRs, with review, check and thread state. */
+export const previewInbox: Inbox = {
+  repo: "ciaran/codex-custom",
+  viewer: "ciaran",
+  prs: previewPrs.map((pr, index) => ({
+    number: pr.number,
+    title: pr.title,
+    author: pr.author,
+    url: pr.url,
+    isDraft: pr.isDraft,
+    createdAt: pr.updatedAt,
+    updatedAt: pr.updatedAt,
+    headRef: pr.headRef,
+    headSha: index === 0 ? "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0" : "c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2",
+    baseRef: pr.baseRef,
+    baseSha: "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c",
+    headRepo: "ciaran/codex-custom",
+    maintainerCanModify: false,
+    reviewDecision: index === 0 ? "CHANGES_REQUESTED" : "REVIEW_REQUIRED",
+    reviewRequests: index === 0 ? [] : ["ciaran"],
+    reviews: index === 0 ? [{ author: "octo-helper", state: "CHANGES_REQUESTED" }] : [],
+    checks: index === 0 ? "SUCCESS" : "PENDING",
+    unresolvedThreads: index === 0 ? 2 : 0,
+    additions: 120,
+    deletions: 14,
+    changedFiles: 4,
+  })),
+  events: [{ number: 126, kind: "reviewRequested", actor: null, state: null }],
+  rateLimit: { cost: 1, remaining: 4999, resetAt: "2026-07-22T15:30:00Z" },
+  complete: true,
+  syncedAt: Date.parse("2026-07-22T14:31:00Z"),
+};
 
 const previewReviewPatch = [
   "@@ -1,6 +1,9 @@",

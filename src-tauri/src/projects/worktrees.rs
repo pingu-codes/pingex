@@ -204,18 +204,18 @@ fn read_worktree_parent(host: &Host, worktree: &str) -> Option<String> {
     let output = crate::git::run_git(
         host,
         Path::new(worktree),
-        &["worktree", "list", "--porcelain"],
+        &["worktree", "list", "--porcelain", "-z"],
         crate::git::run::READ_TIMEOUT,
     )
     .ok()?;
     if !output.ok {
         return None;
     }
+    // `-z`: records end in NUL and paths are raw, so no trimming.
     let main = output
         .stdout
-        .lines()
-        .find_map(|line| line.strip_prefix("worktree "))?
-        .trim();
+        .split('\0')
+        .find_map(|line| line.strip_prefix("worktree "))?;
     if main.is_empty() || main == worktree || !host.is_dir(main) {
         return None;
     }
@@ -259,7 +259,6 @@ pub(crate) fn linked_worktree_parent(host: &Host, path: &Path) -> Result<String,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::process::Command;
 
     #[test]
     fn classifies_worktrees_by_canonical_path_not_by_name() {
@@ -357,21 +356,7 @@ mod tests {
         .is_empty());
     }
 
-    fn git(dir: &Path, args: &[&str]) -> bool {
-        Command::new("git")
-            .arg("-C")
-            .arg(dir)
-            .args(args)
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_CONFIG_SYSTEM", "/dev/null")
-            .env("GIT_AUTHOR_NAME", "Test")
-            .env("GIT_AUTHOR_EMAIL", "test@example.com")
-            .env("GIT_COMMITTER_NAME", "Test")
-            .env("GIT_COMMITTER_EMAIL", "test@example.com")
-            .status()
-            .map(|status| status.success())
-            .unwrap_or(false)
-    }
+    use crate::git::test_repo::git_ok as git;
 
     #[test]
     fn only_a_linked_worktree_can_be_adopted() {

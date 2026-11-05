@@ -7,6 +7,8 @@
 
 use std::io::{Read, Write};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::host::Host;
@@ -14,11 +16,18 @@ use super::host::Host;
 /// A finished invocation with its captured, lossily-decoded output. A non-zero
 /// exit is reported through `ok` rather than as an error so callers can classify
 /// it themselves (e.g. "not a repository" versus "not authenticated").
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct CommandOutput {
     pub ok: bool,
+    /// The exit code, when the process exited normally. Lets callers branch on
+    /// commands whose code carries the answer (`git merge-base --is-ancestor`
+    /// exits 1 for "no") instead of reading stderr.
+    pub code: Option<i32>,
     pub stdout: String,
     pub stderr: String,
+    /// Stdout hit `Run::max_stdout` and the child was killed; `stdout` holds
+    /// the first `max_stdout` bytes.
+    pub truncated: bool,
 }
 
 /// Why an invocation never produced output. Callers map these to their own
@@ -50,6 +59,9 @@ pub struct Run<'a> {
     /// entirely so a prompting tool fails fast instead of blocking.
     pub(crate) stdin: Option<&'a str>,
     pub(crate) timeout: Duration,
+    /// Stop reading stdout after this many bytes and kill the child, so a huge
+    /// blob or diff costs bounded memory and time. `None` reads everything.
+    pub(crate) max_stdout: Option<usize>,
 }
 
 impl<'a> Run<'a> {
@@ -81,6 +93,7 @@ impl<'a> Run<'a> {
             env: &[],
             stdin: None,
             timeout,
+            max_stdout: None,
         }
     }
 }
@@ -111,13 +124,29 @@ pub fn run(spec: Run<'_>) -> Result<CommandOutput, RunError> {
 
     // Drain both pipes on their own threads so a chatty child cannot fill one
     // and block; the handle stays here so the timeout can kill it on any OS.
-    let stdout = child.stdout.take().map(drain);
-    let stderr = child.stderr.take().map(drain);
+    let full = Arc::new(AtomicBool::new(false));
+    let stdout = child
+        .stdout
+        .take()
+        .map(|pipe| drain(pipe, spec.max_stdout, full.clone()));
+    let stderr = child
+        .stderr
+        .take()
+        .map(|pipe| drain(pipe, None, Arc::new(AtomicBool::new(false))));
 
     let deadline = Instant::now() + spec.timeout;
+    let mut truncated = false;
     let status = loop {
         match child.try_wait() {
-            Ok(Some(status)) => break status,
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if full.load(Ordering::Acquire) => {
+                // Stdout reached its cap: the rest is not wanted, so stop the
+                // child rather than let it block on a pipe nobody reads.
+                let _ = child.kill();
+                let _ = child.wait();
+                truncated = true;
+                break None;
+            }
             Ok(None) if Instant::now() < deadline => {
                 std::thread::sleep(Duration::from_millis(10));
             }
@@ -131,22 +160,51 @@ pub fn run(spec: Run<'_>) -> Result<CommandOutput, RunError> {
             Err(_) => return Err(RunError::NoOutput),
         }
     };
+    // The child may have exited on its own just as the cap was reached.
+    let truncated = truncated || full.load(Ordering::Acquire);
     let collect = |handle: Option<std::thread::JoinHandle<Vec<u8>>>| {
         handle
             .and_then(|handle| handle.join().ok())
             .unwrap_or_default()
     };
     Ok(CommandOutput {
-        ok: status.success(),
+        ok: status.is_some_and(|status| status.success()),
+        code: status.and_then(|status| status.code()),
         stdout: String::from_utf8_lossy(&collect(stdout)).into_owned(),
         stderr: String::from_utf8_lossy(&collect(stderr)).into_owned(),
+        truncated,
     })
 }
 
-fn drain<R: Read + Send + 'static>(mut reader: R) -> std::thread::JoinHandle<Vec<u8>> {
+/// Read a pipe to EOF, or to `cap` bytes, after which `full` is raised and the
+/// reader stops so the runner can kill the child.
+fn drain<R: Read + Send + 'static>(
+    mut reader: R,
+    cap: Option<usize>,
+    full: Arc<AtomicBool>,
+) -> std::thread::JoinHandle<Vec<u8>> {
     std::thread::spawn(move || {
-        let mut buffer = Vec::new();
-        let _ = reader.read_to_end(&mut buffer);
+        let Some(cap) = cap else {
+            let mut buffer = Vec::new();
+            let _ = reader.read_to_end(&mut buffer);
+            return buffer;
+        };
+        let mut buffer = Vec::with_capacity(cap.min(64 * 1024));
+        let mut chunk = [0u8; 16 * 1024];
+        loop {
+            match reader.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    let room = cap - buffer.len();
+                    if n > room {
+                        buffer.extend_from_slice(&chunk[..room]);
+                        full.store(true, Ordering::Release);
+                        break;
+                    }
+                    buffer.extend_from_slice(&chunk[..n]);
+                }
+            }
+        }
         buffer
     })
 }
@@ -202,6 +260,7 @@ mod tests {
             env: &[],
             stdin: Some("piped input"),
             timeout: Duration::from_secs(5),
+            max_stdout: None,
         })
         .expect("cat should run");
         assert!(output.ok);
@@ -230,8 +289,30 @@ mod tests {
             env: &[("PINGU_TEST_VAR", "set-by-test")],
             stdin: None,
             timeout: Duration::from_secs(5),
+            max_stdout: None,
         })
         .expect("sh should run");
         assert_eq!(output.stdout, "set-by-test");
+    }
+
+    #[test]
+    fn reports_the_exit_code() {
+        let output = run(Run::new(
+            "sh",
+            cwd(),
+            &["-c", "exit 3"],
+            Duration::from_secs(5),
+        ))
+        .expect("sh should run");
+        assert_eq!(output.code, Some(3));
+    }
+
+    #[test]
+    fn caps_stdout_and_kills_the_child() {
+        let mut spec = Run::new("yes", cwd(), &[], Duration::from_secs(5));
+        spec.max_stdout = Some(1000);
+        let output = run(spec).expect("yes should run");
+        assert!(output.truncated);
+        assert_eq!(output.stdout.len(), 1000);
     }
 }

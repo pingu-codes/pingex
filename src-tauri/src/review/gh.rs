@@ -8,7 +8,10 @@
 use std::path::Path;
 use std::time::Duration;
 
+use serde_json::Value;
+
 use super::types::ProviderStatus;
+use crate::util::host::Host;
 use crate::util::process::{self, CommandOutput, Run, RunError};
 
 /// `gh` read commands should return quickly; a slow network is reported as a
@@ -18,10 +21,12 @@ pub(crate) const READ_TIMEOUT: Duration = Duration::from_secs(20);
 pub(crate) const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Environment that keeps `gh` non-interactive and machine-readable.
-const NON_INTERACTIVE: [(&str, &str); 3] = [
+const NON_INTERACTIVE: [(&str, &str); 4] = [
     ("GH_PAGER", ""),
     ("GH_PROMPT_DISABLED", "1"),
     ("NO_COLOR", "1"),
+    // gh asks to upgrade itself on stderr; never in the middle of a read.
+    ("GH_NO_UPDATE_NOTIFIER", "1"),
 ];
 
 fn describe(error: RunError) -> String {
@@ -33,47 +38,153 @@ fn describe(error: RunError) -> String {
     }
 }
 
-/// Run `gh <args...>` inside `dir` with a timeout. A missing executable or a
-/// timeout is returned as a redacted error; a non-zero exit is surfaced through
-/// `CommandOutput::ok` so callers classify it (e.g. "not authenticated").
-pub(crate) fn run_gh(
+fn spawn_gh(
+    host: &Host,
     dir: &Path,
     args: &[&str],
+    stdin: Option<&str>,
     timeout: Duration,
 ) -> Result<CommandOutput, String> {
-    let (host, dir) = crate::util::host::Host::from_local(&dir.to_string_lossy());
+    let dir = host.path_string(dir);
     let binary = host.resolve_binary("gh").unwrap_or_else(|| "gh".into());
     process::run(Run {
-        host: &host,
+        host,
         program: &binary,
         dir: &dir,
         args,
         env: &NON_INTERACTIVE,
-        stdin: None,
+        stdin,
         timeout,
+        max_stdout: None,
     })
     .map_err(describe)
+}
+
+/// Run `gh <args...>` on `host` inside `dir` (a host path) with a timeout. A
+/// missing executable or a timeout is returned as a redacted error; a non-zero
+/// exit is surfaced through `CommandOutput::ok` so callers classify it (e.g.
+/// "not authenticated"). `host` comes from the window's Home, like git's, so a
+/// WSL Home runs the distribution's own `gh` and login.
+pub(crate) fn run_gh(
+    host: &Host,
+    dir: &Path,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<CommandOutput, String> {
+    spawn_gh(host, dir, args, None, timeout)
 }
 
 /// POST a JSON body to a `gh api` endpoint by piping it through stdin. Used for
 /// payloads (a review with nested inline comments) that `-f` fields cannot express.
 pub(crate) fn run_gh_with_input(
+    host: &Host,
     dir: &Path,
     endpoint: &str,
     body: &str,
 ) -> Result<CommandOutput, String> {
-    let (host, dir) = crate::util::host::Host::from_local(&dir.to_string_lossy());
-    let binary = host.resolve_binary("gh").unwrap_or_else(|| "gh".into());
-    process::run(Run {
-        host: &host,
-        program: &binary,
-        dir: &dir,
-        args: &["api", "--method", "POST", endpoint, "--input", "-"],
-        env: &NON_INTERACTIVE,
-        stdin: Some(body),
-        timeout: WRITE_TIMEOUT,
-    })
-    .map_err(describe)
+    spawn_gh(
+        host,
+        dir,
+        &["api", "--method", "POST", endpoint, "--input", "-"],
+        Some(body),
+        WRITE_TIMEOUT,
+    )
+}
+
+/// A GraphQL variable. Strings go as `-f` (raw: a value starting with `@` is
+/// never read as a file); integers as `-F`, which gh sends typed.
+pub(crate) enum GqlVar<'a> {
+    Str(&'a str),
+    Int(i64),
+}
+
+/// The pages of one GraphQL read.
+#[derive(Debug, Default)]
+pub(crate) struct GqlPages {
+    pub(crate) pages: Vec<Value>,
+    /// False when `max_pages` ran out before the connection did.
+    pub(crate) complete: bool,
+}
+
+/// The first `pageInfo` in a response, depth first: the one connection a
+/// paginated query follows.
+fn page_info(value: &Value) -> Option<(bool, Option<String>)> {
+    match value {
+        Value::Object(map) => {
+            if let Some(info) = map.get("pageInfo") {
+                let more = info
+                    .get("hasNextPage")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let cursor = info
+                    .get("endCursor")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                return Some((more, cursor));
+            }
+            map.values().find_map(page_info)
+        }
+        Value::Array(items) => items.iter().find_map(page_info),
+        _ => None,
+    }
+}
+
+/// Run a GraphQL read through `gh api graphql`, one request per page, up to
+/// `max_pages`.
+///
+/// A query that pages takes `$endCursor: String` and selects
+/// `pageInfo { hasNextPage endCursor }` on its one paginated connection. The
+/// pages are fetched here rather than with `gh --paginate` so the number of
+/// pages (and so the time a read can take) is bounded, and each page gets its
+/// own timeout. A response with GraphQL `errors` is an error even when gh
+/// exits 0. Keep pages small: GitHub answers a query that takes longer than
+/// about 10s with a 502.
+pub(crate) fn gh_graphql(
+    host: &Host,
+    dir: &Path,
+    query: &str,
+    vars: &[(&str, GqlVar<'_>)],
+    max_pages: usize,
+) -> Result<GqlPages, String> {
+    let query_field = format!("query={query}");
+    let var_fields: Vec<(&str, String)> = vars
+        .iter()
+        .map(|(name, value)| match value {
+            GqlVar::Str(text) => ("-f", format!("{name}={text}")),
+            GqlVar::Int(number) => ("-F", format!("{name}={number}")),
+        })
+        .collect();
+    let mut result = GqlPages::default();
+    let mut cursor: Option<String> = None;
+    while result.pages.len() < max_pages.max(1) {
+        let cursor_field = cursor.as_ref().map(|cursor| format!("endCursor={cursor}"));
+        let mut args = vec!["api", "graphql", "-f", query_field.as_str()];
+        for (flag, field) in &var_fields {
+            args.extend([*flag, field.as_str()]);
+        }
+        if let Some(field) = &cursor_field {
+            args.extend(["-f", field.as_str()]);
+        }
+        let output = run_gh(host, dir, &args, READ_TIMEOUT)?;
+        if !output.ok {
+            return Err(redact_gh_error("GitHub did not answer the query", &output));
+        }
+        let page: Value = serde_json::from_str(&output.stdout)
+            .map_err(|_| "Could not parse GitHub's answer".to_string())?;
+        if page.get("errors").is_some() {
+            return Err("GitHub refused part of the query".to_string());
+        }
+        let next = page_info(&page);
+        result.pages.push(page);
+        match next {
+            Some((true, Some(next))) => cursor = Some(next),
+            _ => {
+                result.complete = true;
+                break;
+            }
+        }
+    }
+    Ok(result)
 }
 
 /// Redact a `gh` failure, promoting a couple of well-known messages to an
@@ -95,8 +206,8 @@ pub(crate) fn redact_gh_error(fallback: &str, output: &CommandOutput) -> String 
 }
 
 /// Probe whether `gh` is installed and logged in.
-pub(crate) fn provider_status(dir: &Path) -> ProviderStatus {
-    let version = run_gh(dir, &["--version"], Duration::from_secs(5));
+pub(crate) fn provider_status(host: &Host, dir: &Path) -> ProviderStatus {
+    let version = run_gh(host, dir, &["--version"], Duration::from_secs(5));
     let installed = matches!(version, Ok(ref output) if output.ok);
     if !installed {
         return ProviderStatus {
@@ -105,7 +216,7 @@ pub(crate) fn provider_status(dir: &Path) -> ProviderStatus {
             message: Some("Install the GitHub CLI (gh) to review pull requests".to_string()),
         };
     }
-    match run_gh(dir, &["auth", "status"], Duration::from_secs(10)) {
+    match run_gh(host, dir, &["auth", "status"], Duration::from_secs(10)) {
         Ok(output) if output.ok => ProviderStatus {
             installed: true,
             authenticated: true,
@@ -120,8 +231,9 @@ pub(crate) fn provider_status(dir: &Path) -> ProviderStatus {
 }
 
 /// Resolve `owner/name` for the repository in `dir` via `gh repo view`.
-pub(crate) fn repo_name_with_owner(dir: &Path) -> Result<(String, String), String> {
+pub(crate) fn repo_name_with_owner(host: &Host, dir: &Path) -> Result<(String, String), String> {
     let output = run_gh(
+        host,
         dir,
         &[
             "repo",
@@ -152,10 +264,19 @@ mod tests {
 
     fn output(stderr: &str) -> CommandOutput {
         CommandOutput {
-            ok: false,
-            stdout: String::new(),
             stderr: stderr.to_string(),
+            ..CommandOutput::default()
         }
+    }
+
+    #[test]
+    fn finds_the_paginated_connection() {
+        let page = serde_json::json!({"data": {"repository": {"pullRequests": {
+            "pageInfo": {"hasNextPage": true, "endCursor": "Y3Vyc29y"},
+            "nodes": [{"reviewThreads": {"nodes": []}}]
+        }}}});
+        assert_eq!(page_info(&page), Some((true, Some("Y3Vyc29y".to_string()))));
+        assert_eq!(page_info(&serde_json::json!({"data": {}})), None);
     }
 
     #[test]

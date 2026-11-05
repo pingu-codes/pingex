@@ -24,6 +24,24 @@ Do not run rung 3 after every edit. Fix with rung 1 and 2, then run rung 3 once.
 `cargo test` without `--lib` also compiles the four `live_*` integration
 crates; use `rust:test:lib` unless you changed those.
 
+## Git and GitHub
+- `bun run rust:test:lib git::` and `review::` cover the runner, the parsers
+  and the object-database reads. They build real repositories with
+  `git::test_repo::TestRepo`: a clone plus a bare remote, where
+  `open_pr(n, branch)` writes the remote's `refs/pull/<n>/head` the way
+  GitHub does. Test builds shut out the developer's gitconfig in the runner
+  itself, so a fixture never calls `std::env::set_var`.
+- The locale check: re-run `git::` with `LC_ALL=de_DE.UTF-8`. This machine's
+  git is localized, so the run fails if anything parses git's English
+  messages without the runner's `LC_ALL=C`.
+- GitHub parsers test against recorded JSON in `tests/fixtures/github/`. To
+  re-record, run the query with `gh api graphql` against a public repository
+  and replace every name, URL and SHA before committing. Read-only `gh api`
+  calls are fine for checking a query's shape and cost: GitHub answers a
+  query that runs past ~10s with a 502.
+- GitHub writes (reviews, comments, pushes) run against a real repository
+  only on the user's say-so.
+
 ## Browser preview surface (covers most frontend work)
 The frontend runs without Tauri: `api.ts` gates on `isTauri()` and serves preview
 fixtures, including a fake streaming turn (send any message; include the word

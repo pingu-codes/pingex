@@ -25,10 +25,12 @@ struct RawWorktree {
     prunable_reason: Option<String>,
 }
 
+/// Parse `git worktree list --porcelain -z`: NUL-terminated attribute records,
+/// an empty record between worktrees, paths and lock reasons raw.
 fn parse_worktree_list(stdout: &str) -> Vec<RawWorktree> {
     let mut entries = Vec::new();
     let mut current: Option<RawWorktree> = None;
-    for line in stdout.lines() {
+    for line in stdout.split('\0') {
         if let Some(path) = line.strip_prefix("worktree ") {
             if let Some(entry) = current.take() {
                 entries.push(entry);
@@ -101,7 +103,7 @@ pub(crate) fn read_worktrees(
     let output = run_git(
         host,
         repo_dir,
-        &["worktree", "list", "--porcelain"],
+        &["worktree", "list", "--porcelain", "-z"],
         READ_TIMEOUT,
     )?;
     if !output.ok {
@@ -184,19 +186,19 @@ mod tests {
     #[test]
     fn parses_worktree_list_with_lock_and_prune() {
         let stdout = concat!(
-            "worktree /repo\n",
-            "HEAD 1111111111111111111111111111111111111111\n",
-            "branch refs/heads/main\n",
-            "\n",
-            "worktree /repo/../wt-feature\n",
-            "HEAD 2222222222222222222222222222222222222222\n",
-            "branch refs/heads/feature\n",
-            "locked on purpose\n",
-            "\n",
-            "worktree /repo/../wt-gone\n",
-            "HEAD 3333333333333333333333333333333333333333\n",
-            "detached\n",
-            "prunable gitdir file points to non-existent location\n",
+            "worktree /repo\0",
+            "HEAD 1111111111111111111111111111111111111111\0",
+            "branch refs/heads/main\0",
+            "\0",
+            "worktree /repo/../wt-feature\0",
+            "HEAD 2222222222222222222222222222222222222222\0",
+            "branch refs/heads/feature\0",
+            "locked on purpose\0",
+            "\0",
+            "worktree /repo/../wt gone\0",
+            "HEAD 3333333333333333333333333333333333333333\0",
+            "detached\0",
+            "prunable gitdir file points to non-existent location\0",
         );
         let entries = parse_worktree_list(stdout);
         assert_eq!(entries.len(), 3);
@@ -206,6 +208,7 @@ mod tests {
         assert_eq!(entries[1].lock_reason.as_deref(), Some("on purpose"));
         assert_eq!(entries[1].branch.as_deref(), Some("feature"));
         assert!(entries[2].detached);
+        assert_eq!(entries[2].path, "/repo/../wt gone");
         assert!(entries[2].prunable);
         assert_eq!(
             entries[2].prunable_reason.as_deref(),
@@ -215,7 +218,7 @@ mod tests {
 
     #[test]
     fn a_bare_lock_marker_has_no_reason() {
-        let entries = parse_worktree_list("worktree /repo\nlocked\n");
+        let entries = parse_worktree_list("worktree /repo\0locked\0");
         assert!(entries[0].locked);
         assert_eq!(entries[0].lock_reason, None);
     }

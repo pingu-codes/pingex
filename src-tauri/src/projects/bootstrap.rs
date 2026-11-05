@@ -1284,7 +1284,11 @@ mod tests {
 
         let unfiled: Vec<_> = data.unfiled_threads.iter().map(|t| t.id.as_str()).collect();
         assert_eq!(unfiled, ["stray"]);
-        let filed: Vec<_> = data.projects[0].threads.iter().map(|t| t.id.as_str()).collect();
+        let filed: Vec<_> = data.projects[0]
+            .threads
+            .iter()
+            .map(|t| t.id.as_str())
+            .collect();
         assert_eq!(filed, ["filed"]);
     }
 

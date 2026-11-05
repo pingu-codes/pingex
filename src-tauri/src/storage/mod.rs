@@ -67,7 +67,10 @@ pub(crate) use questions::{
 pub use questions::{
     add_side_question, delete_side_question, read_side_questions, SideQuestion, SideQuestionKind,
 };
-pub(crate) use review::{delete_review_draft, read_review_draft, write_review_draft, ReviewDraft};
+pub(crate) use review::{
+    delete_review_draft, read_inbox_snapshot, read_review_draft, write_inbox_snapshot,
+    write_review_draft, ReviewDraft,
+};
 pub(crate) use search::{
     delete_thread_search, rename_thread_search, search_thread_index, set_thread_search_archived,
     thread_ids_with_message_match, upsert_thread_search, MessageScope, StoredThreadSearch,

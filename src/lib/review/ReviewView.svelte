@@ -221,9 +221,12 @@
     // The PR this review is for, fixed before the await: the user can open
     // another PR meanwhile, whose pending comments and draft must survive.
     const number = detail.summary.number;
+    // Pin the review to the head these comments were written against, so a
+    // push before submit cannot move them onto lines the reviewer never saw.
+    const commitId = detail.headSha || null;
     const run = openRun;
     await action.run(async () => {
-      await commands.reviewSubmit(repoDir, number, event, body, pending);
+      await commands.reviewSubmit(repoDir, number, event, body, commitId, pending);
       await commands.reviewDeleteDraft(PROVIDER, repoName, number).catch(() => {});
       if (run !== openRun) return;
       pending = [];

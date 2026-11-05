@@ -177,3 +177,32 @@ An app-server API that some supported tiers lack, tried once per Codex child
 and remembered as present or refused. The probed half of a Capability,
 specific to the Codex driver.
 _Avoid_: flag, capability check, version gate, feature flag
+
+**Review desk**:
+The part of Pingex for other people's and your own pull requests: an inbox
+per repository, stacks, file-by-file review with human and agent comments,
+and the checkouts a PR needs. Designed in the "Pingex review desk" canvas.
+_Avoid_: PR view, review panel (the older single-PR review screen)
+
+**Inbox**:
+A repository's open pull requests as of its last sync, with their review,
+check and thread state, and what changed since the sync before.
+_Avoid_: PR list, notifications
+
+**Seen head**:
+The head commit of a pull request that the reviewer last marked as seen.
+"Changes since you last looked" is measured from it, and it stays readable
+after the author force-pushes.
+_Avoid_: last reviewed commit, read marker
+
+**Stack**:
+An ordered chain of pull requests, each based on the head of the one below
+it, as GitHub records it. Pingex reads a Stack and never infers one from
+branch names.
+_Avoid_: chain, train, dependent PRs
+
+**Review checkout**:
+A detached checkout at a pull request's head that Pingex owns and creates
+only when something has to run there. It never appears in the worktree list
+and is read-only to agents; making it a worktree keeps its path.
+_Avoid_: temp worktree, PR worktree
