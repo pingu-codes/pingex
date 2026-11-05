@@ -62,7 +62,8 @@ pub(crate) enum DismissReason {
     NotAProblem,
     AlreadyRaised,
     OutOfScope,
-    /// "Wrong, tell the agent why…": the note says why.
+    /// Wrong; the note tells the agent why. (No commas here: the doc is
+    /// inlined into a command signature in the bindings.)
     Wrong,
 }
 

@@ -3,6 +3,11 @@
   comment menu, and a reply box. "Reply now" posts at once; "Add to review"
   holds the reply in the pending review until Submit.
 -->
+<script lang="ts" module>
+  /** A thread on the PR that "Hand to agent" can send a comment to. */
+  export type HandTarget = { id: string; label: string; hint?: string };
+</script>
+
 <script lang="ts">
   import { Ellipsis } from "@lucide/svelte";
   import { Avatar } from "@skeletonlabs/skeleton-svelte";
@@ -25,6 +30,7 @@
     onHandToAgent,
     onCopy,
     onOpenUrl,
+    agentThreads = [],
   }: {
     thread: CommentThread;
     viewer: string;
@@ -37,10 +43,13 @@
     onResolve: () => void;
     onEdit: (comment: PrComment, body: string) => Promise<boolean>;
     onDelete: (comment: PrComment) => void;
-    /** Hand one comment to an agent; `askOnly` asks for no edits. */
-    onHandToAgent: (comment: PrComment, askOnly: boolean) => void;
+    /** Hand one comment to an agent: a new thread (`askOnly` asks for no
+     *  edits), or the existing thread `threadId`. */
+    onHandToAgent: (comment: PrComment, askOnly: boolean, threadId?: string) => void;
     onCopy: (text: string) => void;
     onOpenUrl: (url: string) => void;
+    /** Threads already on the PR, offered first under Hand to agent. */
+    agentThreads?: HandTarget[];
   } = $props();
 
   let reply = $state("");
@@ -61,6 +70,12 @@
         id: "agent",
         label: "Hand to agent",
         entries: [
+          ...agentThreads.map((target) => ({
+            id: `agent-thread:${target.id}`,
+            label: target.label,
+            hint: target.hint,
+          })),
+          ...(agentThreads.length > 0 ? ([{ kind: "separator" }] satisfies MenuEntry[]) : []),
           { id: "agent-new", label: "New thread with this comment" },
           { id: "agent-ask", label: "Ask only, no edits" },
         ],
@@ -84,6 +99,10 @@
   }
 
   function select(comment: PrComment, id: string) {
+    if (id.startsWith("agent-thread:")) {
+      onHandToAgent(comment, false, id.slice("agent-thread:".length));
+      return;
+    }
     switch (id) {
       case "quote":
         reply = `${comment.body
