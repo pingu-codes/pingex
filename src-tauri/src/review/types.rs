@@ -95,7 +95,8 @@ pub(crate) struct PrFile {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PrComment {
-    /// REST `databaseId`; 0 for a conversation comment with no numeric id.
+    /// REST id (`databaseId` for an inline comment, from the URL for a
+    /// conversation comment); 0 when GitHub gave neither.
     pub(crate) id: i64,
     pub(crate) author: String,
     pub(crate) body: String,
@@ -129,6 +130,8 @@ pub(crate) struct PrDetail {
     pub(crate) summary: PrSummary,
     pub(crate) body: String,
     pub(crate) head_sha: String,
+    /// The tip of the base git branch when the PR was read.
+    pub(crate) base_sha: String,
     pub(crate) commits: Vec<PrCommit>,
     pub(crate) files: Vec<PrFile>,
     pub(crate) comments: Vec<PrComment>,

@@ -1719,7 +1719,10 @@ export type PluginSummary = {
  *  comments into threads by `thread_id`.
  */
 export type PrComment = {
-	/**  REST `databaseId`; 0 for a conversation comment with no numeric id. */
+	/**
+	 *  REST id (`databaseId` for an inline comment, from the URL for a
+	 *  conversation comment); 0 when GitHub gave neither.
+	 */
 	id: number,
 	author: string,
 	body: string,
@@ -1749,6 +1752,8 @@ export type PrDetail = {
 	summary: PrSummary,
 	body: string,
 	headSha: string,
+	/**  The tip of the base git branch when the PR was read. */
+	baseSha: string,
 	commits: PrCommit[],
 	files: PrFile[],
 	comments: PrComment[],
