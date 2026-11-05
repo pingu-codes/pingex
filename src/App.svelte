@@ -49,6 +49,7 @@
     openProjectDetail,
     openPullRequests,
     openReview,
+    openStackPage,
     openThread,
     openThreadById,
     openThreadInCwd,
@@ -74,6 +75,7 @@
   import ReviewView from "$lib/review/ReviewView.svelte";
   import { commands } from "$lib/services/homeRouting";
   import { closeSettings, openSettings, settingsNav } from "$lib/services/settingsNav.svelte";
+  import StackPage from "$lib/stack/StackPage.svelte";
   import ToastHost from "$lib/ToastHost.svelte";
   import AuthRecoveryPill from "$lib/thread/AuthRecoveryPill.svelte";
   import { rootThreadId } from "$lib/thread/messageVersions";
@@ -285,6 +287,8 @@
                   },
                   newThread: (repoDir) => newThreadInDir(repoDir),
                   ...checkoutHandlers((repoDir) => projectForCwd(repoDir)?.name ?? repoDir),
+                  openStack: (repoDir, group) => openStackPage(repoDir, group.stack.number),
+                  restack: (repoDir, group) => openStackPage(repoDir, group.stack.number, { restack: true }),
                 }}
               />
             {/key}
@@ -293,6 +297,19 @@
               <div class="max-w-sm"><EmptyInbox onAddRepository={() => addRepository()} /></div>
             </div>
           {/if}
+        </div>
+      {:else if view.stackRepo && view.stackNumber !== null}
+        <div class="min-h-0 flex-1">
+          {#key view.epoch}
+            <StackPage
+              repoDir={view.stackRepo}
+              repoName={projectForCwd(view.stackRepo)?.name ?? view.stackRepo}
+              stackNumber={view.stackNumber}
+              restackOnOpen={view.stackRestack}
+              onBack={() => openPullRequests(view.stackRepo)}
+              onAskCodex={askCodexReview}
+            />
+          {/key}
         </div>
       {:else if review}
         <div class="min-h-0 flex-1">

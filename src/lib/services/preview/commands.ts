@@ -93,6 +93,7 @@ import {
   previewWriteMemory,
 } from "./memories";
 import { repositoryCommands } from "./repositories";
+import { previewStackCommands } from "./stack";
 import { previewCompact, previewInterrupt, previewStreamTurn } from "./stream";
 
 type Commands = typeof commands;
@@ -783,6 +784,7 @@ export const previewCommands: PreviewCommands = {
     reviewDrafts.delete(reviewDraftKey(provider, repo, prNumber));
   },
   ...previewCheckoutCommands,
+  ...previewStackCommands,
 
   // --- Remote connections ---
   listConnections: () => previewConnections.map((connection) => ({ ...connection })),

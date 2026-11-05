@@ -34,6 +34,11 @@ export type View = {
   inboxPath: string | null;
   /** The PR the review view opens on, when it was opened for one. */
   reviewPr: number | null;
+  /** The repository whose Stack page is open, and GitHub's stack number. */
+  stackRepo: string | null;
+  stackNumber: number | null;
+  /** Start a restack as the Stack page opens (the inbox's Restack). */
+  stackRestack: boolean;
 };
 
 const EMPTY: View = {
@@ -47,6 +52,9 @@ const EMPTY: View = {
   pullRequests: false,
   inboxPath: null,
   reviewPr: null,
+  stackRepo: null,
+  stackNumber: null,
+  stackRestack: false,
 };
 
 export const view = $state<View & { epoch: number }>({
@@ -172,6 +180,18 @@ export function openPullRequests(path: string | null = null): void {
   const inboxPath = path ?? lastInboxPath ?? view.projectPath;
   lastInboxPath = inboxPath;
   setView({ projectPath: view.projectPath, pullRequests: true, inboxPath });
+}
+
+/** The Stack page for GitHub stack `number` in `repoDir`; `restack` starts
+ *  a restack as it opens. */
+export function openStackPage(repoDir: string, number: number, options: { restack?: boolean } = {}): void {
+  lastInboxPath = repoDir;
+  setView({
+    projectPath: view.projectPath,
+    stackRepo: repoDir,
+    stackNumber: number,
+    stackRestack: options.restack ?? false,
+  });
 }
 
 /** The Memories page, keeping the current project in the sidebar. */

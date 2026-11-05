@@ -520,3 +520,11 @@ export function resetDeskReviewState() {
   pendingReviews.clear();
   viewedMarks.clear();
 }
+
+/** The live PRs and stack listing behind a repository's inbox, for the
+ *  stack fakes (`./stack`) to edit; they restore them with
+ *  `resetPreviewStacks`. */
+export function deskLiveRepo(repoDir: string): { prs: InboxPr[]; stacks: StackListing } {
+  const data = repoData(repoDir);
+  return { prs: data.inbox.prs, stacks: data.stacks };
+}

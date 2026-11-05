@@ -163,6 +163,24 @@ button {
   @apply size-1.5 shrink-0 rounded-full bg-primary-500;
 }
 
+/* A PR's git branch in the Stack page's tree. `data-selected` marks the
+   one shown beside the tree; `data-dragging` is the ghost left behind while
+   it is dragged (nothing moves until the drop). */
+@utility stack-node {
+  @apply flex min-w-0 grow flex-col gap-1.5 rounded-xl border border-surface-200-800 bg-surface-50-950 px-3 py-2.5 text-left text-xs outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-500 data-[selected=true]:border-primary-500 data-[dragging=true]:border-dashed data-[dragging=true]:opacity-35;
+}
+
+/* The ring on the stack tree's rail before a node, coloured like the PR's
+   state ring (`RING_CLASS`); dashed for a draft. */
+@utility stack-ring {
+  @apply absolute top-3 left-[21px] size-3.5 rounded-full border-2 bg-surface-100-900;
+}
+
+/* Where a dragged git branch will land: an accent line with a dot. */
+@utility drop-line {
+  @apply flex items-center gap-1.5 text-[11px] text-primary-500 before:size-2 before:shrink-0 before:rounded-full before:bg-primary-500 before:content-[''] after:h-0.5 after:grow after:bg-primary-500 after:content-[''];
+}
+
 /* Copy button injected into markdown code blocks by renderMarkdown. */
 .code-block {
   position: relative;
