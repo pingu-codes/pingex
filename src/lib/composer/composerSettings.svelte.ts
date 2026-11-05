@@ -89,12 +89,21 @@ export class ComposerSettings {
   private readonly speedModel = $derived(this.selectedModel ?? this.defaultModel);
   readonly supportsSpeed = $derived(this.models?.some((model) => model.speedTiers !== undefined) ?? false);
   readonly fastSpeedTier = $derived(fastTier(this.speedModel));
+  /** A draft has no thread to inherit from, so it starts on the model's
+   *  default tier (null, standard, when the model names none). Only an existing
+   *  thread whose tier was never reported is left unknown. */
   private readonly selectedSpeedTier = $derived.by(
-    () => this.prefs.speedTier ?? (this.deps.threadId() ? this.deps.threadSpeedTier() : undefined),
+    () =>
+      this.prefs.speedTier ??
+      (this.deps.threadId() ? this.deps.threadSpeedTier() : (this.speedModel?.defaultSpeedTier ?? null)),
   );
   readonly selectedFast = $derived(fastModeState(this.selectedSpeedTier, this.speedModel));
+  /** A turn that has not reported its tier yet runs on the one it was sent with. */
   readonly displayedFast = $derived.by(() =>
-    fastModeState(this.deps.busy() ? this.deps.runningSpeedTier() : this.selectedSpeedTier, this.speedModel),
+    fastModeState(
+      this.deps.busy() ? (this.deps.runningSpeedTier() ?? this.selectedSpeedTier) : this.selectedSpeedTier,
+      this.speedModel,
+    ),
   );
   readonly speedPending = $derived.by(
     () => this.deps.busy() && this.prefs.speedTier !== null && this.selectedFast !== this.displayedFast,

@@ -71,6 +71,19 @@ describe("fast mode", () => {
     expect(toggle).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("starts a new thread on the model's default speed", async () => {
+    setup({ threadId: null });
+    const toggle = await screen.findByRole("button", { name: "Fast mode" });
+    expect(toggle).toHaveTextContent("Fast off");
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("shows the sent speed while the first turn has not reported one", async () => {
+    setup({ threadId: "starting", threadSpeedTier: "priority", busy: true });
+    const toggle = await screen.findByRole("button", { name: "Fast mode" });
+    expect(toggle).toHaveTextContent("Fast on");
+  });
+
   it("does not call missing settings off", async () => {
     setup({ threadId: "unknown" });
     const toggle = await screen.findByRole("button", { name: "Fast mode" });
