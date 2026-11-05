@@ -161,6 +161,37 @@ pub(crate) async fn review_inbox(
     desk(&window, &state, repo_dir).sync_inbox().await
 }
 
+/// Mark the inbox activity on PRs `numbers` seen ("Mark as seen", E, and
+/// "Mark all seen").
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_mark_activity_seen(
+    repo_dir: String,
+    numbers: Vec<i64>,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    desk(&window, &state, repo_dir)
+        .mark_activity_seen(numbers)
+        .await
+}
+
+/// "Mute until new commits": PR `number` leaves Needs me until its head
+/// moves off `head_sha`.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_mute_pr(
+    repo_dir: String,
+    number: i64,
+    head_sha: String,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    desk(&window, &state, repo_dir)
+        .mute_until_new_commits(number, head_sha)
+        .await
+}
+
 /// The repository's native stacks (bottom PR first), or `supported: false`.
 #[tauri::command]
 #[specta::specta]

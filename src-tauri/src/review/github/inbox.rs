@@ -36,7 +36,7 @@ pub(crate) const INBOX_QUERY: &str = "query($owner:String!,$repo:String!,$endCur
         reviewRequests(first:20){nodes{requestedReviewer{\
           ... on User{login} ... on Bot{login} ... on Mannequin{login} ... on Team{slug}\
         }}}\
-        latestOpinionatedReviews(first:20){nodes{state author{login}}}\
+        latestOpinionatedReviews(first:20){nodes{state author{login} commit{oid}}}\
         commits(last:1){nodes{commit{statusCheckRollup{state}}}}\
         reviewThreads(first:100){nodes{isResolved}}\
       }\
@@ -133,6 +133,7 @@ fn parse_pr(node: &Value) -> InboxPr {
             .map(|review| InboxReview {
                 author: opt_str(review, "/author/login").unwrap_or_else(|| "ghost".to_string()),
                 state: str_field(review, "state"),
+                commit: opt_str(review, "/commit/oid"),
             })
             .collect(),
         checks: opt_str(node, "/commits/nodes/0/commit/statusCheckRollup/state"),
