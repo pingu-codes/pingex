@@ -1,19 +1,19 @@
 <script lang="ts">
-import { Layers3 } from "@lucide/svelte";
-import type { DialogClose } from "$lib/app/dialogs.svelte";
-import DialogShell from "$lib/components/DialogShell.svelte";
-import type { Project } from "$lib/types";
+  import { Layers3 } from "@lucide/svelte";
+  import type { DialogClose } from "$lib/app/dialogs.svelte";
+  import DialogShell from "$lib/components/DialogShell.svelte";
+  import type { Project } from "$lib/types";
 
-let {
-  workspaces,
-  close,
-}: {
-  workspaces: Project[];
-  /** Resolves the workspace to move the thread into. */
-  close: DialogClose<Project>;
-} = $props();
+  let {
+    workspaces,
+    close,
+  }: {
+    workspaces: Project[];
+    /** Resolves the workspace to move the thread into. */
+    close: DialogClose<Project>;
+  } = $props();
 
-const choices = $derived(workspaces.filter((project) => project.kind === "multiProject" && !project.archived));
+  const choices = $derived(workspaces.filter((project) => project.kind === "multiProject" && !project.archived));
 </script>
 
 <DialogShell
@@ -22,7 +22,9 @@ const choices = $derived(workspaces.filter((project) => project.kind === "multiP
   width={448}
   onClose={() => close()}
 >
-  {#snippet icon()}<Layers3 size={17} class="text-primary-500" />{/snippet}
+  {#snippet icon()}
+    <Layers3 size={17} class="text-primary-500" />
+  {/snippet}
 
   <div class="mt-4 space-y-1">
     {#each choices as workspace (workspace.path)}
@@ -31,7 +33,12 @@ const choices = $derived(workspaces.filter((project) => project.kind === "multiP
         onclick={() => close(workspace)}
       >
         <Layers3 size={15} class="shrink-0 text-primary-500" />
-        <span class="min-w-0 flex-1"><span class="block truncate font-medium">{workspace.name}</span><span class="block truncate text-[10px] text-surface-500">{workspace.members?.map((member) => member.alias).join(" · ")}</span></span>
+        <span class="min-w-0 flex-1"
+          ><span class="block truncate font-medium">{workspace.name}</span
+          ><span class="block truncate text-[10px] text-surface-500"
+            >{workspace.members?.map((member) => member.alias).join(" · ")}</span
+          ></span
+        >
       </button>
     {:else}
       <p class="empty-state rounded-lg p-4 text-left">Create a workspace before moving this thread.</p>

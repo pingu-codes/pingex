@@ -1,75 +1,75 @@
 <script lang="ts">
-import { Check, Copy } from "@lucide/svelte";
-import type { Snippet } from "svelte";
-import type { ThreadSummary } from "$lib/types";
-import { flashKey } from "$lib/utils/flash.svelte";
+  import { Check, Copy } from "@lucide/svelte";
+  import type { Snippet } from "svelte";
+  import type { ThreadSummary } from "$lib/types";
+  import { flashKey } from "$lib/utils/flash.svelte";
 
-let {
-  thread,
-  codexHome,
-  children,
-}: {
-  thread: ThreadSummary | null;
-  codexHome: string | null;
-  children: Snippet;
-} = $props();
+  let {
+    thread,
+    codexHome,
+    children,
+  }: {
+    thread: ThreadSummary | null;
+    codexHome: string | null;
+    children: Snippet;
+  } = $props();
 
-let open = $state(false);
-const copied = flashKey<string>(1200);
-let openTimer: ReturnType<typeof setTimeout> | null = null;
-let closeTimer: ReturnType<typeof setTimeout> | null = null;
+  let open = $state(false);
+  const copied = flashKey<string>(1200);
+  let openTimer: ReturnType<typeof setTimeout> | null = null;
+  let closeTimer: ReturnType<typeof setTimeout> | null = null;
 
-const rows = $derived(
-  thread
-    ? (
-        [
-          ["Thread ID", thread.id],
-          ["Parent ID", thread.parentThreadId ?? null],
+  const rows = $derived(
+    thread
+      ? (
           [
-            "Agent",
-            thread.agentNickname
-              ? `${thread.agentNickname}${thread.agentRole ? ` (${thread.agentRole})` : ""}`
-              : (thread.agentRole ?? null),
-          ],
-          ["Status", thread.status],
-          ["CWD", thread.cwd],
-          ["Codex home", codexHome],
-          ["Updated", new Date(thread.updatedAt * 1000).toLocaleString()],
-        ] satisfies [string, string | null][]
-      ).filter((row): row is [string, string] => row[1] !== null && row[1] !== "")
-    : [],
-);
+            ["Thread ID", thread.id],
+            ["Parent ID", thread.parentThreadId ?? null],
+            [
+              "Agent",
+              thread.agentNickname
+                ? `${thread.agentNickname}${thread.agentRole ? ` (${thread.agentRole})` : ""}`
+                : (thread.agentRole ?? null),
+            ],
+            ["Status", thread.status],
+            ["CWD", thread.cwd],
+            ["Codex home", codexHome],
+            ["Updated", new Date(thread.updatedAt * 1000).toLocaleString()],
+          ] satisfies [string, string | null][]
+        ).filter((row): row is [string, string] => row[1] !== null && row[1] !== "")
+      : [],
+  );
 
-function show() {
-  if (!thread) return;
-  if (closeTimer) clearTimeout(closeTimer);
-  closeTimer = null;
-  if (open || openTimer) return;
-  openTimer = setTimeout(() => {
-    openTimer = null;
-    open = true;
-  }, 450);
-}
-
-function hide() {
-  if (openTimer) clearTimeout(openTimer);
-  openTimer = null;
-  if (!open || closeTimer) return;
-  closeTimer = setTimeout(() => {
+  function show() {
+    if (!thread) return;
+    if (closeTimer) clearTimeout(closeTimer);
     closeTimer = null;
-    open = false;
-    copied.clear();
-  }, 200);
-}
-
-async function copy(key: string, value: string) {
-  try {
-    await navigator.clipboard.writeText(value);
-    copied.trigger(key);
-  } catch {
-    // Clipboard unavailable; nothing to surface in a debug hover.
+    if (open || openTimer) return;
+    openTimer = setTimeout(() => {
+      openTimer = null;
+      open = true;
+    }, 450);
   }
-}
+
+  function hide() {
+    if (openTimer) clearTimeout(openTimer);
+    openTimer = null;
+    if (!open || closeTimer) return;
+    closeTimer = setTimeout(() => {
+      closeTimer = null;
+      open = false;
+      copied.clear();
+    }, 200);
+  }
+
+  async function copy(key: string, value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      copied.trigger(key);
+    } catch {
+      // Clipboard unavailable; nothing to surface in a debug hover.
+    }
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -94,7 +94,10 @@ async function copy(key: string, value: string) {
           {#if copied.current === label}
             <Check size={11} class="shrink-0 self-center text-primary-500" />
           {:else}
-            <Copy size={11} class="shrink-0 self-center text-surface-400-600 opacity-0 transition group-hover:opacity-100" />
+            <Copy
+              size={11}
+              class="shrink-0 self-center text-surface-400-600 opacity-0 transition group-hover:opacity-100"
+            />
           {/if}
         </button>
       {/each}

@@ -1,18 +1,18 @@
 <script lang="ts">
-import { MessageCircleQuestion, Trash2 } from "@lucide/svelte";
-import TooltipButton from "$lib/components/TooltipButton.svelte";
-import type { SideQuestion } from "$lib/types";
+  import { MessageCircleQuestion, Trash2 } from "@lucide/svelte";
+  import TooltipButton from "$lib/components/TooltipButton.svelte";
+  import type { SideQuestion } from "$lib/types";
 
-// A thread's side questions, each opening on click with a hover-revealed delete.
-let {
-  entries,
-  onOpen,
-  onDelete,
-}: {
-  entries: SideQuestion[];
-  onOpen: (entry: SideQuestion) => void;
-  onDelete: (entry: SideQuestion) => void;
-} = $props();
+  // A thread's side questions, each opening on click with a hover-revealed delete.
+  let {
+    entries,
+    onOpen,
+    onDelete,
+  }: {
+    entries: SideQuestion[];
+    onOpen: (entry: SideQuestion) => void;
+    onDelete: (entry: SideQuestion) => void;
+  } = $props();
 </script>
 
 <div class="space-y-1">

@@ -1,54 +1,54 @@
 <script lang="ts">
-import PickerList from "$lib/composer/PickerList.svelte";
-import { commands } from "$lib/services/homeRouting";
-import type { FileHit, Mention } from "$lib/types";
-import { fileIconFor, folderIcon } from "$lib/utils/fileIcons";
+  import PickerList from "$lib/composer/PickerList.svelte";
+  import { commands } from "$lib/services/homeRouting";
+  import type { FileHit, Mention } from "$lib/types";
+  import { fileIconFor, folderIcon } from "$lib/utils/fileIcons";
 
-let {
-  cwd,
-  query,
-  scope = null,
-  onPick,
-  onClose,
-  onCount,
-}: {
-  cwd: string;
-  query: string;
-  scope?: HTMLElement | null;
-  /** Reports the visible result count to the composer's key handling. */
-  onCount?: (count: number) => void;
-  onPick: (mention: Mention) => void;
-  onClose: () => void;
-} = $props();
+  let {
+    cwd,
+    query,
+    scope = null,
+    onPick,
+    onClose,
+    onCount,
+  }: {
+    cwd: string;
+    query: string;
+    scope?: HTMLElement | null;
+    /** Reports the visible result count to the composer's key handling. */
+    onCount?: (count: number) => void;
+    onPick: (mention: Mention) => void;
+    onClose: () => void;
+  } = $props();
 
-let results = $state<FileHit[]>([]);
-let failed = $state(false);
+  let results = $state<FileHit[]>([]);
+  let failed = $state(false);
 
-$effect(() => {
-  const currentQuery = query;
-  const timer = setTimeout(async () => {
-    try {
-      const hits = await commands.searchProjectFiles(cwd, currentQuery, 12);
-      if (currentQuery === query) {
-        results = hits;
-        failed = false;
+  $effect(() => {
+    const currentQuery = query;
+    const timer = setTimeout(async () => {
+      try {
+        const hits = await commands.searchProjectFiles(cwd, currentQuery, 12);
+        if (currentQuery === query) {
+          results = hits;
+          failed = false;
+        }
+      } catch {
+        // A failed search for an older query must not blank newer results.
+        if (currentQuery !== query) return;
+        failed = true;
+        results = [];
       }
-    } catch {
-      // A failed search for an older query must not blank newer results.
-      if (currentQuery !== query) return;
-      failed = true;
-      results = [];
-    }
-  }, 120);
-  return () => clearTimeout(timer);
-});
+    }, 120);
+    return () => clearTimeout(timer);
+  });
 
-function pick(hit: FileHit) {
-  // Directories keep a trailing slash — the form Codex writes for folder
-  // mentions, and what marks the chip as a folder rather than a file.
-  const path = `${cwd.replace(/\/$/, "")}/${hit.path}${hit.isDir ? "/" : ""}`;
-  onPick({ name: hit.fileName, path });
-}
+  function pick(hit: FileHit) {
+    // Directories keep a trailing slash — the form Codex writes for folder
+    // mentions, and what marks the chip as a folder rather than a file.
+    const path = `${cwd.replace(/\/$/, "")}/${hit.path}${hit.isDir ? "/" : ""}`;
+    onPick({ name: hit.fileName, path });
+  }
 </script>
 
 <PickerList

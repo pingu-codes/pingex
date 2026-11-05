@@ -1,19 +1,19 @@
 <script lang="ts">
-import Toggle from "$lib/components/Toggle.svelte";
-import {
-  appearance,
-  FONT_SIZE_MAX,
-  FONT_SIZE_MIN,
-  type FontChoice,
-  type ThemeName,
-} from "$lib/layout/appearancePrefs.svelte";
-import SettingRow from "$lib/layout/settings/SettingRow.svelte";
-import SettingsCard from "$lib/layout/settings/SettingsCard.svelte";
-import { sidebarPrefs } from "$lib/layout/sidebarPrefs.svelte";
+  import Toggle from "$lib/components/Toggle.svelte";
+  import {
+    appearance,
+    FONT_SIZE_MAX,
+    FONT_SIZE_MIN,
+    type FontChoice,
+    type ThemeName,
+  } from "$lib/layout/appearancePrefs.svelte";
+  import SettingRow from "$lib/layout/settings/SettingRow.svelte";
+  import SettingsCard from "$lib/layout/settings/SettingsCard.svelte";
+  import { sidebarPrefs } from "$lib/layout/sidebarPrefs.svelte";
 
-// The font-size slider previews its value while dragging and applies on release:
-// applying per input rescales the page (slider included) under the pointer.
-let draftFontSize = $state<number | null>(null);
+  // The font-size slider previews its value while dragging and applies on release:
+  // applying per input rescales the page (slider included) under the pointer.
+  let draftFontSize = $state<number | null>(null);
 </script>
 
 <SettingsCard title="Appearance" description="Local to this app; not stored in Codex config.">
@@ -66,7 +66,7 @@ let draftFontSize = $state<number | null>(null);
           appearance.set({ fontSize: Number(event.currentTarget.value) });
           draftFontSize = null;
         }}
-      />
+      >
     </SettingRow>
     <SettingRow
       label="Hide threads older than a day"

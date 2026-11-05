@@ -1,7 +1,7 @@
 <script lang="ts">
-// The small chip beside a setting that says where its value lives or what a
-// change costs.
-let { kind }: { kind: "restart" | "local" | "config" | "default" } = $props();
+  // The small chip beside a setting that says where its value lives or what a
+  // change costs.
+  let { kind }: { kind: "restart" | "local" | "config" | "default" } = $props();
 </script>
 
 {#if kind === "restart"}

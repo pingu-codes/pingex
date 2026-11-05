@@ -1,31 +1,31 @@
 <script lang="ts">
-import { Pencil, Send, X } from "@lucide/svelte";
-import TooltipButton from "$lib/components/TooltipButton.svelte";
-import { InlineEdit } from "$lib/thread/inlineEdit.svelte";
-import { editedParts, messageText } from "$lib/thread/messageText";
-import { isLocalOnly, queuedText } from "$lib/thread/queueEntries";
-import type { QueuedSubmission, UserInputPart } from "$lib/types";
+  import { Pencil, Send, X } from "@lucide/svelte";
+  import TooltipButton from "$lib/components/TooltipButton.svelte";
+  import { InlineEdit } from "$lib/thread/inlineEdit.svelte";
+  import { editedParts, messageText } from "$lib/thread/messageText";
+  import { isLocalOnly, queuedText } from "$lib/thread/queueEntries";
+  import type { QueuedSubmission, UserInputPart } from "$lib/types";
 
-let {
-  entry,
-  canSendNow,
-  onSendNow,
-  onEdit,
-  onCancel,
-}: {
-  entry: QueuedSubmission;
-  /** Whether "send now" makes sense — a turn is running or this isn't the head. */
-  canSendNow: boolean;
-  onSendNow: () => void;
-  onEdit: (input: UserInputPart[]) => void;
-  onCancel: () => void;
-} = $props();
+  let {
+    entry,
+    canSendNow,
+    onSendNow,
+    onEdit,
+    onCancel,
+  }: {
+    entry: QueuedSubmission;
+    /** Whether "send now" makes sense — a turn is running or this isn't the head. */
+    canSendNow: boolean;
+    onSendNow: () => void;
+    onEdit: (input: UserInputPart[]) => void;
+    onCancel: () => void;
+  } = $props();
 
-// Only the prose is edited; chips keep their place, as in a sent message's edit.
-const edit = new InlineEdit(
-  () => messageText(entry.input),
-  (text) => onEdit(editedParts(entry.input, text)),
-);
+  // Only the prose is edited; chips keep their place, as in a sent message's edit.
+  const edit = new InlineEdit(
+    () => messageText(entry.input),
+    (text) => onEdit(editedParts(entry.input, text)),
+  );
 </script>
 
 <div

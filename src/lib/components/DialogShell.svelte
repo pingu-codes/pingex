@@ -1,41 +1,41 @@
 <script lang="ts">
-/**
- * The chrome every dialog shares: Skeleton's Dialog primitive plus the
- * backdrop / centred card / title row / close button. Dialogs are mounted by
- * DialogHost only while they are open, so the shell is always open and reports
- * every dismissal (Esc, backdrop, close button) through `onClose`.
- *
- * The close button is marked `data-no-autofocus` so a dialog without an
- * explicit `data-autofocus` target opens with focus on its first real control
- * rather than the X (zag resolves initial focus as `initialFocusEl` →
- * `[data-autofocus]` → first tabbable without `[data-no-autofocus]`).
- */
-import { X } from "@lucide/svelte";
-import { Dialog, Portal } from "@skeletonlabs/skeleton-svelte";
-import type { Snippet } from "svelte";
+  /**
+   * The chrome every dialog shares: Skeleton's Dialog primitive plus the
+   * backdrop / centred card / title row / close button. Dialogs are mounted by
+   * DialogHost only while they are open, so the shell is always open and reports
+   * every dismissal (Esc, backdrop, close button) through `onClose`.
+   *
+   * The close button is marked `data-no-autofocus` so a dialog without an
+   * explicit `data-autofocus` target opens with focus on its first real control
+   * rather than the X (zag resolves initial focus as `initialFocusEl` →
+   * `[data-autofocus]` → first tabbable without `[data-no-autofocus]`).
+   */
+  import { X } from "@lucide/svelte";
+  import { Dialog, Portal } from "@skeletonlabs/skeleton-svelte";
+  import type { Snippet } from "svelte";
 
-let {
-  title,
-  subtitle = null,
-  titleClass = "",
-  width = 420,
-  onClose,
-  icon,
-  children,
-  footer,
-}: {
-  title: string;
-  subtitle?: string | null;
-  /** Extra classes for the title row (e.g. a destructive colour). */
-  titleClass?: string;
-  /** Max card width in pixels; the card shrinks on narrow windows. */
-  width?: number;
-  onClose: () => void;
-  icon?: Snippet;
-  children: Snippet;
-  /** Action buttons; laid out right-aligned (use `mr-auto` to push left). */
-  footer?: Snippet;
-} = $props();
+  let {
+    title,
+    subtitle = null,
+    titleClass = "",
+    width = 420,
+    onClose,
+    icon,
+    children,
+    footer,
+  }: {
+    title: string;
+    subtitle?: string | null;
+    /** Extra classes for the title row (e.g. a destructive colour). */
+    titleClass?: string;
+    /** Max card width in pixels; the card shrinks on narrow windows. */
+    width?: number;
+    onClose: () => void;
+    icon?: Snippet;
+    children: Snippet;
+    /** Action buttons; laid out right-aligned (use `mr-auto` to push left). */
+    footer?: Snippet;
+  } = $props();
 </script>
 
 <Dialog open onOpenChange={(details) => !details.open && onClose()}>
@@ -56,7 +56,11 @@ let {
               <p class="mt-1 text-xs leading-5 text-surface-500">{subtitle}</p>
             {/if}
           </div>
-          <Dialog.CloseTrigger data-no-autofocus class="btn-icon btn-icon-sm shrink-0 hover:preset-tonal text-surface-500" aria-label="Close">
+          <Dialog.CloseTrigger
+            data-no-autofocus
+            class="btn-icon btn-icon-sm shrink-0 hover:preset-tonal text-surface-500"
+            aria-label="Close"
+          >
             <X size={16} />
           </Dialog.CloseTrigger>
         </div>

@@ -1,194 +1,196 @@
 <script lang="ts">
-import {
-  Bot,
-  Check,
-  ChevronDown,
-  Clock,
-  Copy,
-  FilePen,
-  Image,
-  Layers,
-  MessageCircleQuestion,
-  Plug,
-  ScanEye,
-  ShieldAlert,
-  Terminal,
-  Webhook,
-  Wrench,
-} from "@lucide/svelte";
-import { Collapsible } from "@skeletonlabs/skeleton-svelte";
-import type { Snippet } from "svelte";
-import { openSubagent } from "$lib/app/actions.svelte";
-import DiffBlock from "$lib/components/DiffBlock.svelte";
-import TooltipButton from "$lib/components/TooltipButton.svelte";
-import { modelLabel } from "$lib/composer/models.svelte";
-import { commands, identity } from "$lib/services/homeRouting";
-import { openSettings } from "$lib/services/settingsNav.svelte";
-import { statusTone } from "$lib/thread/agentStatus";
-import QuestionCard from "$lib/thread/QuestionCard.svelte";
-import ThreadImage from "$lib/thread/ThreadImage.svelte";
-import { functionCallOutputText, reasoningContent } from "$lib/thread/turnSegments";
-import type { SubagentDetail, ThreadItem } from "$lib/types";
-import { copyCode, copyPlainOrMarkdown } from "$lib/utils/copy";
-import { flashFlag } from "$lib/utils/flash.svelte";
-import { renderMarkdown } from "$lib/utils/markdown";
+  import {
+    Bot,
+    Check,
+    ChevronDown,
+    Clock,
+    Copy,
+    FilePen,
+    Image,
+    Layers,
+    MessageCircleQuestion,
+    Plug,
+    ScanEye,
+    ShieldAlert,
+    Terminal,
+    Webhook,
+    Wrench,
+  } from "@lucide/svelte";
+  import { Collapsible } from "@skeletonlabs/skeleton-svelte";
+  import type { Snippet } from "svelte";
+  import { openSubagent } from "$lib/app/actions.svelte";
+  import DiffBlock from "$lib/components/DiffBlock.svelte";
+  import TooltipButton from "$lib/components/TooltipButton.svelte";
+  import { modelLabel } from "$lib/composer/models.svelte";
+  import { commands, identity } from "$lib/services/homeRouting";
+  import { openSettings } from "$lib/services/settingsNav.svelte";
+  import { statusTone } from "$lib/thread/agentStatus";
+  import QuestionCard from "$lib/thread/QuestionCard.svelte";
+  import ThreadImage from "$lib/thread/ThreadImage.svelte";
+  import { functionCallOutputText, reasoningContent } from "$lib/thread/turnSegments";
+  import type { SubagentDetail, ThreadItem } from "$lib/types";
+  import { copyCode, copyPlainOrMarkdown } from "$lib/utils/copy";
+  import { flashFlag } from "$lib/utils/flash.svelte";
+  import { renderMarkdown } from "$lib/utils/markdown";
 
-let {
-  item,
-  collapseDiffs = false,
-  stranded,
-  model = null,
-  effort = null,
-  subagents = [],
-}: {
-  item: ThreadItem;
-  collapseDiffs?: boolean;
-  /** The thread's known subagents, so activity rows can name and open them. */
-  subagents?: SubagentDetail[];
-  /** What the turn ran on, shown alongside the message's hover actions. */
-  model?: string | null;
-  effort?: string | null;
-  /**
-   * Supplied for a question the app never got to answer, so the transcript can
-   * offer to answer it now as a new message rather than just record the gap.
-   */
-  stranded?: {
-    threadId: string;
-    turnId: string;
-    onResume: (text: string) => Promise<void> | void;
-    onAnswered: (item: ThreadItem) => void;
-  };
-} = $props();
-
-let messageEl = $state<HTMLElement | null>(null);
-const copied = flashFlag();
-const copiedCommand = flashFlag();
-
-/** Copies the command as the harness ran it, so it can be re-run verbatim. */
-function copyCommand() {
-  commands.copyText(item.command ?? "").catch(() => {});
-  copiedCommand.trigger();
-}
-
-/** Copies the rendered message by default, or its markdown source on Shift+click. */
-function copyMessage(event: MouseEvent) {
-  copyPlainOrMarkdown(event, messageEl?.innerText ?? item.text ?? "", item.text ?? "");
-  copied.trigger();
-}
-
-/**
- * Codex's own collab agents report their activity as a separate item type,
- * alongside the `collabAgentToolCall` that carries the detail.
- */
-const SUB_AGENT_VERBS: Record<string, string> = {
-  started: "Spawned agent",
-  interacted: "Messaged agent",
-  interrupted: "Stopped agent",
-  completed: "Agent finished",
-};
-/**
- * The verb for a Codex collab tool call, keyed on the camelCase `tool` the
- * app-server sends (`CollabAgentTool` in the v2 protocol). The V1 tools and
- * the V2 ones are both listed: a thread can hold either generation.
- */
-const COLLAB_TOOL_VERBS: Record<string, string> = {
-  spawnAgent: "Spawned",
-  sendInput: "Sent input to",
-  sendMessage: "Messaged",
-  followupTask: "Sent a follow-up to",
-  resumeAgent: "Resumed",
-  wait: "Waited for",
-  closeAgent: "Closed",
-  interruptAgent: "Stopped",
-  listAgents: "Listed",
-};
-/** "Spawned 3 subagents", "Waited for a subagent", "Listed agents". */
-function collabHeader(item: ThreadItem): string {
-  const verb = COLLAB_TOOL_VERBS[item.tool ?? ""] ?? "Agent call";
-  const count = collabAgentCount(item);
-  if (item.tool === "listAgents") return `${verb} agents`;
-  if (count > 1) return `${verb} ${count} subagents`;
-  if (count === 1) return `${verb} a subagent`;
-  return verb;
-}
-
-/**
- * A thread id as Codex wrote it. In a multi-home profile the listing's ids are
- * scoped while ids inside a re-read transcript are not, so lookups compare the
- * native half.
- */
-const nativeId = (id: string) => identity(id)?.nativeId ?? id;
-
-/**
- * The Codex subagent a row refers to, when the thread's listing has it. A row
- * can arrive before the listing refreshes, so the lookup may miss; the raw
- * agent path or id still renders then.
- */
-const subagentById = $derived(new Map(subagents.map((agent) => [nativeId(agent.id), agent])));
-const subagentFor = (id: string | undefined) => (id ? subagentById.get(nativeId(id)) : undefined);
-const activityAgent = (item: ThreadItem) => subagentFor(item.agentThreadId);
-const activityLabel = (item: ThreadItem, agent: SubagentDetail | undefined) =>
-  agent?.agentNickname ?? agent?.agentRole ?? item.agentPath ?? "";
-/** Once an agent has finished or been stopped, its live status is stale news. */
-const activityShowsStatus = (item: ThreadItem) => item.kind === "started" || item.kind === "interacted";
-
-/**
- * The agents a collab call addressed, each with the state the call last saw.
- * `agentsStates` is keyed by native thread id whichever path the item came by.
- */
-function collabAgents(item: ThreadItem) {
-  const states = item.agentsStates ?? {};
-  const ids = item.receiverThreadIds?.length ? item.receiverThreadIds : Object.keys(states);
-  return ids.map((id) => {
-    const agent = subagentFor(id);
-    return {
-      id,
-      agent,
-      label: agent?.agentNickname ?? agent?.agentRole ?? nativeId(id).slice(0, 8),
-      state: states[nativeId(id)],
+  let {
+    item,
+    collapseDiffs = false,
+    stranded,
+    model = null,
+    effort = null,
+    subagents = [],
+  }: {
+    item: ThreadItem;
+    collapseDiffs?: boolean;
+    /** The thread's known subagents, so activity rows can name and open them. */
+    subagents?: SubagentDetail[];
+    /** What the turn ran on, shown alongside the message's hover actions. */
+    model?: string | null;
+    effort?: string | null;
+    /**
+     * Supplied for a question the app never got to answer, so the transcript can
+     * offer to answer it now as a new message rather than just record the gap.
+     */
+    stranded?: {
+      threadId: string;
+      turnId: string;
+      onResume: (text: string) => Promise<void> | void;
+      onAnswered: (item: ThreadItem) => void;
     };
-  });
-}
+  } = $props();
 
-const rawReasoning = (item: ThreadItem) => reasoningContent(item).filter(Boolean).join("\n\n");
+  let messageEl = $state<HTMLElement | null>(null);
+  const copied = flashFlag();
+  const copiedCommand = flashFlag();
 
-/**
- * Codex's verdict on an action it decided about without asking, worth showing
- * only when it went against the action or flagged real risk — an approved
- * low-risk command is just a command.
- */
-function guardianVerdict(item: ThreadItem): string | null {
-  const review = item.guardianReview;
-  if (!review) return null;
-  const notable = review.status !== "approved" || ["high", "critical"].includes(review.riskLevel ?? "");
-  if (!notable) return null;
-  const head = review.status === "denied" ? "Blocked by Codex" : `Codex review: ${review.status}`;
-  const risk = review.riskLevel ? ` (${review.riskLevel} risk)` : "";
-  return `${head}${risk}${review.rationale ? ` — ${review.rationale}` : ""}`;
-}
+  /** Copies the command as the harness ran it, so it can be re-run verbatim. */
+  function copyCommand() {
+    commands.copyText(item.command ?? "").catch(() => {});
+    copiedCommand.trigger();
+  }
 
-/** A hook can contribute several fragments; they read as one block of text. */
-const hookPromptText = (item: ThreadItem) =>
-  (item.fragments ?? [])
-    .map((fragment) => fragment.text)
-    .filter(Boolean)
-    .join("\n");
+  /** Copies the rendered message by default, or its markdown source on Shift+click. */
+  function copyMessage(event: MouseEvent) {
+    copyPlainOrMarkdown(event, messageEl?.innerText ?? item.text ?? "", item.text ?? "");
+    copied.trigger();
+  }
 
-const collabAgentCount = (item: ThreadItem) => item.receiverThreadIds?.length ?? 0;
+  /**
+   * Codex's own collab agents report their activity as a separate item type,
+   * alongside the `collabAgentToolCall` that carries the detail.
+   */
+  const SUB_AGENT_VERBS: Record<string, string> = {
+    started: "Spawned agent",
+    interacted: "Messaged agent",
+    interrupted: "Stopped agent",
+    completed: "Agent finished",
+  };
+  /**
+   * The verb for a Codex collab tool call, keyed on the camelCase `tool` the
+   * app-server sends (`CollabAgentTool` in the v2 protocol). The V1 tools and
+   * the V2 ones are both listed: a thread can hold either generation.
+   */
+  const COLLAB_TOOL_VERBS: Record<string, string> = {
+    spawnAgent: "Spawned",
+    sendInput: "Sent input to",
+    sendMessage: "Messaged",
+    followupTask: "Sent a follow-up to",
+    resumeAgent: "Resumed",
+    wait: "Waited for",
+    closeAgent: "Closed",
+    interruptAgent: "Stopped",
+    listAgents: "Listed",
+  };
+  /** "Spawned 3 subagents", "Waited for a subagent", "Listed agents". */
+  function collabHeader(item: ThreadItem): string {
+    const verb = COLLAB_TOOL_VERBS[item.tool ?? ""] ?? "Agent call";
+    const count = collabAgentCount(item);
+    if (item.tool === "listAgents") return `${verb} agents`;
+    if (count > 1) return `${verb} ${count} subagents`;
+    if (count === 1) return `${verb} a subagent`;
+    return verb;
+  }
 
-const commandStatusClass = (item: ThreadItem) =>
-  item.exitCode === 0 || item.status === "completed"
-    ? "bg-success-500"
-    : item.status === "inProgress"
-      ? "bg-warning-500"
-      : "bg-error-500";
+  /**
+   * A thread id as Codex wrote it. In a multi-home profile the listing's ids are
+   * scoped while ids inside a re-read transcript are not, so lookups compare the
+   * native half.
+   */
+  const nativeId = (id: string) => identity(id)?.nativeId ?? id;
+
+  /**
+   * The Codex subagent a row refers to, when the thread's listing has it. A row
+   * can arrive before the listing refreshes, so the lookup may miss; the raw
+   * agent path or id still renders then.
+   */
+  const subagentById = $derived(new Map(subagents.map((agent) => [nativeId(agent.id), agent])));
+  const subagentFor = (id: string | undefined) => (id ? subagentById.get(nativeId(id)) : undefined);
+  const activityAgent = (item: ThreadItem) => subagentFor(item.agentThreadId);
+  const activityLabel = (item: ThreadItem, agent: SubagentDetail | undefined) =>
+    agent?.agentNickname ?? agent?.agentRole ?? item.agentPath ?? "";
+  /** Once an agent has finished or been stopped, its live status is stale news. */
+  const activityShowsStatus = (item: ThreadItem) => item.kind === "started" || item.kind === "interacted";
+
+  /**
+   * The agents a collab call addressed, each with the state the call last saw.
+   * `agentsStates` is keyed by native thread id whichever path the item came by.
+   */
+  function collabAgents(item: ThreadItem) {
+    const states = item.agentsStates ?? {};
+    const ids = item.receiverThreadIds?.length ? item.receiverThreadIds : Object.keys(states);
+    return ids.map((id) => {
+      const agent = subagentFor(id);
+      return {
+        id,
+        agent,
+        label: agent?.agentNickname ?? agent?.agentRole ?? nativeId(id).slice(0, 8),
+        state: states[nativeId(id)],
+      };
+    });
+  }
+
+  const rawReasoning = (item: ThreadItem) => reasoningContent(item).filter(Boolean).join("\n\n");
+
+  /**
+   * Codex's verdict on an action it decided about without asking, worth showing
+   * only when it went against the action or flagged real risk — an approved
+   * low-risk command is just a command.
+   */
+  function guardianVerdict(item: ThreadItem): string | null {
+    const review = item.guardianReview;
+    if (!review) return null;
+    const notable = review.status !== "approved" || ["high", "critical"].includes(review.riskLevel ?? "");
+    if (!notable) return null;
+    const head = review.status === "denied" ? "Blocked by Codex" : `Codex review: ${review.status}`;
+    const risk = review.riskLevel ? ` (${review.riskLevel} risk)` : "";
+    return `${head}${risk}${review.rationale ? ` — ${review.rationale}` : ""}`;
+  }
+
+  /** A hook can contribute several fragments; they read as one block of text. */
+  const hookPromptText = (item: ThreadItem) =>
+    (item.fragments ?? [])
+      .map((fragment) => fragment.text)
+      .filter(Boolean)
+      .join("\n");
+
+  const collabAgentCount = (item: ThreadItem) => item.receiverThreadIds?.length ?? 0;
+
+  const commandStatusClass = (item: ThreadItem) =>
+    item.exitCode === 0 || item.status === "completed"
+      ? "bg-success-500"
+      : item.status === "inProgress"
+        ? "bg-warning-500"
+        : "bg-error-500";
 </script>
 
 <!-- A one-line summary that unfolds into its detail, as tool calls, hook text
      and agent calls all render. -->
 {#snippet expander(header: Snippet, body: Snippet, bodyClass = "")}
   <Collapsible class="min-w-0 items-stretch">
-    <Collapsible.Trigger class="group flex w-full items-center gap-2 text-left text-xs text-surface-500 hover:text-surface-700-300">
+    <Collapsible.Trigger
+      class="group flex w-full items-center gap-2 text-left text-xs text-surface-500 hover:text-surface-700-300"
+    >
       {@render header()}
       <ChevronDown size={12} class="shrink-0 transition group-data-[state=open]:rotate-180" />
     </Collapsible.Trigger>
@@ -214,9 +216,9 @@ const commandStatusClass = (item: ThreadItem) =>
 
 {#if item.type === "agentMessage" || item.type === "plan"}
   <div
-    class="group/message min-w-0 {item.type === 'agentMessage' && item.delivery === 'async'
-      ? 'rounded-lg border border-transparent p-3 transition-colors hover:border-surface-300-700 focus-within:border-surface-300-700'
-      : ''}"
+    class="group/message min-w-0 {item.type === "agentMessage" && item.delivery === "async"
+      ? "rounded-lg border border-transparent p-3 transition-colors hover:border-surface-300-700 focus-within:border-surface-300-700"
+      : ""}"
   >
     {#if item.type === "agentMessage" && item.delivery === "async"}
       <span class="badge preset-tonal-surface mb-2 text-[10px]">Async</span>
@@ -226,8 +228,8 @@ const commandStatusClass = (item: ThreadItem) =>
     </div>
     <div
       class="mt-1 flex items-center gap-0.5 text-surface-500 transition-opacity {copied.on
-        ? 'opacity-100'
-        : 'opacity-0 group-hover/message:opacity-100'}"
+        ? "opacity-100"
+        : "opacity-0 group-hover/message:opacity-100"}"
     >
       <TooltipButton
         label="Copy message (⇧ for Markdown)"
@@ -251,10 +253,10 @@ const commandStatusClass = (item: ThreadItem) =>
   </div>
 {:else if item.type === "contextCompaction"}
   <div class="flex items-center gap-2 text-[11px] text-surface-500" aria-label="Context compacted">
-    <hr class="flex-1 border-surface-200-800" />
+    <hr class="flex-1 border-surface-200-800">
     <Layers size={12} class="shrink-0" />
     <span>Context compacted</span>
-    <hr class="flex-1 border-surface-200-800" />
+    <hr class="flex-1 border-surface-200-800">
   </div>
 {:else if item.type === "userInputAnswered" && item.unanswered && stranded}
   <QuestionCard
@@ -305,12 +307,17 @@ const commandStatusClass = (item: ThreadItem) =>
     <!-- The unsummarised version, only when Codex sent one. Collapsed: it is
          several times longer than the summary above and repeats it. -->
     <Collapsible class="min-w-0 items-stretch">
-      <Collapsible.Trigger class="group mt-1 flex items-center gap-1.5 text-[10px] text-surface-500 hover:text-surface-700-300">
+      <Collapsible.Trigger
+        class="group mt-1 flex items-center gap-1.5 text-[10px] text-surface-500 hover:text-surface-700-300"
+      >
         <ChevronDown size={11} class="transition group-data-[state=open]:rotate-180" />
         Show full reasoning
       </Collapsible.Trigger>
       <Collapsible.Content>
-        <div class="prose-md prose-md-compact mt-1 border-l-2 border-surface-200-800 pl-3 text-xs leading-5 text-surface-500" use:copyCode>
+        <div
+          class="prose-md prose-md-compact mt-1 border-l-2 border-surface-200-800 pl-3 text-xs leading-5 text-surface-500"
+          use:copyCode
+        >
           {@html renderMarkdown(rawReasoning(item))}
         </div>
       </Collapsible.Content>
@@ -323,7 +330,9 @@ const commandStatusClass = (item: ThreadItem) =>
         <Collapsible.Trigger class="group flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-left">
           <span class="size-1.5 shrink-0 rounded-full {commandStatusClass(item)}"></span>
           <Terminal size={13} class="shrink-0 text-surface-500" />
-          <code class="min-w-0 flex-1 truncate font-mono text-xs text-surface-700-300" title={item.command}>{item.command}</code>
+          <code class="min-w-0 flex-1 truncate font-mono text-xs text-surface-700-300" title={item.command}
+            >{item.command}</code
+          >
           {#if item.durationMs != null}
             <span class="shrink-0 text-[10px] text-surface-500">{(item.durationMs / 1000).toFixed(1)}s</span>
           {/if}
@@ -334,8 +343,8 @@ const commandStatusClass = (item: ThreadItem) =>
           type="button"
           onclick={copyCommand}
           class="grid size-6 shrink-0 place-items-center rounded-md text-surface-500 transition-opacity hover:bg-surface-200-800 hover:text-surface-800-200 {copiedCommand.on
-            ? 'opacity-100'
-            : 'opacity-0 group-hover/command:opacity-100 focus-visible:opacity-100'}"
+            ? "opacity-100"
+            : "opacity-0 group-hover/command:opacity-100 focus-visible:opacity-100"}"
         >
           {#if copiedCommand.on}
             <Check size={13} class="text-success-500" />
@@ -351,9 +360,13 @@ const commandStatusClass = (item: ThreadItem) =>
           {#if item.cwd}
             <p class="mb-1 truncate font-mono text-[10px] text-surface-500" title={item.cwd}>{item.cwd}</p>
           {/if}
-          <pre class="font-mono text-[11px] leading-5 break-all whitespace-pre-wrap text-surface-700-300">{item.command}</pre>
+          <pre
+            class="font-mono text-[11px] leading-5 break-all whitespace-pre-wrap text-surface-700-300"
+          >{item.command}</pre>
         </div>
-        <pre class="max-h-72 overflow-auto border-t border-surface-200-800 bg-surface-50-950 px-3 py-2.5 font-mono text-[11px] leading-5 break-all whitespace-pre-wrap text-surface-600-400">{item.aggregatedOutput?.trim() || "No output"}</pre>
+        <pre
+          class="max-h-72 overflow-auto border-t border-surface-200-800 bg-surface-50-950 px-3 py-2.5 font-mono text-[11px] leading-5 break-all whitespace-pre-wrap text-surface-600-400"
+        >{item.aggregatedOutput?.trim() || "No output"}</pre>
       </Collapsible.Content>
     </div>
   </Collapsible>
@@ -386,15 +399,20 @@ const commandStatusClass = (item: ThreadItem) =>
     <span class="shrink-0">{collabHeader(item)}</span>
     <span class="min-w-0 flex-1 truncate font-mono text-[10px]">
       {#if item.model || item.reasoningEffort}
-        {item.model ?? "default model"} · {item.reasoningEffort ?? "default effort"}
+        {item.model ?? "default model"}
+        · {item.reasoningEffort ?? "default effort"}
       {/if}
     </span>
   {/snippet}
   {#snippet collabDetail()}
     {#each collabAgents(item) as entry (entry.id)}
       <div class="flex items-center gap-2">
-        <span class={entry.agent ? "text-surface-700-300" : "font-mono text-[10px] text-surface-500"}>{entry.label}</span>
-        {#if entry.state}<span class={statusTone(entry.state.status)}>{entry.state.status}</span>{/if}
+        <span class={entry.agent ? "text-surface-700-300" : "font-mono text-[10px] text-surface-500"}
+          >{entry.label}</span
+        >
+        {#if entry.state}
+          <span class={statusTone(entry.state.status)}>{entry.state.status}</span>
+        {/if}
         <span class="min-w-0 flex-1 truncate text-surface-500">{entry.state?.message ?? ""}</span>
         {#if entry.agent}
           {@const agent = entry.agent}
@@ -417,11 +435,14 @@ const commandStatusClass = (item: ThreadItem) =>
     <Bot size={12} class="shrink-0 text-surface-500" />
     <span class="min-w-0 flex-1 truncate text-surface-500">
       {SUB_AGENT_VERBS[item.kind ?? ""] ?? "Agent"}
-      {#if label}<span class="text-surface-700-300">{label}</span>{/if}
+      {#if label}
+        <span class="text-surface-700-300">{label}</span>
+      {/if}
     </span>
     {#if item.kind === "started" && (item.model || item.reasoningEffort)}
       <span class="shrink-0 font-mono text-[10px] text-surface-500">
-        {item.model ?? "default model"} · {item.reasoningEffort ?? "default effort"}
+        {item.model ?? "default model"}
+        · {item.reasoningEffort ?? "default effort"}
       </span>
     {/if}
     {#if agent}
@@ -436,10 +457,14 @@ const commandStatusClass = (item: ThreadItem) =>
     class="flex items-center gap-2 text-[11px] text-surface-500"
     aria-label={item.type === "enteredReviewMode" ? "Entered review mode" : "Left review mode"}
   >
-    <hr class="flex-1 border-surface-200-800" />
+    <hr class="flex-1 border-surface-200-800">
     <ScanEye size={12} class="shrink-0" />
-    <span>{item.type === "enteredReviewMode" ? "Reviewing" : "Finished reviewing"}{item.review ? `: ${item.review}` : ""}</span>
-    <hr class="flex-1 border-surface-200-800" />
+    <span
+      >{item.type === "enteredReviewMode" ? "Reviewing" : "Finished reviewing"}{item.review
+        ? `: ${item.review}`
+        : ""}</span
+    >
+    <hr class="flex-1 border-surface-200-800">
   </div>
 {:else if item.type === "imageView"}
   {#if item.path}
@@ -473,7 +498,9 @@ const commandStatusClass = (item: ThreadItem) =>
     <span class="shrink-0">Hook added context</span>
     <span class="min-w-0 flex-1 truncate">{hookPromptText(item)}</span>
   {/snippet}
-  {#snippet hookText()}{hookPromptText(item)}{/snippet}
+  {#snippet hookText()}
+    {hookPromptText(item)}
+  {/snippet}
   {@render expander(hookSummary, hookText, "whitespace-pre-wrap break-words text-surface-500")}
 {:else if item.type === "functionCallOutput"}
   <!-- The raw result of a tool the model called (Codex ≥0.151). Text output
@@ -482,22 +509,31 @@ const commandStatusClass = (item: ThreadItem) =>
     <Wrench size={12} class="shrink-0" />
     <span class="shrink-0 font-mono">{item.namespace ? `${item.namespace}/` : ""}{item.name ?? "tool"} output</span>
   {/snippet}
-  {#snippet outputText()}{functionCallOutputText(item)}{/snippet}
+  {#snippet outputText()}
+    {functionCallOutputText(item)}
+  {/snippet}
   {@render expander(outputSummary, outputText, "whitespace-pre-wrap break-words text-surface-500")}
 {:else if item.type === "mcpToolCall" || item.type === "dynamicToolCall" || item.type === "webSearch"}
   {@const description = item.title || item.query}
-  {@const preview = item.tool && description?.startsWith(`${item.tool} `) ? description.slice(item.tool.length + 1) : description}
+  {@const preview =
+    item.tool && description?.startsWith(`${item.tool} `) ? description.slice(item.tool.length + 1) : description}
   {@const output = functionCallOutputText(item)}
   {#if description || output}
     {#snippet toolSummary()}
       <Wrench size={12} class="shrink-0" />
       <span class="shrink-0 font-mono">{item.server ? `${item.server}/` : ""}{item.tool ?? item.type}</span>
       <span class="min-w-0 flex-1 truncate" title={description}>{preview}</span>
-      {#if item.status}<span class="shrink-0 text-[10px]">{item.status === "inProgress" ? "Running" : item.status}</span>{/if}
+      {#if item.status}
+        <span class="shrink-0 text-[10px]">{item.status === "inProgress" ? "Running" : item.status}</span>
+      {/if}
     {/snippet}
     {#snippet toolDetail()}
-      {#if description}<div>{description}</div>{/if}
-      {#if output}<div>{output}</div>{/if}
+      {#if description}
+        <div>{description}</div>
+      {/if}
+      {#if output}
+        <div>{output}</div>
+      {/if}
     {/snippet}
     {@render expander(toolSummary, toolDetail, "space-y-2 whitespace-pre-wrap break-words text-surface-500")}
   {:else}

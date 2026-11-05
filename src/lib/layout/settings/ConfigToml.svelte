@@ -1,36 +1,36 @@
 <script lang="ts">
-import { RotateCcw } from "@lucide/svelte";
-import TooltipButton from "$lib/components/TooltipButton.svelte";
-import SettingBadge from "$lib/layout/settings/SettingBadge.svelte";
-import SettingRow from "$lib/layout/settings/SettingRow.svelte";
-import SettingsCard from "$lib/layout/settings/SettingsCard.svelte";
-import { commands } from "$lib/services/homeRouting";
-import type { ConfigSetting } from "$lib/types";
-import { errorMessage } from "$lib/utils/errors";
+  import { RotateCcw } from "@lucide/svelte";
+  import TooltipButton from "$lib/components/TooltipButton.svelte";
+  import SettingBadge from "$lib/layout/settings/SettingBadge.svelte";
+  import SettingRow from "$lib/layout/settings/SettingRow.svelte";
+  import SettingsCard from "$lib/layout/settings/SettingsCard.svelte";
+  import { commands } from "$lib/services/homeRouting";
+  import type { ConfigSetting } from "$lib/types";
+  import { errorMessage } from "$lib/utils/errors";
 
-// The `config.toml` keys of one settings section (Agent, Model features or
-// Coding), each with its source and a reset to the default.
-let { section, title }: { section: string; title: string } = $props();
+  // The `config.toml` keys of one settings section (Agent, Model features or
+  // Coding), each with its source and a reset to the default.
+  let { section, title }: { section: string; title: string } = $props();
 
-let configSettings = $state<ConfigSetting[]>([]);
-let configError = $state<string | null>(null);
-const settings = $derived(configSettings.filter((setting) => setting.section === section));
+  let configSettings = $state<ConfigSetting[]>([]);
+  let configError = $state<string | null>(null);
+  const settings = $derived(configSettings.filter((setting) => setting.section === section));
 
-$effect(() => {
-  commands
-    .readConfigSettings()
-    .then((loaded) => (configSettings = loaded))
-    .catch((cause) => (configError = errorMessage(cause)));
-});
+  $effect(() => {
+    commands
+      .readConfigSettings()
+      .then((loaded) => (configSettings = loaded))
+      .catch((cause) => (configError = errorMessage(cause)));
+  });
 
-async function setConfig(setting: ConfigSetting, value: string | null, unset: boolean) {
-  configError = null;
-  try {
-    configSettings = await commands.writeConfigSetting(setting.key, value, unset);
-  } catch (cause) {
-    configError = errorMessage(cause);
+  async function setConfig(setting: ConfigSetting, value: string | null, unset: boolean) {
+    configError = null;
+    try {
+      configSettings = await commands.writeConfigSetting(setting.key, value, unset);
+    } catch (cause) {
+      configError = errorMessage(cause);
+    }
   }
-}
 </script>
 
 <SettingsCard {title} error={configError}>
@@ -42,7 +42,9 @@ async function setConfig(setting: ConfigSetting, value: string | null, unset: bo
       <SettingRow label={setting.label} data-testid="config-control" data-key={setting.key}>
         {#snippet badges()}
           <SettingBadge kind={setting.source === "config" ? "config" : "default"} />
-          {#if setting.restartRequired}<SettingBadge kind="restart" />{/if}
+          {#if setting.restartRequired}
+            <SettingBadge kind="restart" />
+          {/if}
         {/snippet}
         {#snippet description()}
           {#if setting.source === "default"}
@@ -69,7 +71,7 @@ async function setConfig(setting: ConfigSetting, value: string | null, unset: bo
             class="checkbox"
             checked={setting.value === "true"}
             onchange={(event) => setConfig(setting, event.currentTarget.checked ? "true" : "false", false)}
-          />
+          >
         {:else}
           <input
             aria-label={setting.label}
@@ -80,7 +82,7 @@ async function setConfig(setting: ConfigSetting, value: string | null, unset: bo
               const next = event.currentTarget.value.trim();
               setConfig(setting, next || null, next.length === 0);
             }}
-          />
+          >
         {/if}
         {#if setting.source === "config"}
           <TooltipButton

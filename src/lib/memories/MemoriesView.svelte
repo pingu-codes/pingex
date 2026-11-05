@@ -1,148 +1,148 @@
 <script lang="ts">
-import { Brain, ChevronDown, FolderOpen, Pencil, RefreshCw, Search, Trash2, TriangleAlert } from "@lucide/svelte";
-import { projects } from "$lib/app/appData.svelte";
-import Toggle from "$lib/components/Toggle.svelte";
-import TooltipButton from "$lib/components/TooltipButton.svelte";
-import {
-  defaultEntry,
-  entryCount,
-  filterMemories,
-  findEntry,
-  formatAge,
-  isMarkdown,
-  stripFrontmatter,
-} from "$lib/memories/memoriesHelpers";
-import { commands } from "$lib/services/homeRouting";
-import type { MemoryHome } from "$lib/types";
-import { copyCode } from "$lib/utils/copy";
-import { errorMessage } from "$lib/utils/errors";
-import { formatBytes } from "$lib/utils/format";
-import { renderMarkdown } from "$lib/utils/markdown";
+  import { Brain, ChevronDown, FolderOpen, Pencil, RefreshCw, Search, Trash2, TriangleAlert } from "@lucide/svelte";
+  import { projects } from "$lib/app/appData.svelte";
+  import Toggle from "$lib/components/Toggle.svelte";
+  import TooltipButton from "$lib/components/TooltipButton.svelte";
+  import {
+    defaultEntry,
+    entryCount,
+    filterMemories,
+    findEntry,
+    formatAge,
+    isMarkdown,
+    stripFrontmatter,
+  } from "$lib/memories/memoriesHelpers";
+  import { commands } from "$lib/services/homeRouting";
+  import type { MemoryHome } from "$lib/types";
+  import { copyCode } from "$lib/utils/copy";
+  import { errorMessage } from "$lib/utils/errors";
+  import { formatBytes } from "$lib/utils/format";
+  import { renderMarkdown } from "$lib/utils/markdown";
 
-let homes = $state<MemoryHome[]>([]);
-let loading = $state(true);
-let error = $state<string | null>(null);
-let query = $state("");
-let selected = $state<{ homeId: string; path: string } | null>(null);
-/** File contents by path, as last read or saved. */
-let contents = $state<Record<string, string>>({});
-/** Unsaved edits by path; survives switching between memories. */
-let drafts = $state<Record<string, string>>({});
-let editing = $state(false);
-let saving = $state(false);
-let confirmDelete = $state(false);
-let collapsed = $state<Record<string, boolean>>({});
+  let homes = $state<MemoryHome[]>([]);
+  let loading = $state(true);
+  let error = $state<string | null>(null);
+  let query = $state("");
+  let selected = $state<{ homeId: string; path: string } | null>(null);
+  /** File contents by path, as last read or saved. */
+  let contents = $state<Record<string, string>>({});
+  /** Unsaved edits by path; survives switching between memories. */
+  let drafts = $state<Record<string, string>>({});
+  let editing = $state(false);
+  let saving = $state(false);
+  let confirmDelete = $state(false);
+  let collapsed = $state<Record<string, boolean>>({});
 
-const projectPaths = () => projects().map((project) => project.path);
-const filtered = $derived(filterMemories(homes, query));
-const current = $derived(findEntry(homes, selected?.homeId ?? null, selected?.path ?? null));
-const text = $derived(current ? contents[current.entry.path] : undefined);
-const draft = $derived(current ? drafts[current.entry.path] : undefined);
-const dirty = $derived(draft !== undefined && draft !== text);
+  const projectPaths = () => projects().map((project) => project.path);
+  const filtered = $derived(filterMemories(homes, query));
+  const current = $derived(findEntry(homes, selected?.homeId ?? null, selected?.path ?? null));
+  const text = $derived(current ? contents[current.entry.path] : undefined);
+  const draft = $derived(current ? drafts[current.entry.path] : undefined);
+  const dirty = $derived(draft !== undefined && draft !== text);
 
-async function load() {
-  loading = true;
-  error = null;
-  try {
-    apply(await commands.listMemories(projectPaths()));
-  } catch (cause) {
-    error = errorMessage(cause);
-  } finally {
-    loading = false;
-  }
-}
-
-/** Take a fresh listing, keeping the selection while its file still exists. */
-function apply(next: MemoryHome[]) {
-  homes = next;
-  if (!findEntry(next, selected?.homeId ?? null, selected?.path ?? null)) select(defaultEntry(next));
-}
-
-function select(target: { homeId: string; path: string } | null) {
-  selected = target;
-  confirmDelete = false;
-  editing = target ? drafts[target.path] !== undefined : false;
-  if (target) void read(target);
-}
-
-async function read(target: { homeId: string; path: string }) {
-  try {
-    const body = await commands.readMemory(target.homeId, target.path);
-    contents[target.path] = body;
-  } catch (cause) {
-    error = errorMessage(cause);
-  }
-}
-
-function startEdit() {
-  if (!current || text === undefined) return;
-  drafts[current.entry.path] = drafts[current.entry.path] ?? text;
-  editing = true;
-}
-
-function cancelEdit() {
-  if (current) delete drafts[current.entry.path];
-  editing = false;
-}
-
-async function save() {
-  if (!current || draft === undefined) return;
-  const { homeId } = current.home;
-  const { path } = current.entry;
-  // Captured: by the time the write returns the user may be on another memory.
-  const text = draft;
-  saving = true;
-  error = null;
-  try {
-    const next = await commands.writeMemory(homeId, path, text, projectPaths());
-    contents[path] = text;
-    delete drafts[path];
-    if (current?.entry.path === path) editing = false;
-    apply(next);
-  } catch (cause) {
-    error = errorMessage(cause);
-  } finally {
-    saving = false;
-  }
-}
-
-async function remove() {
-  if (!current) return;
-  const { homeId } = current.home;
-  const { path } = current.entry;
-  error = null;
-  try {
-    const next = await commands.deleteMemory(homeId, path, projectPaths());
-    delete drafts[path];
-    delete contents[path];
-    // Only close the editor if it is still showing the deleted memory.
-    if (current?.entry.path === path) {
-      confirmDelete = false;
-      editing = false;
+  async function load() {
+    loading = true;
+    error = null;
+    try {
+      apply(await commands.listMemories(projectPaths()));
+    } catch (cause) {
+      error = errorMessage(cause);
+    } finally {
+      loading = false;
     }
-    apply(next);
-  } catch (cause) {
-    error = errorMessage(cause);
   }
-}
 
-async function toggle(home: MemoryHome, key: string, value: boolean) {
-  error = null;
-  try {
-    apply(await commands.setMemoryToggle(home.homeId, key, value, projectPaths()));
-  } catch (cause) {
-    error = errorMessage(cause);
+  /** Take a fresh listing, keeping the selection while its file still exists. */
+  function apply(next: MemoryHome[]) {
+    homes = next;
+    if (!findEntry(next, selected?.homeId ?? null, selected?.path ?? null)) select(defaultEntry(next));
   }
-}
 
-function onKeydown(event: KeyboardEvent) {
-  if (editing && (event.metaKey || event.ctrlKey) && event.key === "s") {
-    event.preventDefault();
-    void save();
+  function select(target: { homeId: string; path: string } | null) {
+    selected = target;
+    confirmDelete = false;
+    editing = target ? drafts[target.path] !== undefined : false;
+    if (target) void read(target);
   }
-}
 
-void load();
+  async function read(target: { homeId: string; path: string }) {
+    try {
+      const body = await commands.readMemory(target.homeId, target.path);
+      contents[target.path] = body;
+    } catch (cause) {
+      error = errorMessage(cause);
+    }
+  }
+
+  function startEdit() {
+    if (!current || text === undefined) return;
+    drafts[current.entry.path] = drafts[current.entry.path] ?? text;
+    editing = true;
+  }
+
+  function cancelEdit() {
+    if (current) delete drafts[current.entry.path];
+    editing = false;
+  }
+
+  async function save() {
+    if (!current || draft === undefined) return;
+    const { homeId } = current.home;
+    const { path } = current.entry;
+    // Captured: by the time the write returns the user may be on another memory.
+    const text = draft;
+    saving = true;
+    error = null;
+    try {
+      const next = await commands.writeMemory(homeId, path, text, projectPaths());
+      contents[path] = text;
+      delete drafts[path];
+      if (current?.entry.path === path) editing = false;
+      apply(next);
+    } catch (cause) {
+      error = errorMessage(cause);
+    } finally {
+      saving = false;
+    }
+  }
+
+  async function remove() {
+    if (!current) return;
+    const { homeId } = current.home;
+    const { path } = current.entry;
+    error = null;
+    try {
+      const next = await commands.deleteMemory(homeId, path, projectPaths());
+      delete drafts[path];
+      delete contents[path];
+      // Only close the editor if it is still showing the deleted memory.
+      if (current?.entry.path === path) {
+        confirmDelete = false;
+        editing = false;
+      }
+      apply(next);
+    } catch (cause) {
+      error = errorMessage(cause);
+    }
+  }
+
+  async function toggle(home: MemoryHome, key: string, value: boolean) {
+    error = null;
+    try {
+      apply(await commands.setMemoryToggle(home.homeId, key, value, projectPaths()));
+    } catch (cause) {
+      error = errorMessage(cause);
+    }
+  }
+
+  function onKeydown(event: KeyboardEvent) {
+    if (editing && (event.metaKey || event.ctrlKey) && event.key === "s") {
+      event.preventDefault();
+      void save();
+    }
+  }
+
+  void load();
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -158,9 +158,14 @@ void load();
           placeholder="Search memories"
           aria-label="Search memories"
           bind:value={query}
-        />
+        >
       </div>
-      <TooltipButton label="Reload memories" onclick={load} aria-label="Reload memories" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
+      <TooltipButton
+        label="Reload memories"
+        onclick={load}
+        aria-label="Reload memories"
+        class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
+      >
         <RefreshCw size={14} class={loading ? "animate-spin" : ""} />
       </TooltipButton>
     </div>
@@ -209,9 +214,11 @@ void load();
                 title={store.projectPath ?? store.root}
                 onclick={() => (collapsed[key] = open)}
               >
-                <ChevronDown size={12} class="shrink-0 text-surface-500 transition {open ? '' : '-rotate-90'}" />
+                <ChevronDown size={12} class="shrink-0 text-surface-500 transition {open ? "" : "-rotate-90"}" />
                 <span class="min-w-0 flex-1 truncate">{store.title}</span>
-                <span class="text-[10px] tabular-nums text-surface-500">{store.entries.length}{store.entries.length !== store.total ? `/${store.total}` : ""}</span>
+                <span class="text-[10px] tabular-nums text-surface-500"
+                  >{store.entries.length}{store.entries.length !== store.total ? `/${store.total}` : ""}</span
+                >
               </button>
               {#if open}
                 <div class="ml-3 space-y-0.5 border-l border-surface-200-800 pl-1.5">
@@ -219,7 +226,9 @@ void load();
                     {@const active = selected?.homeId === home.homeId && selected.path === entry.path}
                     <button
                       type="button"
-                      class="block w-full rounded-md px-2 py-1.5 text-left transition {active ? 'preset-tonal-primary' : 'hover:preset-tonal'}"
+                      class="block w-full rounded-md px-2 py-1.5 text-left transition {active
+                        ? "preset-tonal-primary"
+                        : "hover:preset-tonal"}"
                       onclick={() => select({ homeId: home.homeId, path: entry.path })}
                     >
                       <div class="flex items-center gap-1.5">
@@ -228,7 +237,9 @@ void load();
                           <span class="size-1.5 shrink-0 rounded-full bg-warning-500" title="Unsaved changes"></span>
                         {/if}
                         {#if entry.kind}
-                          <span class="shrink-0 rounded-full bg-surface-200-800 px-1.5 text-[10px] text-surface-600-400">{entry.kind}</span>
+                          <span class="shrink-0 rounded-full bg-surface-200-800 px-1.5 text-[10px] text-surface-600-400"
+                            >{entry.kind}</span
+                          >
                         {/if}
                       </div>
                       {#if entry.description}
@@ -263,7 +274,10 @@ void load();
         <div class="min-w-0 flex-1">
           <div class="truncate text-sm font-medium">{entry.title}</div>
           <div class="truncate text-[11px] text-surface-500" title={entry.path}>
-            {store.title} · {entry.relPath} · {formatBytes(entry.bytes ?? 0)}{entry.modifiedAt ? ` · ${formatAge(entry.modifiedAt)}` : ""}
+            {store.title}
+            · {entry.relPath} · {formatBytes(entry.bytes ?? 0)}{entry.modifiedAt
+              ? ` · ${formatAge(entry.modifiedAt)}`
+              : ""}
           </div>
         </div>
         {#if editing}
@@ -272,17 +286,37 @@ void load();
             {saving ? "Saving…" : "Save"}
           </button>
         {:else if confirmDelete}
-          <span class="text-xs text-surface-600-400">Delete this memory{store.entries.some((e) => e.kind === "index") && entry.kind !== "index" ? " and its index line" : ""}?</span>
+          <span class="text-xs text-surface-600-400"
+            >Delete this memory{store.entries.some((e) => e.kind === "index") && entry.kind !== "index"
+              ? " and its index line"
+              : ""}?</span
+          >
           <button type="button" class="btn btn-sm preset-tonal" onclick={() => (confirmDelete = false)}>Keep</button>
           <button type="button" class="btn btn-sm preset-filled-error-500" onclick={remove}>Delete</button>
         {:else}
-          <TooltipButton label="Edit" onclick={startEdit} aria-label="Edit memory" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500" disabled={text === undefined}>
+          <TooltipButton
+            label="Edit"
+            onclick={startEdit}
+            aria-label="Edit memory"
+            class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
+            disabled={text === undefined}
+          >
             <Pencil size={14} />
           </TooltipButton>
-          <TooltipButton label="Reveal in Finder" onclick={() => commands.revealInFinder(entry.path)} aria-label="Reveal in Finder" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
+          <TooltipButton
+            label="Reveal in Finder"
+            onclick={() => commands.revealInFinder(entry.path)}
+            aria-label="Reveal in Finder"
+            class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
+          >
             <FolderOpen size={14} />
           </TooltipButton>
-          <TooltipButton label="Delete" onclick={() => (confirmDelete = true)} aria-label="Delete memory" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
+          <TooltipButton
+            label="Delete"
+            onclick={() => (confirmDelete = true)}
+            aria-label="Delete memory"
+            class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
+          >
             <Trash2 size={14} />
           </TooltipButton>
         {/if}
@@ -298,7 +332,9 @@ void load();
             oninput={(event) => (drafts[entry.path] = event.currentTarget.value)}
           ></textarea>
         {:else if text === undefined}
-          <div class="grid h-full place-items-center"><RefreshCw size={16} class="animate-spin text-surface-500" /></div>
+          <div class="grid h-full place-items-center">
+            <RefreshCw size={16} class="animate-spin text-surface-500" />
+          </div>
         {:else if isMarkdown(entry.path)}
           <div class="prose-md mx-auto max-w-3xl px-5 py-4 text-sm leading-7" use:copyCode>
             {@html renderMarkdown(stripFrontmatter(text))}
@@ -314,7 +350,8 @@ void load();
           <div class="mt-3 text-sm font-medium">{entryCount(homes) === 0 ? "No memories yet" : "Pick a memory"}</div>
           <p class="mt-1 text-xs leading-5 text-surface-500">
             {#if entryCount(homes) === 0}
-              Codex and Claude Code keep notes between conversations. Turn memories on for a Home on the left, and they show up here once a harness writes some.
+              Codex and Claude Code keep notes between conversations. Turn memories on for a Home on the left, and they
+              show up here once a harness writes some.
             {:else}
               Choose a memory on the left to read, edit or delete it.
             {/if}

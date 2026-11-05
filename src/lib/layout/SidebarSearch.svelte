@@ -1,167 +1,167 @@
 <script lang="ts">
-import { Archive, MessageSquare, Search, X } from "@lucide/svelte";
-import { projectForDirectory } from "$lib/app/appData.svelte";
-import TooltipButton from "$lib/components/TooltipButton.svelte";
-import { searchPrefs } from "$lib/layout/searchPrefs.svelte";
-import {
-  countLabel,
-  emptyGroup,
-  filterChipLabel,
-  hasMore,
-  noMatchLabel,
-  type SearchGroup,
-  searchState,
-} from "$lib/layout/sidebarSearch";
-import { commands } from "$lib/services/homeRouting";
-import type { Project, ThreadSearchFilter, ThreadSearchItem } from "$lib/types";
-import { errorMessage } from "$lib/utils/errors";
-import { relativeTime } from "$lib/utils/format";
-import { basename } from "$lib/utils/path";
+  import { Archive, MessageSquare, Search, X } from "@lucide/svelte";
+  import { projectForDirectory } from "$lib/app/appData.svelte";
+  import TooltipButton from "$lib/components/TooltipButton.svelte";
+  import { searchPrefs } from "$lib/layout/searchPrefs.svelte";
+  import {
+    countLabel,
+    emptyGroup,
+    filterChipLabel,
+    hasMore,
+    noMatchLabel,
+    type SearchGroup,
+    searchState,
+  } from "$lib/layout/sidebarSearch";
+  import { commands } from "$lib/services/homeRouting";
+  import type { Project, ThreadSearchFilter, ThreadSearchItem } from "$lib/types";
+  import { errorMessage } from "$lib/utils/errors";
+  import { relativeTime } from "$lib/utils/format";
+  import { basename } from "$lib/utils/path";
 
-let {
-  projects,
-  currentProjectPath = null,
-  currentProjectName = null,
-  onOpenResult,
-  onClose,
-}: {
-  projects: Project[];
-  currentProjectPath?: string | null;
-  currentProjectName?: string | null;
-  onOpenResult: (item: ThreadSearchItem) => void;
-  onClose: () => void;
-} = $props();
+  let {
+    projects,
+    currentProjectPath = null,
+    currentProjectName = null,
+    onOpenResult,
+    onClose,
+  }: {
+    projects: Project[];
+    currentProjectPath?: string | null;
+    currentProjectName?: string | null;
+    onOpenResult: (item: ThreadSearchItem) => void;
+    onClose: () => void;
+  } = $props();
 
-let query = $state("");
-let scopeOverride = $state<boolean | null>(null);
-let active = $state<SearchGroup>(emptyGroup());
-let archived = $state<SearchGroup>(emptyGroup());
-let error = $state<string | null>(null);
-let loading = $state(false);
-let input = $state<HTMLInputElement | null>(null);
+  let query = $state("");
+  let scopeOverride = $state<boolean | null>(null);
+  let active = $state<SearchGroup>(emptyGroup());
+  let archived = $state<SearchGroup>(emptyGroup());
+  let error = $state<string | null>(null);
+  let loading = $state(false);
+  let input = $state<HTMLInputElement | null>(null);
 
-// A monotonically increasing generation guards against out-of-order responses:
-// only results carrying the latest generation are applied.
-let generation = 0;
-let debounce: ReturnType<typeof setTimeout> | null = null;
+  // A monotonically increasing generation guards against out-of-order responses:
+  // only results carrying the latest generation are applied.
+  let generation = 0;
+  let debounce: ReturnType<typeof setTimeout> | null = null;
 
-// Default to searching within the current project when there is one; the chip
-// toggles this to "all projects".
-const scoped = $derived(scopeOverride ?? Boolean(currentProjectPath));
-const filterProject = $derived(scoped ? currentProjectPath : null);
-const chipLabel = $derived(scoped ? filterChipLabel(currentProjectName) : null);
-const uiState = $derived(searchState({ query, active, archived, error, loading }));
+  // Default to searching within the current project when there is one; the chip
+  // toggles this to "all projects".
+  const scoped = $derived(scopeOverride ?? Boolean(currentProjectPath));
+  const filterProject = $derived(scoped ? currentProjectPath : null);
+  const chipLabel = $derived(scoped ? filterChipLabel(currentProjectName) : null);
+  const uiState = $derived(searchState({ query, active, archived, error, loading }));
 
-function projectNameFor(cwd: string): string {
-  return projectForDirectory(projects, cwd)?.name ?? basename(cwd);
-}
-
-function filterFor(isArchived: boolean): ThreadSearchFilter {
-  return {
-    archived: isArchived,
-    projectPath: filterProject,
-    searchAgentMessages: searchPrefs.searchAgentMessages,
-    searchUserMessages: searchPrefs.searchUserMessages,
-  };
-}
-
-async function runInitial() {
-  const mine = ++generation;
-  error = null;
-  loading = true;
-  active = { ...emptyGroup(), loading: true };
-  archived = { ...emptyGroup(), loading: true };
-  try {
-    const [activePage, archivedPage] = await Promise.all([
-      commands.searchThreads(query, null, filterFor(false), mine),
-      commands.searchThreads(query, null, filterFor(true), mine),
-    ]);
-    if (mine !== generation) return;
-    active = {
-      items: activePage.items,
-      total: activePage.total,
-      cursor: activePage.nextCursor,
-      loading: false,
-    };
-    archived = {
-      items: archivedPage.items,
-      total: archivedPage.total,
-      cursor: archivedPage.nextCursor,
-      loading: false,
-    };
-  } catch (cause) {
-    if (mine !== generation) return;
-    error = errorMessage(cause);
-  } finally {
-    if (mine === generation) loading = false;
+  function projectNameFor(cwd: string): string {
+    return projectForDirectory(projects, cwd)?.name ?? basename(cwd);
   }
-}
 
-async function loadMore(isArchived: boolean) {
-  const group = isArchived ? archived : active;
-  if (!hasMore(group) || group.loading) return;
-  const mine = generation;
-  if (isArchived) archived = { ...archived, loading: true };
-  else active = { ...active, loading: true };
-  try {
-    const page = await commands.searchThreads(query, group.cursor, filterFor(isArchived), mine);
-    if (mine !== generation) return;
-    const next: SearchGroup = {
-      items: [...group.items, ...page.items],
-      total: page.total,
-      cursor: page.nextCursor,
-      loading: false,
+  function filterFor(isArchived: boolean): ThreadSearchFilter {
+    return {
+      archived: isArchived,
+      projectPath: filterProject,
+      searchAgentMessages: searchPrefs.searchAgentMessages,
+      searchUserMessages: searchPrefs.searchUserMessages,
     };
-    if (isArchived) archived = next;
-    else active = next;
-  } catch (cause) {
-    if (mine !== generation) return;
-    error = errorMessage(cause);
-    if (isArchived) archived = { ...archived, loading: false };
-    else active = { ...active, loading: false };
   }
-}
 
-function scheduleSearch() {
-  if (debounce) clearTimeout(debounce);
-  debounce = setTimeout(runInitial, 150);
-}
+  async function runInitial() {
+    const mine = ++generation;
+    error = null;
+    loading = true;
+    active = { ...emptyGroup(), loading: true };
+    archived = { ...emptyGroup(), loading: true };
+    try {
+      const [activePage, archivedPage] = await Promise.all([
+        commands.searchThreads(query, null, filterFor(false), mine),
+        commands.searchThreads(query, null, filterFor(true), mine),
+      ]);
+      if (mine !== generation) return;
+      active = {
+        items: activePage.items,
+        total: activePage.total,
+        cursor: activePage.nextCursor,
+        loading: false,
+      };
+      archived = {
+        items: archivedPage.items,
+        total: archivedPage.total,
+        cursor: archivedPage.nextCursor,
+        loading: false,
+      };
+    } catch (cause) {
+      if (mine !== generation) return;
+      error = errorMessage(cause);
+    } finally {
+      if (mine === generation) loading = false;
+    }
+  }
 
-// Re-run whenever the query text, project scope or message scopes change.
-$effect(() => {
-  // Touch the reactive dependencies so the effect tracks them.
-  void query;
-  void filterProject;
-  void searchPrefs.searchAgentMessages;
-  void searchPrefs.searchUserMessages;
-  scheduleSearch();
-});
+  async function loadMore(isArchived: boolean) {
+    const group = isArchived ? archived : active;
+    if (!hasMore(group) || group.loading) return;
+    const mine = generation;
+    if (isArchived) archived = { ...archived, loading: true };
+    else active = { ...active, loading: true };
+    try {
+      const page = await commands.searchThreads(query, group.cursor, filterFor(isArchived), mine);
+      if (mine !== generation) return;
+      const next: SearchGroup = {
+        items: [...group.items, ...page.items],
+        total: page.total,
+        cursor: page.nextCursor,
+        loading: false,
+      };
+      if (isArchived) archived = next;
+      else active = next;
+    } catch (cause) {
+      if (mine !== generation) return;
+      error = errorMessage(cause);
+      if (isArchived) archived = { ...archived, loading: false };
+      else active = { ...active, loading: false };
+    }
+  }
 
-$effect(() => {
-  input?.focus();
-});
+  function scheduleSearch() {
+    if (debounce) clearTimeout(debounce);
+    debounce = setTimeout(runInitial, 150);
+  }
 
-function onKeydown(event: KeyboardEvent) {
-  if (event.key === "Escape") {
-    event.preventDefault();
+  // Re-run whenever the query text, project scope or message scopes change.
+  $effect(() => {
+    // Touch the reactive dependencies so the effect tracks them.
+    void query;
+    void filterProject;
+    void searchPrefs.searchAgentMessages;
+    void searchPrefs.searchUserMessages;
+    scheduleSearch();
+  });
+
+  $effect(() => {
+    input?.focus();
+  });
+
+  function onKeydown(event: KeyboardEvent) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+    }
+  }
+
+  function toggleScope() {
+    scopeOverride = !scoped;
+  }
+
+  const BODY_SCOPE_NOTE = "Only threads run in this app have message bodies to search.";
+  const chipClass = (on: boolean) =>
+    `inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition ${
+      on ? "preset-filled-primary-500" : "bg-surface-200-800 text-surface-600-400 hover:preset-tonal"
+    }`;
+
+  function selectResult(item: ThreadSearchItem) {
+    onOpenResult(item);
     onClose();
   }
-}
-
-function toggleScope() {
-  scopeOverride = !scoped;
-}
-
-const BODY_SCOPE_NOTE = "Only threads run in this app have message bodies to search.";
-const chipClass = (on: boolean) =>
-  `inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition ${
-    on ? "preset-filled-primary-500" : "bg-surface-200-800 text-surface-600-400 hover:preset-tonal"
-  }`;
-
-function selectResult(item: ThreadSearchItem) {
-  onOpenResult(item);
-  onClose();
-}
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col" role="search">
@@ -177,7 +177,7 @@ function selectResult(item: ThreadSearchItem) {
         placeholder="Search threads…"
         aria-label="Search threads"
         class="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-surface-500"
-      />
+      >
       <TooltipButton
         label="Close search"
         onclick={onClose}
@@ -237,9 +237,7 @@ function selectResult(item: ThreadSearchItem) {
       {#if active.total > 0}
         <div class="mb-2">
           <div class="flex items-center justify-between px-2 py-1">
-            <span class="inline-flex items-center gap-1.5 eyebrow">
-              <MessageSquare size={11} /> Active
-            </span>
+            <span class="inline-flex items-center gap-1.5 eyebrow"> <MessageSquare size={11} /> Active </span>
             <span class="text-[10px] text-surface-500">{countLabel(active.items.length, active.total)}</span>
           </div>
           {#each active.items as item (item.id)}
@@ -248,7 +246,9 @@ function selectResult(item: ThreadSearchItem) {
               class="flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left hover:preset-tonal"
             >
               <span class="flex items-center gap-2">
-                <span class="min-w-0 flex-1 truncate text-[12px] text-surface-800-200" title={item.title}>{item.title}</span>
+                <span class="min-w-0 flex-1 truncate text-[12px] text-surface-800-200" title={item.title}
+                  >{item.title}</span
+                >
                 <span class="shrink-0 text-[10px] text-surface-500">{relativeTime(item.updatedAt)}</span>
               </span>
               <span class="truncate text-[10px] text-surface-500">{projectNameFor(item.cwd)}</span>
@@ -269,9 +269,7 @@ function selectResult(item: ThreadSearchItem) {
       {#if archived.total > 0}
         <div>
           <div class="flex items-center justify-between px-2 py-1">
-            <span class="inline-flex items-center gap-1.5 eyebrow">
-              <Archive size={11} /> Archived
-            </span>
+            <span class="inline-flex items-center gap-1.5 eyebrow"> <Archive size={11} /> Archived </span>
             <span class="text-[10px] text-surface-500">{countLabel(archived.items.length, archived.total)}</span>
           </div>
           {#each archived.items as item (item.id)}
@@ -280,7 +278,9 @@ function selectResult(item: ThreadSearchItem) {
               class="flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left hover:preset-tonal"
             >
               <span class="flex items-center gap-2">
-                <span class="min-w-0 flex-1 truncate text-[12px] text-surface-600-400" title={item.title}>{item.title}</span>
+                <span class="min-w-0 flex-1 truncate text-[12px] text-surface-600-400" title={item.title}
+                  >{item.title}</span
+                >
                 <span class="shrink-0 text-[10px] text-surface-500">{relativeTime(item.updatedAt)}</span>
               </span>
               <span class="truncate text-[10px] text-surface-500">{projectNameFor(item.cwd)}</span>

@@ -1,167 +1,169 @@
 <script lang="ts">
-import {
-  Bot,
-  ChevronDown,
-  Code2,
-  FileDiff,
-  Folder,
-  FolderTree,
-  Gauge,
-  Globe,
-  Lightbulb,
-  ListTree,
-  MessageCircleQuestion,
-  Plus,
-  ScrollText,
-  SquareTerminal,
-} from "@lucide/svelte";
-import { Menu, Portal, ToggleGroup } from "@skeletonlabs/skeleton-svelte";
-import { messageLog } from "$lib/layout/messageLogPrefs.svelte";
-import UsageMeter from "$lib/layout/UsageMeter.svelte";
-import { accountUsage } from "$lib/services/accountUsage.svelte";
-import { elapsedLabel, processClock, type RunningProcess } from "$lib/services/processes.svelte";
-import { type StatusBucket, statusBucket, statusTone } from "$lib/thread/agentStatus";
-import type { ContextStats } from "$lib/thread/contextUsage";
-import { changeLabel } from "$lib/thread/fileChanges";
-import { formatCost } from "$lib/thread/usageCost";
-import type { ChangesSummary, FileUpdateChange, SubagentDetail } from "$lib/types";
-import { fileIconFor } from "$lib/utils/fileIcons";
-import { formatTokensShort } from "$lib/utils/format";
-import { basename } from "$lib/utils/path";
+  import {
+    Bot,
+    ChevronDown,
+    Code2,
+    FileDiff,
+    Folder,
+    FolderTree,
+    Gauge,
+    Globe,
+    Lightbulb,
+    ListTree,
+    MessageCircleQuestion,
+    Plus,
+    ScrollText,
+    SquareTerminal,
+  } from "@lucide/svelte";
+  import { Menu, Portal, ToggleGroup } from "@skeletonlabs/skeleton-svelte";
+  import { messageLog } from "$lib/layout/messageLogPrefs.svelte";
+  import UsageMeter from "$lib/layout/UsageMeter.svelte";
+  import { accountUsage } from "$lib/services/accountUsage.svelte";
+  import { elapsedLabel, processClock, type RunningProcess } from "$lib/services/processes.svelte";
+  import { type StatusBucket, statusBucket, statusTone } from "$lib/thread/agentStatus";
+  import type { ContextStats } from "$lib/thread/contextUsage";
+  import { changeLabel } from "$lib/thread/fileChanges";
+  import { formatCost } from "$lib/thread/usageCost";
+  import type { ChangesSummary, FileUpdateChange, SubagentDetail } from "$lib/types";
+  import { fileIconFor } from "$lib/utils/fileIcons";
+  import { formatTokensShort } from "$lib/utils/format";
+  import { basename } from "$lib/utils/path";
 
-let {
-  plan,
-  outputs,
-  gitChanges = null,
-  sources,
-  sideQuestionCount,
-  subagents = [],
-  processes = [],
-  currentThreadId = null,
-  contextStats = null,
-  costUsd = null,
-  onOpenFinder,
-  onOpenZed,
-  onShowPlan,
-  onShowSources,
-  onShowSideQuestions,
-  onShowDiff,
-  onShowChanges = () => {},
-  onShowFiles,
-  onShowMessageLog,
-  onShowStatus = () => {},
-  onOpenSubagent = () => {},
-  onOpenProcess = () => {},
-}: {
-  plan: string | null;
-  /** Every file the thread touched — created, edited, deleted alike. */
-  outputs: FileUpdateChange[];
-  /** Git-derived summary of the working directory's changes vs its base. */
-  gitChanges?: ChangesSummary | null;
-  sources: string[];
-  sideQuestionCount: number;
-  subagents?: SubagentDetail[];
-  /** Commands Codex is running (or ran), across all threads. */
-  processes?: RunningProcess[];
-  /** Marks which processes belong to this thread vs another one. */
-  currentThreadId?: string | null;
-  contextStats?: ContextStats | null;
-  /** Estimated API-equivalent spend for this thread, when a model is known. */
-  costUsd?: number | null;
-  onOpenFinder: () => void;
-  onOpenZed: () => void;
-  onShowPlan: () => void;
-  onShowSources: () => void;
-  onShowSideQuestions: () => void;
-  onShowDiff: (path: string | null) => void;
-  onShowChanges?: (path: string | null) => void;
-  onShowFiles: () => void;
-  onShowMessageLog: () => void;
-  /** Open the status panel: context composition, spend and account limits. */
-  onShowStatus?: () => void;
-  onOpenSubagent?: (agent: SubagentDetail) => void;
-  onOpenProcess?: (process: RunningProcess) => void;
-} = $props();
+  let {
+    plan,
+    outputs,
+    gitChanges = null,
+    sources,
+    sideQuestionCount,
+    subagents = [],
+    processes = [],
+    currentThreadId = null,
+    contextStats = null,
+    costUsd = null,
+    onOpenFinder,
+    onOpenZed,
+    onShowPlan,
+    onShowSources,
+    onShowSideQuestions,
+    onShowDiff,
+    onShowChanges = () => {},
+    onShowFiles,
+    onShowMessageLog,
+    onShowStatus = () => {},
+    onOpenSubagent = () => {},
+    onOpenProcess = () => {},
+  }: {
+    plan: string | null;
+    /** Every file the thread touched — created, edited, deleted alike. */
+    outputs: FileUpdateChange[];
+    /** Git-derived summary of the working directory's changes vs its base. */
+    gitChanges?: ChangesSummary | null;
+    sources: string[];
+    sideQuestionCount: number;
+    subagents?: SubagentDetail[];
+    /** Commands Codex is running (or ran), across all threads. */
+    processes?: RunningProcess[];
+    /** Marks which processes belong to this thread vs another one. */
+    currentThreadId?: string | null;
+    contextStats?: ContextStats | null;
+    /** Estimated API-equivalent spend for this thread, when a model is known. */
+    costUsd?: number | null;
+    onOpenFinder: () => void;
+    onOpenZed: () => void;
+    onShowPlan: () => void;
+    onShowSources: () => void;
+    onShowSideQuestions: () => void;
+    onShowDiff: (path: string | null) => void;
+    onShowChanges?: (path: string | null) => void;
+    onShowFiles: () => void;
+    onShowMessageLog: () => void;
+    /** Open the status panel: context composition, spend and account limits. */
+    onShowStatus?: () => void;
+    onOpenSubagent?: (agent: SubagentDetail) => void;
+    onOpenProcess?: (process: RunningProcess) => void;
+  } = $props();
 
-// Collapsed by default: git changes are secondary to the thread's own outputs
-// and can be long, so they only take space when asked for.
-let changesOpen = $state(false);
-const changeRows = $derived(gitChanges?.files ?? []);
-// The overview panel is persistent: it starts open and only the toggle
-// button closes it, so opening plan/sources/side questions keeps it around.
-let panel = $state(true);
+  // Collapsed by default: git changes are secondary to the thread's own outputs
+  // and can be long, so they only take space when asked for.
+  let changesOpen = $state(false);
+  const changeRows = $derived(gitChanges?.files ?? []);
+  // The overview panel is persistent: it starts open and only the toggle
+  // button closes it, so opening plan/sources/side questions keeps it around.
+  let panel = $state(true);
 
-const cost = $derived(formatCost(costUsd));
-// Named per-model buckets (e.g. Spark) sit alongside the account-wide limit.
-const extraLimits = $derived(
-  Object.values(accountUsage.byLimitId).filter(
-    (bucket) => bucket.limitName && bucket.limitId !== accountUsage.snapshot?.limitId,
-  ),
-);
-const subagentById = $derived(new Map(subagents.map((agent) => [agent.id, agent])));
-const orderedSubagents = $derived.by(() => {
-  const children = new Map<string, SubagentDetail[]>();
-  for (const agent of subagents) {
-    const group = children.get(agent.parentThreadId) ?? [];
-    group.push(agent);
-    children.set(agent.parentThreadId, group);
-  }
-  const ordered: SubagentDetail[] = [];
-  const seen = new Set<string>();
-  const visit = (agent: SubagentDetail) => {
-    if (seen.has(agent.id)) return;
-    seen.add(agent.id);
-    ordered.push(agent);
-    for (const child of children.get(agent.id) ?? []) visit(child);
+  const cost = $derived(formatCost(costUsd));
+  // Named per-model buckets (e.g. Spark) sit alongside the account-wide limit.
+  const extraLimits = $derived(
+    Object.values(accountUsage.byLimitId).filter(
+      (bucket) => bucket.limitName && bucket.limitId !== accountUsage.snapshot?.limitId,
+    ),
+  );
+  const subagentById = $derived(new Map(subagents.map((agent) => [agent.id, agent])));
+  const orderedSubagents = $derived.by(() => {
+    const children = new Map<string, SubagentDetail[]>();
+    for (const agent of subagents) {
+      const group = children.get(agent.parentThreadId) ?? [];
+      group.push(agent);
+      children.set(agent.parentThreadId, group);
+    }
+    const ordered: SubagentDetail[] = [];
+    const seen = new Set<string>();
+    const visit = (agent: SubagentDetail) => {
+      if (seen.has(agent.id)) return;
+      seen.add(agent.id);
+      ordered.push(agent);
+      for (const child of children.get(agent.id) ?? []) visit(child);
+    };
+    for (const agent of subagents.filter((candidate) => !subagentById.has(candidate.parentThreadId))) visit(agent);
+    for (const agent of subagents) visit(agent);
+    return ordered;
+  });
+  const subagentDepth = (agent: SubagentDetail) => {
+    let depth = 0;
+    let parent = subagentById.get(agent.parentThreadId);
+    const seen = new Set<string>();
+    while (parent && !seen.has(parent.id)) {
+      seen.add(parent.id);
+      depth += 1;
+      parent = subagentById.get(parent.parentThreadId);
+    }
+    return depth;
   };
-  for (const agent of subagents.filter((candidate) => !subagentById.has(candidate.parentThreadId))) visit(agent);
-  for (const agent of subagents) visit(agent);
-  return ordered;
-});
-const subagentDepth = (agent: SubagentDetail) => {
-  let depth = 0;
-  let parent = subagentById.get(agent.parentThreadId);
-  const seen = new Set<string>();
-  while (parent && !seen.has(parent.id)) {
-    seen.add(parent.id);
-    depth += 1;
-    parent = subagentById.get(parent.parentThreadId);
-  }
-  return depth;
-};
-const subagentLabel = (agent: SubagentDetail) => agent.agentNickname ?? agent.agentRole ?? agent.title;
+  const subagentLabel = (agent: SubagentDetail) => agent.agentNickname ?? agent.agentRole ?? agent.title;
 
-// Running first, then newest; the current thread's ahead of other threads'.
-const orderedProcesses = $derived(
-  [...processes].sort((a, b) => {
-    const running = Number(b.status === "running") - Number(a.status === "running");
-    if (running !== 0) return running;
-    const local = Number(b.threadId === currentThreadId) - Number(a.threadId === currentThreadId);
-    if (local !== 0) return local;
-    return b.startedAt - a.startedAt;
-  }),
-);
+  // Running first, then newest; the current thread's ahead of other threads'.
+  const orderedProcesses = $derived(
+    [...processes].sort((a, b) => {
+      const running = Number(b.status === "running") - Number(a.status === "running");
+      if (running !== 0) return running;
+      const local = Number(b.threadId === currentThreadId) - Number(a.threadId === currentThreadId);
+      if (local !== 0) return local;
+      return b.startedAt - a.startedAt;
+    }),
+  );
 
-// Chips filter the process list; only Active is on by default so a long
-// history of finished commands doesn't bury the ones still running.
-const processFilterOptions: StatusBucket[] = ["Active", "Finished", "Failed"];
-let processFilters = $state<string[]>(["Active"]);
-// Stopped (interrupted) commands are done running, so they live under Finished.
-const processFilterBucket = (status: string): StatusBucket => {
-  const bucket = statusBucket(status);
-  return bucket === "Stopped" ? "Finished" : bucket;
-};
-const visibleProcesses = $derived(
-  orderedProcesses.filter((process) => processFilters.includes(processFilterBucket(process.status))),
-);
+  // Chips filter the process list; only Active is on by default so a long
+  // history of finished commands doesn't bury the ones still running.
+  const processFilterOptions: StatusBucket[] = ["Active", "Finished", "Failed"];
+  let processFilters = $state<string[]>(["Active"]);
+  // Stopped (interrupted) commands are done running, so they live under Finished.
+  const processFilterBucket = (status: string): StatusBucket => {
+    const bucket = statusBucket(status);
+    return bucket === "Stopped" ? "Finished" : bucket;
+  };
+  const visibleProcesses = $derived(
+    orderedProcesses.filter((process) => processFilters.includes(processFilterBucket(process.status))),
+  );
 </script>
 
 {#snippet section(title: string, count = 0, first = false)}
   <div
-    class="flex items-center px-1 pb-1 eyebrow text-[10px] {first ? '' : 'mt-2 border-t border-surface-200-800 pt-2'}"
+    class="flex items-center px-1 pb-1 eyebrow text-[10px] {first ? "" : "mt-2 border-t border-surface-200-800 pt-2"}"
   >
     <span class="flex-1">{title}</span>
-    {#if count > 0}<span class="tabular-nums">{count}</span>{/if}
+    {#if count > 0}
+      <span class="tabular-nums">{count}</span>
+    {/if}
   </div>
 {/snippet}
 
@@ -181,7 +183,9 @@ const visibleProcesses = $derived(
       positioning={{ placement: "bottom-end" }}
       onSelect={({ value }) => (value === "finder" ? onOpenFinder() : onOpenZed())}
     >
-      <Menu.Trigger class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium hover:preset-tonal">
+      <Menu.Trigger
+        class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium hover:preset-tonal"
+      >
         Open in
         <ChevronDown size={12} class="text-surface-500" />
       </Menu.Trigger>
@@ -219,12 +223,7 @@ const visibleProcesses = $derived(
     >
       {@render section("Usage", 0, true)}
       <!-- The figures themselves live in the status panel; this row is the way in. -->
-      <button
-        type="button"
-        onclick={onShowStatus}
-        class="menu-row"
-        aria-label="Show usage"
-      >
+      <button type="button" onclick={onShowStatus} class="menu-row" aria-label="Show usage">
         <Gauge size={13} class="shrink-0 text-surface-500" />
         {#if contextStats}
           <span class="min-w-0 flex-1 truncate font-mono text-[11px]">
@@ -248,10 +247,7 @@ const visibleProcesses = $derived(
 
       {@render section("Plan")}
       {#if plan}
-        <button
-          onclick={onShowPlan}
-          class="menu-row"
-        >
+        <button onclick={onShowPlan} class="menu-row">
           <Lightbulb size={13} class="shrink-0 text-warning-500" />
           <span class="min-w-0 flex-1 truncate">{plan.split("\n")[0].replace(/^#+\s*/, "")}</span>
         </button>
@@ -268,11 +264,7 @@ const visibleProcesses = $derived(
         <div class="max-h-56 overflow-y-auto">
           {#each outputs as change (change.path)}
             {@const icon = fileIconFor(basename(change.path))}
-            <button
-              onclick={() => onShowDiff(change.path)}
-              title={`View diff for ${change.path}`}
-              class="menu-row"
-            >
+            <button onclick={() => onShowDiff(change.path)} title={`View diff for ${change.path}`} class="menu-row">
               <icon.icon size={13} class="shrink-0 {icon.class}" />
               <span class="min-w-0 flex-1 truncate">{basename(change.path)}</span>
               <span class="shrink-0 text-[10px] uppercase tracking-wide text-surface-500">
@@ -281,10 +273,7 @@ const visibleProcesses = $derived(
             </button>
           {/each}
         </div>
-        <button
-          onclick={() => onShowDiff(null)}
-          class="menu-row text-surface-500"
-        >
+        <button onclick={() => onShowDiff(null)} class="menu-row text-surface-500">
           <FileDiff size={13} class="shrink-0" />
           <span class="min-w-0 flex-1 truncate">All {outputs.length} changed files</span>
         </button>
@@ -298,10 +287,12 @@ const visibleProcesses = $derived(
         <span class="flex-1">Changes</span>
         {#if gitChanges && gitChanges.totalFiles > 0}
           <span class="tabular-nums normal-case tracking-normal">
-            {gitChanges.totalFiles} · <span class="text-success-500">+{gitChanges.additions}</span> <span class="text-error-500">−{gitChanges.deletions}</span>
+            {gitChanges.totalFiles}
+            · <span class="text-success-500">+{gitChanges.additions}</span>
+            <span class="text-error-500">−{gitChanges.deletions}</span>
           </span>
         {/if}
-        <ChevronDown size={12} class="shrink-0 transition {changesOpen ? 'rotate-180' : ''}" />
+        <ChevronDown size={12} class="shrink-0 transition {changesOpen ? "rotate-180" : ""}" />
       </button>
       {#if changesOpen}
         {#if !gitChanges}
@@ -313,11 +304,7 @@ const visibleProcesses = $derived(
             <!-- Only the first rows are listed here; the panel pages the rest. -->
             {#each changeRows.slice(0, 50) as file (file.path)}
               {@const icon = fileIconFor(basename(file.path))}
-              <button
-                onclick={() => onShowChanges(file.path)}
-                title={file.path}
-                class="menu-row"
-              >
+              <button onclick={() => onShowChanges(file.path)} title={file.path} class="menu-row">
                 <icon.icon size={13} class="shrink-0 {icon.class}" />
                 <span class="min-w-0 flex-1 truncate">{basename(file.path)}</span>
                 <span class="shrink-0 text-[10px] tabular-nums text-success-500">+{file.additions}</span>
@@ -325,10 +312,7 @@ const visibleProcesses = $derived(
               </button>
             {/each}
           </div>
-          <button
-            onclick={() => onShowChanges(null)}
-            class="menu-row text-surface-500"
-          >
+          <button onclick={() => onShowChanges(null)} class="menu-row text-surface-500">
             <FileDiff size={13} class="shrink-0" />
             <span class="min-w-0 flex-1 truncate">All {gitChanges.totalFiles} changed files</span>
           </button>
@@ -339,10 +323,7 @@ const visibleProcesses = $derived(
       {#if sources.length === 0}
         {@render empty("No web searches.")}
       {:else}
-        <button
-          onclick={onShowSources}
-          class="menu-row"
-        >
+        <button onclick={onShowSources} class="menu-row">
           <Globe size={13} class="shrink-0 text-surface-500" />
           <span class="min-w-0 flex-1 truncate">Web search</span>
           <span class="text-[10px] text-surface-500">{sources.length}</span>
@@ -436,30 +417,23 @@ const visibleProcesses = $derived(
       {/if}
 
       <div class="mt-2 border-t border-surface-200-800 pt-1.5">
-        <button
-          onclick={onShowSideQuestions}
-          class="menu-row"
-        >
+        <button onclick={onShowSideQuestions} class="menu-row">
           <MessageCircleQuestion size={13} class="shrink-0 text-primary-500" />
           <span class="flex-1">Side questions</span>
           {#if sideQuestionCount > 0}
-            <span class="rounded-full bg-primary-500/15 px-1.5 py-0.5 text-[10px] font-medium text-primary-500">{sideQuestionCount}</span>
+            <span class="rounded-full bg-primary-500/15 px-1.5 py-0.5 text-[10px] font-medium text-primary-500"
+              >{sideQuestionCount}</span
+            >
           {:else}
             <Plus size={12} class="text-surface-500" />
           {/if}
         </button>
-        <button
-          onclick={onShowFiles}
-          class="menu-row"
-        >
+        <button onclick={onShowFiles} class="menu-row">
           <FolderTree size={13} class="shrink-0 text-surface-500" />
           <span class="flex-1">Files</span>
         </button>
         {#if messageLog.enabled}
-          <button
-            onclick={onShowMessageLog}
-            class="menu-row"
-          >
+          <button onclick={onShowMessageLog} class="menu-row">
             <ScrollText size={13} class="shrink-0 text-surface-500" />
             <span class="flex-1">Message log</span>
           </button>

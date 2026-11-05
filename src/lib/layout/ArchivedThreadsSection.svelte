@@ -1,61 +1,61 @@
 <script lang="ts">
-import { Archive, ArchiveRestore, ChevronDown } from "@lucide/svelte";
-import { Collapsible } from "@skeletonlabs/skeleton-svelte";
-import TooltipButton from "$lib/components/TooltipButton.svelte";
-import { commands } from "$lib/services/homeRouting";
-import type { ArchivedThread, BootstrapData, ThreadSummary } from "$lib/types";
-import { errorMessage } from "$lib/utils/errors";
-import { relativeTime } from "$lib/utils/format";
+  import { Archive, ArchiveRestore, ChevronDown } from "@lucide/svelte";
+  import { Collapsible } from "@skeletonlabs/skeleton-svelte";
+  import TooltipButton from "$lib/components/TooltipButton.svelte";
+  import { commands } from "$lib/services/homeRouting";
+  import type { ArchivedThread, BootstrapData, ThreadSummary } from "$lib/types";
+  import { errorMessage } from "$lib/utils/errors";
+  import { relativeTime } from "$lib/utils/format";
 
-let {
-  onSelectArchived,
-  onUnarchived,
-}: {
-  onSelectArchived?: (thread: ArchivedThread) => void;
-  onUnarchived?: (data: BootstrapData) => void;
-} = $props();
+  let {
+    onSelectArchived,
+    onUnarchived,
+  }: {
+    onSelectArchived?: (thread: ArchivedThread) => void;
+    onUnarchived?: (data: BootstrapData) => void;
+  } = $props();
 
-const PAGE_SIZE = 50;
+  const PAGE_SIZE = 50;
 
-let archived = $state<ThreadSummary[] | null>(null);
-let cursor = $state<string | null>(null);
-let loadingMore = $state(false);
-let archivedError = $state<string | null>(null);
+  let archived = $state<ThreadSummary[] | null>(null);
+  let cursor = $state<string | null>(null);
+  let loadingMore = $state(false);
+  let archivedError = $state<string | null>(null);
 
-// Archived history can be large; page it lazily with `Load more` rather than
-// loading a fixed cap up front so the sidebar stays responsive.
-async function loadPage() {
-  loadingMore = true;
-  try {
-    const page = await commands.listThreadsPage(cursor, PAGE_SIZE, true, null);
-    archived = [...(archived ?? []), ...page.items];
-    cursor = page.nextCursor;
-    archivedError = null;
-  } catch (cause) {
-    archivedError = errorMessage(cause);
-    if (archived === null) archived = [];
-  } finally {
-    loadingMore = false;
+  // Archived history can be large; page it lazily with `Load more` rather than
+  // loading a fixed cap up front so the sidebar stays responsive.
+  async function loadPage() {
+    loadingMore = true;
+    try {
+      const page = await commands.listThreadsPage(cursor, PAGE_SIZE, true, null);
+      archived = [...(archived ?? []), ...page.items];
+      cursor = page.nextCursor;
+      archivedError = null;
+    } catch (cause) {
+      archivedError = errorMessage(cause);
+      if (archived === null) archived = [];
+    } finally {
+      loadingMore = false;
+    }
   }
-}
 
-async function onOpenChange({ open }: { open: boolean }) {
-  if (open && archived === null) await loadPage();
-}
-
-function asArchivedThread(thread: ThreadSummary): ArchivedThread {
-  return { id: thread.id, title: thread.title, cwd: thread.cwd, updatedAt: thread.updatedAt };
-}
-
-async function unarchive(thread: ThreadSummary) {
-  try {
-    const data = await commands.unarchiveThread(thread.id);
-    archived = (archived ?? []).filter((entry) => entry.id !== thread.id);
-    onUnarchived?.(data);
-  } catch (cause) {
-    archivedError = errorMessage(cause);
+  async function onOpenChange({ open }: { open: boolean }) {
+    if (open && archived === null) await loadPage();
   }
-}
+
+  function asArchivedThread(thread: ThreadSummary): ArchivedThread {
+    return { id: thread.id, title: thread.title, cwd: thread.cwd, updatedAt: thread.updatedAt };
+  }
+
+  async function unarchive(thread: ThreadSummary) {
+    try {
+      const data = await commands.unarchiveThread(thread.id);
+      archived = (archived ?? []).filter((entry) => entry.id !== thread.id);
+      onUnarchived?.(data);
+    } catch (cause) {
+      archivedError = errorMessage(cause);
+    }
+  }
 </script>
 
 <Collapsible class="items-stretch gap-0 border-t border-surface-200-800 px-2 py-1.5" {onOpenChange}>
@@ -84,7 +84,9 @@ async function unarchive(thread: ThreadSummary) {
             class="flex w-full items-center gap-2 rounded-md py-1.5 pl-2 pr-7 text-left text-[12px] text-surface-600-400 hover:preset-tonal"
           >
             <span class="min-w-0 flex-1 truncate" title={thread.title}>{thread.title}</span>
-            <span class="shrink-0 text-[10px] text-surface-500 group-hover/archived:opacity-0">{relativeTime(thread.updatedAt)}</span>
+            <span class="shrink-0 text-[10px] text-surface-500 group-hover/archived:opacity-0"
+              >{relativeTime(thread.updatedAt)}</span
+            >
           </button>
           <TooltipButton
             label="Unarchive"

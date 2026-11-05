@@ -1,15 +1,15 @@
 <script lang="ts">
-import type { Snippet } from "svelte";
-import type { HTMLAttributes, HTMLButtonAttributes } from "svelte/elements";
-import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
+  import type { Snippet } from "svelte";
+  import type { HTMLAttributes, HTMLButtonAttributes } from "svelte/elements";
+  import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
 
-type Props = HTMLButtonAttributes & {
-  label: string;
-  children: Snippet;
-  openDelay?: number;
-};
+  type Props = HTMLButtonAttributes & {
+    label: string;
+    children: Snippet;
+    openDelay?: number;
+  };
 
-let { label, children, openDelay = 350, ...buttonProps }: Props = $props();
+  let { label, children, openDelay = 350, ...buttonProps }: Props = $props();
 </script>
 
 <TooltipAnchor

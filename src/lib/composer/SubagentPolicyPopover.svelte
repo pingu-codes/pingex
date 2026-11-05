@@ -1,38 +1,38 @@
 <script lang="ts">
-import { Bot, ChevronDown } from "@lucide/svelte";
-import ComposerPopover from "$lib/composer/ComposerPopover.svelte";
-import { policyAllows, policyIsEmpty } from "$lib/composer/composerPrefs";
-import type { Model, SubagentPolicy } from "$lib/types";
+  import { Bot, ChevronDown } from "@lucide/svelte";
+  import ComposerPopover from "$lib/composer/ComposerPopover.svelte";
+  import { policyAllows, policyIsEmpty } from "$lib/composer/composerPrefs";
+  import type { Model, SubagentPolicy } from "$lib/types";
 
-let {
-  open,
-  models,
-  modelsError,
-  efforts,
-  modelPolicy,
-  effortPolicy,
-  onToggle,
-  onToggleModel,
-  onToggleEffort,
-}: {
-  open: boolean;
-  models: Model[] | null;
-  modelsError: string | null;
-  efforts: string[];
-  modelPolicy: SubagentPolicy | null;
-  effortPolicy: SubagentPolicy | null;
-  onToggle: () => void;
-  onToggleModel: (id: string) => void;
-  onToggleEffort: (effort: string) => void;
-} = $props();
-
-const noModels = $derived(
-  policyIsEmpty(
+  let {
+    open,
+    models,
+    modelsError,
+    efforts,
     modelPolicy,
-    (models ?? []).map((model) => model.id),
-  ),
-);
-const noEfforts = $derived(policyIsEmpty(effortPolicy, efforts));
+    effortPolicy,
+    onToggle,
+    onToggleModel,
+    onToggleEffort,
+  }: {
+    open: boolean;
+    models: Model[] | null;
+    modelsError: string | null;
+    efforts: string[];
+    modelPolicy: SubagentPolicy | null;
+    effortPolicy: SubagentPolicy | null;
+    onToggle: () => void;
+    onToggleModel: (id: string) => void;
+    onToggleEffort: (effort: string) => void;
+  } = $props();
+
+  const noModels = $derived(
+    policyIsEmpty(
+      modelPolicy,
+      (models ?? []).map((model) => model.id),
+    ),
+  );
+  const noEfforts = $derived(policyIsEmpty(effortPolicy, efforts));
 </script>
 
 <ComposerPopover
@@ -62,9 +62,11 @@ const noEfforts = $derived(policyIsEmpty(effortPolicy, efforts));
             checked={policyAllows(modelPolicy, model.id)}
             onchange={() => onToggleModel(model.id)}
             class="checkbox"
-          />
+          >
           <span class="min-w-0 flex-1 truncate">{model.displayName}</span>
-          {#if model.hidden}<span class="text-[10px] text-surface-500">hidden</span>{/if}
+          {#if model.hidden}
+            <span class="text-[10px] text-surface-500">hidden</span>
+          {/if}
         </label>
       {/each}
     </div>
@@ -75,13 +77,15 @@ const noEfforts = $derived(policyIsEmpty(effortPolicy, efforts));
       <span class="px-1 eyebrow text-[10px]">Included effort levels</span>
       <div class="mt-1 grid grid-cols-2 gap-0.5">
         {#each efforts as effort (effort)}
-          <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs capitalize hover:preset-tonal">
+          <label
+            class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs capitalize hover:preset-tonal"
+          >
             <input
               type="checkbox"
               checked={policyAllows(effortPolicy, effort)}
               onchange={() => onToggleEffort(effort)}
               class="checkbox"
-            />
+            >
             {effort}
           </label>
         {/each}
@@ -92,7 +96,7 @@ const noEfforts = $derived(policyIsEmpty(effortPolicy, efforts));
     </div>
   {/if}
   <p class="mt-2 border-t border-surface-200-800 px-1 pt-2 text-[10px] leading-4 text-surface-500">
-    Applies to agents spawned from this thread. Subagents may use any checked value, so at least
-    one has to stay checked.
+    Applies to agents spawned from this thread. Subagents may use any checked value, so at least one has to stay
+    checked.
   </p>
 </ComposerPopover>

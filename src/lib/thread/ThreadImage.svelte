@@ -1,26 +1,26 @@
 <script lang="ts">
-// An image the agent looked at or generated, shown inline under a one-line
-// caption. Falls back to the caption alone when the file cannot be loaded
-// (browser preview, deleted file, not an image).
-import { Image } from "@lucide/svelte";
-import { threadImageSrc } from "$lib/services/api";
-import { commands } from "$lib/services/homeRouting";
-import { basename } from "$lib/utils/path";
+  // An image the agent looked at or generated, shown inline under a one-line
+  // caption. Falls back to the caption alone when the file cannot be loaded
+  // (browser preview, deleted file, not an image).
+  import { Image } from "@lucide/svelte";
+  import { threadImageSrc } from "$lib/services/api";
+  import { commands } from "$lib/services/homeRouting";
+  import { basename } from "$lib/utils/path";
 
-let { path, label }: { path: string; label: string } = $props();
+  let { path, label }: { path: string; label: string } = $props();
 
-let src = $state<string | null>(null);
-let failed = $state(false);
-let expanded = $state(false);
+  let src = $state<string | null>(null);
+  let failed = $state(false);
+  let expanded = $state(false);
 
-$effect(() => {
-  const current = path;
-  src = null;
-  failed = false;
-  void threadImageSrc(current).then((url) => {
-    if (current === path) src = url;
+  $effect(() => {
+    const current = path;
+    src = null;
+    failed = false;
+    void threadImageSrc(current).then((url) => {
+      if (current === path) src = url;
+    });
   });
-});
 </script>
 
 <div class="flex min-w-0 flex-col gap-1.5">
@@ -49,7 +49,7 @@ $effect(() => {
         loading="lazy"
         class={`block max-w-full object-contain ${expanded ? "" : "max-h-72"}`}
         onerror={() => (failed = true)}
-      />
+      >
     </button>
   {/if}
 </div>

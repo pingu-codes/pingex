@@ -1,73 +1,80 @@
 <script lang="ts">
-import { Bot, Check, CheckCheck, MessageSquare, Reply, Send, Trash2 } from "@lucide/svelte";
-import TooltipButton from "$lib/components/TooltipButton.svelte";
-import { type CommentThread, commentThreads, conversationComments } from "$lib/review/review";
-import type { PendingComment, PrComment } from "$lib/types";
+  import { Bot, Check, CheckCheck, MessageSquare, Reply, Send, Trash2 } from "@lucide/svelte";
+  import TooltipButton from "$lib/components/TooltipButton.svelte";
+  import { type CommentThread, commentThreads, conversationComments } from "$lib/review/review";
+  import type { PendingComment, PrComment } from "$lib/types";
 
-let {
-  comments = [],
-  pending = [],
-  reviewStarted = false,
-  busy = false,
-  onStartReview,
-  onSubmit,
-  onReply,
-  onResolve,
-  onRemovePending,
-  onAskCodex,
-}: {
-  comments?: PrComment[];
-  pending?: PendingComment[];
-  reviewStarted?: boolean;
-  busy?: boolean;
-  onStartReview: () => void;
-  onSubmit: (event: string, body: string) => void;
-  /** Resolves true once posted; on false the typed reply is kept. */
-  onReply: (commentId: number, body: string) => Promise<boolean | undefined> | boolean | undefined;
-  onResolve: (threadId: string) => void;
-  onRemovePending: (index: number) => void;
-  onAskCodex: () => void;
-} = $props();
+  let {
+    comments = [],
+    pending = [],
+    reviewStarted = false,
+    busy = false,
+    onStartReview,
+    onSubmit,
+    onReply,
+    onResolve,
+    onRemovePending,
+    onAskCodex,
+  }: {
+    comments?: PrComment[];
+    pending?: PendingComment[];
+    reviewStarted?: boolean;
+    busy?: boolean;
+    onStartReview: () => void;
+    onSubmit: (event: string, body: string) => void;
+    /** Resolves true once posted; on false the typed reply is kept. */
+    onReply: (commentId: number, body: string) => Promise<boolean | undefined> | boolean | undefined;
+    onResolve: (threadId: string) => void;
+    onRemovePending: (index: number) => void;
+    onAskCodex: () => void;
+  } = $props();
 
-const threads = $derived<CommentThread[]>(commentThreads(comments));
-const conversation = $derived<PrComment[]>(conversationComments(comments));
+  const threads = $derived<CommentThread[]>(commentThreads(comments));
+  const conversation = $derived<PrComment[]>(conversationComments(comments));
 
-let reviewEvent = $state<"comment" | "approve" | "request-changes">("comment");
-let reviewBody = $state("");
+  let reviewEvent = $state<"comment" | "approve" | "request-changes">("comment");
+  let reviewBody = $state("");
 
-// Per-thread reply drafts, keyed by thread key.
-let replyOpen = $state<string | null>(null);
-let replyBody = $state("");
+  // Per-thread reply drafts, keyed by thread key.
+  let replyOpen = $state<string | null>(null);
+  let replyBody = $state("");
 
-function lastCommentId(thread: CommentThread): number {
-  return thread.comments[thread.comments.length - 1]?.id ?? 0;
-}
+  function lastCommentId(thread: CommentThread): number {
+    return thread.comments[thread.comments.length - 1]?.id ?? 0;
+  }
 
-async function submitReply(thread: CommentThread) {
-  const body = replyBody.trim();
-  const commentId = lastCommentId(thread);
-  if (!body || !commentId) return;
-  // Cleared only once posted: a failed send used to throw the text away.
-  if ((await onReply(commentId, body)) === false) return;
-  replyBody = "";
-  replyOpen = null;
-}
+  async function submitReply(thread: CommentThread) {
+    const body = replyBody.trim();
+    const commentId = lastCommentId(thread);
+    if (!body || !commentId) return;
+    // Cleared only once posted: a failed send used to throw the text away.
+    if ((await onReply(commentId, body)) === false) return;
+    replyBody = "";
+    replyOpen = null;
+  }
 
-function submitReview() {
-  const body = reviewBody.trim();
-  // Approve may carry an empty body; comment / request-changes need one.
-  if (reviewEvent !== "approve" && !body) return;
-  onSubmit(reviewEvent, body);
-}
+  function submitReview() {
+    const body = reviewBody.trim();
+    // Approve may carry an empty body; comment / request-changes need one.
+    if (reviewEvent !== "approve" && !body) return;
+    onSubmit(reviewEvent, body);
+  }
 </script>
 
 <div class="flex h-full flex-col">
   <div class="flex items-center justify-between border-b border-surface-200-800 px-4 py-3">
     <h2 class="flex items-center gap-1.5 text-sm font-semibold">
-      <MessageSquare size={15} class="text-surface-500" /> Review
+      <MessageSquare size={15} class="text-surface-500" />
+      Review
     </h2>
-    <button onclick={onAskCodex} disabled={busy} class="btn btn-sm preset-tonal-primary" title="Open a Codex thread with the PR diff">
-      <Bot size={14} /> Ask Codex
+    <button
+      onclick={onAskCodex}
+      disabled={busy}
+      class="btn btn-sm preset-tonal-primary"
+      title="Open a Codex thread with the PR diff"
+    >
+      <Bot size={14} />
+      Ask Codex
     </button>
   </div>
 
@@ -77,14 +84,24 @@ function submitReview() {
       <section>
         <h3 class="eyebrow">
           Pending comments
-          <span class="ml-1 rounded-full bg-primary-500/15 px-1.5 py-0.5 text-[10px] text-primary-500">{pending.length}</span>
+          <span class="ml-1 rounded-full bg-primary-500/15 px-1.5 py-0.5 text-[10px] text-primary-500"
+            >{pending.length}</span
+          >
         </h3>
         <ul class="mt-2 space-y-2">
           {#each pending as item, index (index)}
             <li class="rounded-lg border border-primary-500/30 bg-primary-500/5 p-2.5 text-xs">
               <div class="flex items-center justify-between gap-2">
-                <span class="truncate font-mono text-[10px] text-surface-500">{item.path}:{item.line} · {item.side}</span>
-                <TooltipButton label="Remove pending comment" onclick={() => onRemovePending(index)} aria-label="Remove pending comment" class="btn-icon btn-icon-sm text-surface-500 hover:preset-tonal">
+                <span class="truncate font-mono text-[10px] text-surface-500"
+                  >{item.path}:{item.line}
+                  · {item.side}</span
+                >
+                <TooltipButton
+                  label="Remove pending comment"
+                  onclick={() => onRemovePending(index)}
+                  aria-label="Remove pending comment"
+                  class="btn-icon btn-icon-sm text-surface-500 hover:preset-tonal"
+                >
                   <Trash2 size={12} />
                 </TooltipButton>
               </div>
@@ -99,18 +116,21 @@ function submitReview() {
     <section>
       <h3 class="eyebrow">Comment threads</h3>
       {#if threads.length === 0}
-        <p class="mt-2 empty-state rounded-lg px-3 py-4">
-          No inline comments yet.
-        </p>
+        <p class="mt-2 empty-state rounded-lg px-3 py-4">No inline comments yet.</p>
       {:else}
         <ul class="mt-2 space-y-2">
           {#each threads as thread (thread.key)}
             <li class="rounded-lg border border-surface-200-800 bg-surface-100-900 p-2.5" data-testid="thread">
               <div class="flex items-center justify-between gap-2">
-                <span class="truncate font-mono text-[10px] text-surface-500">{thread.path}{thread.line != null ? `:${thread.line}` : ""}</span>
+                <span class="truncate font-mono text-[10px] text-surface-500"
+                  >{thread.path}{thread.line != null ? `:${thread.line}` : ""}</span
+                >
                 {#if thread.resolved}
-                  <span class="inline-flex items-center gap-0.5 rounded-full bg-success-500/15 px-1.5 py-0.5 text-[10px] font-medium text-success-600 dark:text-success-400">
-                    <CheckCheck size={10} /> resolved
+                  <span
+                    class="inline-flex items-center gap-0.5 rounded-full bg-success-500/15 px-1.5 py-0.5 text-[10px] font-medium text-success-600 dark:text-success-400"
+                  >
+                    <CheckCheck size={10} />
+                    resolved
                   </span>
                 {/if}
               </div>
@@ -123,14 +143,27 @@ function submitReview() {
                 {/each}
               </ul>
               <div class="mt-2 flex items-center gap-1">
-                <button onclick={() => { replyOpen = replyOpen === thread.key ? null : thread.key; replyBody = ""; }} class="btn btn-sm preset-tonal">
-                  <Reply size={13} /> Reply
+                <button
+                  onclick={() => {
+                    replyOpen = replyOpen === thread.key ? null : thread.key;
+                    replyBody = "";
+                  }}
+                  class="btn btn-sm preset-tonal"
+                >
+                  <Reply size={13} />
+                  Reply
                 </button>
                 {#if !thread.resolved && !thread.key.includes(":")}
                   <!-- A colon in the key means it was synthesized from path:line
                        (no GraphQL node id), so it cannot be resolved. -->
-                  <button onclick={() => onResolve(thread.key)} disabled={busy} class="btn btn-sm preset-tonal" title="Resolve this thread">
-                    <Check size={13} /> Resolve
+                  <button
+                    onclick={() => onResolve(thread.key)}
+                    disabled={busy}
+                    class="btn btn-sm preset-tonal"
+                    title="Resolve this thread"
+                  >
+                    <Check size={13} />
+                    Resolve
                   </button>
                 {/if}
               </div>
@@ -144,8 +177,13 @@ function submitReview() {
                     class="w-full resize-y field text-xs"
                   ></textarea>
                   <div class="mt-1 flex justify-end">
-                    <button onclick={() => submitReply(thread)} disabled={busy || !replyBody.trim()} class="btn btn-sm preset-filled-primary-500">
-                      <Send size={13} /> Send reply
+                    <button
+                      onclick={() => submitReply(thread)}
+                      disabled={busy || !replyBody.trim()}
+                      class="btn btn-sm preset-filled-primary-500"
+                    >
+                      <Send size={13} />
+                      Send reply
                     </button>
                   </div>
                 </div>
@@ -175,9 +213,7 @@ function submitReview() {
   <!-- Submit review -->
   <div class="border-t border-surface-200-800 px-4 py-3">
     {#if !reviewStarted}
-      <button onclick={onStartReview} class="btn btn-sm w-full preset-tonal-primary">
-        Start review
-      </button>
+      <button onclick={onStartReview} class="btn btn-sm w-full preset-tonal-primary">Start review</button>
     {:else}
       <div class="space-y-2">
         <textarea
@@ -193,12 +229,21 @@ function submitReview() {
             <option value="approve">Approve</option>
             <option value="request-changes">Request changes</option>
           </select>
-          <button onclick={submitReview} disabled={busy || (reviewEvent !== "approve" && !reviewBody.trim())} class="btn btn-sm preset-filled-primary-500">
-            <Send size={13} /> Submit review
+          <button
+            onclick={submitReview}
+            disabled={busy || (reviewEvent !== "approve" && !reviewBody.trim())}
+            class="btn btn-sm preset-filled-primary-500"
+          >
+            <Send size={13} />
+            Submit review
           </button>
         </div>
         {#if pending.length > 0}
-          <p class="text-[11px] text-surface-500">{pending.length} pending comment{pending.length === 1 ? "" : "s"} will be included.</p>
+          <p class="text-[11px] text-surface-500">
+            {pending.length}
+            pending comment{pending.length === 1 ? "" : "s"}
+            will be included.
+          </p>
         {/if}
       </div>
     {/if}

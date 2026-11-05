@@ -1,126 +1,126 @@
 <script lang="ts">
-import {
-  ArrowLeft,
-  Eraser,
-  FileDiff,
-  FolderTree,
-  Gauge,
-  Globe,
-  Hammer,
-  Lightbulb,
-  MessageCircleQuestion,
-  ScrollText,
-  SquareTerminal,
-  X,
-} from "@lucide/svelte";
-import { openFilePreview } from "$lib/app/filePreview";
-import DiffBlock from "$lib/components/DiffBlock.svelte";
-import TooltipButton from "$lib/components/TooltipButton.svelte";
-import MessageLog from "$lib/layout/MessageLog.svelte";
-import ChangesPanel from "$lib/panels/ChangesPanel.svelte";
-import FileTree from "$lib/panels/FileTree.svelte";
-import ProcessDetail from "$lib/panels/ProcessDetail.svelte";
-import SideQuestions from "$lib/panels/SideQuestions.svelte";
-import ThreadStatus from "$lib/panels/ThreadStatus.svelte";
-import { processByKey, type RunningProcess } from "$lib/services/processes.svelte";
-import type { ContextStats } from "$lib/thread/contextUsage";
-import type { BootstrapData, ChangesSummary, FileUpdateChange, SideQuestion } from "$lib/types";
-import { renderMarkdown } from "$lib/utils/markdown";
-import { resolveMentionPath } from "$lib/utils/mentions";
-import { loadSize, resizeHandle } from "$lib/utils/resize";
+  import {
+    ArrowLeft,
+    Eraser,
+    FileDiff,
+    FolderTree,
+    Gauge,
+    Globe,
+    Hammer,
+    Lightbulb,
+    MessageCircleQuestion,
+    ScrollText,
+    SquareTerminal,
+    X,
+  } from "@lucide/svelte";
+  import { openFilePreview } from "$lib/app/filePreview";
+  import DiffBlock from "$lib/components/DiffBlock.svelte";
+  import TooltipButton from "$lib/components/TooltipButton.svelte";
+  import MessageLog from "$lib/layout/MessageLog.svelte";
+  import ChangesPanel from "$lib/panels/ChangesPanel.svelte";
+  import FileTree from "$lib/panels/FileTree.svelte";
+  import ProcessDetail from "$lib/panels/ProcessDetail.svelte";
+  import SideQuestions from "$lib/panels/SideQuestions.svelte";
+  import ThreadStatus from "$lib/panels/ThreadStatus.svelte";
+  import { processByKey, type RunningProcess } from "$lib/services/processes.svelte";
+  import type { ContextStats } from "$lib/thread/contextUsage";
+  import type { BootstrapData, ChangesSummary, FileUpdateChange, SideQuestion } from "$lib/types";
+  import { renderMarkdown } from "$lib/utils/markdown";
+  import { resolveMentionPath } from "$lib/utils/mentions";
+  import { loadSize, resizeHandle } from "$lib/utils/resize";
 
-export type PanelView =
-  | { kind: "plan"; text: string }
-  | { kind: "sources"; queries: string[] }
-  | { kind: "side"; submission?: { id: number; text: string } }
-  | { kind: "diffs"; focusPath?: string | null }
-  | { kind: "changes"; focusPath?: string | null }
-  | { kind: "files" }
-  | { kind: "messageLog" }
-  | { kind: "status" }
-  | { kind: "process"; processKey: string };
+  export type PanelView =
+    | { kind: "plan"; text: string }
+    | { kind: "sources"; queries: string[] }
+    | { kind: "side"; submission?: { id: number; text: string } }
+    | { kind: "diffs"; focusPath?: string | null }
+    | { kind: "changes"; focusPath?: string | null }
+    | { kind: "files" }
+    | { kind: "messageLog" }
+    | { kind: "status" }
+    | { kind: "process"; processKey: string };
 
-let {
-  view,
-  parentThreadId,
-  sideQuestions,
-  changes = [],
-  gitChanges = null,
-  gitChangesLoading = false,
-  gitChangesError = null,
-  onRefreshGitChanges = () => {},
-  cwd = "",
-  contextStats = null,
-  costUsd = null,
-  activeModel = null,
-  onClose,
-  onDataChanged,
-  onImplementPlan,
-  onImplementPlanFresh,
-  implementDisabled = false,
-  onStopProcessTurn,
-  showSystemPromptInThread = false,
-  onToggleSystemPromptInThread,
-}: {
-  view: PanelView;
-  parentThreadId: string | null;
-  sideQuestions: SideQuestion[];
-  changes?: FileUpdateChange[];
-  /** Git-derived changes for the `changes` view (summary only; diffs load lazily). */
-  gitChanges?: ChangesSummary | null;
-  gitChangesLoading?: boolean;
-  gitChangesError?: string | null;
-  onRefreshGitChanges?: () => void;
-  cwd?: string;
-  /** Context usage for the `status` view. */
-  contextStats?: ContextStats | null;
-  costUsd?: number | null;
-  activeModel?: string | null;
-  onClose: () => void;
-  onDataChanged: (data: BootstrapData) => void;
-  onImplementPlan?: () => void;
-  /** Interrupt the turn a running process belongs to; only for the open thread. */
-  onStopProcessTurn?: (process: RunningProcess) => void;
-  /** Implement the plan in a fresh thread; absent when there is no live thread. */
-  onImplementPlanFresh?: () => void;
-  implementDisabled?: boolean;
-  /** Whether the system prompt's full text is currently shown inline in the thread. */
-  showSystemPromptInThread?: boolean;
-  /** Fetches (once) and toggles the full text in the thread. Omitted when
-   *  the thread's harness cannot supply it. */
-  onToggleSystemPromptInThread?: () => void;
-} = $props();
+  let {
+    view,
+    parentThreadId,
+    sideQuestions,
+    changes = [],
+    gitChanges = null,
+    gitChangesLoading = false,
+    gitChangesError = null,
+    onRefreshGitChanges = () => {},
+    cwd = "",
+    contextStats = null,
+    costUsd = null,
+    activeModel = null,
+    onClose,
+    onDataChanged,
+    onImplementPlan,
+    onImplementPlanFresh,
+    implementDisabled = false,
+    onStopProcessTurn,
+    showSystemPromptInThread = false,
+    onToggleSystemPromptInThread,
+  }: {
+    view: PanelView;
+    parentThreadId: string | null;
+    sideQuestions: SideQuestion[];
+    changes?: FileUpdateChange[];
+    /** Git-derived changes for the `changes` view (summary only; diffs load lazily). */
+    gitChanges?: ChangesSummary | null;
+    gitChangesLoading?: boolean;
+    gitChangesError?: string | null;
+    onRefreshGitChanges?: () => void;
+    cwd?: string;
+    /** Context usage for the `status` view. */
+    contextStats?: ContextStats | null;
+    costUsd?: number | null;
+    activeModel?: string | null;
+    onClose: () => void;
+    onDataChanged: (data: BootstrapData) => void;
+    onImplementPlan?: () => void;
+    /** Interrupt the turn a running process belongs to; only for the open thread. */
+    onStopProcessTurn?: (process: RunningProcess) => void;
+    /** Implement the plan in a fresh thread; absent when there is no live thread. */
+    onImplementPlanFresh?: () => void;
+    implementDisabled?: boolean;
+    /** Whether the system prompt's full text is currently shown inline in the thread. */
+    showSystemPromptInThread?: boolean;
+    /** Fetches (once) and toggles the full text in the thread. Omitted when
+     *  the thread's harness cannot supply it. */
+    onToggleSystemPromptInThread?: () => void;
+  } = $props();
 
-const PANEL_META: Record<PanelView["kind"], { title: string; icon: typeof X; tone?: string }> = {
-  plan: { title: "Plan", icon: Lightbulb, tone: "text-warning-500" },
-  sources: { title: "Sources", icon: Globe },
-  side: { title: "Side questions", icon: MessageCircleQuestion, tone: "text-primary-500" },
-  diffs: { title: "Outputs", icon: FileDiff },
-  changes: { title: "Changes", icon: FileDiff },
-  files: { title: "Files", icon: FolderTree },
-  messageLog: { title: "Message log", icon: ScrollText },
-  status: { title: "Status", icon: Gauge },
-  process: { title: "Process", icon: SquareTerminal },
-};
-const panelMeta = $derived(PANEL_META[view.kind]);
-const PanelIcon = $derived(panelMeta.icon);
+  const PANEL_META: Record<PanelView["kind"], { title: string; icon: typeof X; tone?: string }> = {
+    plan: { title: "Plan", icon: Lightbulb, tone: "text-warning-500" },
+    sources: { title: "Sources", icon: Globe },
+    side: { title: "Side questions", icon: MessageCircleQuestion, tone: "text-primary-500" },
+    diffs: { title: "Outputs", icon: FileDiff },
+    changes: { title: "Changes", icon: FileDiff },
+    files: { title: "Files", icon: FolderTree },
+    messageLog: { title: "Message log", icon: ScrollText },
+    status: { title: "Status", icon: Gauge },
+    process: { title: "Process", icon: SquareTerminal },
+  };
+  const panelMeta = $derived(PANEL_META[view.kind]);
+  const PanelIcon = $derived(panelMeta.icon);
 
-let activeSideId = $state<string | null>(null);
-let panelWidth = $state(loadSize("layout.rightPanelWidth", 380, 280, 720));
+  let activeSideId = $state<string | null>(null);
+  let panelWidth = $state(loadSize("layout.rightPanelWidth", 380, 280, 720));
 
-let body = $state<HTMLElement | null>(null);
+  let body = $state<HTMLElement | null>(null);
 
-// Scroll the focused file's diff into view when the diff panel opens on a
-// specific output.
-$effect(() => {
-  if (view.kind !== "diffs" || !view.focusPath || !body) return;
-  const target = body.querySelector(`[data-diff-path="${CSS.escape(view.focusPath)}"]`);
-  target?.scrollIntoView?.({ block: "start" });
-});
+  // Scroll the focused file's diff into view when the diff panel opens on a
+  // specific output.
+  $effect(() => {
+    if (view.kind !== "diffs" || !view.focusPath || !body) return;
+    const target = body.querySelector(`[data-diff-path="${CSS.escape(view.focusPath)}"]`);
+    target?.scrollIntoView?.({ block: "start" });
+  });
 
-function openProjectFile(relativePath: string) {
-  void openFilePreview({ path: resolveMentionPath(relativePath, cwd), line: null, column: null }, cwd);
-}
+  function openProjectFile(relativePath: string) {
+    void openFilePreview({ path: resolveMentionPath(relativePath, cwd), line: null, column: null }, cwd);
+  }
 </script>
 
 <!--
@@ -155,7 +155,12 @@ function openProjectFile(relativePath: string) {
   ></div>
   <header class="flex h-11 shrink-0 items-center gap-2 border-b border-surface-200-800 px-3">
     {#if view.kind === "side" && activeSideId}
-      <TooltipButton label="Back to side questions" aria-label="Back to side questions" onclick={() => (activeSideId = null)} class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
+      <TooltipButton
+        label="Back to side questions"
+        aria-label="Back to side questions"
+        onclick={() => (activeSideId = null)}
+        class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
+      >
         <ArrowLeft size={14} />
       </TooltipButton>
     {/if}
@@ -164,7 +169,12 @@ function openProjectFile(relativePath: string) {
     {#if view.kind === "diffs" && changes.length > 0}
       <span class="text-[10px] text-surface-500">{changes.length}</span>
     {/if}
-    <TooltipButton label="Close panel" aria-label="Close panel" onclick={onClose} class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
+    <TooltipButton
+      label="Close panel"
+      aria-label="Close panel"
+      onclick={onClose}
+      class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
+    >
       <X size={14} />
     </TooltipButton>
   </header>
@@ -227,10 +237,7 @@ function openProjectFile(relativePath: string) {
       {:else if view.kind === "process"}
         {@const process = processByKey(view.processKey)}
         <!-- Interrupting is only possible for the open thread's own turn. -->
-        <ProcessDetail
-          {process}
-          onStopTurn={process?.threadId === parentThreadId ? onStopProcessTurn : undefined}
-        />
+        <ProcessDetail {process} onStopTurn={process?.threadId === parentThreadId ? onStopProcessTurn : undefined} />
       {/if}
     </div>
     {#if view.kind === "plan" && onImplementPlan}

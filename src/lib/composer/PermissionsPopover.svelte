@@ -1,29 +1,29 @@
 <script lang="ts">
-import { Check, ChevronDown, Shield } from "@lucide/svelte";
-import ComposerPopover from "$lib/composer/ComposerPopover.svelte";
-import { type HarnessChoice, PERMISSION_PRESETS, presetFor } from "$lib/composer/composerPrefs";
-import { modesFor } from "$lib/composer/harnessModes";
-import { can, harnessName } from "$lib/utils/capabilities";
+  import { Check, ChevronDown, Shield } from "@lucide/svelte";
+  import ComposerPopover from "$lib/composer/ComposerPopover.svelte";
+  import { type HarnessChoice, PERMISSION_PRESETS, presetFor } from "$lib/composer/composerPrefs";
+  import { modesFor } from "$lib/composer/harnessModes";
+  import { can, harnessName } from "$lib/utils/capabilities";
 
-let {
-  open,
-  selectedId,
-  harness = null,
-  onToggle,
-  onChoose,
-}: {
-  open: boolean;
-  selectedId: string | null;
-  harness?: HarnessChoice | null;
-  onToggle: () => void;
-  onChoose: (id: string) => void;
-} = $props();
+  let {
+    open,
+    selectedId,
+    harness = null,
+    onToggle,
+    onChoose,
+  }: {
+    open: boolean;
+    selectedId: string | null;
+    harness?: HarnessChoice | null;
+    onToggle: () => void;
+    onChoose: (id: string) => void;
+  } = $props();
 
-const permissionModes = $derived(can(harness, "permissionModes"));
-const modes = $derived(modesFor(harness));
-const presets = $derived(permissionModes ? modes : PERMISSION_PRESETS);
-const selected = $derived(permissionModes ? modes.find((mode) => mode.id === selectedId) : presetFor(selectedId));
-const selectedLabel = $derived(selected?.label ?? "Permissions");
+  const permissionModes = $derived(can(harness, "permissionModes"));
+  const modes = $derived(modesFor(harness));
+  const presets = $derived(permissionModes ? modes : PERMISSION_PRESETS);
+  const selected = $derived(permissionModes ? modes.find((mode) => mode.id === selectedId) : presetFor(selectedId));
+  const selectedLabel = $derived(selected?.label ?? "Permissions");
 </script>
 
 <ComposerPopover
@@ -42,10 +42,7 @@ const selectedLabel = $derived(selected?.label ?? "Permissions");
   <span class="px-1 eyebrow text-[10px]">Permissions</span>
   <div class="mt-1 space-y-0.5">
     {#each presets as preset (preset.id)}
-      <button
-        onclick={() => onChoose(preset.id)}
-        class="menu-row"
-      >
+      <button onclick={() => onChoose(preset.id)} class="menu-row">
         <span class="min-w-0 flex-1">
           <span class="block">{preset.label}</span>
           <span class="block text-[10px] leading-4 text-surface-500">{preset.description}</span>

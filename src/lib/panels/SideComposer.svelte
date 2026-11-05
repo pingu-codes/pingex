@@ -1,31 +1,33 @@
 <script lang="ts">
-import { ArrowUp, Square } from "@lucide/svelte";
-import TooltipButton from "$lib/components/TooltipButton.svelte";
+  import { ArrowUp, Square } from "@lucide/svelte";
+  import TooltipButton from "$lib/components/TooltipButton.svelte";
 
-// The side-question input: Enter asks, Shift+Enter breaks the line, and
-// Escape stops an answer in progress.
-let {
-  value = $bindable(""),
-  followUp,
-  busy,
-  disabled = false,
-  onAsk,
-  onStop,
-}: {
-  value?: string;
-  /** A side question is open, so the next message follows up on it. */
-  followUp: boolean;
-  /** An answer is in progress: Stop shows and asking waits. */
-  busy: boolean;
-  /** Asking is blocked for another reason, such as a load in flight. */
-  disabled?: boolean;
-  onAsk: () => void;
-  onStop: () => void;
-} = $props();
+  // The side-question input: Enter asks, Shift+Enter breaks the line, and
+  // Escape stops an answer in progress.
+  let {
+    value = $bindable(""),
+    followUp,
+    busy,
+    disabled = false,
+    onAsk,
+    onStop,
+  }: {
+    value?: string;
+    /** A side question is open, so the next message follows up on it. */
+    followUp: boolean;
+    /** An answer is in progress: Stop shows and asking waits. */
+    busy: boolean;
+    /** Asking is blocked for another reason, such as a load in flight. */
+    disabled?: boolean;
+    onAsk: () => void;
+    onStop: () => void;
+  } = $props();
 </script>
 
 <div class="border-t border-surface-200-800 p-2">
-  <div class="flex items-end gap-2 rounded-xl border border-surface-200-800 bg-surface-50-950 px-2.5 py-1.5 focus-within:border-surface-400-600">
+  <div
+    class="flex items-end gap-2 rounded-xl border border-surface-200-800 bg-surface-50-950 px-2.5 py-1.5 focus-within:border-surface-400-600"
+  >
     <textarea
       bind:value
       onkeydown={(event) => {

@@ -1,88 +1,88 @@
 <script lang="ts">
-import { ArrowLeftRight, ChevronDown, RefreshCw } from "@lucide/svelte";
-import type { DialogClose } from "$lib/app/dialogs.svelte";
-import DialogShell from "$lib/components/DialogShell.svelte";
-import { commands } from "$lib/services/homeRouting";
-import { dirName } from "$lib/thread/handoff";
-import type { WorktreeHandoffPreflight } from "$lib/types";
-import { submitState } from "$lib/utils/actionState.svelte";
-import { errorMessage } from "$lib/utils/errors";
+  import { ArrowLeftRight, ChevronDown, RefreshCw } from "@lucide/svelte";
+  import type { DialogClose } from "$lib/app/dialogs.svelte";
+  import DialogShell from "$lib/components/DialogShell.svelte";
+  import { commands } from "$lib/services/homeRouting";
+  import { dirName } from "$lib/thread/handoff";
+  import type { WorktreeHandoffPreflight } from "$lib/types";
+  import { submitState } from "$lib/utils/actionState.svelte";
+  import { errorMessage } from "$lib/utils/errors";
 
-let {
-  worktreePath,
-  targets,
-  defaultTarget,
-  submit,
-  close,
-}: {
-  /** The temporary worktree the thread runs in. */
-  worktreePath: string;
-  /** Local workspaces the branch may be checked out into (repo folders). */
-  targets: { path: string; name: string }[];
-  defaultTarget: string;
-  /** Performs the handoff; rejecting keeps the dialog open. */
-  submit: (targetDir: string, commitUncommitted: boolean, branchName: string | null) => Promise<void>;
-  close: DialogClose<true>;
-} = $props();
+  let {
+    worktreePath,
+    targets,
+    defaultTarget,
+    submit,
+    close,
+  }: {
+    /** The temporary worktree the thread runs in. */
+    worktreePath: string;
+    /** Local workspaces the branch may be checked out into (repo folders). */
+    targets: { path: string; name: string }[];
+    defaultTarget: string;
+    /** Performs the handoff; rejecting keeps the dialog open. */
+    submit: (targetDir: string, commitUncommitted: boolean, branchName: string | null) => Promise<void>;
+    close: DialogClose<true>;
+  } = $props();
 
-// svelte-ignore state_referenced_locally
-let target = $state(defaultTarget);
-let preflight = $state<WorktreeHandoffPreflight | null>(null);
-let checking = $state(true);
-let checkError = $state<string | null>(null);
-let commitUncommitted = $state(true);
-/** Optional new name for the branch; empty keeps the worktree's branch name. */
-let branchName = $state("");
-let branchTouched = $state(false);
-const action = submitState();
+  // svelte-ignore state_referenced_locally
+  let target = $state(defaultTarget);
+  let preflight = $state<WorktreeHandoffPreflight | null>(null);
+  let checking = $state(true);
+  let checkError = $state<string | null>(null);
+  let commitUncommitted = $state(true);
+  /** Optional new name for the branch; empty keeps the worktree's branch name. */
+  let branchName = $state("");
+  let branchTouched = $state(false);
+  const action = submitState();
 
-/** Local branch names may not contain whitespace, `..`, `~^:?*[\\`, or `@{`. */
-const branchNameIssue = $derived.by(() => {
-  const name = branchName.trim();
-  if (!name) return null;
-  if (/[\s~^:?*[\\]|\.\.|@\{|^-|^\/|\/$|\.$|\/\/|\.lock$|^\.|\/\./.test(name)) return "Not a valid branch name";
-  return null;
-});
+  /** Local branch names may not contain whitespace, `..`, `~^:?*[\\`, or `@{`. */
+  const branchNameIssue = $derived.by(() => {
+    const name = branchName.trim();
+    if (!name) return null;
+    if (/[\s~^:?*[\\]|\.\.|@\{|^-|^\/|\/$|\.$|\/\/|\.lock$|^\.|\/\./.test(name)) return "Not a valid branch name";
+    return null;
+  });
 
-const options = $derived(
-  targets.some((entry) => entry.path === defaultTarget)
-    ? targets
-    : [{ path: defaultTarget, name: dirName(defaultTarget) }, ...targets],
-);
+  const options = $derived(
+    targets.some((entry) => entry.path === defaultTarget)
+      ? targets
+      : [{ path: defaultTarget, name: dirName(defaultTarget) }, ...targets],
+  );
 
-let request = 0;
-$effect(() => {
-  const dir = target;
-  const id = ++request;
-  checking = true;
-  checkError = null;
-  commands
-    .gitWorktreeHandoffPreflight(worktreePath, dir)
-    .then((result) => {
-      if (id === request) preflight = result;
-    })
-    .catch((cause) => {
-      if (id === request) checkError = errorMessage(cause);
-    })
-    .finally(() => {
-      if (id === request) checking = false;
-    });
-});
+  let request = 0;
+  $effect(() => {
+    const dir = target;
+    const id = ++request;
+    checking = true;
+    checkError = null;
+    commands
+      .gitWorktreeHandoffPreflight(worktreePath, dir)
+      .then((result) => {
+        if (id === request) preflight = result;
+      })
+      .catch((cause) => {
+        if (id === request) checkError = errorMessage(cause);
+      })
+      .finally(() => {
+        if (id === request) checking = false;
+      });
+  });
 
-const blocker = $derived(
-  checkError ??
-    preflight?.blocker ??
-    (preflight?.worktreeDirty && !commitUncommitted ? "Commit the worktree's changes to hand off" : null) ??
-    branchNameIssue,
-);
-const ready = $derived(!checking && !blocker && !!preflight?.branch);
+  const blocker = $derived(
+    checkError ??
+      preflight?.blocker ??
+      (preflight?.worktreeDirty && !commitUncommitted ? "Commit the worktree's changes to hand off" : null) ??
+      branchNameIssue,
+  );
+  const ready = $derived(!checking && !blocker && !!preflight?.branch);
 
-async function handoff() {
-  if (!ready) return;
-  const name = branchName.trim();
-  const rename = name && name !== preflight?.branch ? name : null;
-  if (await action.run(() => submit(target, commitUncommitted, rename))) close(true);
-}
+  async function handoff() {
+    if (!ready) return;
+    const name = branchName.trim();
+    const rename = name && name !== preflight?.branch ? name : null;
+    if (await action.run(() => submit(target, commitUncommitted, rename))) close(true);
+  }
 </script>
 
 <DialogShell title="Hand off chat to local" width={480} onClose={() => close()}>
@@ -122,7 +122,7 @@ async function handoff() {
     oninput={() => (branchTouched = true)}
     spellcheck="false"
     autocomplete="off"
-  />
+  >
   <p class="mt-1 text-xs text-surface-500">
     {#if branchTouched && branchName.trim() && branchName.trim() !== preflight?.branch}
       The branch is renamed as it's checked out locally.
@@ -133,7 +133,7 @@ async function handoff() {
 
   {#if preflight?.worktreeDirty}
     <label class="mt-3 flex items-center gap-2 text-xs text-surface-600-400">
-      <input type="checkbox" class="checkbox" bind:checked={commitUncommitted} />
+      <input type="checkbox" class="checkbox" bind:checked={commitUncommitted}>
       Commit the worktree's uncommitted changes first
     </label>
   {/if}
@@ -150,7 +150,9 @@ async function handoff() {
         onclick={handoff}
         class="btn w-full preset-filled-primary-500 disabled:opacity-50"
       >
-        {#if checking}<RefreshCw size={14} class="animate-spin" />{/if}
+        {#if checking}
+          <RefreshCw size={14} class="animate-spin" />
+        {/if}
         {action.busy ? "Handing off…" : "Hand off"}
       </button>
       {#if blocker && !checking}

@@ -8,145 +8,145 @@
   from three widgets.
 -->
 <script lang="ts">
-import { accountUsage } from "$lib/services/accountUsage.svelte";
-import { isContextBreakdownUnsupported, readThreadUsage } from "$lib/services/api";
-import { commands } from "$lib/services/homeRouting";
-import type { ContextStats } from "$lib/thread/contextUsage";
-import type { ContextComposition, ThreadUsage } from "$lib/types";
-import PromptPartsList from "$lib/usage/PromptPartsList.svelte";
-import UsageBreakdownBar from "$lib/usage/UsageBreakdownBar.svelte";
-import UsageSummary from "$lib/usage/UsageSummary.svelte";
-import { segmentsFor } from "$lib/usage/usageBreakdown";
-import { formatTokens } from "$lib/utils/format";
-import { usageWindows } from "$lib/utils/rateLimits";
+  import { accountUsage } from "$lib/services/accountUsage.svelte";
+  import { isContextBreakdownUnsupported, readThreadUsage } from "$lib/services/api";
+  import { commands } from "$lib/services/homeRouting";
+  import type { ContextStats } from "$lib/thread/contextUsage";
+  import type { ContextComposition, ThreadUsage } from "$lib/types";
+  import PromptPartsList from "$lib/usage/PromptPartsList.svelte";
+  import UsageBreakdownBar from "$lib/usage/UsageBreakdownBar.svelte";
+  import UsageSummary from "$lib/usage/UsageSummary.svelte";
+  import { segmentsFor } from "$lib/usage/usageBreakdown";
+  import { formatTokens } from "$lib/utils/format";
+  import { usageWindows } from "$lib/utils/rateLimits";
 
-let {
-  stats,
-  costUsd = null,
-  model = null,
-  threadId = null,
-  showSystemPromptInThread = false,
-  onToggleSystemPromptInThread,
-}: {
-  stats: ContextStats | null;
-  /** Estimated spend for this thread, or null when the model has no pricing. */
-  costUsd?: number | null;
-  model?: string | null;
-  /** Thread to read the server-side usage estimate for. */
-  threadId?: string | null;
-  /** Whether the system prompt's full text is currently shown inline in the thread. */
-  showSystemPromptInThread?: boolean;
-  /** Fetches (once) and toggles the full text in the thread. Omitted when
-   *  the thread's harness cannot supply it. */
-  onToggleSystemPromptInThread?: () => void;
-} = $props();
+  let {
+    stats,
+    costUsd = null,
+    model = null,
+    threadId = null,
+    showSystemPromptInThread = false,
+    onToggleSystemPromptInThread,
+  }: {
+    stats: ContextStats | null;
+    /** Estimated spend for this thread, or null when the model has no pricing. */
+    costUsd?: number | null;
+    model?: string | null;
+    /** Thread to read the server-side usage estimate for. */
+    threadId?: string | null;
+    /** Whether the system prompt's full text is currently shown inline in the thread. */
+    showSystemPromptInThread?: boolean;
+    /** Fetches (once) and toggles the full text in the thread. Omitted when
+     *  the thread's harness cannot supply it. */
+    onToggleSystemPromptInThread?: () => void;
+  } = $props();
 
-const windows = $derived(usageWindows(accountUsage.snapshot));
+  const windows = $derived(usageWindows(accountUsage.snapshot));
 
-/** Server-side usage estimate; a billing read, so refreshed at most every 15s. */
-let threadUsage = $state<ThreadUsage | null>(null);
-let usageFetchedAt = 0;
-let usageFetchedFor: string | null = null;
-const USAGE_REFRESH_MS = 15_000;
+  /** Server-side usage estimate; a billing read, so refreshed at most every 15s. */
+  let threadUsage = $state<ThreadUsage | null>(null);
+  let usageFetchedAt = 0;
+  let usageFetchedFor: string | null = null;
+  const USAGE_REFRESH_MS = 15_000;
 
-$effect(() => {
-  const id = threadId;
-  stats; // Re-run when token figures move — that is when usage can change.
-  if (!id) {
-    threadUsage = null;
-    usageFetchedFor = null;
-    return;
-  }
-  // Throttled with a trailing read: a change inside the window is deferred
-  // to its end rather than dropped, so a turn that finishes soon after the
-  // last read still shows its final cost.
-  const wait = usageFetchedFor === id ? usageFetchedAt + USAGE_REFRESH_MS - Date.now() : 0;
-  if (wait <= 0) {
-    fetchThreadUsage(id);
-    return;
-  }
-  const timer = setTimeout(() => fetchThreadUsage(id), wait);
-  return () => clearTimeout(timer);
-});
-
-function fetchThreadUsage(id: string) {
-  usageFetchedAt = Date.now();
-  usageFetchedFor = id;
-  readThreadUsage(id)
-    .then((usage) => {
-      if (threadId === id) threadUsage = usage;
-    })
-    .catch(() => {});
-}
-
-/** What the context holds, by category: from the harness when it can say,
- *  else the ledger's estimate. Re-read whenever the token figures move. */
-let composition = $state<ContextComposition | null>(null);
-let compositionFor: string | null = null;
-let compositionGeneration = 0;
-
-$effect(() => {
-  const id = threadId;
-  stats;
-  if (!id) {
-    composition = null;
-    compositionFor = null;
-    return;
-  }
-  const generation = ++compositionGeneration;
-  compositionFor = id;
-  void (async () => {
-    let next: ContextComposition | null = null;
-    try {
-      next = await commands.readContextBreakdown(id);
-    } catch (cause) {
-      if (!isContextBreakdownUnsupported(cause)) return;
-      next = await commands
-        .readUsageBreakdown({ kind: "thread", threadId: id }, null)
-        .then((breakdown) => breakdown.context ?? null)
-        .catch(() => null);
+  $effect(() => {
+    const id = threadId;
+    stats; // Re-run when token figures move — that is when usage can change.
+    if (!id) {
+      threadUsage = null;
+      usageFetchedFor = null;
+      return;
     }
-    if (generation === compositionGeneration && compositionFor === id) composition = next;
-  })();
-});
+    // Throttled with a trailing read: a change inside the window is deferred
+    // to its end rather than dropped, so a turn that finishes soon after the
+    // last read still shows its final cost.
+    const wait = usageFetchedFor === id ? usageFetchedAt + USAGE_REFRESH_MS - Date.now() : 0;
+    if (wait <= 0) {
+      fetchThreadUsage(id);
+      return;
+    }
+    const timer = setTimeout(() => fetchThreadUsage(id), wait);
+    return () => clearTimeout(timer);
+  });
 
-function formatCredits(micros: number): string {
-  const credits = micros / 1e6;
-  return credits.toFixed(credits < 1 ? 3 : 2);
-}
+  function fetchThreadUsage(id: string) {
+    usageFetchedAt = Date.now();
+    usageFetchedFor = id;
+    readThreadUsage(id)
+      .then((usage) => {
+        if (threadId === id) threadUsage = usage;
+      })
+      .catch(() => {});
+  }
 
-function formatUsdMicros(micros: number): string {
-  const usd = micros / 1e6;
-  return `$${usd.toFixed(usd < 1 ? 3 : 2)}`;
-}
+  /** What the context holds, by category: from the harness when it can say,
+   *  else the ledger's estimate. Re-read whenever the token figures move. */
+  let composition = $state<ContextComposition | null>(null);
+  let compositionFor: string | null = null;
+  let compositionGeneration = 0;
 
-const contextRows = $derived(
-  stats
-    ? [
-        { label: "In context now", value: formatTokens(stats.usedTokens) },
-        {
-          label: "Context window",
-          value: stats.contextWindow ? formatTokens(stats.contextWindow) : "unknown",
-        },
-        {
-          label: "Remaining",
-          value: stats.percentRemaining === null ? "unknown" : `${stats.percentRemaining}%`,
-        },
-      ]
-    : [],
-);
+  $effect(() => {
+    const id = threadId;
+    stats;
+    if (!id) {
+      composition = null;
+      compositionFor = null;
+      return;
+    }
+    const generation = ++compositionGeneration;
+    compositionFor = id;
+    void (async () => {
+      let next: ContextComposition | null = null;
+      try {
+        next = await commands.readContextBreakdown(id);
+      } catch (cause) {
+        if (!isContextBreakdownUnsupported(cause)) return;
+        next = await commands
+          .readUsageBreakdown({ kind: "thread", threadId: id }, null)
+          .then((breakdown) => breakdown.context ?? null)
+          .catch(() => null);
+      }
+      if (generation === compositionGeneration && compositionFor === id) composition = next;
+    })();
+  });
 
-const sessionRows = $derived(
-  stats
-    ? [
-        { label: "Total", value: formatTokens(stats.sessionTotalTokens) },
-        { label: "Input", value: formatTokens(stats.sessionInputTokens) },
-        { label: "Cached input", value: formatTokens(stats.sessionCachedInputTokens) },
-        { label: "Output", value: formatTokens(stats.sessionOutputTokens) },
-        { label: "Reasoning", value: formatTokens(stats.sessionReasoningTokens) },
-      ]
-    : [],
-);
+  function formatCredits(micros: number): string {
+    const credits = micros / 1e6;
+    return credits.toFixed(credits < 1 ? 3 : 2);
+  }
+
+  function formatUsdMicros(micros: number): string {
+    const usd = micros / 1e6;
+    return `$${usd.toFixed(usd < 1 ? 3 : 2)}`;
+  }
+
+  const contextRows = $derived(
+    stats
+      ? [
+          { label: "In context now", value: formatTokens(stats.usedTokens) },
+          {
+            label: "Context window",
+            value: stats.contextWindow ? formatTokens(stats.contextWindow) : "unknown",
+          },
+          {
+            label: "Remaining",
+            value: stats.percentRemaining === null ? "unknown" : `${stats.percentRemaining}%`,
+          },
+        ]
+      : [],
+  );
+
+  const sessionRows = $derived(
+    stats
+      ? [
+          { label: "Total", value: formatTokens(stats.sessionTotalTokens) },
+          { label: "Input", value: formatTokens(stats.sessionInputTokens) },
+          { label: "Cached input", value: formatTokens(stats.sessionCachedInputTokens) },
+          { label: "Output", value: formatTokens(stats.sessionOutputTokens) },
+          { label: "Reasoning", value: formatTokens(stats.sessionReasoningTokens) },
+        ]
+      : [],
+  );
 </script>
 
 {#if !stats && !threadUsage && !composition && !threadId}
@@ -157,7 +157,9 @@ const sessionRows = $derived(
   <div class="space-y-4 text-xs">
     {#if composition}
       <section data-testid="context-composition">
-        <h3 class="mb-1.5 flex items-baseline justify-between gap-3 text-[10px] font-semibold uppercase tracking-wide text-surface-500">
+        <h3
+          class="mb-1.5 flex items-baseline justify-between gap-3 text-[10px] font-semibold uppercase tracking-wide text-surface-500"
+        >
           <span>Context composition</span>
           <span class="rounded-full bg-surface-200-800 px-1.5 py-0.5 font-medium normal-case tracking-normal">
             {composition.source === "harness" ? "reported" : "≈ estimated"}
@@ -241,7 +243,8 @@ const sessionRows = $derived(
               <dd class="shrink-0 font-mono">
                 {group.totalTokens != null ? `${formatTokens(group.totalTokens)} · ` : ""}{formatCredits(
                   group.estimatedUsageCreditsMicros,
-                )} cr
+                )}
+                cr
               </dd>
             </div>
           {/each}
@@ -266,10 +269,10 @@ const sessionRows = $derived(
               <div class="mt-1 h-1 overflow-hidden rounded-full bg-surface-200-800">
                 <div
                   class="h-full rounded-full {window.usedPercent >= 90
-                    ? 'bg-error-500'
+                    ? "bg-error-500"
                     : window.usedPercent >= 70
-                      ? 'bg-warning-500'
-                      : 'bg-primary-500'}"
+                      ? "bg-warning-500"
+                      : "bg-primary-500"}"
                   style="width: {window.usedPercent}%"
                 ></div>
               </div>

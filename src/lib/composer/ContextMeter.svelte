@@ -1,40 +1,40 @@
 <script lang="ts">
-import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
-import type { ContextStats } from "$lib/thread/contextUsage";
-import { formatTokens, formatTokensShort } from "$lib/utils/format";
+  import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
+  import type { ContextStats } from "$lib/thread/contextUsage";
+  import { formatTokens, formatTokensShort } from "$lib/utils/format";
 
-let {
-  stats,
-  compacting = false,
-  busy = false,
-  onCompact,
-}: {
-  stats: ContextStats | null;
-  /** A compaction turn is running, so the ring shows a pending state. */
-  compacting?: boolean;
-  /** Another turn is running, so compaction has to wait. */
-  busy?: boolean;
-  onCompact?: () => void;
-} = $props();
+  let {
+    stats,
+    compacting = false,
+    busy = false,
+    onCompact,
+  }: {
+    stats: ContextStats | null;
+    /** A compaction turn is running, so the ring shows a pending state. */
+    compacting?: boolean;
+    /** Another turn is running, so compaction has to wait. */
+    busy?: boolean;
+    onCompact?: () => void;
+  } = $props();
 
-const RADIUS = 8;
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+  const RADIUS = 8;
+  const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
-// Unknown context windows still get a ring: fall back to an empty one rather
-// than hiding the control, so the popover stays reachable for raw counts.
-const fraction = $derived(Math.min(Math.max(stats?.usedFraction ?? 0, 0), 1));
-const percentUsed = $derived(stats?.percentUsed ?? null);
-const ringClass = $derived(
-  fraction >= 0.9 ? "stroke-error-500" : fraction >= 0.7 ? "stroke-warning-500" : "stroke-primary-500",
-);
-// aria-disabled rather than disabled, so the stats stay reachable by hover and
-// keyboard while compaction is unavailable.
-const unavailable = $derived(!onCompact || compacting || busy);
-const label = $derived(
-  percentUsed === null
-    ? `Context: ${formatTokensShort(stats?.usedTokens ?? 0)} tokens used`
-    : `Context: ${percentUsed}% used`,
-);
+  // Unknown context windows still get a ring: fall back to an empty one rather
+  // than hiding the control, so the popover stays reachable for raw counts.
+  const fraction = $derived(Math.min(Math.max(stats?.usedFraction ?? 0, 0), 1));
+  const percentUsed = $derived(stats?.percentUsed ?? null);
+  const ringClass = $derived(
+    fraction >= 0.9 ? "stroke-error-500" : fraction >= 0.7 ? "stroke-warning-500" : "stroke-primary-500",
+  );
+  // aria-disabled rather than disabled, so the stats stay reachable by hover and
+  // keyboard while compaction is unavailable.
+  const unavailable = $derived(!onCompact || compacting || busy);
+  const label = $derived(
+    percentUsed === null
+      ? `Context: ${formatTokensShort(stats?.usedTokens ?? 0)} tokens used`
+      : `Context: ${percentUsed}% used`,
+  );
 </script>
 
 {#snippet details(stats: ContextStats)}
@@ -60,7 +60,7 @@ const label = $derived(
       </div>
     {/if}
   </dl>
-  <hr class="my-2 border-surface-200-800" />
+  <hr class="my-2 border-surface-200-800">
   <dl class="space-y-1 text-[11px] leading-4">
     <div class="flex justify-between gap-3">
       <dt class="text-surface-500">Session total</dt>
@@ -109,16 +109,11 @@ const label = $derived(
     }}
     class="grid size-7 place-items-center rounded-full text-surface-500 transition hover:bg-surface-200-800 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
   >
-    {#snippet content()}{@render details(stats)}{/snippet}
+    {#snippet content()}
+      {@render details(stats)}
+    {/snippet}
     <svg width="20" height="20" viewBox="0 0 20 20" class={compacting ? "animate-pulse" : ""} aria-hidden="true">
-      <circle
-        cx="10"
-        cy="10"
-        r={RADIUS}
-        fill="none"
-        stroke-width="2.5"
-        class="stroke-surface-300-700"
-      />
+      <circle cx="10" cy="10" r={RADIUS} fill="none" stroke-width="2.5" class="stroke-surface-300-700" />
       <circle
         cx="10"
         cy="10"

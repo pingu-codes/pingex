@@ -1,48 +1,50 @@
 <script lang="ts">
-import { FolderGit2, GitBranch } from "@lucide/svelte";
-import { onMount } from "svelte";
-import type { DialogClose } from "$lib/app/dialogs.svelte";
-import DialogShell from "$lib/components/DialogShell.svelte";
-import DirectoryField from "$lib/components/DirectoryField.svelte";
-import { commands } from "$lib/services/homeRouting";
-import type { Project } from "$lib/types";
-import { submitState } from "$lib/utils/actionState.svelte";
-import { basename } from "$lib/utils/path";
-import { resource } from "$lib/utils/resource.svelte";
-import { adoptableWorktrees, branchLabel } from "$lib/worktrees/worktrees";
+  import { FolderGit2, GitBranch } from "@lucide/svelte";
+  import { onMount } from "svelte";
+  import type { DialogClose } from "$lib/app/dialogs.svelte";
+  import DialogShell from "$lib/components/DialogShell.svelte";
+  import DirectoryField from "$lib/components/DirectoryField.svelte";
+  import { commands } from "$lib/services/homeRouting";
+  import type { Project } from "$lib/types";
+  import { submitState } from "$lib/utils/actionState.svelte";
+  import { basename } from "$lib/utils/path";
+  import { resource } from "$lib/utils/resource.svelte";
+  import { adoptableWorktrees, branchLabel } from "$lib/worktrees/worktrees";
 
-let {
-  repoDir,
-  projects = [],
-  submit,
-  close,
-}: {
-  repoDir: string;
-  projects?: Project[];
-  /** Adopts the worktree; rejecting keeps the dialog open with the error. */
-  submit: (path: string) => Promise<void>;
-  close: DialogClose<true>;
-} = $props();
+  let {
+    repoDir,
+    projects = [],
+    submit,
+    close,
+  }: {
+    repoDir: string;
+    projects?: Project[];
+    /** Adopts the worktree; rejecting keeps the dialog open with the error. */
+    submit: (path: string) => Promise<void>;
+    close: DialogClose<true>;
+  } = $props();
 
-const worktrees = resource(() => commands.gitWorktrees(repoDir));
-/** Chosen from the list, or browsed to by hand. */
-let selectedPath = $state("");
-const action = submitState();
+  const worktrees = resource(() => commands.gitWorktrees(repoDir));
+  /** Chosen from the list, or browsed to by hand. */
+  let selectedPath = $state("");
+  const action = submitState();
 
-onMount(() => void worktrees.reload());
+  onMount(() => void worktrees.reload());
 
-const candidates = $derived(adoptableWorktrees(worktrees.value ?? [], projects));
-const canAdd = $derived(!action.busy && selectedPath.trim().length > 0);
+  const candidates = $derived(adoptableWorktrees(worktrees.value ?? [], projects));
+  const canAdd = $derived(!action.busy && selectedPath.trim().length > 0);
 
-async function add() {
-  if (!canAdd) return;
-  const path = selectedPath.trim();
-  if (await action.run(() => submit(path))) close(true);
-}
+  async function add() {
+    if (!canAdd) return;
+    const path = selectedPath.trim();
+    if (await action.run(() => submit(path))) close(true);
+  }
 </script>
 
 <DialogShell title="Add worktree" width={500} onClose={() => close()}>
-  {#snippet icon()}<FolderGit2 size={17} class="text-primary-500" />{/snippet}
+  {#snippet icon()}
+    <FolderGit2 size={17} class="text-primary-500" />
+  {/snippet}
 
   <p class="mt-3 text-xs text-surface-500">
     Add a worktree that already exists for <span class="font-mono">{basename(repoDir)}</span> to the sidebar.
@@ -60,7 +62,9 @@ async function add() {
       {:else if !worktrees.value}
         <div class="placeholder m-1 h-8 animate-pulse rounded"></div>
       {:else if candidates.length === 0}
-        <p class="px-2 py-2 text-xs text-surface-500">No other worktrees to add. Browse to one below, or create a new one.</p>
+        <p class="px-2 py-2 text-xs text-surface-500">
+          No other worktrees to add. Browse to one below, or create a new one.
+        </p>
       {:else}
         {#each candidates as entry (entry.path)}
           <button
@@ -68,7 +72,9 @@ async function add() {
             role="option"
             aria-selected={selectedPath === entry.path}
             onclick={() => (selectedPath = entry.path)}
-            class="flex w-full flex-col gap-0.5 rounded px-2 py-1.5 text-left {selectedPath === entry.path ? 'preset-tonal' : 'hover:preset-tonal'}"
+            class="flex w-full flex-col gap-0.5 rounded px-2 py-1.5 text-left {selectedPath === entry.path
+              ? "preset-tonal"
+              : "hover:preset-tonal"}"
           >
             <span class="flex items-center gap-2 text-sm">
               <span class="min-w-0 flex-1 truncate font-medium">{basename(entry.path)}</span>
@@ -95,7 +101,9 @@ async function add() {
         pickerTitle="Choose a worktree"
       />
     </div>
-    <p class="mt-1 text-[11px] text-surface-500">Must be a linked worktree of this repository, not the main checkout.</p>
+    <p class="mt-1 text-[11px] text-surface-500">
+      Must be a linked worktree of this repository, not the main checkout.
+    </p>
   </div>
 
   {#if action.error}
@@ -104,7 +112,12 @@ async function add() {
 
   {#snippet footer()}
     <button type="button" onclick={() => close()} class="btn btn-sm preset-tonal">Cancel</button>
-    <button type="button" onclick={add} disabled={!canAdd} class="btn btn-sm preset-filled-primary-500 disabled:opacity-40">
+    <button
+      type="button"
+      onclick={add}
+      disabled={!canAdd}
+      class="btn btn-sm preset-filled-primary-500 disabled:opacity-40"
+    >
       {action.busy ? "Adding…" : "Add worktree"}
     </button>
   {/snippet}

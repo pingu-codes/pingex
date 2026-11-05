@@ -1,5 +1,5 @@
 <script lang="ts">
-let { label = "Codex is working" }: { label?: string } = $props();
+  let { label = "Codex is working" }: { label?: string } = $props();
 </script>
 
 <div class="flex items-center gap-1.5 py-1" aria-label={label}>

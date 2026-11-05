@@ -1,169 +1,169 @@
 <script lang="ts">
-import { Check, Monitor, Pencil, Plus, QrCode, RefreshCw, Smartphone, Tablet, Unplug, X } from "@lucide/svelte";
-import { openDialog } from "$lib/app/dialogs.svelte";
-import TooltipButton from "$lib/components/TooltipButton.svelte";
-import {
-  connectionHealth,
-  healthDotClass,
-  healthLabel,
-  lastSeenLabel,
-  platformLabel,
-  scopeLabel,
-} from "$lib/layout/connectionState";
-import RevokeConnectionDialog from "$lib/layout/RevokeConnectionDialog.svelte";
-import { remotePairingStart, remotePairingStatus } from "$lib/services/api";
-import { loadConnections, reloadConnections, remoteConnections } from "$lib/services/connections.svelte";
-import { commands } from "$lib/services/homeRouting";
-import type { PairingInfo, RemoteConnection } from "$lib/types";
-import { errorMessage } from "$lib/utils/errors";
+  import { Check, Monitor, Pencil, Plus, QrCode, RefreshCw, Smartphone, Tablet, Unplug, X } from "@lucide/svelte";
+  import { openDialog } from "$lib/app/dialogs.svelte";
+  import TooltipButton from "$lib/components/TooltipButton.svelte";
+  import {
+    connectionHealth,
+    healthDotClass,
+    healthLabel,
+    lastSeenLabel,
+    platformLabel,
+    scopeLabel,
+  } from "$lib/layout/connectionState";
+  import RevokeConnectionDialog from "$lib/layout/RevokeConnectionDialog.svelte";
+  import { remotePairingStart, remotePairingStatus } from "$lib/services/api";
+  import { loadConnections, reloadConnections, remoteConnections } from "$lib/services/connections.svelte";
+  import { commands } from "$lib/services/homeRouting";
+  import type { PairingInfo, RemoteConnection } from "$lib/types";
+  import { errorMessage } from "$lib/utils/errors";
 
-let { active = false }: { active?: boolean } = $props();
+  let { active = false }: { active?: boolean } = $props();
 
-let pairingOpen = $state(false);
-let pairing = $state<PairingInfo | null>(null);
-let pairingClaimed = $state(false);
-let pairingError = $state<string | null>(null);
-let pairingTimer: ReturnType<typeof setInterval> | null = null;
-// Bumped whenever polling must stop (section hidden, unmounted, reset), so a
-// `remotePairingStart` still in flight does not start a timer nobody clears.
-let pairingRun = 0;
+  let pairingOpen = $state(false);
+  let pairing = $state<PairingInfo | null>(null);
+  let pairingClaimed = $state(false);
+  let pairingError = $state<string | null>(null);
+  let pairingTimer: ReturnType<typeof setInterval> | null = null;
+  // Bumped whenever polling must stop (section hidden, unmounted, reset), so a
+  // `remotePairingStart` still in flight does not start a timer nobody clears.
+  let pairingRun = 0;
 
-let refreshing = $state(false);
-let actionError = $state<string | null>(null);
-let renamingId = $state<string | null>(null);
-let renameValue = $state("");
-let busyId = $state<string | null>(null);
+  let refreshing = $state(false);
+  let actionError = $state<string | null>(null);
+  let renamingId = $state<string | null>(null);
+  let renameValue = $state("");
+  let busyId = $state<string | null>(null);
 
-const connections = $derived(remoteConnections.list);
+  const connections = $derived(remoteConnections.list);
 
-function stopPairingTimer() {
-  if (pairingTimer) {
-    clearInterval(pairingTimer);
-    pairingTimer = null;
+  function stopPairingTimer() {
+    if (pairingTimer) {
+      clearInterval(pairingTimer);
+      pairingTimer = null;
+    }
   }
-}
 
-// Load whenever this section becomes visible; stop polling when hidden.
-$effect(() => {
-  if (active) {
-    loadConnections();
-  } else {
-    resetPairing();
-  }
-  return () => {
+  // Load whenever this section becomes visible; stop polling when hidden.
+  $effect(() => {
+    if (active) {
+      loadConnections();
+    } else {
+      resetPairing();
+    }
+    return () => {
+      pairingRun++;
+      stopPairingTimer();
+    };
+  });
+
+  function resetPairing() {
+    pairingOpen = false;
+    pairing = null;
+    pairingClaimed = false;
+    pairingError = null;
     pairingRun++;
     stopPairingTimer();
-  };
-});
+  }
 
-function resetPairing() {
-  pairingOpen = false;
-  pairing = null;
-  pairingClaimed = false;
-  pairingError = null;
-  pairingRun++;
-  stopPairingTimer();
-}
-
-async function connectDevice() {
-  pairingOpen = true;
-  pairingError = null;
-  pairingClaimed = false;
-  pairing = null;
-  const run = ++pairingRun;
-  try {
-    const started = await remotePairingStart();
-    if (run !== pairingRun) return;
-    pairing = started;
-    stopPairingTimer();
-    pairingTimer = setInterval(async () => {
-      if (!pairing || pairingClaimed) return;
-      try {
-        const status = await remotePairingStatus(pairing.pairingCode);
-        if (status.claimed) {
-          pairingClaimed = true;
-          stopPairingTimer();
-          // A claimed device surfaces in the relay's client list; pull it in.
-          await reloadConnections();
+  async function connectDevice() {
+    pairingOpen = true;
+    pairingError = null;
+    pairingClaimed = false;
+    pairing = null;
+    const run = ++pairingRun;
+    try {
+      const started = await remotePairingStart();
+      if (run !== pairingRun) return;
+      pairing = started;
+      stopPairingTimer();
+      pairingTimer = setInterval(async () => {
+        if (!pairing || pairingClaimed) return;
+        try {
+          const status = await remotePairingStatus(pairing.pairingCode);
+          if (status.claimed) {
+            pairingClaimed = true;
+            stopPairingTimer();
+            // A claimed device surfaces in the relay's client list; pull it in.
+            await reloadConnections();
+          }
+        } catch {
+          // Transient polling errors are fine; keep waiting.
         }
-      } catch {
-        // Transient polling errors are fine; keep waiting.
-      }
-    }, 3000);
-  } catch (cause) {
-    pairingError = errorMessage(cause);
+      }, 3000);
+    } catch (cause) {
+      pairingError = errorMessage(cause);
+    }
   }
-}
 
-async function refresh() {
-  refreshing = true;
-  actionError = null;
-  try {
-    await reloadConnections();
-  } catch (cause) {
-    actionError = errorMessage(cause);
-  } finally {
-    refreshing = false;
+  async function refresh() {
+    refreshing = true;
+    actionError = null;
+    try {
+      await reloadConnections();
+    } catch (cause) {
+      actionError = errorMessage(cause);
+    } finally {
+      refreshing = false;
+    }
   }
-}
 
-function startRename(connection: RemoteConnection) {
-  renamingId = connection.clientId;
-  renameValue = connection.name;
-}
-
-function cancelRename() {
-  renamingId = null;
-  renameValue = "";
-}
-
-async function commitRename(connection: RemoteConnection) {
-  const next = renameValue.trim();
-  renamingId = null;
-  if (!next || next === connection.name) return;
-  actionError = null;
-  try {
-    await commands.renameConnection(connection.clientId, next);
-    await reloadConnections();
-  } catch (cause) {
-    actionError = errorMessage(cause);
+  function startRename(connection: RemoteConnection) {
+    renamingId = connection.clientId;
+    renameValue = connection.name;
   }
-}
 
-async function disconnect(connection: RemoteConnection) {
-  busyId = connection.clientId;
-  actionError = null;
-  try {
-    await commands.disconnectConnection(connection.clientId);
-    await reloadConnections();
-  } catch (cause) {
-    actionError = errorMessage(cause);
-  } finally {
-    busyId = null;
+  function cancelRename() {
+    renamingId = null;
+    renameValue = "";
   }
-}
 
-async function revoke(connection: RemoteConnection) {
-  if (!(await openDialog(RevokeConnectionDialog, { connection }))) return;
-  busyId = connection.clientId;
-  actionError = null;
-  try {
-    await commands.revokeConnection(connection.clientId);
-    await reloadConnections();
-  } catch (cause) {
-    actionError = errorMessage(cause);
-  } finally {
-    busyId = null;
+  async function commitRename(connection: RemoteConnection) {
+    const next = renameValue.trim();
+    renamingId = null;
+    if (!next || next === connection.name) return;
+    actionError = null;
+    try {
+      await commands.renameConnection(connection.clientId, next);
+      await reloadConnections();
+    } catch (cause) {
+      actionError = errorMessage(cause);
+    }
   }
-}
 
-function platformIcon(platform: string | null) {
-  const value = (platform ?? "").toLowerCase();
-  if (value.includes("ipad") || value.includes("tablet")) return Tablet;
-  if (value.includes("mac") || value.includes("windows") || value.includes("linux") || value.includes("web"))
-    return Monitor;
-  return Smartphone;
-}
+  async function disconnect(connection: RemoteConnection) {
+    busyId = connection.clientId;
+    actionError = null;
+    try {
+      await commands.disconnectConnection(connection.clientId);
+      await reloadConnections();
+    } catch (cause) {
+      actionError = errorMessage(cause);
+    } finally {
+      busyId = null;
+    }
+  }
+
+  async function revoke(connection: RemoteConnection) {
+    if (!(await openDialog(RevokeConnectionDialog, { connection }))) return;
+    busyId = connection.clientId;
+    actionError = null;
+    try {
+      await commands.revokeConnection(connection.clientId);
+      await reloadConnections();
+    } catch (cause) {
+      actionError = errorMessage(cause);
+    } finally {
+      busyId = null;
+    }
+  }
+
+  function platformIcon(platform: string | null) {
+    const value = (platform ?? "").toLowerCase();
+    if (value.includes("ipad") || value.includes("tablet")) return Tablet;
+    if (value.includes("mac") || value.includes("windows") || value.includes("linux") || value.includes("web"))
+      return Monitor;
+    return Smartphone;
+  }
 </script>
 
 <div>
@@ -185,20 +185,15 @@ function platformIcon(platform: string | null) {
     </TooltipButton>
   </div>
 
-  <button
-    type="button"
-    onclick={connectDevice}
-    class="btn btn-sm preset-filled-primary-500 mt-4 gap-2"
-  >
-    <Plus size={15} /> Connect device
+  <button type="button" onclick={connectDevice} class="btn btn-sm preset-filled-primary-500 mt-4 gap-2">
+    <Plus size={15} />
+    Connect device
   </button>
 
   {#if pairingOpen}
     <div class="card preset-tonal mt-3 p-3">
       {#if pairingClaimed}
-        <div class="flex items-center gap-2 text-xs text-success-500">
-          <Check size={14} /> Device connected.
-        </div>
+        <div class="flex items-center gap-2 text-xs text-success-500"><Check size={14} /> Device connected.</div>
       {:else if pairing}
         <div class="flex items-start gap-4">
           <div class="qr shrink-0 overflow-hidden rounded-lg bg-white p-2">
@@ -214,7 +209,8 @@ function platformIcon(platform: string | null) {
         </div>
       {:else}
         <div class="flex items-center gap-2 text-xs text-surface-600-400">
-          <QrCode size={14} /> Generating pairing code…
+          <QrCode size={14} />
+          Generating pairing code…
         </div>
       {/if}
       {#if pairingError}
@@ -260,7 +256,7 @@ function platformIcon(platform: string | null) {
                     onblur={() => commitRename(connection)}
                     class="input h-7 min-w-0 flex-1 text-sm"
                     aria-label="Device name"
-                  />
+                  >
                   <TooltipButton
                     label="Save name"
                     type="button"
@@ -300,7 +296,11 @@ function platformIcon(platform: string | null) {
                 <span aria-hidden="true">·</span>
                 <span>{lastSeenLabel(connection.lastSeen)}</span>
                 <span aria-hidden="true">·</span>
-                <span>{platformLabel(connection.platform)}{connection.deviceModel ? ` (${connection.deviceModel})` : ""}</span>
+                <span
+                  >{platformLabel(connection.platform)}{connection.deviceModel
+                    ? ` (${connection.deviceModel})`
+                    : ""}</span
+                >
                 <span aria-hidden="true">·</span>
                 <span>{scopeLabel(connection.scope)}</span>
               </div>
@@ -314,7 +314,8 @@ function platformIcon(platform: string | null) {
               disabled={busyId === connection.clientId}
               class="btn btn-sm preset-tonal gap-1.5 disabled:opacity-40"
             >
-              <Unplug size={13} /> Disconnect
+              <Unplug size={13} />
+              Disconnect
             </TooltipButton>
             <button
               type="button"
@@ -330,7 +331,6 @@ function platformIcon(platform: string | null) {
     {/if}
   </div>
 </div>
-
 
 <style>
   .qr :global(svg) {

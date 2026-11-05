@@ -1,11 +1,11 @@
 <script lang="ts">
-import type { ThreadItem } from "$lib/types";
-import { renderMarkdown } from "$lib/utils/markdown";
+  import type { ThreadItem } from "$lib/types";
+  import { renderMarkdown } from "$lib/utils/markdown";
 
-let { items, live = false }: { items: ThreadItem[]; live?: boolean } = $props();
+  let { items, live = false }: { items: ThreadItem[]; live?: boolean } = $props();
 
-const summaries = $derived(items.map((item) => (item.summary ?? []).filter(Boolean).join("\n\n")).filter(Boolean));
-const latest = $derived(summaries.at(-1) ?? "");
+  const summaries = $derived(items.map((item) => (item.summary ?? []).filter(Boolean).join("\n\n")).filter(Boolean));
+  const latest = $derived(summaries.at(-1) ?? "");
 </script>
 
 {#if live}

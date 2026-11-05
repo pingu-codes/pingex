@@ -1,21 +1,21 @@
 <script lang="ts">
-import type { RateLimitSnapshot } from "$lib/types";
-import { primaryUsageWindow, resetLabel, usageToneClass, usageWindows } from "$lib/utils/rateLimits";
+  import type { RateLimitSnapshot } from "$lib/types";
+  import { primaryUsageWindow, resetLabel, usageToneClass, usageWindows } from "$lib/utils/rateLimits";
 
-let {
-  snapshot,
-  compact = false,
-  namePrefix = null,
-}: {
-  snapshot: RateLimitSnapshot | null;
-  /** Sidebar footer variant: one headline bar, details on hover. */
-  compact?: boolean;
-  /** Bucket name to prefix window labels with, for per-model limits. */
-  namePrefix?: string | null;
-} = $props();
+  let {
+    snapshot,
+    compact = false,
+    namePrefix = null,
+  }: {
+    snapshot: RateLimitSnapshot | null;
+    /** Sidebar footer variant: one headline bar, details on hover. */
+    compact?: boolean;
+    /** Bucket name to prefix window labels with, for per-model limits. */
+    namePrefix?: string | null;
+  } = $props();
 
-const windows = $derived(usageWindows(snapshot));
-const headline = $derived(primaryUsageWindow(snapshot));
+  const windows = $derived(usageWindows(snapshot));
+  const headline = $derived(primaryUsageWindow(snapshot));
 </script>
 
 {#if headline}
@@ -23,7 +23,10 @@ const headline = $derived(primaryUsageWindow(snapshot));
     <div
       class="px-2 pb-1.5 pt-1"
       title={windows
-        .map((window) => `${window.label}: ${window.remainingPercent}% left${resetLabel(window.resetsAt) ? ` (${resetLabel(window.resetsAt)})` : ""}`)
+        .map(
+          (window) =>
+            `${window.label}: ${window.remainingPercent}% left${resetLabel(window.resetsAt) ? ` (${resetLabel(window.resetsAt)})` : ""}`,
+        )
         .join("\n")}
     >
       <div class="flex items-baseline justify-between gap-2 text-[10px] text-surface-500">
@@ -42,7 +45,9 @@ const headline = $derived(primaryUsageWindow(snapshot));
       {#each windows as window (window.label)}
         <div>
           <div class="flex items-baseline justify-between gap-2 text-[11px]">
-            <span class="min-w-0 truncate text-surface-500">{namePrefix ? `${namePrefix} · ${window.label}` : window.label}</span>
+            <span class="min-w-0 truncate text-surface-500"
+              >{namePrefix ? `${namePrefix} · ${window.label}` : window.label}</span
+            >
             <span class="font-medium tabular-nums">{window.remainingPercent}% left</span>
           </div>
           <div class="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-300-700">
@@ -59,5 +64,5 @@ const headline = $derived(primaryUsageWindow(snapshot));
     </div>
   {/if}
 {:else}
-  <p class="{compact ? 'px-2 pb-1.5 pt-1' : ''} text-[10px] text-surface-500">Usage limits unavailable.</p>
+  <p class="{compact ? "px-2 pb-1.5 pt-1" : ""} text-[10px] text-surface-500">Usage limits unavailable.</p>
 {/if}

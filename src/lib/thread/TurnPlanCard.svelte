@@ -1,16 +1,16 @@
 <script lang="ts">
-import { Check, ChevronDown, ListTodo } from "@lucide/svelte";
-import { Collapsible } from "@skeletonlabs/skeleton-svelte";
-import type { TurnPlan } from "$lib/types";
+  import { Check, ChevronDown, ListTodo } from "@lucide/svelte";
+  import { Collapsible } from "@skeletonlabs/skeleton-svelte";
+  import type { TurnPlan } from "$lib/types";
 
-let { plan }: { plan: TurnPlan } = $props();
+  let { plan }: { plan: TurnPlan } = $props();
 
-const done = $derived(plan.steps.filter((step) => step.status === "completed").length);
-// The step Codex says it is on, or the next one it has not done — the summary
-// line is more useful showing what is happening than what has finished.
-const current = $derived(
-  plan.steps.find((step) => step.status === "inProgress") ?? plan.steps.find((step) => step.status === "pending"),
-);
+  const done = $derived(plan.steps.filter((step) => step.status === "completed").length);
+  // The step Codex says it is on, or the next one it has not done — the summary
+  // line is more useful showing what is happening than what has finished.
+  const current = $derived(
+    plan.steps.find((step) => step.status === "inProgress") ?? plan.steps.find((step) => step.status === "pending"),
+  );
 </script>
 
 <Collapsible class="min-w-0 items-stretch">
@@ -29,15 +29,17 @@ const current = $derived(
         {#each plan.steps as step, index (index)}
           <div class="flex items-start gap-2 text-xs leading-5">
             <span
-              class="mt-0.5 grid size-3.5 shrink-0 place-items-center rounded-full border {step.status === 'completed'
-                ? 'border-success-500 bg-success-500 text-white'
-                : step.status === 'inProgress'
-                  ? 'animate-pulse border-primary-500'
-                  : 'border-surface-400-600'}"
+              class="mt-0.5 grid size-3.5 shrink-0 place-items-center rounded-full border {step.status === "completed"
+                ? "border-success-500 bg-success-500 text-white"
+                : step.status === "inProgress"
+                  ? "animate-pulse border-primary-500"
+                  : "border-surface-400-600"}"
             >
-              {#if step.status === "completed"}<Check size={9} />{/if}
+              {#if step.status === "completed"}
+                <Check size={9} />
+              {/if}
             </span>
-            <span class="min-w-0 {step.status === 'completed' ? 'text-surface-500 line-through' : ''}">
+            <span class="min-w-0 {step.status === "completed" ? "text-surface-500 line-through" : ""}">
               {step.step}
             </span>
           </div>

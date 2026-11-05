@@ -1,14 +1,14 @@
 <script lang="ts">
-import Toggle from "$lib/components/Toggle.svelte";
-import { messageLog } from "$lib/layout/messageLogPrefs.svelte";
-import SettingRow from "$lib/layout/settings/SettingRow.svelte";
-import SettingsCard from "$lib/layout/settings/SettingsCard.svelte";
+  import Toggle from "$lib/components/Toggle.svelte";
+  import { messageLog } from "$lib/layout/messageLogPrefs.svelte";
+  import SettingRow from "$lib/layout/settings/SettingRow.svelte";
+  import SettingsCard from "$lib/layout/settings/SettingsCard.svelte";
 
-// Opening Advanced pulls the buffered traffic captured before this view
-// mounted; live messages arrive on the event stream from there.
-$effect(() => {
-  if (messageLog.enabled) void messageLog.refresh();
-});
+  // Opening Advanced pulls the buffered traffic captured before this view
+  // mounted; live messages arrive on the event stream from there.
+  $effect(() => {
+    if (messageLog.enabled) void messageLog.refresh();
+  });
 </script>
 
 <SettingsCard title="Advanced" description="Local to this app; not stored in Codex config.">

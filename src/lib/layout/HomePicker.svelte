@@ -1,154 +1,157 @@
 <script lang="ts">
-import {
-  AlertTriangle,
-  AppWindow,
-  Check,
-  CheckCircle2,
-  FolderOpen,
-  House,
-  Loader,
-  Plus,
-  Terminal,
-  X,
-} from "@lucide/svelte";
-import { hostFromOption, hostKey, hostLabel, NATIVE_HOST, sameHost } from "$lib/app/host";
-import HostSelect from "$lib/components/HostSelect.svelte";
-import TooltipButton from "$lib/components/TooltipButton.svelte";
-import type { Host, LaunchState } from "$lib/types";
-import { errorMessage } from "$lib/utils/errors";
-import { relativeTime } from "$lib/utils/format";
+  import {
+    AlertTriangle,
+    AppWindow,
+    Check,
+    CheckCircle2,
+    FolderOpen,
+    House,
+    Loader,
+    Plus,
+    Terminal,
+    X,
+  } from "@lucide/svelte";
+  import { hostFromOption, hostKey, hostLabel, NATIVE_HOST, sameHost } from "$lib/app/host";
+  import HostSelect from "$lib/components/HostSelect.svelte";
+  import TooltipButton from "$lib/components/TooltipButton.svelte";
+  import type { Host, LaunchState } from "$lib/types";
+  import { errorMessage } from "$lib/utils/errors";
+  import { relativeTime } from "$lib/utils/format";
 
-let {
-  launchState,
-  busy = false,
-  error = null,
-  distros = [],
-  onSelect,
-  onBrowse,
-  onRemove,
-  onSetBinary,
-  onOpenNewWindow,
-}: {
-  launchState: LaunchState;
-  busy?: boolean;
-  error?: string | null;
-  /** WSL distributions a typed path may live in; empty hides the host picker. */
-  distros?: string[];
-  /** `host` is null for a browsed folder: the backend infers it from the path. */
-  onSelect: (path: string, host: Host | null) => void;
-  onBrowse: () => Promise<string | null>;
-  onRemove: (path: string, host: Host) => void;
-  /** Save a Codex CLI path; rejects with a message when it cannot be run. */
-  onSetBinary: (path: string) => Promise<void>;
-  /** Open this home in a new window instead of binding it to this one. */
-  onOpenNewWindow?: (path: string, host: Host | null) => void;
-} = $props();
+  let {
+    launchState,
+    busy = false,
+    error = null,
+    distros = [],
+    onSelect,
+    onBrowse,
+    onRemove,
+    onSetBinary,
+    onOpenNewWindow,
+  }: {
+    launchState: LaunchState;
+    busy?: boolean;
+    error?: string | null;
+    /** WSL distributions a typed path may live in; empty hides the host picker. */
+    distros?: string[];
+    /** `host` is null for a browsed folder: the backend infers it from the path. */
+    onSelect: (path: string, host: Host | null) => void;
+    onBrowse: () => Promise<string | null>;
+    onRemove: (path: string, host: Host) => void;
+    /** Save a Codex CLI path; rejects with a message when it cannot be run. */
+    onSetBinary: (path: string) => Promise<void>;
+    /** Open this home in a new window instead of binding it to this one. */
+    onOpenNewWindow?: (path: string, host: Host | null) => void;
+  } = $props();
 
-// Opening a home creates it on disk and spawns the CLI, so a missing binary
-// blocks the picker outright and the form below is the only way forward.
-const binary = $derived(launchState.codexBinaryStatus);
-let binaryPath = $state("");
-let editingBinary = $state(false);
-let savingBinary = $state(false);
-let binaryError = $state<string | null>(null);
+  // Opening a home creates it on disk and spawns the CLI, so a missing binary
+  // blocks the picker outright and the form below is the only way forward.
+  const binary = $derived(launchState.codexBinaryStatus);
+  let binaryPath = $state("");
+  let editingBinary = $state(false);
+  let savingBinary = $state(false);
+  let binaryError = $state<string | null>(null);
 
-const binaryFormOpen = $derived(editingBinary || !binary.found);
-/** No home can be opened while the CLI is unusable. */
-const locked = $derived(busy || !binary.found);
+  const binaryFormOpen = $derived(editingBinary || !binary.found);
+  /** No home can be opened while the CLI is unusable. */
+  const locked = $derived(busy || !binary.found);
 
-async function saveBinary() {
-  const trimmed = binaryPath.trim();
-  if (!trimmed || savingBinary) return;
-  savingBinary = true;
-  binaryError = null;
-  try {
-    await onSetBinary(trimmed);
-    editingBinary = false;
-    binaryPath = "";
-  } catch (cause) {
-    binaryError = errorMessage(cause);
-  } finally {
-    savingBinary = false;
-  }
-}
-
-// A path picked via the dialog or typed manually, awaiting explicit
-// confirmation before it becomes the active home. A browsed folder carries
-// no host (the backend reads it off the path); a typed one uses the select.
-let pendingPath = $state<string | null>(null);
-let pendingHost = $state<Host | null>(null);
-let rawPath = $state("");
-let rawHost = $state("native");
-let browsing = $state(false);
-
-async function browse() {
-  browsing = true;
-  try {
-    const path = await onBrowse();
-    if (path) {
-      pendingPath = path;
-      pendingHost = null;
-      rawPath = "";
+  async function saveBinary() {
+    const trimmed = binaryPath.trim();
+    if (!trimmed || savingBinary) return;
+    savingBinary = true;
+    binaryError = null;
+    try {
+      await onSetBinary(trimmed);
+      editingBinary = false;
+      binaryPath = "";
+    } catch (cause) {
+      binaryError = errorMessage(cause);
+    } finally {
+      savingBinary = false;
     }
-  } finally {
-    browsing = false;
   }
-}
 
-function useRawPath() {
-  const trimmed = rawPath.trim();
-  if (!trimmed) return;
-  pendingPath = trimmed;
-  pendingHost = hostFromOption(rawHost);
-}
+  // A path picked via the dialog or typed manually, awaiting explicit
+  // confirmation before it becomes the active home. A browsed folder carries
+  // no host (the backend reads it off the path); a typed one uses the select.
+  let pendingPath = $state<string | null>(null);
+  let pendingHost = $state<Host | null>(null);
+  let rawPath = $state("");
+  let rawHost = $state("native");
+  let browsing = $state(false);
 
-interface HomeOption {
-  path: string;
-  host: Host;
-  lastUsed: number | null;
-  exists: boolean;
-  isDefault: boolean;
-  removable: boolean;
-}
-
-const optionKey = (path: string, host: Host) => `${hostKey(host)}:${path}`;
-
-// Recent homes (newest first) plus the built-in `~/.codex` default, deduped by
-// host and path so a default that is also a recent only appears once.
-const options = $derived.by(() => {
-  const seen = new Set<string>();
-  const list: HomeOption[] = [];
-  for (const home of launchState.recentHomes) {
-    const key = optionKey(home.path, home.host);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    list.push({
-      path: home.path,
-      host: home.host,
-      lastUsed: home.lastUsed,
-      exists: home.exists,
-      isDefault: home.path === launchState.defaultHome && sameHost(home.host, NATIVE_HOST),
-      removable: true,
-    });
+  async function browse() {
+    browsing = true;
+    try {
+      const path = await onBrowse();
+      if (path) {
+        pendingPath = path;
+        pendingHost = null;
+        rawPath = "";
+      }
+    } finally {
+      browsing = false;
+    }
   }
-  if (!seen.has(optionKey(launchState.defaultHome, NATIVE_HOST))) {
-    list.push({
-      path: launchState.defaultHome,
-      host: NATIVE_HOST,
-      lastUsed: null,
-      exists: true,
-      isDefault: true,
-      removable: false,
-    });
-  }
-  return list;
-});
 
-const isCurrent = (option: HomeOption) =>
-  option.path === launchState.codexHome && sameHost(option.host, launchState.host);
+  function useRawPath() {
+    const trimmed = rawPath.trim();
+    if (!trimmed) return;
+    pendingPath = trimmed;
+    pendingHost = hostFromOption(rawHost);
+  }
+
+  interface HomeOption {
+    path: string;
+    host: Host;
+    lastUsed: number | null;
+    exists: boolean;
+    isDefault: boolean;
+    removable: boolean;
+  }
+
+  const optionKey = (path: string, host: Host) => `${hostKey(host)}:${path}`;
+
+  // Recent homes (newest first) plus the built-in `~/.codex` default, deduped by
+  // host and path so a default that is also a recent only appears once.
+  const options = $derived.by(() => {
+    const seen = new Set<string>();
+    const list: HomeOption[] = [];
+    for (const home of launchState.recentHomes) {
+      const key = optionKey(home.path, home.host);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      list.push({
+        path: home.path,
+        host: home.host,
+        lastUsed: home.lastUsed,
+        exists: home.exists,
+        isDefault: home.path === launchState.defaultHome && sameHost(home.host, NATIVE_HOST),
+        removable: true,
+      });
+    }
+    if (!seen.has(optionKey(launchState.defaultHome, NATIVE_HOST))) {
+      list.push({
+        path: launchState.defaultHome,
+        host: NATIVE_HOST,
+        lastUsed: null,
+        exists: true,
+        isDefault: true,
+        removable: false,
+      });
+    }
+    return list;
+  });
+
+  const isCurrent = (option: HomeOption) =>
+    option.path === launchState.codexHome && sameHost(option.host, launchState.host);
 </script>
 
-<div class="grid h-full place-items-center overflow-y-auto bg-surface-50-950 text-surface-950-50" data-testid="home-picker">
+<div
+  class="grid h-full place-items-center overflow-y-auto bg-surface-50-950 text-surface-950-50"
+  data-testid="home-picker"
+>
   <div class="w-full max-w-md px-6 py-10">
     <div class="flex items-center gap-3">
       <div class="grid size-10 place-items-center rounded-xl preset-tonal-primary">
@@ -180,17 +183,25 @@ const isCurrent = (option: HomeOption) =>
             onclick={() => onSelect(option.path, option.host)}
             disabled={locked}
             data-testid="home-option"
-            class="flex w-full items-center gap-3 panel-card px-3 py-2.5 text-left transition hover:preset-tonal disabled:pointer-events-none disabled:opacity-60 {option.exists ? '' : 'opacity-60'} {option.removable ? 'pr-14' : 'pr-9'}"
+            class="flex w-full items-center gap-3 panel-card px-3 py-2.5 text-left transition hover:preset-tonal disabled:pointer-events-none disabled:opacity-60 {option.exists
+              ? ""
+              : "opacity-60"} {option.removable ? "pr-14" : "pr-9"}"
           >
             <House size={17} strokeWidth={1.7} class="shrink-0 text-surface-500" />
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-1.5">
                 <span class="truncate font-mono text-sm">{option.path}</span>
                 {#if hostLabel(option.host)}
-                  <span class="shrink-0 rounded-full preset-tonal-primary px-1.5 py-0.5 text-[10px] font-medium" data-testid="home-host">{hostLabel(option.host)}</span>
+                  <span
+                    class="shrink-0 rounded-full preset-tonal-primary px-1.5 py-0.5 text-[10px] font-medium"
+                    data-testid="home-host"
+                    >{hostLabel(option.host)}</span
+                  >
                 {/if}
                 {#if option.isDefault}
-                  <span class="shrink-0 rounded-full bg-surface-200-800 px-1.5 py-0.5 text-[10px] font-medium">Default</span>
+                  <span class="shrink-0 rounded-full bg-surface-200-800 px-1.5 py-0.5 text-[10px] font-medium"
+                    >Default</span
+                  >
                 {/if}
               </div>
               <div class="text-[11px] text-surface-500">
@@ -214,7 +225,9 @@ const isCurrent = (option: HomeOption) =>
               disabled={locked || !option.exists}
               aria-label="Open {option.path} in a new window"
               data-testid="open-home-new-window"
-              class="absolute top-1/2 -translate-y-1/2 rounded-md p-1 text-surface-500 opacity-0 transition group-hover/row:opacity-100 focus-visible:opacity-100 hover:preset-tonal disabled:pointer-events-none {option.removable ? 'right-8' : 'right-2'}"
+              class="absolute top-1/2 -translate-y-1/2 rounded-md p-1 text-surface-500 opacity-0 transition group-hover/row:opacity-100 focus-visible:opacity-100 hover:preset-tonal disabled:pointer-events-none {option.removable
+                ? "right-8"
+                : "right-2"}"
             >
               <AppWindow size={14} />
             </TooltipButton>
@@ -243,7 +256,9 @@ const isCurrent = (option: HomeOption) =>
         <CheckCircle2 size={17} strokeWidth={1.8} class="shrink-0 text-success-500" />
         <span class="min-w-0 flex-1 truncate font-mono text-sm">{pendingPath}</span>
         {#if hostLabel(pendingHost)}
-          <span class="shrink-0 rounded-full preset-tonal-primary px-1.5 py-0.5 text-[10px] font-medium">{hostLabel(pendingHost)}</span>
+          <span class="shrink-0 rounded-full preset-tonal-primary px-1.5 py-0.5 text-[10px] font-medium"
+            >{hostLabel(pendingHost)}</span
+          >
         {/if}
         <button
           onclick={() => onSelect(pendingPath!, pendingHost)}
@@ -306,7 +321,7 @@ const isCurrent = (option: HomeOption) =>
           class="input min-w-0 flex-1 rounded-xl px-3 py-2 font-mono text-sm"
           spellcheck="false"
           autocomplete="off"
-        />
+        >
         <button
           type="submit"
           disabled={locked || !rawPath.trim()}
@@ -358,7 +373,7 @@ const isCurrent = (option: HomeOption) =>
             class="input min-w-0 flex-1 rounded-xl px-3 py-2 font-mono text-sm"
             spellcheck="false"
             autocomplete="off"
-          />
+          >
           <button
             type="submit"
             disabled={savingBinary || !binaryPath.trim()}

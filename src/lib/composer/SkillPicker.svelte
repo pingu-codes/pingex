@@ -7,55 +7,55 @@
   do nothing.
 -->
 <script lang="ts">
-import { Sparkles } from "@lucide/svelte";
-import PickerList from "$lib/composer/PickerList.svelte";
-import { filterSkills, skillHint, skillLabel } from "$lib/composer/skills";
-import { listSkillsFor } from "$lib/services/api";
-import { skillsStatus } from "$lib/services/codexEvents.svelte";
-import type { SkillSummary } from "$lib/types";
+  import { Sparkles } from "@lucide/svelte";
+  import PickerList from "$lib/composer/PickerList.svelte";
+  import { filterSkills, skillHint, skillLabel } from "$lib/composer/skills";
+  import { listSkillsFor } from "$lib/services/api";
+  import { skillsStatus } from "$lib/services/codexEvents.svelte";
+  import type { SkillSummary } from "$lib/types";
 
-let {
-  cwd,
-  query,
-  scope = null,
-  onPick,
-  onClose,
-  onCount,
-}: {
-  cwd: string;
-  query: string;
-  scope?: HTMLElement | null;
-  /** Reports the visible result count to the composer's key handling. */
-  onCount?: (count: number) => void;
-  onPick: (skill: SkillSummary) => void;
-  onClose: () => void;
-} = $props();
+  let {
+    cwd,
+    query,
+    scope = null,
+    onPick,
+    onClose,
+    onCount,
+  }: {
+    cwd: string;
+    query: string;
+    scope?: HTMLElement | null;
+    /** Reports the visible result count to the composer's key handling. */
+    onCount?: (count: number) => void;
+    onPick: (skill: SkillSummary) => void;
+    onClose: () => void;
+  } = $props();
 
-let all = $state<SkillSummary[]>([]);
-let failed = $state(false);
+  let all = $state<SkillSummary[]>([]);
+  let failed = $state(false);
 
-$effect(() => {
-  const currentCwd = cwd;
-  // Re-read whenever Codex says the skills on disk changed.
-  void skillsStatus.nonce;
-  let cancelled = false;
-  listSkillsFor(currentCwd ? [currentCwd] : [])
-    .then((skills) => {
-      if (cancelled) return;
-      all = skills.filter((skill) => skill.enabled);
-      failed = false;
-    })
-    .catch(() => {
-      if (cancelled) return;
-      failed = true;
-      all = [];
-    });
-  return () => {
-    cancelled = true;
-  };
-});
+  $effect(() => {
+    const currentCwd = cwd;
+    // Re-read whenever Codex says the skills on disk changed.
+    void skillsStatus.nonce;
+    let cancelled = false;
+    listSkillsFor(currentCwd ? [currentCwd] : [])
+      .then((skills) => {
+        if (cancelled) return;
+        all = skills.filter((skill) => skill.enabled);
+        failed = false;
+      })
+      .catch(() => {
+        if (cancelled) return;
+        failed = true;
+        all = [];
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
 
-const results = $derived(filterSkills(all, query));
+  const results = $derived(filterSkills(all, query));
 </script>
 
 <PickerList

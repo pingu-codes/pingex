@@ -1,45 +1,45 @@
 <script lang="ts">
-import { AlertTriangle, Check, ChevronDown } from "@lucide/svelte";
-import type { CommitResult } from "$lib/types";
-import GitErrorNote from "./GitErrorNote.svelte";
-import type { GitError } from "./gitErrors";
+  import { AlertTriangle, Check, ChevronDown } from "@lucide/svelte";
+  import type { CommitResult } from "$lib/types";
+  import GitErrorNote from "./GitErrorNote.svelte";
+  import type { GitError } from "./gitErrors";
 
-let {
-  stagedCount,
-  identityName = null,
-  identityEmail = null,
-  busy = false,
-  lastCommit = null,
-  error = null,
-  onCommit,
-}: {
-  stagedCount: number;
-  identityName?: string | null;
-  identityEmail?: string | null;
-  busy?: boolean;
-  lastCommit?: CommitResult | null;
-  error?: GitError | null;
-  /** Resolves once the commit is made; the caller refreshes status. */
-  onCommit: (message: string) => Promise<boolean>;
-} = $props();
+  let {
+    stagedCount,
+    identityName = null,
+    identityEmail = null,
+    busy = false,
+    lastCommit = null,
+    error = null,
+    onCommit,
+  }: {
+    stagedCount: number;
+    identityName?: string | null;
+    identityEmail?: string | null;
+    busy?: boolean;
+    lastCommit?: CommitResult | null;
+    error?: GitError | null;
+    /** Resolves once the commit is made; the caller refreshes status. */
+    onCommit: (message: string) => Promise<boolean>;
+  } = $props();
 
-let message = $state("");
-let showHookOutput = $state(false);
+  let message = $state("");
+  let showHookOutput = $state(false);
 
-const hasIdentity = $derived(!!identityName && !!identityEmail);
-const canCommit = $derived(!busy && stagedCount > 0 && message.trim().length > 0);
+  const hasIdentity = $derived(!!identityName && !!identityEmail);
+  const canCommit = $derived(!busy && stagedCount > 0 && message.trim().length > 0);
 
-async function commit() {
-  if (!canCommit) return;
-  if (await onCommit(message)) message = "";
-}
-
-function onKeydown(event: KeyboardEvent) {
-  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-    event.preventDefault();
-    void commit();
+  async function commit() {
+    if (!canCommit) return;
+    if (await onCommit(message)) message = "";
   }
-}
+
+  function onKeydown(event: KeyboardEvent) {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      void commit();
+    }
+  }
 </script>
 
 <div class="panel-card p-3">
@@ -57,10 +57,18 @@ function onKeydown(event: KeyboardEvent) {
       {#if hasIdentity}
         Committing as <span class="text-surface-700-300">{identityName} &lt;{identityEmail}&gt;</span>
       {:else}
-        <span class="inline-flex items-center gap-1 text-warning-600 dark:text-warning-400"><AlertTriangle size={11} /> No git identity configured — set user.name and user.email.</span>
+        <span class="inline-flex items-center gap-1 text-warning-600 dark:text-warning-400"
+          ><AlertTriangle size={11} />
+          No git identity configured — set user.name and user.email.</span
+        >
       {/if}
     </span>
-    <button type="button" onclick={commit} disabled={!canCommit} class="btn btn-sm preset-filled-primary-500 disabled:opacity-40">
+    <button
+      type="button"
+      onclick={commit}
+      disabled={!canCommit}
+      class="btn btn-sm preset-filled-primary-500 disabled:opacity-40"
+    >
       {busy ? "Committing…" : `Commit${stagedCount > 0 ? ` ${stagedCount} file${stagedCount === 1 ? "" : "s"}` : ""}`}
     </button>
   </div>
@@ -74,13 +82,20 @@ function onKeydown(event: KeyboardEvent) {
         <span class="font-mono">{lastCommit.shortHash}</span>
         <span class="min-w-0 flex-1 truncate">{lastCommit.subject}</span>
         {#if lastCommit.hookOutput}
-          <button type="button" onclick={() => (showHookOutput = !showHookOutput)} class="inline-flex items-center gap-0.5 text-[10px] opacity-80 hover:opacity-100" aria-expanded={showHookOutput}>
+          <button
+            type="button"
+            onclick={() => (showHookOutput = !showHookOutput)}
+            class="inline-flex items-center gap-0.5 text-[10px] opacity-80 hover:opacity-100"
+            aria-expanded={showHookOutput}
+          >
             Hook output <ChevronDown size={11} class={showHookOutput ? "rotate-180" : ""} />
           </button>
         {/if}
       </div>
       {#if showHookOutput && lastCommit.hookOutput}
-        <pre class="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-4 opacity-90">{lastCommit.hookOutput}</pre>
+        <pre
+          class="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-4 opacity-90"
+        >{lastCommit.hookOutput}</pre>
       {/if}
     </div>
   {/if}

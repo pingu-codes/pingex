@@ -6,60 +6,60 @@
   definitions are the remainder the footnote says so.
 -->
 <script lang="ts">
-import { ChevronRight } from "@lucide/svelte";
-import { Collapsible } from "@skeletonlabs/skeleton-svelte";
-import type { PromptPart } from "$lib/types";
-import UsageBreakdownBar from "$lib/usage/UsageBreakdownBar.svelte";
-import { promptPartRows } from "$lib/usage/usageBreakdown";
+  import { ChevronRight } from "@lucide/svelte";
+  import { Collapsible } from "@skeletonlabs/skeleton-svelte";
+  import type { PromptPart } from "$lib/types";
+  import UsageBreakdownBar from "$lib/usage/UsageBreakdownBar.svelte";
+  import { promptPartRows } from "$lib/usage/usageBreakdown";
 
-let {
-  parts,
-  total,
-  scaled = false,
-  showInThread = false,
-  onToggleShowInThread,
-}: {
-  parts: PromptPart[];
-  /** Tokens in the whole context; the percentages are of this. */
-  total: number;
-  /** The estimated parts were scaled down to the measured system prompt. */
-  scaled?: boolean;
-  /** Whether the full text is currently shown inline in the thread. */
-  showInThread?: boolean;
-  /** Fetches (once) and toggles the full text in the thread. Omitted when
-   *  the thread's harness cannot supply it. */
-  onToggleShowInThread?: () => void;
-} = $props();
+  let {
+    parts,
+    total,
+    scaled = false,
+    showInThread = false,
+    onToggleShowInThread,
+  }: {
+    parts: PromptPart[];
+    /** Tokens in the whole context; the percentages are of this. */
+    total: number;
+    /** The estimated parts were scaled down to the measured system prompt. */
+    scaled?: boolean;
+    /** Whether the full text is currently shown inline in the thread. */
+    showInThread?: boolean;
+    /** Fetches (once) and toggles the full text in the thread. Omitted when
+     *  the thread's harness cannot supply it. */
+    onToggleShowInThread?: () => void;
+  } = $props();
 
-const hasRemainder = $derived(parts.some((part) => part.kind === "tools" && part.source === "estimated"));
+  const hasRemainder = $derived(parts.some((part) => part.kind === "tools" && part.source === "estimated"));
 
-/** One hue per row, darkening with the index so the sub-bar reads left to right. */
-const SHADES = [
-  "bg-surface-500",
-  "bg-surface-400-600",
-  "bg-surface-300-700",
-  "bg-surface-600-400",
-  "bg-surface-700-300",
-  "bg-surface-200-800",
-];
+  /** One hue per row, darkening with the index so the sub-bar reads left to right. */
+  const SHADES = [
+    "bg-surface-500",
+    "bg-surface-400-600",
+    "bg-surface-300-700",
+    "bg-surface-600-400",
+    "bg-surface-700-300",
+    "bg-surface-200-800",
+  ];
 
-const rows = $derived(
-  promptPartRows(parts, total).map((row, index) => ({
-    ...row,
-    color: SHADES[index % SHADES.length],
-    width: row.percentOfPrompt,
-    percent: row.percentOfContext,
-  })),
-);
-const footnote = $derived(
-  [
-    "≈ sized from the harness's own record of the prompt (about 4 bytes per token).",
-    hasRemainder ? "Tool definitions are never written down, so they are what remains." : "",
-    scaled ? "Scaled to fit the measured system prompt." : "",
-  ]
-    .filter(Boolean)
-    .join(" "),
-);
+  const rows = $derived(
+    promptPartRows(parts, total).map((row, index) => ({
+      ...row,
+      color: SHADES[index % SHADES.length],
+      width: row.percentOfPrompt,
+      percent: row.percentOfContext,
+    })),
+  );
+  const footnote = $derived(
+    [
+      "≈ sized from the harness's own record of the prompt (about 4 bytes per token).",
+      hasRemainder ? "Tool definitions are never written down, so they are what remains." : "",
+      scaled ? "Scaled to fit the measured system prompt." : "",
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
 </script>
 
 {#if rows.length > 0}

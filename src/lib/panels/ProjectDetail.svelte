@@ -1,250 +1,250 @@
 <script lang="ts">
-import {
-  AlertCircle,
-  CheckCircle2,
-  File as FileIcon,
-  FolderGit2,
-  FolderOpen,
-  FolderPlus,
-  GitBranch,
-  Loader,
-  MessageSquare,
-  Plus,
-  RefreshCw,
-  Search,
-  Trash2,
-  X,
-} from "@lucide/svelte";
-import { Tabs } from "@skeletonlabs/skeleton-svelte";
-import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
-import { onMount, untrack } from "svelte";
-import { eventMatchesHome } from "$lib/app/launch.svelte";
-import type { DetailTab } from "$lib/app/navigation.svelte";
-import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
-import TooltipButton from "$lib/components/TooltipButton.svelte";
-import GitTab from "$lib/git/GitTab.svelte";
-import IntegrationsSection from "$lib/integrations/IntegrationsSection.svelte";
-import { commands } from "$lib/services/homeRouting";
-import { isTauri } from "$lib/services/tauri";
-import type { GitContext, Project, ProjectSource, WorkspaceSearchResults } from "$lib/types";
-import UsageSummary from "$lib/usage/UsageSummary.svelte";
-import { debounce } from "$lib/utils/debounce";
-import { errorMessage } from "$lib/utils/errors";
-import { relativeTime } from "$lib/utils/format";
-import { basename } from "$lib/utils/path";
-import { ensureGitStatus, gitStatusCache } from "$lib/worktrees/gitStatus.svelte";
-import Worktrees from "$lib/worktrees/Worktrees.svelte";
-import { aheadBehindLabel, isDirty, statusSummary } from "$lib/worktrees/worktrees";
-import { isEmptyResults } from "./workspaceSearch";
+  import {
+    AlertCircle,
+    CheckCircle2,
+    File as FileIcon,
+    FolderGit2,
+    FolderOpen,
+    FolderPlus,
+    GitBranch,
+    Loader,
+    MessageSquare,
+    Plus,
+    RefreshCw,
+    Search,
+    Trash2,
+    X,
+  } from "@lucide/svelte";
+  import { Tabs } from "@skeletonlabs/skeleton-svelte";
+  import { listen } from "@tauri-apps/api/event";
+  import { open } from "@tauri-apps/plugin-dialog";
+  import { onMount, untrack } from "svelte";
+  import { eventMatchesHome } from "$lib/app/launch.svelte";
+  import type { DetailTab } from "$lib/app/navigation.svelte";
+  import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
+  import TooltipButton from "$lib/components/TooltipButton.svelte";
+  import GitTab from "$lib/git/GitTab.svelte";
+  import IntegrationsSection from "$lib/integrations/IntegrationsSection.svelte";
+  import { commands } from "$lib/services/homeRouting";
+  import { isTauri } from "$lib/services/tauri";
+  import type { GitContext, Project, ProjectSource, WorkspaceSearchResults } from "$lib/types";
+  import UsageSummary from "$lib/usage/UsageSummary.svelte";
+  import { debounce } from "$lib/utils/debounce";
+  import { errorMessage } from "$lib/utils/errors";
+  import { relativeTime } from "$lib/utils/format";
+  import { basename } from "$lib/utils/path";
+  import { ensureGitStatus, gitStatusCache } from "$lib/worktrees/gitStatus.svelte";
+  import Worktrees from "$lib/worktrees/Worktrees.svelte";
+  import { aheadBehindLabel, isDirty, statusSummary } from "$lib/worktrees/worktrees";
+  import { isEmptyResults } from "./workspaceSearch";
 
-let {
-  project,
-  initialTab = "overview",
-  projects = [],
-  codexHome = null,
-  onOpenThread,
-  onNewThread,
-  onNewThreadInDir,
-  onManageWorkspace,
-  onOpenInApp,
-  onRevealInFinder,
-  onReview,
-  onRenameProject,
-  onOpenProjectPath,
-}: {
-  project: Project;
-  initialTab?: DetailTab;
-  projects?: Project[];
-  codexHome?: string | null;
-  onOpenThread: (threadId: string) => void;
-  onNewThread?: (project: Project) => void;
-  /** New thread with an exact directory as its cwd (a worktree). */
-  onNewThreadInDir?: (cwd: string) => void;
-  onManageWorkspace?: (project: Project) => void;
-  onOpenInApp?: (path: string) => void;
-  onRevealInFinder?: (path: string) => void;
-  onReview?: () => void;
-  onRenameProject?: (path: string) => void;
-  /** Open another project's details, e.g. a linked worktree's parent. */
-  onOpenProjectPath?: (path: string, tab: DetailTab) => void;
-} = $props();
+  let {
+    project,
+    initialTab = "overview",
+    projects = [],
+    codexHome = null,
+    onOpenThread,
+    onNewThread,
+    onNewThreadInDir,
+    onManageWorkspace,
+    onOpenInApp,
+    onRevealInFinder,
+    onReview,
+    onRenameProject,
+    onOpenProjectPath,
+  }: {
+    project: Project;
+    initialTab?: DetailTab;
+    projects?: Project[];
+    codexHome?: string | null;
+    onOpenThread: (threadId: string) => void;
+    onNewThread?: (project: Project) => void;
+    /** New thread with an exact directory as its cwd (a worktree). */
+    onNewThreadInDir?: (cwd: string) => void;
+    onManageWorkspace?: (project: Project) => void;
+    onOpenInApp?: (path: string) => void;
+    onRevealInFinder?: (path: string) => void;
+    onReview?: () => void;
+    onRenameProject?: (path: string) => void;
+    /** Open another project's details, e.g. a linked worktree's parent. */
+    onOpenProjectPath?: (path: string, tab: DetailTab) => void;
+  } = $props();
 
-// Keyed by project path in the parent, so the initial tab is read once.
-let tab = $state<DetailTab>(untrack(() => initialTab));
-let context = $state<GitContext | null>(null);
-let contextError = $state<string | null>(null);
+  // Keyed by project path in the parent, so the initial tab is read once.
+  let tab = $state<DetailTab>(untrack(() => initialTab));
+  let context = $state<GitContext | null>(null);
+  let contextError = $state<string | null>(null);
 
-const isMultiProject = $derived(project.kind === "multiProject");
-const hasGit = $derived(!isMultiProject && context?.kind !== "none");
-const isLinked = $derived(context?.kind === "linked" && !!context.parentPath);
-/** Worktree operations act on the repository, which for a linked worktree is its parent. */
-const repoDir = $derived(isLinked && context?.parentPath ? context.parentPath : project.path);
-const status = $derived(gitStatusCache.byPath[project.path] ?? null);
+  const isMultiProject = $derived(project.kind === "multiProject");
+  const hasGit = $derived(!isMultiProject && context?.kind !== "none");
+  const isLinked = $derived(context?.kind === "linked" && !!context.parentPath);
+  /** Worktree operations act on the repository, which for a linked worktree is its parent. */
+  const repoDir = $derived(isLinked && context?.parentPath ? context.parentPath : project.path);
+  const status = $derived(gitStatusCache.byPath[project.path] ?? null);
 
-async function loadContext() {
-  if (isMultiProject) return;
-  try {
-    context = await commands.gitContext(project.path);
-    contextError = null;
-  } catch (cause) {
-    contextError = errorMessage(cause);
+  async function loadContext() {
+    if (isMultiProject) return;
+    try {
+      context = await commands.gitContext(project.path);
+      contextError = null;
+    } catch (cause) {
+      contextError = errorMessage(cause);
+    }
   }
-}
 
-onMount(() => {
-  void loadContext();
-  if (!isMultiProject) ensureGitStatus(project.path);
-});
-
-// Tabs the context says do not apply fall back to the overview.
-$effect(() => {
-  if (context && !hasGit && (tab === "git" || tab === "worktrees")) tab = "overview";
-});
-
-// The detail view is keyed by project path in the parent, so this component is
-// recreated when a different project opens; capturing the initial prop values is
-// intentional (and avoids resetting an in-progress edit when the project object
-// is replaced by a background refresh).
-let instructions = $state(untrack(() => project.instructions ?? ""));
-/** Instruction saves in flight; a count, since a slow one can overlap the next. */
-let instructionSaves = $state(0);
-const savingInstructions = $derived(instructionSaves > 0);
-let instructionsError = $state<string | null>(null);
-let sources = $state<ProjectSource[]>(untrack(() => project.sources ?? []));
-let sourceError = $state<string | null>(null);
-
-let query = $state("");
-let results = $state<WorkspaceSearchResults | null>(null);
-let searching = $state(false);
-// Monotonic token so a slow, stale response cannot overwrite a newer one.
-let generation = 0;
-
-// Background indexing (Rust) announces completion; refresh the source rows.
-$effect(() => {
-  if (!isTauri()) return;
-  const unlisten = listen<{ projectPath: string; codexHome?: string }>("sources://updated", (event) => {
-    if (!eventMatchesHome(event.payload?.codexHome)) return;
-    if (event.payload?.projectPath === project.path) void refreshSources();
+  onMount(() => {
+    void loadContext();
+    if (!isMultiProject) ensureGitStatus(project.path);
   });
-  return () => {
-    void unlisten.then((off) => off());
-  };
-});
 
-async function refreshSources() {
-  try {
-    sources = await commands.listProjectSources(project.path);
-  } catch {
-    // A failed refresh leaves the last-known rows in place.
-  }
-}
+  // Tabs the context says do not apply fall back to the overview.
+  $effect(() => {
+    if (context && !hasGit && (tab === "git" || tab === "worktrees")) tab = "overview";
+  });
 
-const saveInstructions = debounce((path: string, text: string) => {
-  instructionSaves++;
-  instructionsError = null;
-  commands
-    .saveProjectInstructions(path, text)
-    .catch((cause) => {
-      // Said out loud: "Saving…" vanishing used to read as saved.
-      instructionsError = `Not saved: ${errorMessage(cause)}`;
-    })
-    .finally(() => {
-      instructionSaves--;
+  // The detail view is keyed by project path in the parent, so this component is
+  // recreated when a different project opens; capturing the initial prop values is
+  // intentional (and avoids resetting an in-progress edit when the project object
+  // is replaced by a background refresh).
+  let instructions = $state(untrack(() => project.instructions ?? ""));
+  /** Instruction saves in flight; a count, since a slow one can overlap the next. */
+  let instructionSaves = $state(0);
+  const savingInstructions = $derived(instructionSaves > 0);
+  let instructionsError = $state<string | null>(null);
+  let sources = $state<ProjectSource[]>(untrack(() => project.sources ?? []));
+  let sourceError = $state<string | null>(null);
+
+  let query = $state("");
+  let results = $state<WorkspaceSearchResults | null>(null);
+  let searching = $state(false);
+  // Monotonic token so a slow, stale response cannot overwrite a newer one.
+  let generation = 0;
+
+  // Background indexing (Rust) announces completion; refresh the source rows.
+  $effect(() => {
+    if (!isTauri()) return;
+    const unlisten = listen<{ projectPath: string; codexHome?: string }>("sources://updated", (event) => {
+      if (!eventMatchesHome(event.payload?.codexHome)) return;
+      if (event.payload?.projectPath === project.path) void refreshSources();
     });
-}, 400);
+    return () => {
+      void unlisten.then((off) => off());
+    };
+  });
 
-function onInstructionsInput(event: Event) {
-  instructions = (event.target as HTMLTextAreaElement).value;
-  saveInstructions(project.path, instructions);
-}
-
-async function attach(path: string, kind: "folder" | "file") {
-  try {
-    sources = await commands.addProjectSource(project.path, path, kind);
-  } catch (cause) {
-    sourceError = errorMessage(cause);
+  async function refreshSources() {
+    try {
+      sources = await commands.listProjectSources(project.path);
+    } catch {
+      // A failed refresh leaves the last-known rows in place.
+    }
   }
-}
 
-async function addFolder() {
-  sourceError = null;
-  if (!isTauri()) {
-    await attach(`${project.path}/preview-folder`, "folder");
-    return;
+  const saveInstructions = debounce((path: string, text: string) => {
+    instructionSaves++;
+    instructionsError = null;
+    commands
+      .saveProjectInstructions(path, text)
+      .catch((cause) => {
+        // Said out loud: "Saving…" vanishing used to read as saved.
+        instructionsError = `Not saved: ${errorMessage(cause)}`;
+      })
+      .finally(() => {
+        instructionSaves--;
+      });
+  }, 400);
+
+  function onInstructionsInput(event: Event) {
+    instructions = (event.target as HTMLTextAreaElement).value;
+    saveInstructions(project.path, instructions);
   }
-  const selection = await open({ directory: true, multiple: true, title: "Add source folder" });
-  if (!selection) return;
-  for (const path of Array.isArray(selection) ? selection : [selection]) {
-    await attach(path, "folder");
+
+  async function attach(path: string, kind: "folder" | "file") {
+    try {
+      sources = await commands.addProjectSource(project.path, path, kind);
+    } catch (cause) {
+      sourceError = errorMessage(cause);
+    }
   }
-}
 
-async function addFiles() {
-  sourceError = null;
-  if (!isTauri()) {
-    await attach(`${project.path}/preview-file.md`, "file");
-    return;
+  async function addFolder() {
+    sourceError = null;
+    if (!isTauri()) {
+      await attach(`${project.path}/preview-folder`, "folder");
+      return;
+    }
+    const selection = await open({ directory: true, multiple: true, title: "Add source folder" });
+    if (!selection) return;
+    for (const path of Array.isArray(selection) ? selection : [selection]) {
+      await attach(path, "folder");
+    }
   }
-  const selection = await open({ directory: false, multiple: true, title: "Add source files" });
-  if (!selection) return;
-  for (const path of Array.isArray(selection) ? selection : [selection]) {
-    await attach(path, "file");
+
+  async function addFiles() {
+    sourceError = null;
+    if (!isTauri()) {
+      await attach(`${project.path}/preview-file.md`, "file");
+      return;
+    }
+    const selection = await open({ directory: false, multiple: true, title: "Add source files" });
+    if (!selection) return;
+    for (const path of Array.isArray(selection) ? selection : [selection]) {
+      await attach(path, "file");
+    }
   }
-}
 
-async function removeSource(id: string) {
-  try {
-    sources = await commands.removeProjectSource(id, project.path);
-  } catch (cause) {
-    sourceError = errorMessage(cause);
+  async function removeSource(id: string) {
+    try {
+      sources = await commands.removeProjectSource(id, project.path);
+    } catch (cause) {
+      sourceError = errorMessage(cause);
+    }
   }
-}
 
-async function retrySource(id: string) {
-  await commands.reindexSource(id).catch(() => {});
-  await refreshSources();
-}
-
-const runSearch = debounce((value: string) => {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    // Supersede any search still in flight, or it lands after the clear.
-    ++generation;
-    results = null;
-    searching = false;
-    return;
+  async function retrySource(id: string) {
+    await commands.reindexSource(id).catch(() => {});
+    await refreshSources();
   }
-  const token = ++generation;
-  searching = true;
-  commands
-    .searchWorkspace(project.path, trimmed, null, token)
-    .then((response) => {
-      // Drop stale responses (a newer query has since been issued).
-      if (response.generation === generation) results = response;
-    })
-    .catch(() => {
-      if (token === generation) results = null;
-    })
-    .finally(() => {
-      if (token === generation) searching = false;
-    });
-}, 200);
 
-function onQueryInput(event: Event) {
-  query = (event.target as HTMLInputElement).value;
-  runSearch(query);
-}
+  const runSearch = debounce((value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      // Supersede any search still in flight, or it lands after the clear.
+      ++generation;
+      results = null;
+      searching = false;
+      return;
+    }
+    const token = ++generation;
+    searching = true;
+    commands
+      .searchWorkspace(project.path, trimmed, null, token)
+      .then((response) => {
+        // Drop stale responses (a newer query has since been issued).
+        if (response.generation === generation) results = response;
+      })
+      .catch(() => {
+        if (token === generation) results = null;
+      })
+      .finally(() => {
+        if (token === generation) searching = false;
+      });
+  }, 200);
 
-function fileTitle(path: string, line?: number | null): string {
-  return line ? `${project.path}/${path}:${line}` : `${project.path}/${path}`;
-}
+  function onQueryInput(event: Event) {
+    query = (event.target as HTMLInputElement).value;
+    runSearch(query);
+  }
 
-function openFile(path: string) {
-  void commands.revealInFinder(`${project.path}/${path}`);
-}
+  function fileTitle(path: string, line?: number | null): string {
+    return line ? `${project.path}/${path}:${line}` : `${project.path}/${path}`;
+  }
 
-const sourceName = (source: ProjectSource) => basename(source.sourcePath);
+  function openFile(path: string) {
+    void commands.revealInFinder(`${project.path}/${path}`);
+  }
+
+  const sourceName = (source: ProjectSource) => basename(source.sourcePath);
 </script>
 
 <div class="h-full overflow-y-auto">
@@ -257,7 +257,12 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
       </div>
       <div class="flex shrink-0 items-center gap-2">
         {#if onRevealInFinder}
-          <TooltipButton label="Reveal in Finder" onclick={() => onRevealInFinder?.(project.path)} aria-label="Reveal in Finder" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
+          <TooltipButton
+            label="Reveal in Finder"
+            onclick={() => onRevealInFinder?.(project.path)}
+            aria-label="Reveal in Finder"
+            class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
+          >
             <FolderOpen size={15} />
           </TooltipButton>
         {/if}
@@ -271,13 +276,21 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
     </div>
 
     {#if isLinked && context?.parentPath}
-      <div class="mt-4 flex items-center gap-2 rounded-lg border border-primary-500/30 bg-primary-500/10 px-3 py-2 text-xs">
+      <div
+        class="mt-4 flex items-center gap-2 rounded-lg border border-primary-500/30 bg-primary-500/10 px-3 py-2 text-xs"
+      >
         <FolderGit2 size={14} class="shrink-0 text-primary-500" />
         <span class="min-w-0 flex-1 truncate">
           This is a worktree of <span class="font-mono" title={context.parentPath}>{basename(context.parentPath)}</span>
         </span>
         {#if onOpenProjectPath}
-          <button type="button" onclick={() => onOpenProjectPath?.(context!.parentPath!, "worktrees")} class="btn btn-sm preset-tonal">Open repository</button>
+          <button
+            type="button"
+            onclick={() => onOpenProjectPath?.(context!.parentPath!, "worktrees")}
+            class="btn btn-sm preset-tonal"
+          >
+            Open repository
+          </button>
         {/if}
       </div>
     {/if}
@@ -288,7 +301,12 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
         {#if hasGit}
           <Tabs.Trigger value="git" class="btn-sm">
             Git
-            {#if status && isDirty(status.counts)}<span class="ml-1 inline-block size-1.5 rounded-full bg-warning-500" aria-label="Uncommitted changes"></span>{/if}
+            {#if status && isDirty(status.counts)}
+              <span
+                class="ml-1 inline-block size-1.5 rounded-full bg-warning-500"
+                aria-label="Uncommitted changes"
+              ></span>
+            {/if}
           </Tabs.Trigger>
           <Tabs.Trigger value="worktrees" class="btn-sm">Worktrees</Tabs.Trigger>
         {/if}
@@ -298,7 +316,9 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
         <Tabs.Indicator />
       </Tabs.List>
       <Tabs.Content value="integrations">
-        {#if tab === "integrations"}<div class="mt-5"><IntegrationsSection projectPath={project.path} /></div>{/if}
+        {#if tab === "integrations"}
+          <div class="mt-5"><IntegrationsSection projectPath={project.path} /></div>
+        {/if}
       </Tabs.Content>
       <Tabs.Content value="usage">
         {#if tab === "usage"}
@@ -316,11 +336,24 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
             <div class="flex items-center gap-2">
               <GitBranch size={15} class="text-primary-500" />
               {#if status}
-                <span class="font-mono text-sm font-medium">{status.detached ? "detached HEAD" : (status.branch ?? "(no branch)")}</span>
-                {#if status.upstream}<span class="truncate text-[11px] text-surface-500">→ {status.upstream}</span>{/if}
-                {#if aheadBehindLabel(status.ahead, status.behind)}<span class="font-mono text-[11px] text-surface-500">{aheadBehindLabel(status.ahead, status.behind)}</span>{/if}
+                <span class="font-mono text-sm font-medium"
+                  >{status.detached ? "detached HEAD" : (status.branch ?? "(no branch)")}</span
+                >
+                {#if status.upstream}
+                  <span class="truncate text-[11px] text-surface-500">→ {status.upstream}</span>
+                {/if}
+                {#if aheadBehindLabel(status.ahead, status.behind)}
+                  <span class="font-mono text-[11px] text-surface-500"
+                    >{aheadBehindLabel(status.ahead, status.behind)}</span
+                  >
+                {/if}
                 <span class="flex-1"></span>
-                <span class="text-xs {isDirty(status.counts) ? 'text-warning-600 dark:text-warning-400' : 'text-surface-500'}">{statusSummary(status.counts)}</span>
+                <span
+                  class="text-xs {isDirty(status.counts)
+                    ? "text-warning-600 dark:text-warning-400"
+                    : "text-surface-500"}"
+                  >{statusSummary(status.counts)}</span
+                >
               {:else if contextError}
                 <span class="text-xs text-error-500">{contextError}</span>
               {:else}
@@ -329,23 +362,42 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
             </div>
             <div class="mt-3 flex flex-wrap gap-2">
               <button type="button" onclick={() => (tab = "git")} class="btn btn-sm preset-tonal">Open Git</button>
-              <button type="button" onclick={() => (tab = "worktrees")} class="btn btn-sm preset-tonal">Worktrees</button>
-              {#if onReview}<button type="button" onclick={onReview} class="btn btn-sm preset-tonal">Review</button>{/if}
+              <button type="button" onclick={() => (tab = "worktrees")} class="btn btn-sm preset-tonal">
+                Worktrees
+              </button>
+              {#if onReview}
+                <button type="button" onclick={onReview} class="btn btn-sm preset-tonal">Review</button>
+              {/if}
             </div>
           </section>
         {/if}
 
         {#if isMultiProject}
           <section class="mt-5 panel-card p-4">
-            <div class="flex items-center justify-between gap-3"><h2 class="text-sm font-medium">Workspace members</h2>{#if onManageWorkspace}<button class="btn btn-sm preset-tonal" onclick={() => onManageWorkspace?.(project)}>Edit members</button>{/if}</div>
-            <p class="mt-1 text-xs text-surface-500">The hub is writable for notes and plans. Member aliases are the directories the agent edits.</p>
+            <div class="flex items-center justify-between gap-3">
+              <h2 class="text-sm font-medium">Workspace members</h2>
+              {#if onManageWorkspace}
+                <button class="btn btn-sm preset-tonal" onclick={() => onManageWorkspace?.(project)}>
+                  Edit members
+                </button>
+              {/if}
+            </div>
+            <p class="mt-1 text-xs text-surface-500">
+              The hub is writable for notes and plans. Member aliases are the directories the agent edits.
+            </p>
             <div class="mt-3 space-y-2">
               {#each project.members ?? [] as member (member.alias)}
                 <div class="flex min-w-0 items-center gap-3 rounded-lg bg-surface-50-950 px-3 py-2 text-xs">
                   <span class="font-mono font-medium text-primary-600 dark:text-primary-400">{member.alias}</span>
-                  <span class="min-w-0 flex-1 truncate text-surface-500" title={member.effectivePath}>{member.effectivePath}</span>
-                  <span class="shrink-0 rounded-full bg-surface-200-800 px-2 py-0.5 text-[10px]">{member.isolated ? `isolated${member.branch ? ` · ${member.branch}` : ""}` : "direct"}</span>
-                  {#if !member.available}<span class="shrink-0 text-error-500">unavailable</span>{/if}
+                  <span class="min-w-0 flex-1 truncate text-surface-500" title={member.effectivePath}
+                    >{member.effectivePath}</span
+                  >
+                  <span class="shrink-0 rounded-full bg-surface-200-800 px-2 py-0.5 text-[10px]"
+                    >{member.isolated ? `isolated${member.branch ? ` · ${member.branch}` : ""}` : "direct"}</span
+                  >
+                  {#if !member.available}
+                    <span class="shrink-0 text-error-500">unavailable</span>
+                  {/if}
                 </div>
               {/each}
             </div>
@@ -356,8 +408,11 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
         <div class="mt-6">
           <div class="mb-1.5 flex items-center gap-2">
             <h2 class="eyebrow">Instructions</h2>
-            {#if savingInstructions}<span class="text-[10px] text-surface-500">Saving…</span>
-            {:else if instructionsError}<span class="text-[10px] text-error-500" role="alert">{instructionsError}</span>{/if}
+            {#if savingInstructions}
+              <span class="text-[10px] text-surface-500">Saving…</span>
+            {:else if instructionsError}
+              <span class="text-[10px] text-error-500" role="alert">{instructionsError}</span>
+            {/if}
           </div>
           <textarea
             value={instructions}
@@ -415,8 +470,10 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
               placeholder="Search project files and chats…"
               aria-label="Search workspace"
               class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-surface-500"
-            />
-            {#if searching}<Loader size={14} class="shrink-0 animate-spin text-surface-500" />{/if}
+            >
+            {#if searching}
+              <Loader size={14} class="shrink-0 animate-spin text-surface-500" />
+            {/if}
           </div>
           <button onclick={addFiles} class="btn btn-sm preset-tonal">
             <FileIcon size={14} />
@@ -429,9 +486,7 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
         </div>
         {#if query.trim() && results}
           {#if isEmptyResults(results)}
-            <div class="mt-3 empty-state py-8 text-sm">
-              No matches for "{query.trim()}"
-            </div>
+            <div class="mt-3 empty-state py-8 text-sm">No matches for "{query.trim()}"</div>
           {:else}
             <div class="mt-3 space-y-4">
               {#if results.projectFiles.items.length > 0}
@@ -448,7 +503,9 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
                         <div class="min-w-0 flex-1">
                           <div class="flex items-baseline gap-1.5">
                             <span class="truncate text-xs font-medium">{match.fileName}</span>
-                            <span class="truncate text-[10px] text-surface-500">{match.path}{match.lineNumber ? `:${match.lineNumber}` : ""}</span>
+                            <span class="truncate text-[10px] text-surface-500"
+                              >{match.path}{match.lineNumber ? `:${match.lineNumber}` : ""}</span
+                            >
                           </div>
                           {#if match.preview}
                             <div class="truncate font-mono text-[11px] text-surface-600-400">{match.preview}</div>
@@ -472,14 +529,17 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
           {#if sourceError}
             <div class="mb-2 flex items-center gap-2 error-note">
               <span class="min-w-0 flex-1">{sourceError}</span>
-              <TooltipButton label="Dismiss" onclick={() => (sourceError = null)} aria-label="Dismiss" class="btn-icon btn-icon-sm"><X size={12} /></TooltipButton>
+              <TooltipButton
+                label="Dismiss"
+                onclick={() => (sourceError = null)}
+                aria-label="Dismiss"
+                class="btn-icon btn-icon-sm"
+                ><X size={12} /></TooltipButton
+              >
             </div>
           {/if}
           {#if sources.length === 0}
-            <button
-              onclick={addFolder}
-              class="w-full empty-cta"
-            >
+            <button onclick={addFolder} class="w-full empty-cta">
               Attach folders or files to make their contents searchable in this project.
             </button>
           {:else}
@@ -502,7 +562,10 @@ const sourceName = (source: ProjectSource) => basename(source.sourcePath);
                       Indexing…
                     </span>
                   {:else if source.status === "indexed"}
-                    <TooltipAnchor label={source.indexedAt ? `Indexed ${relativeTime(source.indexedAt)}` : "Indexed"} class="flex shrink-0 items-center gap-1 text-[11px] text-success-600 dark:text-success-400">
+                    <TooltipAnchor
+                      label={source.indexedAt ? `Indexed ${relativeTime(source.indexedAt)}` : "Indexed"}
+                      class="flex shrink-0 items-center gap-1 text-[11px] text-success-600 dark:text-success-400"
+                    >
                       <CheckCircle2 size={12} />
                       {source.docCount} {source.docCount === 1 ? "file" : "files"}
                     </TooltipAnchor>

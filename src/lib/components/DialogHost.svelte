@@ -1,5 +1,5 @@
 <script lang="ts">
-import { closeDialog, dialogStack } from "$lib/app/dialogs.svelte";
+  import { closeDialog, dialogStack } from "$lib/app/dialogs.svelte";
 </script>
 
 <!-- Mounted once (App.svelte); renders whatever `openDialog` pushed. -->

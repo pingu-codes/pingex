@@ -1,104 +1,104 @@
 <script lang="ts">
-import { ArrowLeft, FileDiff, RefreshCw } from "@lucide/svelte";
-import { untrack } from "svelte";
-import { commands } from "$lib/services/homeRouting";
-import type { ChangedFile, ChangesSummary, FileDiff as FileDiffData } from "$lib/types";
-import { fileIconFor } from "$lib/utils/fileIcons";
-import { highlightDiff } from "$lib/utils/markdown";
-import { basename } from "$lib/utils/path";
-import { resource } from "$lib/utils/resource.svelte";
+  import { ArrowLeft, FileDiff, RefreshCw } from "@lucide/svelte";
+  import { untrack } from "svelte";
+  import { commands } from "$lib/services/homeRouting";
+  import type { ChangedFile, ChangesSummary, FileDiff as FileDiffData } from "$lib/types";
+  import { fileIconFor } from "$lib/utils/fileIcons";
+  import { highlightDiff } from "$lib/utils/markdown";
+  import { basename } from "$lib/utils/path";
+  import { resource } from "$lib/utils/resource.svelte";
 
-let {
-  cwd,
-  summary,
-  loading = false,
-  error = null,
-  focusPath = null,
-  onRefresh,
-}: {
-  cwd: string;
-  summary: ChangesSummary | null;
-  loading?: boolean;
-  error?: string | null;
-  /** Open straight onto this file; `null` shows the list. */
-  focusPath?: string | null;
-  onRefresh: () => void;
-} = $props();
+  let {
+    cwd,
+    summary,
+    loading = false,
+    error = null,
+    focusPath = null,
+    onRefresh,
+  }: {
+    cwd: string;
+    summary: ChangesSummary | null;
+    loading?: boolean;
+    error?: string | null;
+    /** Open straight onto this file; `null` shows the list. */
+    focusPath?: string | null;
+    onRefresh: () => void;
+  } = $props();
 
-/** Rows rendered at once; the list grows in pages so 2000 files never mount together. */
-const PAGE = 150;
-/** Above this many changed lines a diff starts collapsed and is never highlighted. */
-const LARGE_LINES = 5000;
-const DEFAULT_BYTES = 256 * 1024;
-const MAX_BYTES = 2 * 1024 * 1024;
+  /** Rows rendered at once; the list grows in pages so 2000 files never mount together. */
+  const PAGE = 150;
+  /** Above this many changed lines a diff starts collapsed and is never highlighted. */
+  const LARGE_LINES = 5000;
+  const DEFAULT_BYTES = 256 * 1024;
+  const MAX_BYTES = 2 * 1024 * 1024;
 
-let selected = $state<string | null>(null);
-let visibleCount = $state(PAGE);
-let forceLarge = $state(false);
-const cache = new Map<string, FileDiffData>();
-// Only the newest request lands, cached or not: a slow patch for a file the
-// user has moved past never replaces the one on screen.
-const fileDiff = resource(
-  async (file: ChangedFile, base: string, maxBytes: number): Promise<FileDiffData | null> => {
-    const key = `${base}:${file.path}:${maxBytes}`;
-    const cached = cache.get(key);
-    if (cached) return cached;
-    const result = await commands.gitFileDiff(cwd, base, file.path, file.status === "untracked", maxBytes);
-    if (cache.size > 50) cache.delete(cache.keys().next().value as string);
-    cache.set(key, result);
-    return result;
-  },
-  { initial: null },
-);
-const diff = $derived(fileDiff.value);
-const diffLoading = $derived(fileDiff.loading);
-const diffError = $derived(fileDiff.error);
+  let selected = $state<string | null>(null);
+  let visibleCount = $state(PAGE);
+  let forceLarge = $state(false);
+  const cache = new Map<string, FileDiffData>();
+  // Only the newest request lands, cached or not: a slow patch for a file the
+  // user has moved past never replaces the one on screen.
+  const fileDiff = resource(
+    async (file: ChangedFile, base: string, maxBytes: number): Promise<FileDiffData | null> => {
+      const key = `${base}:${file.path}:${maxBytes}`;
+      const cached = cache.get(key);
+      if (cached) return cached;
+      const result = await commands.gitFileDiff(cwd, base, file.path, file.status === "untracked", maxBytes);
+      if (cache.size > 50) cache.delete(cache.keys().next().value as string);
+      cache.set(key, result);
+      return result;
+    },
+    { initial: null },
+  );
+  const diff = $derived(fileDiff.value);
+  const diffLoading = $derived(fileDiff.loading);
+  const diffError = $derived(fileDiff.error);
 
-const files = $derived(summary?.files ?? []);
-const selectedFile = $derived(files.find((file) => file.path === selected) ?? null);
-const isLarge = $derived(
-  !!selectedFile && (selectedFile.binary || selectedFile.additions + selectedFile.deletions > LARGE_LINES),
-);
+  const files = $derived(summary?.files ?? []);
+  const selectedFile = $derived(files.find((file) => file.path === selected) ?? null);
+  const isLarge = $derived(
+    !!selectedFile && (selectedFile.binary || selectedFile.additions + selectedFile.deletions > LARGE_LINES),
+  );
 
-// Follow the requested focus path whenever it changes.
-$effect(() => {
-  selected = focusPath ?? null;
-});
+  // Follow the requested focus path whenever it changes.
+  $effect(() => {
+    selected = focusPath ?? null;
+  });
 
-// New summary (refresh after a turn) invalidates cached patches.
-$effect(() => {
-  summary;
-  cache.clear();
-  const current = untrack(() => selected);
-  if (current) void load(current, DEFAULT_BYTES);
-});
+  // New summary (refresh after a turn) invalidates cached patches.
+  $effect(() => {
+    summary;
+    cache.clear();
+    const current = untrack(() => selected);
+    if (current) void load(current, DEFAULT_BYTES);
+  });
 
-// Tracks only the selection: `load` reads `summary`, and the effect above
-// already reloads on a new summary, so tracking it here fetched twice.
-$effect(() => {
-  forceLarge = false;
-  const path = selected;
-  if (path) untrack(() => void load(path, DEFAULT_BYTES));
-  else fileDiff.set(null);
-});
+  // Tracks only the selection: `load` reads `summary`, and the effect above
+  // already reloads on a new summary, so tracking it here fetched twice.
+  $effect(() => {
+    forceLarge = false;
+    const path = selected;
+    if (path) untrack(() => void load(path, DEFAULT_BYTES));
+    else fileDiff.set(null);
+  });
 
-function load(path: string, maxBytes: number) {
-  const file = files.find((entry) => entry.path === path);
-  if (!file || !summary) return;
-  void fileDiff.reload(file, summary.base, maxBytes);
-}
+  function load(path: string, maxBytes: number) {
+    const file = files.find((entry) => entry.path === path);
+    if (!file || !summary) return;
+    void fileDiff.reload(file, summary.base, maxBytes);
+  }
 
-const statusLabel: Record<ChangedFile["status"], string> = {
-  added: "New",
-  untracked: "New",
-  modified: "Edited",
-  deleted: "Deleted",
-  renamed: "Renamed",
-};
+  const statusLabel: Record<ChangedFile["status"], string> = {
+    added: "New",
+    untracked: "New",
+    modified: "Edited",
+    deleted: "Deleted",
+    renamed: "Renamed",
+  };
 
-// Only highlight modest diffs: highlight.js on a megabyte of generated text
-// is exactly the lag this panel exists to avoid.
-const rendered = $derived(diff ? highlightDiff(diff.patch) : "");
+  // Only highlight modest diffs: highlight.js on a megabyte of generated text
+  // is exactly the lag this panel exists to avoid.
+  const rendered = $derived(diff ? highlightDiff(diff.patch) : "");
 </script>
 
 {#if error}
@@ -126,7 +126,9 @@ const rendered = $derived(diff ? highlightDiff(diff.patch) : "");
     {:else if isLarge && !forceLarge}
       <div class="rounded-xl border border-surface-200-800 p-3 text-xs text-surface-500">
         <p>Large change: {(selectedFile.additions + selectedFile.deletions).toLocaleString()} lines.</p>
-        <button onclick={() => (forceLarge = true)} class="btn btn-sm preset-tonal mt-2">Show first {DEFAULT_BYTES / 1024} KB</button>
+        <button onclick={() => (forceLarge = true)} class="btn btn-sm preset-tonal mt-2">
+          Show first {DEFAULT_BYTES / 1024} KB
+        </button>
       </div>
     {:else if diffLoading && !diff}
       <p class="text-xs text-surface-500">Loading diff…</p>
@@ -134,13 +136,20 @@ const rendered = $derived(diff ? highlightDiff(diff.patch) : "");
       <p class="text-xs text-error-500">{diffError}</p>
     {:else if diff}
       <div class="min-h-0 flex-1 overflow-hidden rounded-xl border border-surface-200-800">
-        <pre class="code-dark h-full overflow-auto px-3 py-2.5 font-mono text-[11px] leading-5"><code class="hljs">{@html rendered}</code></pre>
+        <pre
+          class="code-dark h-full overflow-auto px-3 py-2.5 font-mono text-[11px] leading-5"
+        ><code class="hljs">{@html rendered}</code></pre>
       </div>
       {#if diff.truncated}
         <div class="flex items-center gap-2 text-[11px] text-surface-500">
           <span class="flex-1">Showing first {Math.round(diff.bytes / 1024)} KB.</span>
           {#if diff.bytes < MAX_BYTES}
-            <button onclick={() => selected && load(selected, Math.min(diff!.bytes * 4, MAX_BYTES))} class="btn btn-sm preset-tonal">Show more</button>
+            <button
+              onclick={() => selected && load(selected, Math.min(diff!.bytes * 4, MAX_BYTES))}
+              class="btn btn-sm preset-tonal"
+            >
+              Show more
+            </button>
           {:else}
             <span>Diff too large — open the file in your editor.</span>
           {/if}
@@ -151,12 +160,20 @@ const rendered = $derived(diff ? highlightDiff(diff.patch) : "");
 {:else}
   <div class="flex items-center gap-2 pb-2 text-[11px] text-surface-500">
     <span class="flex-1 truncate">
-      {summary.totalFiles} file{summary.totalFiles === 1 ? "" : "s"}
-      {#if summary.baseBranch}· vs {summary.baseBranch}{/if}
+      {summary.totalFiles}
+      file{summary.totalFiles === 1 ? "" : "s"}
+      {#if summary.baseBranch}
+        · vs {summary.baseBranch}
+      {/if}
     </span>
     <span class="tabular-nums text-success-500">+{summary.additions}</span>
     <span class="tabular-nums text-error-500">−{summary.deletions}</span>
-    <button onclick={onRefresh} class="btn-icon btn-icon-sm hover:preset-tonal" aria-label="Refresh changes" disabled={loading}>
+    <button
+      onclick={onRefresh}
+      class="btn-icon btn-icon-sm hover:preset-tonal"
+      aria-label="Refresh changes"
+      disabled={loading}
+    >
       <RefreshCw size={12} class={loading ? "animate-spin" : ""} />
     </button>
   </div>
@@ -166,11 +183,7 @@ const rendered = $derived(diff ? highlightDiff(diff.patch) : "");
     <div class="space-y-0.5">
       {#each files.slice(0, visibleCount) as file (file.path)}
         {@const icon = fileIconFor(basename(file.path))}
-        <button
-          onclick={() => (selected = file.path)}
-          title={file.path}
-          class="menu-row"
-        >
+        <button onclick={() => (selected = file.path)} title={file.path} class="menu-row">
           <icon.icon size={13} class="shrink-0 {icon.class}" />
           <span class="min-w-0 flex-1 truncate">{file.path}</span>
           {#if file.binary}
@@ -179,18 +192,24 @@ const rendered = $derived(diff ? highlightDiff(diff.patch) : "");
             <span class="shrink-0 text-[10px] tabular-nums text-success-500">+{file.additions}</span>
             <span class="shrink-0 text-[10px] tabular-nums text-error-500">−{file.deletions}</span>
           {/if}
-          <span class="w-12 shrink-0 text-right text-[10px] uppercase tracking-wide text-surface-500">{statusLabel[file.status]}</span>
+          <span class="w-12 shrink-0 text-right text-[10px] uppercase tracking-wide text-surface-500"
+            >{statusLabel[file.status]}</span
+          >
         </button>
       {/each}
     </div>
     {#if files.length > visibleCount}
-      <button onclick={() => (visibleCount += PAGE)} class="mt-1 w-full rounded px-2 py-1.5 text-left text-xs text-surface-500 hover:preset-tonal">
+      <button
+        onclick={() => (visibleCount += PAGE)}
+        class="mt-1 w-full rounded px-2 py-1.5 text-left text-xs text-surface-500 hover:preset-tonal"
+      >
         Show {Math.min(PAGE, files.length - visibleCount)} more of {files.length - visibleCount}
       </button>
     {/if}
     {#if summary.truncated}
       <p class="mt-2 flex items-center gap-1 text-[11px] text-warning-500">
-        <FileDiff size={12} /> Listing capped at {files.length} of {summary.totalFiles} files.
+        <FileDiff size={12} />
+        Listing capped at {files.length} of {summary.totalFiles} files.
       </p>
     {/if}
   {/if}

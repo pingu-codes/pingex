@@ -5,78 +5,85 @@
   usage report arrives; the aggregate can change on any thread's turn.
 -->
 <script lang="ts">
-import { onMount } from "svelte";
-import { openThreadById } from "$lib/app/navigation.svelte";
-import Segmented from "$lib/components/Segmented.svelte";
-import { usageStatus } from "$lib/services/codexEvents.svelte";
-import { commands } from "$lib/services/homeRouting";
-import type { UsageBreakdown, UsageScope } from "$lib/types";
-import UsageBreakdownBar from "$lib/usage/UsageBreakdownBar.svelte";
-import { costFor, costLabel, rangeSince, segmentsFor, USAGE_RANGES, type UsageRange } from "$lib/usage/usageBreakdown";
-import { formatTokens, formatTokensShort, relativeTime } from "$lib/utils/format";
-import { resource } from "$lib/utils/resource.svelte";
+  import { onMount } from "svelte";
+  import { openThreadById } from "$lib/app/navigation.svelte";
+  import Segmented from "$lib/components/Segmented.svelte";
+  import { usageStatus } from "$lib/services/codexEvents.svelte";
+  import { commands } from "$lib/services/homeRouting";
+  import type { UsageBreakdown, UsageScope } from "$lib/types";
+  import UsageBreakdownBar from "$lib/usage/UsageBreakdownBar.svelte";
+  import {
+    costFor,
+    costLabel,
+    rangeSince,
+    segmentsFor,
+    USAGE_RANGES,
+    type UsageRange,
+  } from "$lib/usage/usageBreakdown";
+  import { formatTokens, formatTokensShort, relativeTime } from "$lib/utils/format";
+  import { resource } from "$lib/utils/resource.svelte";
 
-let {
-  scope,
-  compact = false,
-}: {
-  scope: UsageScope;
-  /** Tight layout for the right panel: no range control, no thread list. */
-  compact?: boolean;
-} = $props();
+  let {
+    scope,
+    compact = false,
+  }: {
+    scope: UsageScope;
+    /** Tight layout for the right panel: no range control, no thread list. */
+    compact?: boolean;
+  } = $props();
 
-let range = $state<UsageRange>("all");
-// Only the newest read lands: a slow one for the previous range must not
-// overwrite the current range's figures.
-const usage = resource(() => commands.readUsageBreakdown(scope, rangeSince(range)));
-const breakdown = $derived<UsageBreakdown | null>(usage.value ?? null);
-let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  let range = $state<UsageRange>("all");
+  // Only the newest read lands: a slow one for the previous range must not
+  // overwrite the current range's figures.
+  const usage = resource(() => commands.readUsageBreakdown(scope, rangeSince(range)));
+  const breakdown = $derived<UsageBreakdown | null>(usage.value ?? null);
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
-onMount(() => {
-  void usage.reload();
-  return () => {
+  onMount(() => {
+    void usage.reload();
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+    };
+  });
+
+  // A new usage report anywhere may move these figures; coalesce a burst of
+  // per-request reports into one read.
+  $effect(() => {
+    usageStatus.nonce;
+    if (usageStatus.nonce === 0) return;
     if (refreshTimer) clearTimeout(refreshTimer);
-  };
-});
+    refreshTimer = setTimeout(() => void usage.reload(), 1000);
+  });
 
-// A new usage report anywhere may move these figures; coalesce a burst of
-// per-request reports into one read.
-$effect(() => {
-  usageStatus.nonce;
-  if (usageStatus.nonce === 0) return;
-  if (refreshTimer) clearTimeout(refreshTimer);
-  refreshTimer = setTimeout(() => void usage.reload(), 1000);
-});
+  function selectRange(next: UsageRange) {
+    if (next === range) return;
+    range = next;
+    void usage.reload();
+  }
 
-function selectRange(next: UsageRange) {
-  if (next === range) return;
-  range = next;
-  void usage.reload();
-}
+  const cost = $derived(breakdown ? costFor(breakdown.byModel, breakdown.reportedCostUsd) : null);
 
-const cost = $derived(breakdown ? costFor(breakdown.byModel, breakdown.reportedCostUsd) : null);
+  const tokenRows = $derived(
+    breakdown
+      ? [
+          { label: "Input", value: formatTokens(breakdown.tokens.inputTokens) },
+          { label: "Cached input", value: formatTokens(breakdown.tokens.cachedInputTokens) },
+          ...(breakdown.tokens.cacheWriteInputTokens > 0
+            ? [{ label: "Cache writes", value: formatTokens(breakdown.tokens.cacheWriteInputTokens) }]
+            : []),
+          { label: "Output", value: formatTokens(breakdown.tokens.outputTokens) },
+          { label: "Reasoning", value: formatTokens(breakdown.tokens.reasoningOutputTokens) },
+        ]
+      : [],
+  );
 
-const tokenRows = $derived(
-  breakdown
-    ? [
-        { label: "Input", value: formatTokens(breakdown.tokens.inputTokens) },
-        { label: "Cached input", value: formatTokens(breakdown.tokens.cachedInputTokens) },
-        ...(breakdown.tokens.cacheWriteInputTokens > 0
-          ? [{ label: "Cache writes", value: formatTokens(breakdown.tokens.cacheWriteInputTokens) }]
-          : []),
-        { label: "Output", value: formatTokens(breakdown.tokens.outputTokens) },
-        { label: "Reasoning", value: formatTokens(breakdown.tokens.reasoningOutputTokens) },
-      ]
-    : [],
-);
+  function modelName(model: string | null): string {
+    return model ?? "unknown model";
+  }
 
-function modelName(model: string | null): string {
-  return model ?? "unknown model";
-}
-
-function groupCost(group: UsageBreakdown["byModel"][number]): string | null {
-  return costLabel(costFor([group], group.costUsd));
-}
+  function groupCost(group: UsageBreakdown["byModel"][number]): string | null {
+    return costLabel(costFor([group], group.costUsd));
+  }
 </script>
 
 <div class="space-y-4 text-xs" data-testid="usage-summary">
@@ -95,14 +102,18 @@ function groupCost(group: UsageBreakdown["byModel"][number]): string | null {
     <p class="text-error-500">Could not read usage: {usage.error}</p>
   {:else if breakdown && breakdown.turns === 0}
     <p class="text-surface-500">
-      No usage recorded yet. Turns are recorded from the moment they run; older threads count from their next
-      turn.
+      No usage recorded yet. Turns are recorded from the moment they run; older threads count from their next turn.
     </p>
   {:else if breakdown}
     <section>
-      <h3 class="mb-1.5 flex items-baseline justify-between gap-3 text-[10px] font-semibold uppercase tracking-wide text-surface-500">
+      <h3
+        class="mb-1.5 flex items-baseline justify-between gap-3 text-[10px] font-semibold uppercase tracking-wide text-surface-500"
+      >
         <span>Spend by category</span>
-        <span class="font-mono normal-case tracking-normal">{formatTokensShort(breakdown.tokens.totalTokens)} tokens</span>
+        <span class="font-mono normal-case tracking-normal"
+          >{formatTokensShort(breakdown.tokens.totalTokens)}
+          tokens</span
+        >
       </h3>
       <UsageBreakdownBar rows={segmentsFor(breakdown.categories)} label="Tokens spent by category" />
     </section>

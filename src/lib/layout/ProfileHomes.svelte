@@ -1,105 +1,105 @@
 <script lang="ts">
-import { SvelteMap, SvelteSet } from "svelte/reactivity";
-import { hostFromOption } from "$lib/app/host";
-import { HARNESS_INFO, HARNESS_KINDS, type HarnessKind, commands as nativeCommands } from "$lib/bindings";
-import HostSelect from "$lib/components/HostSelect.svelte";
-import {
-  chooseDefaultHome,
-  commands,
-  loadProfile,
-  profileHomes,
-  removeHome,
-  updateHome,
-} from "$lib/services/homeRouting";
-import { isTauri } from "$lib/services/tauri";
-import type { HarnessStatus } from "$lib/types";
-import { submitState } from "$lib/utils/actionState.svelte";
+  import { SvelteMap, SvelteSet } from "svelte/reactivity";
+  import { hostFromOption } from "$lib/app/host";
+  import { HARNESS_INFO, HARNESS_KINDS, type HarnessKind, commands as nativeCommands } from "$lib/bindings";
+  import HostSelect from "$lib/components/HostSelect.svelte";
+  import {
+    chooseDefaultHome,
+    commands,
+    loadProfile,
+    profileHomes,
+    removeHome,
+    updateHome,
+  } from "$lib/services/homeRouting";
+  import { isTauri } from "$lib/services/tauri";
+  import type { HarnessStatus } from "$lib/types";
+  import { submitState } from "$lib/utils/actionState.svelte";
 
-let harness = $state<HarnessKind>("codex");
-let host = $state("native");
-let configDir = $state("~/.codex");
-let binary = $state("codex");
-let label = $state("");
-const action = submitState();
-const homes = $derived(profileHomes());
+  let harness = $state<HarnessKind>("codex");
+  let host = $state("native");
+  let configDir = $state("~/.codex");
+  let binary = $state("codex");
+  let label = $state("");
+  const action = submitState();
+  const homes = $derived(profileHomes());
 
-// One probe per Home whose harness reports a login, filled in as it returns:
-// the probe shells out, so the list paints first and the badges follow. A
-// missing entry means the probe has not answered yet; `null` means it failed.
-const logins = new SvelteMap<string, HarnessStatus | null>();
-// Ids already probed, so a repeat pass does not fire a second subprocess.
-const probed = new SvelteSet<string>();
-// Which row is open for editing, and which is one click from removal.
-let editing = $state<string | null>(null);
-let confirming = $state<string | null>(null);
-// The edit form's fields, seeded from the row when it opens.
-let editDir = $state("");
-let editBinary = $state("");
-let editLabel = $state("");
+  // One probe per Home whose harness reports a login, filled in as it returns:
+  // the probe shells out, so the list paints first and the badges follow. A
+  // missing entry means the probe has not answered yet; `null` means it failed.
+  const logins = new SvelteMap<string, HarnessStatus | null>();
+  // Ids already probed, so a repeat pass does not fire a second subprocess.
+  const probed = new SvelteSet<string>();
+  // Which row is open for editing, and which is one click from removal.
+  let editing = $state<string | null>(null);
+  let confirming = $state<string | null>(null);
+  // The edit form's fields, seeded from the row when it opens.
+  let editDir = $state("");
+  let editBinary = $state("");
+  let editLabel = $state("");
 
-const probes = (kind: HarnessKind) => HARNESS_INFO[kind].probesStatus;
+  const probes = (kind: HarnessKind) => HARNESS_INFO[kind].probesStatus;
 
-// Re-probe whenever the set of probed Homes changes — after an add or a
-// removal, `loadProfile` replaces the list and the ids that went with it. An
-// edit keeps the id, so `saveEdit` re-probes that one itself.
-$effect(() => {
-  const probedHomes = homes.filter((entry) => probes(entry.home.harness)).map((entry) => entry.home.id);
-  for (const id of [...probed]) {
-    if (probedHomes.includes(id)) continue;
-    probed.delete(id);
-    logins.delete(id);
-  }
-  for (const id of probedHomes) {
-    if (probed.has(id)) continue;
-    probed.add(id);
-    commands
-      .readHomeStatus(id)
-      .then((status) => logins.set(id, status))
-      .catch(() => logins.set(id, null));
-  }
-});
-
-function openEditor(id: string, dir: string, cli: string, name: string) {
-  editing = editing === id ? null : id;
-  confirming = null;
-  action.error = null;
-  editDir = dir;
-  editBinary = cli;
-  editLabel = name;
-}
-
-async function saveEdit(id: string) {
-  const saved = await action.run(() => updateHome(id, editDir, editBinary, editLabel));
-  if (!saved) return;
-  editing = null;
-  // A new config dir is a different login; drop the old badge and ask again.
-  if (probed.has(id)) {
-    logins.delete(id);
-    commands
-      .readHomeStatus(id)
-      .then((status) => logins.set(id, status))
-      .catch(() => logins.set(id, null));
-  }
-}
-
-async function remove(id: string) {
-  const removed = await action.run(() => removeHome(id));
-  if (removed) confirming = null;
-}
-
-async function add() {
-  await action.run(async () => {
-    await nativeCommands.registerProfileHome(
-      harness,
-      hostFromOption(host),
-      configDir,
-      binary,
-      label.trim() || HARNESS_INFO[harness].label,
-    );
-    await loadProfile(false);
-    label = "";
+  // Re-probe whenever the set of probed Homes changes — after an add or a
+  // removal, `loadProfile` replaces the list and the ids that went with it. An
+  // edit keeps the id, so `saveEdit` re-probes that one itself.
+  $effect(() => {
+    const probedHomes = homes.filter((entry) => probes(entry.home.harness)).map((entry) => entry.home.id);
+    for (const id of [...probed]) {
+      if (probedHomes.includes(id)) continue;
+      probed.delete(id);
+      logins.delete(id);
+    }
+    for (const id of probedHomes) {
+      if (probed.has(id)) continue;
+      probed.add(id);
+      commands
+        .readHomeStatus(id)
+        .then((status) => logins.set(id, status))
+        .catch(() => logins.set(id, null));
+    }
   });
-}
+
+  function openEditor(id: string, dir: string, cli: string, name: string) {
+    editing = editing === id ? null : id;
+    confirming = null;
+    action.error = null;
+    editDir = dir;
+    editBinary = cli;
+    editLabel = name;
+  }
+
+  async function saveEdit(id: string) {
+    const saved = await action.run(() => updateHome(id, editDir, editBinary, editLabel));
+    if (!saved) return;
+    editing = null;
+    // A new config dir is a different login; drop the old badge and ask again.
+    if (probed.has(id)) {
+      logins.delete(id);
+      commands
+        .readHomeStatus(id)
+        .then((status) => logins.set(id, status))
+        .catch(() => logins.set(id, null));
+    }
+  }
+
+  async function remove(id: string) {
+    const removed = await action.run(() => removeHome(id));
+    if (removed) confirming = null;
+  }
+
+  async function add() {
+    await action.run(async () => {
+      await nativeCommands.registerProfileHome(
+        harness,
+        hostFromOption(host),
+        configDir,
+        binary,
+        label.trim() || HARNESS_INFO[harness].label,
+      );
+      await loadProfile(false);
+      label = "";
+    });
+  }
 </script>
 
 {#snippet fields(
@@ -112,28 +112,28 @@ async function add() {
   dirEditable: boolean,
 )}
   <label class="label text-xs"
-    ><span>Name</span
-    ><input
+    ><span>Name</span>
+    <input
       class="input"
       value={name}
       oninput={(event) => onName(event.currentTarget.value)}
       placeholder="Optional label, for example Work"
-    /></label
+    ></label
   >
   <label class="label text-xs"
-    ><span>Configuration directory</span
-    ><input
+    ><span>Configuration directory</span>
+    <input
       class="input font-mono"
       value={dir}
       oninput={(event) => onDir(event.currentTarget.value)}
       readonly={!dirEditable}
       title={dirEditable ? undefined : "This harness always reads its configuration from here"}
       required
-    /></label
+    ></label
   >
   <label class="label text-xs"
-    ><span>CLI executable</span
-    ><input class="input font-mono" value={cli} oninput={(event) => onCli(event.currentTarget.value)} required /></label
+    ><span>CLI executable</span>
+    <input class="input font-mono" value={cli} oninput={(event) => onCli(event.currentTarget.value)} required></label
   >
 {/snippet}
 
@@ -150,7 +150,10 @@ async function add() {
       <div class="flex items-center gap-3">
         <div class="min-w-0 flex-1">
           <div class="flex flex-wrap items-center gap-2">
-            <span>{entry.home.label} · {entry.home.host.kind === "wsl" ? `WSL · ${entry.home.host.distro}` : "This computer"}</span>
+            <span
+              >{entry.home.label}
+              · {entry.home.host.kind === "wsl" ? `WSL · ${entry.home.host.distro}` : "This computer"}</span
+            >
             {#if probes(entry.home.harness)}
               {#if checking}
                 <span class="chip preset-tonal text-[10px] text-surface-500" data-testid="home-login">Checking…</span>
@@ -162,29 +165,38 @@ async function add() {
                 <span
                   class="chip preset-tonal text-[10px] text-surface-500"
                   data-testid="home-login"
-                  title={login?.message ?? "The login could not be checked."}>Login unknown</span
+                  title={login?.message ?? "The login could not be checked."}
+                  >Login unknown</span
                 >
               {/if}
             {/if}
           </div>
           <div class="truncate font-mono text-surface-500" title={entry.home.configDir}>{entry.home.configDir}</div>
-          {#if entry.error}<p class="mt-1 text-error-500">{entry.error}</p>{/if}
+          {#if entry.error}
+            <p class="mt-1 text-error-500">{entry.error}</p>
+          {/if}
         </div>
-        {#if entry.home.isDefault}<span class="text-surface-500">Default</span>
-        {:else}<button
+        {#if entry.home.isDefault}
+          <span class="text-surface-500">Default</span>
+        {:else}
+          <button
             class="btn btn-sm preset-tonal"
             disabled={action.busy}
-            onclick={() => action.run(() => chooseDefaultHome(entry.home.id))}>Make default</button
-          >{/if}
+            onclick={() => action.run(() => chooseDefaultHome(entry.home.id))}
+          >
+            Make default
+          </button>
+        {/if}
         <button
           class="btn btn-sm preset-tonal"
           data-testid="home-edit"
           disabled={action.busy}
           onclick={() => openEditor(entry.home.id, entry.home.configDir, entry.home.binary, entry.home.label)}
-          >{editing === entry.home.id ? "Cancel" : "Edit"}</button
         >
+          {editing === entry.home.id ? "Cancel" : "Edit"}
+        </button>
         <button
-          class="btn btn-sm {confirming === entry.home.id ? 'preset-filled-error-500' : 'preset-tonal'}"
+          class="btn btn-sm {confirming === entry.home.id ? "preset-filled-error-500" : "preset-tonal"}"
           data-testid="home-remove"
           disabled={action.busy}
           onclick={() => {
@@ -194,8 +206,10 @@ async function add() {
               editing = null;
               confirming = entry.home.id;
             }
-          }}>{confirming === entry.home.id ? "Confirm remove" : "Remove"}</button
+          }}
         >
+          {confirming === entry.home.id ? "Confirm remove" : "Remove"}
+        </button>
       </div>
       {#if action.error && (editing === entry.home.id || confirming === entry.home.id)}
         <p role="alert" class="text-error-500">{action.error}</p>
@@ -222,9 +236,9 @@ async function add() {
             (value) => (editBinary = value),
             HARNESS_INFO[entry.home.harness].configDirEditable,
           )}
-          <button class="btn btn-sm preset-filled-primary-500" type="submit" disabled={action.busy}
-            >{action.busy ? "Saving…" : "Save Home"}</button
-          >
+          <button class="btn btn-sm preset-filled-primary-500" type="submit" disabled={action.busy}>
+            {action.busy ? "Saving…" : "Save Home"}
+          </button>
         </form>
       {/if}
     </div>
@@ -246,13 +260,13 @@ async function add() {
             configDir = `~/${HARNESS_INFO[harness].configDir}`;
             binary = HARNESS_INFO[harness].defaultBinary;
           }}
-          >{#each HARNESS_KINDS as kind (kind)}<option value={kind}>{HARNESS_INFO[kind].label}</option>{/each}</select
-        ></label
+        >
+          {#each HARNESS_KINDS as kind (kind)}
+            <option value={kind}>{HARNESS_INFO[kind].label}</option>
+          {/each}
+        </select></label
       >
-      <label class="label text-xs"
-        ><span>Host</span
-        ><HostSelect bind:value={host} /></label
-      >
+      <label class="label text-xs"><span>Host</span><HostSelect bind:value={host} /></label>
     </div>
     {@render fields(
       label,
@@ -263,9 +277,11 @@ async function add() {
       (value) => (binary = value),
       HARNESS_INFO[harness].configDirEditable,
     )}
-    {#if action.error && !editing && !confirming}<p role="alert" class="text-xs text-error-500">{action.error}</p>{/if}
-    <button class="btn btn-sm preset-filled-primary-500" type="submit" disabled={action.busy || !isTauri()}
-      >{action.busy ? "Adding…" : "Add Home"}</button
-    >
+    {#if action.error && !editing && !confirming}
+      <p role="alert" class="text-xs text-error-500">{action.error}</p>
+    {/if}
+    <button class="btn btn-sm preset-filled-primary-500" type="submit" disabled={action.busy || !isTauri()}>
+      {action.busy ? "Adding…" : "Add Home"}
+    </button>
   </form>
 </div>

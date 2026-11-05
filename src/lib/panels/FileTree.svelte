@@ -1,68 +1,68 @@
 <script lang="ts">
-import { ChevronRight, Folder, FolderOpen } from "@lucide/svelte";
-import { commands } from "$lib/services/homeRouting";
-import { errorMessage } from "$lib/utils/errors";
-import { fileIconFor } from "$lib/utils/fileIcons";
+  import { ChevronRight, Folder, FolderOpen } from "@lucide/svelte";
+  import { commands } from "$lib/services/homeRouting";
+  import { errorMessage } from "$lib/utils/errors";
+  import { fileIconFor } from "$lib/utils/fileIcons";
 
-let {
-  root,
-  onOpenFile,
-}: {
-  root: string;
-  onOpenFile: (relativePath: string) => void;
-} = $props();
+  let {
+    root,
+    onOpenFile,
+  }: {
+    root: string;
+    onOpenFile: (relativePath: string) => void;
+  } = $props();
 
-interface TreeNode {
-  name: string;
-  path: string;
-  children: TreeNode[] | null;
-}
-
-let paths = $state<string[] | null>(null);
-let error = $state<string | null>(null);
-let expanded = $state<Record<string, boolean>>({});
-
-$effect(() => {
-  const target = root;
-  paths = null;
-  error = null;
-  expanded = {};
-  commands
-    .listProjectFiles(target)
-    .then((files) => {
-      if (target === root) paths = files;
-    })
-    .catch((cause) => {
-      if (target === root) error = errorMessage(cause);
-    });
-});
-
-const tree = $derived.by(() => {
-  const rootNodes: TreeNode[] = [];
-  const dirs = new Map<string, TreeNode>();
-  for (const filePath of paths ?? []) {
-    const segments = filePath.split("/");
-    let siblings = rootNodes;
-    let prefix = "";
-    for (let index = 0; index < segments.length - 1; index++) {
-      prefix = prefix ? `${prefix}/${segments[index]}` : segments[index];
-      let dir = dirs.get(prefix);
-      if (!dir) {
-        dir = { name: segments[index], path: prefix, children: [] };
-        dirs.set(prefix, dir);
-        siblings.push(dir);
-      }
-      siblings = dir.children!;
-    }
-    siblings.push({ name: segments[segments.length - 1], path: filePath, children: null });
+  interface TreeNode {
+    name: string;
+    path: string;
+    children: TreeNode[] | null;
   }
-  const sortNodes = (nodes: TreeNode[]) => {
-    nodes.sort((a, b) => Number(b.children !== null) - Number(a.children !== null) || a.name.localeCompare(b.name));
-    for (const node of nodes) if (node.children) sortNodes(node.children);
-  };
-  sortNodes(rootNodes);
-  return rootNodes;
-});
+
+  let paths = $state<string[] | null>(null);
+  let error = $state<string | null>(null);
+  let expanded = $state<Record<string, boolean>>({});
+
+  $effect(() => {
+    const target = root;
+    paths = null;
+    error = null;
+    expanded = {};
+    commands
+      .listProjectFiles(target)
+      .then((files) => {
+        if (target === root) paths = files;
+      })
+      .catch((cause) => {
+        if (target === root) error = errorMessage(cause);
+      });
+  });
+
+  const tree = $derived.by(() => {
+    const rootNodes: TreeNode[] = [];
+    const dirs = new Map<string, TreeNode>();
+    for (const filePath of paths ?? []) {
+      const segments = filePath.split("/");
+      let siblings = rootNodes;
+      let prefix = "";
+      for (let index = 0; index < segments.length - 1; index++) {
+        prefix = prefix ? `${prefix}/${segments[index]}` : segments[index];
+        let dir = dirs.get(prefix);
+        if (!dir) {
+          dir = { name: segments[index], path: prefix, children: [] };
+          dirs.set(prefix, dir);
+          siblings.push(dir);
+        }
+        siblings = dir.children!;
+      }
+      siblings.push({ name: segments[segments.length - 1], path: filePath, children: null });
+    }
+    const sortNodes = (nodes: TreeNode[]) => {
+      nodes.sort((a, b) => Number(b.children !== null) - Number(a.children !== null) || a.name.localeCompare(b.name));
+      for (const node of nodes) if (node.children) sortNodes(node.children);
+    };
+    sortNodes(rootNodes);
+    return rootNodes;
+  });
 </script>
 
 {#snippet node(entry: TreeNode, depth: number)}
@@ -72,7 +72,7 @@ const tree = $derived.by(() => {
       style={`padding-left: ${depth * 14 + 8}px`}
       class="flex w-full items-center gap-1.5 rounded py-1 pr-2 text-left text-xs hover:preset-tonal"
     >
-      <ChevronRight size={11} class="shrink-0 text-surface-500 transition {expanded[entry.path] ? 'rotate-90' : ''}" />
+      <ChevronRight size={11} class="shrink-0 text-surface-500 transition {expanded[entry.path] ? "rotate-90" : ""}" />
       {#if expanded[entry.path]}
         <FolderOpen size={13} class="shrink-0 text-surface-500" />
       {:else}

@@ -1,30 +1,30 @@
 <script lang="ts">
-import type { DialogClose } from "$lib/app/dialogs.svelte";
-import DialogShell from "$lib/components/DialogShell.svelte";
-import { BUDGET_PRESETS, parseTokenBudget } from "$lib/thread/goalBudget";
-import { formatTokensShort } from "$lib/utils/format";
+  import type { DialogClose } from "$lib/app/dialogs.svelte";
+  import DialogShell from "$lib/components/DialogShell.svelte";
+  import { BUDGET_PRESETS, parseTokenBudget } from "$lib/thread/goalBudget";
+  import { formatTokensShort } from "$lib/utils/format";
 
-let {
-  current,
-  used,
-  close,
-}: {
-  /** The cap the goal holds now, or null for none. */
-  current: number | null;
-  /** Tokens the goal has spent so far. */
-  used: number;
-  /** `null` lifts the cap; closing with nothing leaves it alone. */
-  close: DialogClose<number | null>;
-} = $props();
+  let {
+    current,
+    used,
+    close,
+  }: {
+    /** The cap the goal holds now, or null for none. */
+    current: number | null;
+    /** Tokens the goal has spent so far. */
+    used: number;
+    /** `null` lifts the cap; closing with nothing leaves it alone. */
+    close: DialogClose<number | null>;
+  } = $props();
 
-// svelte-ignore state_referenced_locally
-let text = $state(current ? formatTokensShort(current) : "");
-const parsed = $derived(parseTokenBudget(text));
-const invalid = $derived(text.trim() !== "" && parsed === null);
+  // svelte-ignore state_referenced_locally
+  let text = $state(current ? formatTokensShort(current) : "");
+  const parsed = $derived(parseTokenBudget(text));
+  const invalid = $derived(text.trim() !== "" && parsed === null);
 
-function save() {
-  if (parsed) close(parsed);
-}
+  function save() {
+    if (parsed) close(parsed);
+  }
 </script>
 
 <DialogShell title="Goal budget" onClose={() => close()}>
@@ -49,13 +49,13 @@ function save() {
         aria-label="Token budget"
         aria-invalid={invalid}
         bind:value={text}
-      />
+      >
     </label>
     <div class="flex flex-wrap gap-1.5">
       {#each BUDGET_PRESETS as preset (preset)}
         <button
           type="button"
-          class="chip {parsed === preset ? 'preset-filled-primary-500' : 'preset-tonal'}"
+          class="chip {parsed === preset ? "preset-filled-primary-500" : "preset-tonal"}"
           onclick={() => (text = formatTokensShort(preset))}
         >
           {formatTokensShort(preset)}

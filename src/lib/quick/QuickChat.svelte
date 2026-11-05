@@ -1,166 +1,166 @@
 <script lang="ts">
-import { ArrowUpRight, ChevronDown, Folder, Send } from "@lucide/svelte";
-import { Menu, Portal } from "@skeletonlabs/skeleton-svelte";
-import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import ModelPopover from "$lib/composer/ModelPopover.svelte";
-import { applyQuickEvent, emptyQuickResponse, type QuickResponse } from "$lib/quick/quickChat";
-import { listModels, startThread, startTurn } from "$lib/services/api";
-import { type CodexEvent, setThreadHandler, startCodexListeners } from "$lib/services/codexEvents.svelte";
-import { commands } from "$lib/services/homeRouting";
-import { isTauri } from "$lib/services/tauri";
-import { requestAutoName } from "$lib/thread/autoName";
-import type { Model, Project } from "$lib/types";
-import { dragRegion } from "$lib/utils/dragRegion";
-import { errorMessage } from "$lib/utils/errors";
+  import { ArrowUpRight, ChevronDown, Folder, Send } from "@lucide/svelte";
+  import { Menu, Portal } from "@skeletonlabs/skeleton-svelte";
+  import { listen } from "@tauri-apps/api/event";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
+  import ModelPopover from "$lib/composer/ModelPopover.svelte";
+  import { applyQuickEvent, emptyQuickResponse, type QuickResponse } from "$lib/quick/quickChat";
+  import { listModels, startThread, startTurn } from "$lib/services/api";
+  import { type CodexEvent, setThreadHandler, startCodexListeners } from "$lib/services/codexEvents.svelte";
+  import { commands } from "$lib/services/homeRouting";
+  import { isTauri } from "$lib/services/tauri";
+  import { requestAutoName } from "$lib/thread/autoName";
+  import type { Model, Project } from "$lib/types";
+  import { dragRegion } from "$lib/utils/dragRegion";
+  import { errorMessage } from "$lib/utils/errors";
 
-let projects = $state<Project[]>([]);
-let models = $state<Model[] | null>(null);
-let modelsError = $state<string | null>(null);
-let selectedPath = $state<string | null>(null);
-let modelId = $state<string | null>(null);
-let effort = $state<string | null>(null);
-let text = $state("");
-let sending = $state(false);
-let error = $state<string | null>(null);
-let threadId = $state<string | null>(null);
-let response = $state<QuickResponse>(emptyQuickResponse());
-let modelMenuOpen = $state(false);
-let inputEl = $state<HTMLTextAreaElement | null>(null);
+  let projects = $state<Project[]>([]);
+  let models = $state<Model[] | null>(null);
+  let modelsError = $state<string | null>(null);
+  let selectedPath = $state<string | null>(null);
+  let modelId = $state<string | null>(null);
+  let effort = $state<string | null>(null);
+  let text = $state("");
+  let sending = $state(false);
+  let error = $state<string | null>(null);
+  let threadId = $state<string | null>(null);
+  let response = $state<QuickResponse>(emptyQuickResponse());
+  let modelMenuOpen = $state(false);
+  let inputEl = $state<HTMLTextAreaElement | null>(null);
 
-const selectedProject = $derived(projects.find((project) => project.path === selectedPath) ?? null);
-const selectedModel = $derived((models ?? []).find((model) => model.id === modelId) ?? null);
-const effortOptions = $derived(selectedModel?.supportedReasoningEfforts ?? []);
-const modelLabel = $derived(selectedModel?.displayName ?? "Model");
+  const selectedProject = $derived(projects.find((project) => project.path === selectedPath) ?? null);
+  const selectedModel = $derived((models ?? []).find((model) => model.id === modelId) ?? null);
+  const effortOptions = $derived(selectedModel?.supportedReasoningEfforts ?? []);
+  const modelLabel = $derived(selectedModel?.displayName ?? "Model");
 
-async function prefetch() {
-  try {
-    const data = await commands.bootstrap();
-    projects = data.projects.filter((project) => !project.archived);
-    if (!selectedPath || !projects.some((project) => project.path === selectedPath)) {
-      selectedPath = projects[0]?.path ?? null;
+  async function prefetch() {
+    try {
+      const data = await commands.bootstrap();
+      projects = data.projects.filter((project) => !project.archived);
+      if (!selectedPath || !projects.some((project) => project.path === selectedPath)) {
+        selectedPath = projects[0]?.path ?? null;
+      }
+    } catch (cause) {
+      error = errorMessage(cause);
     }
-  } catch (cause) {
-    error = errorMessage(cause);
-  }
-  try {
-    const list = await listModels();
-    models = list;
-    if (!modelId) {
-      const preferred = list.find((model) => model.isDefault) ?? list[0];
-      modelId = preferred?.id ?? null;
-      effort = preferred?.defaultReasoningEffort ?? null;
+    try {
+      const list = await listModels();
+      models = list;
+      if (!modelId) {
+        const preferred = list.find((model) => model.isDefault) ?? list[0];
+        modelId = preferred?.id ?? null;
+        effort = preferred?.defaultReasoningEffort ?? null;
+      }
+    } catch (cause) {
+      modelsError = errorMessage(cause);
     }
-  } catch (cause) {
-    modelsError = errorMessage(cause);
   }
-}
 
-function chooseModel(model: Model) {
-  modelId = model.id;
-  effort = model.defaultReasoningEffort;
-  modelMenuOpen = false;
-}
-
-function chooseProject(path: string) {
-  selectedPath = path;
-  // After the menu's own focus restore to its trigger, which runs in a microtask.
-  setTimeout(() => inputEl?.focus());
-}
-
-function reset() {
-  threadId = null;
-  response = emptyQuickResponse();
-  error = null;
-}
-
-function focusInput() {
-  queueMicrotask(() => inputEl?.focus());
-}
-
-async function hideWindow() {
-  if (!isTauri()) return;
-  try {
-    await getCurrentWindow().hide();
-  } catch {
-    // Best-effort: closing the panel should never surface an error.
+  function chooseModel(model: Model) {
+    modelId = model.id;
+    effort = model.defaultReasoningEffort;
+    modelMenuOpen = false;
   }
-}
 
-async function send() {
-  const trimmed = text.trim();
-  if (!trimmed || sending || !selectedPath) return;
-  sending = true;
-  error = null;
-  try {
-    const started = await startThread(selectedPath);
-    threadId = started.id;
-    response = emptyQuickResponse(started.id);
-    await startTurn(
-      started.id,
-      [{ type: "text", text: trimmed }],
-      modelId ? { model: modelId, effort: effort ?? undefined } : undefined,
-    );
-    requestAutoName(started.id, "seed", trimmed);
-    text = "";
-  } catch (cause) {
-    error = errorMessage(cause);
-    response = emptyQuickResponse();
+  function chooseProject(path: string) {
+    selectedPath = path;
+    // After the menu's own focus restore to its trigger, which runs in a microtask.
+    setTimeout(() => inputEl?.focus());
+  }
+
+  function reset() {
     threadId = null;
-  } finally {
-    sending = false;
+    response = emptyQuickResponse();
+    error = null;
   }
-}
 
-async function openFull() {
-  if (!threadId) return;
-  await commands.quickOpenFullThread(threadId);
-  reset();
-  text = "";
-}
-
-function onInputKeydown(event: KeyboardEvent) {
-  if (event.key === "Escape") {
-    event.preventDefault();
-    hideWindow();
-    return;
+  function focusInput() {
+    queueMicrotask(() => inputEl?.focus());
   }
-  if (event.key === "Enter" && !event.shiftKey) {
-    event.preventDefault();
-    send();
+
+  async function hideWindow() {
+    if (!isTauri()) return;
+    try {
+      await getCurrentWindow().hide();
+    } catch {
+      // Best-effort: closing the panel should never surface an error.
+    }
   }
-}
 
-const unsubscribe = setThreadHandler((event: CodexEvent) => {
-  const before = response;
-  response = applyQuickEvent(response, event);
-  // A quick-chat thread lands in the sidebar like any other, so it gets the
-  // same second naming pass once its one turn is done.
-  if (before.streaming && !response.streaming && response.threadId && !response.error) {
-    requestAutoName(response.threadId, "reply");
+  async function send() {
+    const trimmed = text.trim();
+    if (!trimmed || sending || !selectedPath) return;
+    sending = true;
+    error = null;
+    try {
+      const started = await startThread(selectedPath);
+      threadId = started.id;
+      response = emptyQuickResponse(started.id);
+      await startTurn(
+        started.id,
+        [{ type: "text", text: trimmed }],
+        modelId ? { model: modelId, effort: effort ?? undefined } : undefined,
+      );
+      requestAutoName(started.id, "seed", trimmed);
+      text = "";
+    } catch (cause) {
+      error = errorMessage(cause);
+      response = emptyQuickResponse();
+      threadId = null;
+    } finally {
+      sending = false;
+    }
   }
-});
 
-startCodexListeners();
-prefetch();
-focusInput();
+  async function openFull() {
+    if (!threadId) return;
+    await commands.quickOpenFullThread(threadId);
+    reset();
+    text = "";
+  }
 
-// The window is hidden (not destroyed) between activations, so refresh
-// projects/models and refocus each time the shortcut brings it forward.
-let unlistenShown: (() => void) | null = null;
-if (isTauri()) {
-  listen("quickchat://shown", () => {
-    prefetch();
-    focusInput();
-  }).then((off) => {
-    unlistenShown = off;
+  function onInputKeydown(event: KeyboardEvent) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      hideWindow();
+      return;
+    }
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      send();
+    }
+  }
+
+  const unsubscribe = setThreadHandler((event: CodexEvent) => {
+    const before = response;
+    response = applyQuickEvent(response, event);
+    // A quick-chat thread lands in the sidebar like any other, so it gets the
+    // same second naming pass once its one turn is done.
+    if (before.streaming && !response.streaming && response.threadId && !response.error) {
+      requestAutoName(response.threadId, "reply");
+    }
   });
-}
 
-$effect(() => () => {
-  unsubscribe();
-  unlistenShown?.();
-});
+  startCodexListeners();
+  prefetch();
+  focusInput();
+
+  // The window is hidden (not destroyed) between activations, so refresh
+  // projects/models and refocus each time the shortcut brings it forward.
+  let unlistenShown: (() => void) | null = null;
+  if (isTauri()) {
+    listen("quickchat://shown", () => {
+      prefetch();
+      focusInput();
+    }).then((off) => {
+      unlistenShown = off;
+    });
+  }
+
+  $effect(() => () => {
+    unsubscribe();
+    unlistenShown?.();
+  });
 </script>
 
 <div class="flex h-screen flex-col overflow-hidden bg-surface-50-950 text-surface-950-50">
@@ -171,18 +171,14 @@ $effect(() => () => {
   >
     <span class="text-[11px] font-medium text-surface-500">Quick chat</span>
     <Menu positioning={{ placement: "bottom-end" }} onSelect={({ value }) => chooseProject(value)}>
-      <Menu.Trigger
-        class="pill max-w-[220px]"
-      >
+      <Menu.Trigger class="pill max-w-[220px]">
         <Folder size={12} class="shrink-0" />
         <span class="truncate">{selectedProject?.name ?? "Select project"}</span>
         <ChevronDown size={11} class="shrink-0" />
       </Menu.Trigger>
       <Portal>
         <Menu.Positioner>
-          <Menu.Content
-            class="popover-card z-50 max-h-56 w-[240px] min-w-0 gap-0 overflow-y-auto p-1 outline-none"
-          >
+          <Menu.Content class="popover-card z-50 max-h-56 w-[240px] min-w-0 gap-0 overflow-y-auto p-1 outline-none">
             {#if projects.length === 0}
               <p class="px-2 py-2 text-xs text-surface-500">No projects yet.</p>
             {:else}
@@ -220,11 +216,16 @@ $effect(() => () => {
     {/if}
 
     {#if response.text || response.streaming || response.error}
-      <div class="mt-2 max-h-28 overflow-y-auto rounded-lg border border-surface-200-800 bg-surface-100-900 px-3 py-2 text-xs leading-5">
+      <div
+        class="mt-2 max-h-28 overflow-y-auto rounded-lg border border-surface-200-800 bg-surface-100-900 px-3 py-2 text-xs leading-5"
+      >
         {#if response.error}
           <span class="text-error-500">{response.error}</span>
         {:else}
-          <span class="whitespace-pre-wrap">{response.text}</span>{#if response.streaming}<span class="animate-pulse text-surface-500">▍</span>{/if}
+          <span class="whitespace-pre-wrap">{response.text}</span>
+          {#if response.streaming}
+            <span class="animate-pulse text-surface-500">▍</span>
+          {/if}
         {/if}
       </div>
     {/if}
@@ -245,10 +246,7 @@ $effect(() => () => {
 
       <div class="flex items-center gap-2">
         {#if threadId}
-          <button
-            onclick={openFull}
-            class="btn btn-sm preset-tonal inline-flex items-center gap-1.5 text-xs"
-          >
+          <button onclick={openFull} class="btn btn-sm preset-tonal inline-flex items-center gap-1.5 text-xs">
             <ArrowUpRight size={13} />
             Open full thread
           </button>

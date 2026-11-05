@@ -12,65 +12,65 @@
   drive whichever list happened to be open.
 -->
 <script lang="ts" generics="T">
-import type { Snippet } from "svelte";
+  import type { Snippet } from "svelte";
 
-let {
-  items,
-  label,
-  emptyMessage,
-  error = null,
-  scope = null,
-  onPick,
-  onClose,
-  onCount,
-  key,
-  row,
-}: {
-  items: T[];
-  /** Accessible name for the listbox. */
-  label: string;
-  /** Shown when `items` is empty and there is no `error`. */
-  emptyMessage: string;
-  /** Shown instead of the list when the source failed. */
-  error?: string | null;
-  /** Only keys originating inside this element drive the list. */
-  scope?: HTMLElement | null;
-  onPick: (item: T) => void;
-  onClose: () => void;
-  /**
-   * How many results are showing. The composer needs this to decide whether to
-   * swallow Enter: an open-but-empty picker must not eat the keystroke, or
-   * `/notacommand` and `@nothingmatches` become unsendable.
-   */
-  onCount?: (count: number) => void;
-  /** Stable identity for each row, so `{#each}` keys correctly. */
-  key: (item: T) => string;
-  row: Snippet<[T, boolean]>;
-} = $props();
+  let {
+    items,
+    label,
+    emptyMessage,
+    error = null,
+    scope = null,
+    onPick,
+    onClose,
+    onCount,
+    key,
+    row,
+  }: {
+    items: T[];
+    /** Accessible name for the listbox. */
+    label: string;
+    /** Shown when `items` is empty and there is no `error`. */
+    emptyMessage: string;
+    /** Shown instead of the list when the source failed. */
+    error?: string | null;
+    /** Only keys originating inside this element drive the list. */
+    scope?: HTMLElement | null;
+    onPick: (item: T) => void;
+    onClose: () => void;
+    /**
+     * How many results are showing. The composer needs this to decide whether to
+     * swallow Enter: an open-but-empty picker must not eat the keystroke, or
+     * `/notacommand` and `@nothingmatches` become unsendable.
+     */
+    onCount?: (count: number) => void;
+    /** Stable identity for each row, so `{#each}` keys correctly. */
+    key: (item: T) => string;
+    row: Snippet<[T, boolean]>;
+  } = $props();
 
-let active = $state(0);
+  let active = $state(0);
 
-// Results are refetched as the query changes; keep the cursor in range.
-$effect(() => {
-  if (active >= items.length) active = 0;
-});
+  // Results are refetched as the query changes; keep the cursor in range.
+  $effect(() => {
+    if (active >= items.length) active = 0;
+  });
 
-$effect(() => {
-  onCount?.(items.length);
-});
+  $effect(() => {
+    onCount?.(items.length);
+  });
 
-function onWindowKeydown(event: KeyboardEvent) {
-  if (scope && event.target instanceof Node && !scope.contains(event.target)) return;
-  if (event.key === "ArrowDown") {
-    active = Math.min(active + 1, items.length - 1);
-  } else if (event.key === "ArrowUp") {
-    active = Math.max(active - 1, 0);
-  } else if (event.key === "Enter" || event.key === "Tab") {
-    if (items[active]) onPick(items[active]);
-  } else if (event.key === "Escape") {
-    onClose();
+  function onWindowKeydown(event: KeyboardEvent) {
+    if (scope && event.target instanceof Node && !scope.contains(event.target)) return;
+    if (event.key === "ArrowDown") {
+      active = Math.min(active + 1, items.length - 1);
+    } else if (event.key === "ArrowUp") {
+      active = Math.max(active - 1, 0);
+    } else if (event.key === "Enter" || event.key === "Tab") {
+      if (items[active]) onPick(items[active]);
+    } else if (event.key === "Escape") {
+      onClose();
+    }
   }
-}
 </script>
 
 <svelte:window onkeydown={onWindowKeydown} />
@@ -92,8 +92,8 @@ function onWindowKeydown(event: KeyboardEvent) {
         onmouseenter={() => (active = index)}
         onclick={() => onPick(item)}
         class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs {index === active
-          ? 'preset-tonal'
-          : ''}"
+          ? "preset-tonal"
+          : ""}"
       >
         {@render row(item, index === active)}
       </button>

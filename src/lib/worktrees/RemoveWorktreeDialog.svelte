@@ -1,34 +1,34 @@
 <script lang="ts">
-import { AlertTriangle } from "@lucide/svelte";
-import type { DialogClose } from "$lib/app/dialogs.svelte";
-import DialogShell from "$lib/components/DialogShell.svelte";
-import type { WorktreeEntry } from "$lib/types";
-import { basename } from "$lib/utils/path";
-import { isDirty } from "$lib/worktrees/worktrees";
+  import { AlertTriangle } from "@lucide/svelte";
+  import type { DialogClose } from "$lib/app/dialogs.svelte";
+  import DialogShell from "$lib/components/DialogShell.svelte";
+  import type { WorktreeEntry } from "$lib/types";
+  import { basename } from "$lib/utils/path";
+  import { isDirty } from "$lib/worktrees/worktrees";
 
-let {
-  entry,
-  threadCount = 0,
-  close,
-}: {
-  entry: WorktreeEntry;
-  threadCount?: number;
-  /** Resolves `{ force }` once the removal is confirmed. */
-  close: DialogClose<{ force: boolean }>;
-} = $props();
+  let {
+    entry,
+    threadCount = 0,
+    close,
+  }: {
+    entry: WorktreeEntry;
+    threadCount?: number;
+    /** Resolves `{ force }` once the removal is confirmed. */
+    close: DialogClose<{ force: boolean }>;
+  } = $props();
 
-let typed = $state("");
+  let typed = $state("");
 
-const name = $derived(basename(entry.path));
-const dirty = $derived(isDirty(entry.status));
-// A clean worktree removes without ceremony; a dirty one force-removes only
-// after the user retypes its folder name, so it can never happen by a stray click.
-const canRemove = $derived(!dirty || typed.trim() === name);
+  const name = $derived(basename(entry.path));
+  const dirty = $derived(isDirty(entry.status));
+  // A clean worktree removes without ceremony; a dirty one force-removes only
+  // after the user retypes its folder name, so it can never happen by a stray click.
+  const canRemove = $derived(!dirty || typed.trim() === name);
 
-function confirm() {
-  if (!canRemove) return;
-  close({ force: dirty });
-}
+  function confirm() {
+    if (!canRemove) return;
+    close({ force: dirty });
+  }
 </script>
 
 <DialogShell title="Remove worktree" width={460} onClose={() => close()}>
@@ -39,7 +39,11 @@ function confirm() {
     </div>
     <div class="flex items-center justify-between gap-2">
       <span class="text-surface-500">Working tree</span>
-      <span class="font-medium {dirty ? 'text-warning-600 dark:text-warning-400' : 'text-success-600 dark:text-success-400'}">
+      <span
+        class="font-medium {dirty
+          ? "text-warning-600 dark:text-warning-400"
+          : "text-success-600 dark:text-success-400"}"
+      >
         {dirty ? "Uncommitted changes" : "Clean"}
       </span>
     </div>
@@ -58,7 +62,8 @@ function confirm() {
       </div>
       <p class="mt-1 text-xs leading-5 text-surface-600-400">
         Force-removing discards that work permanently. Type
-        <span class="font-mono font-semibold text-surface-900-100">{name}</span> to confirm.
+        <span class="font-mono font-semibold text-surface-900-100">{name}</span>
+        to confirm.
       </p>
       <input
         type="text"
@@ -66,7 +71,7 @@ function confirm() {
         placeholder={name}
         aria-label="Type the worktree folder name to confirm"
         class="mt-2 w-full field font-mono text-sm"
-      />
+      >
     </div>
   {/if}
 

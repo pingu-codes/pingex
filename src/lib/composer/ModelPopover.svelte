@@ -1,38 +1,38 @@
 <script lang="ts">
-import { Check, ChevronDown, Cpu } from "@lucide/svelte";
-import ComposerPopover from "$lib/composer/ComposerPopover.svelte";
-import type { Model, ReasoningEffortOption } from "$lib/types";
+  import { Check, ChevronDown, Cpu } from "@lucide/svelte";
+  import ComposerPopover from "$lib/composer/ComposerPopover.svelte";
+  import type { Model, ReasoningEffortOption } from "$lib/types";
 
-let {
-  open,
-  models,
-  modelsError,
-  modelId,
-  effort,
-  effortOptions,
-  label,
-  onToggle,
-  onChooseModel,
-  onChooseEffort,
-}: {
-  open: boolean;
-  models: Model[] | null;
-  modelsError: string | null;
-  modelId: string | null;
-  effort: string | null;
-  effortOptions: ReasoningEffortOption[];
-  label: string;
-  onToggle: () => void;
-  onChooseModel: (model: Model) => void;
-  onChooseEffort: (effort: string) => void;
-} = $props();
+  let {
+    open,
+    models,
+    modelsError,
+    modelId,
+    effort,
+    effortOptions,
+    label,
+    onToggle,
+    onChooseModel,
+    onChooseEffort,
+  }: {
+    open: boolean;
+    models: Model[] | null;
+    modelsError: string | null;
+    modelId: string | null;
+    effort: string | null;
+    effortOptions: ReasoningEffortOption[];
+    label: string;
+    onToggle: () => void;
+    onChooseModel: (model: Model) => void;
+    onChooseEffort: (effort: string) => void;
+  } = $props();
 
-function retirementLabel(model: Model): string | null {
-  const retirementAt = model.upgradeInfo?.retirementAt;
-  if (retirementAt == null) return null;
-  const date = new Date(retirementAt * 1000);
-  return `Retiring ${date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`;
-}
+  function retirementLabel(model: Model): string | null {
+    const retirementAt = model.upgradeInfo?.retirementAt;
+    if (retirementAt == null) return null;
+    const date = new Date(retirementAt * 1000);
+    return `Retiring ${date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`;
+  }
 </script>
 
 <ComposerPopover
@@ -56,10 +56,7 @@ function retirementLabel(model: Model): string | null {
   {:else}
     <div class="max-h-44 space-y-0.5 overflow-y-auto">
       {#each models as model (model.id)}
-        <button
-          onclick={() => onChooseModel(model)}
-          class="menu-row"
-        >
+        <button onclick={() => onChooseModel(model)} class="menu-row">
           <span class="min-w-0 flex-1">
             <span class="flex items-center gap-1.5">
               <span class="min-w-0 truncate">{model.displayName}</span>
@@ -88,7 +85,9 @@ function retirementLabel(model: Model): string | null {
             <button
               onclick={() => onChooseEffort(option.reasoningEffort)}
               title={option.description}
-              class="rounded-full px-2.5 py-1 text-[11px] capitalize transition {effort === option.reasoningEffort ? 'preset-filled-primary-500' : 'bg-surface-200-800 hover:preset-tonal'}"
+              class="rounded-full px-2.5 py-1 text-[11px] capitalize transition {effort === option.reasoningEffort
+                ? "preset-filled-primary-500"
+                : "bg-surface-200-800 hover:preset-tonal"}"
             >
               {option.reasoningEffort}
             </button>

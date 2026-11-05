@@ -1,23 +1,23 @@
 <!-- A project's override for one integration: inherit, or force it on or off. -->
 <script lang="ts">
-import type { OverrideValue } from "$lib/integrations/integrationsHelpers";
+  import type { OverrideValue } from "$lib/integrations/integrationsHelpers";
 
-let {
-  label,
-  value,
-  inheritLabel,
-  disabled = false,
-  class: className = "",
-  onChange,
-}: {
-  /** Accessible name, e.g. "Setting for github". */
-  label: string;
-  value: OverrideValue;
-  inheritLabel: string;
-  disabled?: boolean;
-  class?: string;
-  onChange: (value: OverrideValue) => void;
-} = $props();
+  let {
+    label,
+    value,
+    inheritLabel,
+    disabled = false,
+    class: className = "",
+    onChange,
+  }: {
+    /** Accessible name, e.g. "Setting for github". */
+    label: string;
+    value: OverrideValue;
+    inheritLabel: string;
+    disabled?: boolean;
+    class?: string;
+    onChange: (value: OverrideValue) => void;
+  } = $props();
 </script>
 
 <select

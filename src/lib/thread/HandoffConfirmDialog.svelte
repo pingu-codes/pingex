@@ -1,39 +1,39 @@
 <script lang="ts">
-import { Copy, TerminalSquare } from "@lucide/svelte";
-import type { DialogClose } from "$lib/app/dialogs.svelte";
-import DialogShell from "$lib/components/DialogShell.svelte";
-import { submitState } from "$lib/utils/actionState.svelte";
+  import { Copy, TerminalSquare } from "@lucide/svelte";
+  import type { DialogClose } from "$lib/app/dialogs.svelte";
+  import DialogShell from "$lib/components/DialogShell.svelte";
+  import { submitState } from "$lib/utils/actionState.svelte";
 
-let {
-  home,
-  threadId,
-  dir,
-  command,
-  copy,
-  launch,
-  close,
-}: {
-  home: string;
-  threadId: string;
-  dir: string;
-  /** The `codex resume` invocation this handoff produces. */
-  command: string;
-  copy: (command: string) => Promise<unknown>;
-  /** Runs the shown command; the backend rebuilds it from the thread. */
-  launch: () => Promise<unknown>;
-  close: DialogClose<true>;
-} = $props();
+  let {
+    home,
+    threadId,
+    dir,
+    command,
+    copy,
+    launch,
+    close,
+  }: {
+    home: string;
+    threadId: string;
+    dir: string;
+    /** The `codex resume` invocation this handoff produces. */
+    command: string;
+    copy: (command: string) => Promise<unknown>;
+    /** Runs the shown command; the backend rebuilds it from the thread. */
+    launch: () => Promise<unknown>;
+    close: DialogClose<true>;
+  } = $props();
 
-let copied = $state(false);
-const action = submitState();
+  let copied = $state(false);
+  const action = submitState();
 
-async function copyCommand() {
-  copied = await action.run(() => copy(command));
-}
+  async function copyCommand() {
+    copied = await action.run(() => copy(command));
+  }
 
-async function launchTerminal() {
-  if (await action.run(() => launch())) close(true);
-}
+  async function launchTerminal() {
+    if (await action.run(() => launch())) close(true);
+  }
 </script>
 
 <DialogShell title="Continue in terminal" width={480} onClose={() => close()}>
@@ -54,7 +54,9 @@ async function launchTerminal() {
       <dd class="min-w-0 flex-1 truncate font-mono text-surface-900-100" title={dir}>{dir}</dd>
     </div>
   </dl>
-  <pre class="mt-3 overflow-x-auto rounded-lg border border-surface-200-800 bg-surface-100-900 px-3 py-2 text-[11px] leading-5 text-surface-800-200"><code>{command}</code></pre>
+  <pre
+    class="mt-3 overflow-x-auto rounded-lg border border-surface-200-800 bg-surface-100-900 px-3 py-2 text-[11px] leading-5 text-surface-800-200"
+  ><code>{command}</code></pre>
 
   {#if action.error}
     <div class="error-note p-3 mt-3">{action.error}</div>

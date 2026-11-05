@@ -6,76 +6,76 @@
   section header — Escape steps back out of a list before it closes the picker.
 -->
 <script lang="ts">
-import PickerList from "$lib/composer/PickerList.svelte";
-import {
-  filterBranches,
-  filterCommits,
-  filterModes,
-  REVIEW_MODES,
-  type ReviewMode,
-  type ReviewModeOption,
-} from "$lib/composer/reviewTargets";
-import { commands } from "$lib/services/homeRouting";
-import type { GitBranch, GitCommit, ReviewTarget } from "$lib/types";
-import { errorMessage } from "$lib/utils/errors";
+  import PickerList from "$lib/composer/PickerList.svelte";
+  import {
+    filterBranches,
+    filterCommits,
+    filterModes,
+    REVIEW_MODES,
+    type ReviewMode,
+    type ReviewModeOption,
+  } from "$lib/composer/reviewTargets";
+  import { commands } from "$lib/services/homeRouting";
+  import type { GitBranch, GitCommit, ReviewTarget } from "$lib/types";
+  import { errorMessage } from "$lib/utils/errors";
 
-let {
-  cwd,
-  query,
-  scope = null,
-  onPick,
-  onClose,
-  onCount,
-  onStageChange,
-}: {
-  cwd: string;
-  /** Anything typed after `/review` opened the picker, used to filter. */
-  query: string;
-  scope?: HTMLElement | null;
-  onPick: (target: ReviewTarget) => void;
-  onClose: () => void;
-  onCount?: (count: number) => void;
-  /** Lets the composer clear the typed filter when the list changes under it. */
-  onStageChange?: () => void;
-} = $props();
+  let {
+    cwd,
+    query,
+    scope = null,
+    onPick,
+    onClose,
+    onCount,
+    onStageChange,
+  }: {
+    cwd: string;
+    /** Anything typed after `/review` opened the picker, used to filter. */
+    query: string;
+    scope?: HTMLElement | null;
+    onPick: (target: ReviewTarget) => void;
+    onClose: () => void;
+    onCount?: (count: number) => void;
+    /** Lets the composer clear the typed filter when the list changes under it. */
+    onStageChange?: () => void;
+  } = $props();
 
-let stage = $state<ReviewMode>("uncommittedChanges");
-let branches = $state<GitBranch[]>([]);
-let commits = $state<GitCommit[]>([]);
-let loadError = $state<string | null>(null);
+  let stage = $state<ReviewMode>("uncommittedChanges");
+  let branches = $state<GitBranch[]>([]);
+  let commits = $state<GitCommit[]>([]);
+  let loadError = $state<string | null>(null);
 
-const stageMode = $derived(REVIEW_MODES.find((mode) => mode.id === stage) ?? REVIEW_MODES[0]);
+  const stageMode = $derived(REVIEW_MODES.find((mode) => mode.id === stage) ?? REVIEW_MODES[0]);
 
-function chooseMode(mode: ReviewModeOption) {
-  if (mode.id === "uncommittedChanges") {
-    onPick({ type: "uncommittedChanges" });
-    return;
+  function chooseMode(mode: ReviewModeOption) {
+    if (mode.id === "uncommittedChanges") {
+      onPick({ type: "uncommittedChanges" });
+      return;
+    }
+    stage = mode.id;
+    loadError = null;
+    onStageChange?.();
+    void load(mode.id);
   }
-  stage = mode.id;
-  loadError = null;
-  onStageChange?.();
-  void load(mode.id);
-}
 
-async function load(mode: ReviewMode) {
-  try {
-    if (mode === "baseBranch") branches = await commands.gitBranches(cwd, null);
-    else commits = await commands.gitRecentCommits(cwd, 50);
-  } catch (cause) {
-    loadError = errorMessage(cause);
+  async function load(mode: ReviewMode) {
+    try {
+      if (mode === "baseBranch") branches = await commands.gitBranches(cwd, null);
+      else commits = await commands.gitRecentCommits(cwd, 50);
+    } catch (cause) {
+      loadError = errorMessage(cause);
+    }
   }
-}
 
-/** Escape steps back to the mode list first, and only then closes. */
-function back() {
-  if (stage === "uncommittedChanges") {
-    onClose();
-    return;
+  /** Escape steps back to the mode list first, and only then closes. */
+  function back() {
+    if (stage === "uncommittedChanges") {
+      onClose();
+      return;
+    }
+    stage = "uncommittedChanges";
+    loadError = null;
+    onStageChange?.();
   }
-  stage = "uncommittedChanges";
-  loadError = null;
-  onStageChange?.();
-}
 </script>
 
 {#if stage === "uncommittedChanges"}
