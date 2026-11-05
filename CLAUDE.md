@@ -1,7 +1,7 @@
 This is a custom desktop frontend for agent CLIs. Codex is the first harness;
 Claude Code and maki (through the generic ACP driver) are specified in
 `features/13-harnesses.md` and `docs/adr/0002-harness-interface.md`.
-Vocabulary is in `CONTEXT.md`.
+Vocabulary is in `GLOSSARY.md`.
 
 A mirror codex source code can be found at `../codex-mirror`
 
@@ -26,7 +26,7 @@ When `src/app.css` or `src/themes/*.css` change, update the system's
 We support three tiers of Codex at once — unstable (mirror `main`), stable
 (latest release) and last stable — recorded with tags and commits in
 `docs/SUPPORTED_VERSIONS.md` (policy: `docs/adr/0001-three-tier-codex-version-support.md`;
-vocabulary: `CONTEXT.md`). The app never branches on the version: an API some
+vocabulary: `GLOSSARY.md`). The app never branches on the version: an API some
 tiers lack is a `Feature` in `src-tauri/src/codex/compat.rs`, probed once and
 its refusal cached. When adopting a newer upstream API, add a `Feature` (with
 `since`), a `*_UNSUPPORTED` constant in `src/lib/services/api.ts`, a row in
@@ -63,7 +63,7 @@ A Home lives on a `Host` (`src-tauri/src/util/host.rs`): native, or a WSL
 distribution when the app runs on Windows. Spawn processes through
 `host.command`, open files through `host.to_local`, and build paths with
 `host.join_str`; never `Path::join` a Linux path or `Command::new` a harness
-directly. Vocabulary in `CONTEXT.md`, mechanics in `features/13-harnesses.md`
+directly. Vocabulary in `GLOSSARY.md`, mechanics in `features/13-harnesses.md`
 ("Hosts"), rationale in `docs/adr/0003-host-per-home.md`.
 
 ## Working efficiently

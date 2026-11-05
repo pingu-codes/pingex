@@ -2,7 +2,7 @@
 
 What each harness remembers between conversations: shown, edited, deleted
 and switched on or off from one page. Vocabulary: **Memory store**, **Memory
-entry** in `CONTEXT.md`.
+entry** in `GLOSSARY.md`.
 
 ## Where it shows
 

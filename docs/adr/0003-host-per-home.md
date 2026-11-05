@@ -27,7 +27,7 @@ process reaper, since killing `wsl.exe` does not reliably kill the Linux
 child. The gain is that native and WSL harnesses run in one window at once,
 with no harness or frontend code checking where anything lives.
 
-The vocabulary is in `CONTEXT.md`; the mechanics are in
+The vocabulary is in `GLOSSARY.md`; the mechanics are in
 `features/13-harnesses.md`, section "Hosts".
 
 ## Considered options

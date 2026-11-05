@@ -644,7 +644,7 @@ export type BootstrapData = {
 };
 
 /**
- *  Something a harness can do beyond the required core (`CONTEXT.md`). This
+ *  Something a harness can do beyond the required core (`GLOSSARY.md`). This
  *  is the declared half, fixed per harness; the frontend reads it (as the
  *  generated `HARNESS_CAPABILITIES`) instead of branching on the kind.
  */

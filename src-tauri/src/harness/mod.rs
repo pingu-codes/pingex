@@ -98,7 +98,7 @@ pub(crate) fn version_below(version: &str, floor: &str) -> bool {
     parse(version) < parse(floor)
 }
 
-/// Something a harness can do beyond the required core (`CONTEXT.md`). This
+/// Something a harness can do beyond the required core (`GLOSSARY.md`). This
 /// is the declared half, fixed per harness; the frontend reads it (as the
 /// generated `HARNESS_CAPABILITIES`) instead of branching on the kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]

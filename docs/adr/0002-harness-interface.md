@@ -21,7 +21,7 @@ is one more driver, and Codex-only features survive as declared extensions
 rather than as the shape everything else has to fit.
 
 The full model is in `features/13-harnesses.md`; the vocabulary (Harness,
-Home, Profile, Driver, Capability) is in `CONTEXT.md`.
+Home, Profile, Driver, Capability) is in `GLOSSARY.md`.
 
 ## Considered options
 

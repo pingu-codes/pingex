@@ -1,7 +1,7 @@
 # Message versions
 
 Editing a user message keeps every version of it. Vocabulary: **Version**,
-**Branch**, **Root thread** in `CONTEXT.md`.
+**Branch**, **Root thread** in `GLOSSARY.md`.
 
 ## Behaviour
 

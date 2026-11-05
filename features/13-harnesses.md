@@ -25,7 +25,7 @@ second frontend.
 
 ## Vocabulary
 
-Defined in `CONTEXT.md`, restated here so the spec reads on its own:
+Defined in `GLOSSARY.md`, restated here so the spec reads on its own:
 
 - **Harness**: the agent CLI being driven. Codex, Claude Code, or any ACP agent.
 - **Home**: one harness's config directory. Today's `CODEX_HOME`; for Claude,
@@ -389,7 +389,7 @@ profile path and the import action.
 
 ## Hosts
 
-A Home lives on a Host (`CONTEXT.md`): `native`, or `wsl(<distro>)` when
+A Home lives on a Host (`GLOSSARY.md`): `native`, or `wsl(<distro>)` when
 Pingex runs as a native Windows app and the harness, its config directory and
 the repositories live inside a WSL distribution. The Host is per Home, so a
 Codex home in Ubuntu and a native Claude coexist in one window. Rationale:

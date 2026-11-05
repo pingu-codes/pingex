@@ -2,7 +2,7 @@
 
 Where the tokens go: by thread, by project, and across the Home. Vocabulary:
 **Usage row**, **Attribution**, **Context composition**, **Opening row** in
-`CONTEXT.md`.
+`GLOSSARY.md`.
 
 ## What it answers
 
