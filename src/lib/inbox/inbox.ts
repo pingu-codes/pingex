@@ -218,8 +218,9 @@ export function initials(login: string): string {
   return letters.toUpperCase();
 }
 
-/** An agent review in flight on the PR, as the panel lists it. */
-export type AgentReviewState = "queued" | "running";
+/** The PR's latest agent review, as the row shows it: in flight, or
+ *  finished ("Agent review ready · N findings"). */
+export type AgentReviewState = "queued" | "running" | "ready";
 
 export type PrimaryActionId =
   | "merge"

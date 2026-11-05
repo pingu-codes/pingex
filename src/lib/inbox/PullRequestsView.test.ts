@@ -110,7 +110,8 @@ describe("Pull requests inbox", () => {
     expect(within(row(415)).getByRole("button", { name: "Respond" })).toBeInTheDocument();
     expect(within(row(418)).getByRole("button", { name: "Fix CI in thread" })).toBeDisabled();
     expect(await within(row(409)).findByRole("button", { name: "Review" })).toBeInTheDocument();
-    expect(within(row(409)).getByText("Agent review running")).toBeInTheDocument();
+    expect(await within(row(409)).findByText(/Agent review ready · 3\s+findings/)).toBeInTheDocument();
+    expect(within(row(401)).getByText("Agent review running")).toBeInTheDocument();
   });
 
   it("selects several rows with ⌘-click, ⇧-click and X, then marks them seen at once", async () => {

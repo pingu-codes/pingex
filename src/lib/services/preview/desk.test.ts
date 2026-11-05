@@ -54,8 +54,11 @@ describe("review desk preview data", () => {
     expect(detail.summary.number).toBe(409);
   });
 
-  it("has agent reviews queued and running", () => {
-    expect(previewAgentReviews.map((review) => review.status).sort()).toEqual(["queued", "running"]);
+  it("has agent reviews queued, running and finished with findings", async () => {
+    expect(previewAgentReviews.map((review) => review.status).sort()).toEqual(["done", "queued", "running"]);
+    const findings = await commands.reviewFindings(MAIN, 409);
+    expect(findings.length).toBeGreaterThan(0);
+    expect(findings.some((finding) => finding.state === "merged")).toBe(true);
   });
 
   describe("activity", () => {
