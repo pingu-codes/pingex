@@ -18,8 +18,8 @@ use std::path::PathBuf;
 
 use super::provider::GitHubProvider;
 use super::types::{
-    CheckLog, CommentRef, GitHubRepo, InboxRead, MergeRequest, NewPr, PrDetail, PrHead, PrSummary,
-    ProviderStatus, ReviewRequests, ReviewSubmission, StackListing,
+    CheckLog, CommentRef, GitHubAccount, GitHubRepo, InboxRead, MergeRequest, NewPr, PrDetail,
+    PrHead, PrSummary, ProviderStatus, ReviewRequests, ReviewSubmission, StackListing,
 };
 use crate::util::host::Host;
 
@@ -51,6 +51,14 @@ impl GitHubProvider for GhCli {
 
     fn repositories_requesting_review(&self) -> Result<Vec<ReviewRequests>, String> {
         repos::repositories_requesting_review(&self.host, &self.dir)
+    }
+
+    fn account(&self) -> Result<GitHubAccount, String> {
+        repos::account(&self.host, &self.dir)
+    }
+
+    fn switch_account(&self, login: &str) -> Result<(), String> {
+        repos::switch_account(&self.host, &self.dir, login)
     }
 
     fn list_open_prs(&self) -> Result<Vec<PrSummary>, String> {

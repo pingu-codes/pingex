@@ -10,8 +10,8 @@ use std::sync::Mutex;
 
 use super::provider::GitHubProvider;
 use super::types::{
-    CheckLog, CommentRef, GitHubRepo, InboxPr, InboxRead, MergeRequest, NewPr, PrDetail, PrHead,
-    PrSummary, ProviderStatus, ReviewRequests, ReviewSubmission, StackListing,
+    CheckLog, CommentRef, GitHubAccount, GitHubRepo, InboxPr, InboxRead, MergeRequest, NewPr,
+    PrDetail, PrHead, PrSummary, ProviderStatus, ReviewRequests, ReviewSubmission, StackListing,
 };
 
 /// One write the fake received.
@@ -151,6 +151,20 @@ impl GitHubProvider for FakeGitHub {
 
     fn repositories_requesting_review(&self) -> Result<Vec<ReviewRequests>, String> {
         Ok(self.state().review_requests.clone())
+    }
+
+    fn account(&self) -> Result<GitHubAccount, String> {
+        let viewer = self.state().viewer.clone();
+        Ok(GitHubAccount {
+            login: Some(viewer.clone()),
+            token_source: Some("keyring".to_string()),
+            logins: vec![viewer],
+        })
+    }
+
+    fn switch_account(&self, login: &str) -> Result<(), String> {
+        self.state().viewer = login.to_string();
+        Ok(())
     }
 
     fn list_open_prs(&self) -> Result<Vec<PrSummary>, String> {

@@ -10,7 +10,7 @@ use super::checkout_types::{BranchProgress, CheckoutTarget, PrCheckout, PruneRep
 use super::desk::ReviewDesk;
 use super::github::GhCli;
 use super::requirements::DeskAction;
-use crate::storage::{self, PrLink, RepositorySettings, ReviewCheckoutPolicy};
+use crate::storage::{self, PrLink, ReviewCheckoutPolicy};
 use crate::AppState;
 
 /// The desk for `repo_dir` on the window's Home, with the Home's directory
@@ -135,16 +135,6 @@ pub(crate) async fn review_prune_closed(
     state: State<'_, AppState>,
 ) -> Result<PruneReport, String> {
     desk(&window, &state, repo_dir).prune_closed().await
-}
-
-#[tauri::command]
-#[specta::specta]
-pub(crate) async fn review_repository_settings(
-    repo_dir: String,
-    window: crate::HomeWindow,
-    state: State<'_, AppState>,
-) -> Result<RepositorySettings, String> {
-    storage::read_repository_settings(&state.ctx(&window).database(), &repo_dir).await
 }
 
 /// Set the review checkout policy and "Don't ask again for <repository>",

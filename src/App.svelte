@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ArrowLeft, RefreshCw, X } from "@lucide/svelte";
+  import { untrack } from "svelte";
   import {
     addWorktreeProject,
     askCodexReview,
@@ -14,7 +15,15 @@
     slashCommand,
     threadCreated,
   } from "$lib/app/actions.svelte";
-  import { addProject, appData, applyData, projectForCwd, projects, refresh } from "$lib/app/appData.svelte";
+  import {
+    addProject,
+    addRepository,
+    appData,
+    applyData,
+    projectForCwd,
+    projects,
+    refresh,
+  } from "$lib/app/appData.svelte";
   import { expectedCwdFor, handoff, movedToWorktree } from "$lib/app/handoff.svelte";
   import {
     browseForHome,
@@ -38,6 +47,7 @@
     openMemories,
     openParentThread,
     openProjectDetail,
+    openPullRequests,
     openReview,
     openThread,
     openThreadById,
@@ -51,12 +61,15 @@
   import VersionBanner from "$lib/app/VersionBanner.svelte";
   import DialogHost from "$lib/components/DialogHost.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
+  import { inboxes, needsYouByRepo, startInboxSync, syncInbox } from "$lib/inbox/inboxStore.svelte";
+  import PullRequestsView from "$lib/inbox/PullRequestsView.svelte";
   import HomePage from "$lib/layout/HomePage.svelte";
   import HomePicker from "$lib/layout/HomePicker.svelte";
   import SettingsView from "$lib/layout/SettingsView.svelte";
   import Sidebar from "$lib/layout/Sidebar.svelte";
   import MemoriesView from "$lib/memories/MemoriesView.svelte";
   import ProjectDetail from "$lib/panels/ProjectDetail.svelte";
+  import EmptyInbox from "$lib/repositories/EmptyInbox.svelte";
   import ReviewView from "$lib/review/ReviewView.svelte";
   import { commands } from "$lib/services/homeRouting";
   import { closeSettings, openSettings, settingsNav } from "$lib/services/settingsNav.svelte";
@@ -79,6 +92,22 @@
 
   startApp();
   init();
+
+  // Repositories with an inbox: each top-level folder (worktrees share
+  // their repository's). Add repository gives them a record of their own.
+  const inboxRepos = $derived(
+    projects()
+      .filter((candidate) => candidate.kind === "folder")
+      .map((candidate) => ({ path: candidate.path, name: candidate.name })),
+  );
+  startInboxSync(() => inboxRepos.map((repo) => repo.path));
+  $effect(() => {
+    const dirs = inboxRepos.map((repo) => repo.path);
+    untrack(() => {
+      for (const dir of dirs) if (!inboxes[dir]) void syncInbox(dir);
+    });
+  });
+  const inboxPath = $derived(view.inboxPath ?? inboxRepos[0]?.path ?? null);
 </script>
 
 {#if launch.phase === "picker" && launch.state}
@@ -111,6 +140,7 @@
         selectedThread={rootThreadId(view.threadId, appData.data?.threadBranches ?? []) ?? view.threadId}
         loading={appData.loading}
         onAddProject={addProject}
+        onAddRepository={addRepository}
         onAddWorkspace={() => openWorkspaceDialog()}
         onSelectThread={openThread}
         onNewThread={newThread}
@@ -118,6 +148,9 @@
         onOpenSettings={() => openSettings("general")}
         onOpenMemories={openMemories}
         memoriesOpen={view.memories}
+        onOpenPullRequests={(path) => openPullRequests(path ?? null)}
+        pullRequestsOpen={view.pullRequests}
+        needsYou={needsYouByRepo()}
         onMenuAction={menuAction}
         sidebarLayout={appData.data?.sidebarLayout}
         onNewFolder={() => newFolder("", null)}
@@ -173,7 +206,11 @@
                 {#if thread?.parentThreadId}
                   Subagent · {thread.agentNickname ?? thread.agentRole ?? thread.title}
                 {:else}
-                  {view.memories ? "Memories" : (thread?.title ?? project?.name ?? "Home")}
+                  {view.memories
+                    ? "Memories"
+                    : view.pullRequests
+                      ? "Pull requests"
+                      : (thread?.title ?? project?.name ?? "Home")}
                 {/if}
               </div>
               {#if project}
@@ -232,10 +269,39 @@
             <MemoriesView />
           {/key}
         </div>
+      {:else if view.pullRequests}
+        <div class="min-h-0 flex-1">
+          {#if inboxPath}
+            {#key inboxPath}
+              <PullRequestsView
+                repos={inboxRepos}
+                repoPath={inboxPath}
+                onSelectRepo={(path) => openPullRequests(path)}
+                handlers={{
+                  openPr: (repoDir, pr) => {
+                    const target = projectForCwd(repoDir);
+                    if (target) openReview(target, pr.number);
+                  },
+                  newThread: (repoDir) => newThreadInDir(repoDir),
+                }}
+              />
+            {/key}
+          {:else}
+            <div class="grid h-full place-items-center p-8">
+              <div class="max-w-sm"><EmptyInbox onAddRepository={() => addRepository()} /></div>
+            </div>
+          {/if}
+        </div>
       {:else if review}
         <div class="min-h-0 flex-1">
           {#key review.path}
-            <ReviewView repoDir={review.path} repoName={review.name} onBack={goHome} onAskCodex={askCodexReview} />
+            <ReviewView
+              repoDir={review.path}
+              repoName={review.name}
+              initialPr={view.reviewPr}
+              onBack={goHome}
+              onAskCodex={askCodexReview}
+            />
           {/key}
         </div>
       {:else if (view.threadId || view.draftCwd) && !appData.error}

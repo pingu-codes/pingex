@@ -7,6 +7,8 @@ import {
   newThreadInDir,
   openGit,
   openProjectDetail,
+  openPullRequests,
+  openReview,
   openThread,
   openThreadInCwd,
   openWorktrees,
@@ -154,5 +156,19 @@ describe("navigation", () => {
     newThreadInDir("/tmp/scratch");
     expect(view.draftCwd).toBe("/tmp/scratch");
     expect(view.projectPath).toBe("/projects/api");
+  });
+
+  it("opens the Pull requests inbox on the repository last shown, and a review on one PR", () => {
+    setView({ projectPath: "/projects/api" });
+    openPullRequests();
+    expect([view.pullRequests, view.inboxPath]).toEqual([true, "/projects/api"]);
+    openPullRequests("/projects/web");
+    goHome();
+    expect(view.pullRequests).toBe(false);
+    openPullRequests();
+    expect(view.inboxPath).toBe("/projects/web");
+
+    openReview(api, 412);
+    expect([view.pullRequests, view.reviewPath, view.reviewPr]).toEqual([false, "/projects/api", 412]);
   });
 });

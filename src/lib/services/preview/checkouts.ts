@@ -8,13 +8,13 @@ import type { CheckoutStep, CheckoutTarget, PrCheckout, PrLink, RepositorySettin
 import type { PreviewCommands } from "./commands";
 import { DESK_VIEWER, deskInbox } from "./desk";
 import { previewPrs } from "./fixtures";
+import { repositoryCommands } from "./repositories";
 
 const HOME = "/Users/ciaran/.codex";
 const RANK: Record<CheckoutStep, number> = { noCheckout: 0, reviewCheckout: 1, worktree: 2 };
 
 const state = {
   checkouts: new Map<string, PrCheckout>(),
-  settings: new Map<string, RepositorySettings>(),
   links: new Map<string, PrLink>(),
 };
 
@@ -26,18 +26,9 @@ const slug = (name: string) =>
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "");
 
+/** The repository's settings, as the Add repository fakes store them. */
 function settingsFor(repoDir: string): RepositorySettings {
-  return (
-    state.settings.get(repoDir) ?? {
-      repoKey: repoDir,
-      setupCommand: "bun install",
-      reviewCheckoutPolicy: "ask",
-      skipCheckoutConfirm: false,
-      worktreeDir: null,
-      prSource: "origin",
-      updatedAt: 0,
-    }
-  );
+  return repositoryCommands.reviewRepositorySettings?.(repoDir) as RepositorySettings;
 }
 
 function reviewCheckoutPath(repoDir: string, target: CheckoutTarget): string {
@@ -76,7 +67,6 @@ export function setPreviewPrLink(link: PrLink): void {
 
 export function resetPreviewCheckouts(): void {
   state.checkouts.clear();
-  state.settings.clear();
   state.links.clear();
 }
 
@@ -139,9 +129,8 @@ export const previewCheckoutCommands: PreviewCommands = {
     state.checkouts.delete(key(repoDir, number));
   },
   reviewPruneClosed: () => ({ removedCheckouts: [], closed: [] }),
-  reviewRepositorySettings: (repoDir) => ({ ...settingsFor(repoDir) }),
   reviewSetCheckoutPolicy(repoDir, policy, skipConfirm) {
-    state.settings.set(repoDir, {
+    repositoryCommands.reviewSaveRepositorySettings?.(repoDir, {
       ...settingsFor(repoDir),
       reviewCheckoutPolicy: policy,
       skipCheckoutConfirm: skipConfirm,

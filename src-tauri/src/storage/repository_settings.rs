@@ -1,6 +1,9 @@
-//! Per-repository settings: the setup command, review checkout policy,
-//! worktree directory and PR source. Keyed by the project's root path as
-//! stored for projects. A repository with no row reads as the defaults.
+//! Per-repository settings: where worktrees go, the setup command, when a
+//! review checkout may be created, and which remote feeds the inbox.
+//!
+//! Keyed by `repo_key`: the project's root path as stored for projects, or
+//! the GitHub `owner/name` of a PRs-only repository, which has no folder. A
+//! repository without a row reads as the defaults.
 
 use serde::{Deserialize, Serialize};
 use turso::{params, Database};
@@ -10,14 +13,14 @@ use crate::util::time::unix_secs;
 
 /// When a review checkout may be created for an action that needs one.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub(crate) enum ReviewCheckoutPolicy {
-    /// Confirm the first time, until "Don't ask again for <repository>".
+    /// Confirm first, unless "Don't ask again" was chosen.
     #[default]
     Ask,
-    /// Create one without asking.
+    /// Create it without asking.
     WhenNeeded,
-    /// Never create one.
+    /// Never create one; such actions are unavailable.
     Never,
 }
 
@@ -39,36 +42,64 @@ impl ReviewCheckoutPolicy {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+/// Which remote's GitHub repository feeds the inbox.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct RepositorySettings {
-    pub(crate) repo_key: String,
-    /// Runs once in a new review checkout, e.g. `bun install`.
-    pub(crate) setup_command: Option<String>,
-    pub(crate) review_checkout_policy: ReviewCheckoutPolicy,
-    /// "Don't ask again for <repository>".
-    pub(crate) skip_checkout_confirm: bool,
-    /// Where new worktrees go; `None` is the app default.
-    pub(crate) worktree_dir: Option<String>,
-    /// `origin`, `upstream`, `both` or `none`.
-    pub(crate) pr_source: String,
-    pub(crate) updated_at: i64,
+pub(crate) enum PrSource {
+    #[default]
+    Origin,
+    /// A fork's upstream, where its PRs open.
+    Upstream,
+    Both,
+    /// No inbox: threads and worktrees only.
+    None,
 }
 
-impl RepositorySettings {
-    pub(crate) fn defaults(repo_key: &str) -> Self {
-        Self {
-            repo_key: repo_key.to_string(),
-            setup_command: None,
-            review_checkout_policy: ReviewCheckoutPolicy::Ask,
-            skip_checkout_confirm: false,
-            worktree_dir: None,
-            pr_source: "origin".to_string(),
-            updated_at: 0,
+impl PrSource {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Origin => "origin",
+            Self::Upstream => "upstream",
+            Self::Both => "both",
+            Self::None => "none",
+        }
+    }
+
+    fn parse(value: &str) -> Self {
+        match value {
+            "upstream" => Self::Upstream,
+            "both" => Self::Both,
+            "none" => Self::None,
+            _ => Self::Origin,
         }
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RepositorySettings {
+    pub(crate) repo_key: String,
+    /// Run once in a new review checkout or worktree, e.g. `bun install`.
+    pub(crate) setup_command: Option<String>,
+    pub(crate) review_checkout_policy: ReviewCheckoutPolicy,
+    /// "Don't ask again for <repository>" on the checkout confirmation.
+    pub(crate) skip_checkout_confirm: bool,
+    /// Where new worktrees go; `None` for the app default.
+    pub(crate) worktree_dir: Option<String>,
+    pub(crate) pr_source: PrSource,
+    /// Unix seconds; 0 for a repository with nothing stored.
+    pub(crate) updated_at: i64,
+}
+
+/// `None` for an empty or blank value.
+fn non_blank(value: &Option<String>) -> Option<&str> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+/// The stored settings for `repo_key`, or the defaults.
 pub(crate) async fn read_repository_settings(
     database: &Database,
     repo_key: &str,
@@ -87,15 +118,19 @@ pub(crate) async fn read_repository_settings(
                 review_checkout_policy: ReviewCheckoutPolicy::parse(&db::text(row, 1)?),
                 skip_checkout_confirm: db::flag(row, 2)?,
                 worktree_dir: db::opt_text(row, 3)?,
-                pr_source: db::text(row, 4)?,
+                pr_source: PrSource::parse(&db::text(row, 4)?),
                 updated_at: db::int(row, 5)?,
             })
         },
     )
     .await?;
-    Ok(stored.unwrap_or_else(|| RepositorySettings::defaults(repo_key)))
+    Ok(stored.unwrap_or_else(|| RepositorySettings {
+        repo_key: repo_key.to_string(),
+        ..RepositorySettings::default()
+    }))
 }
 
+/// Store every field of `settings`, blank text as `NULL`.
 pub(crate) async fn write_repository_settings(
     database: &Database,
     settings: &RepositorySettings,
@@ -115,10 +150,10 @@ pub(crate) async fn write_repository_settings(
              updated_at = excluded.updated_at",
         params![
             settings.repo_key.as_str(),
-            settings.setup_command.as_deref(),
+            non_blank(&settings.setup_command),
             settings.review_checkout_policy.as_str(),
             i64::from(settings.skip_checkout_confirm),
-            settings.worktree_dir.as_deref(),
+            non_blank(&settings.worktree_dir),
             settings.pr_source.as_str(),
             unix_secs()
         ],
@@ -129,35 +164,62 @@ pub(crate) async fn write_repository_settings(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::open;
 
     #[tokio::test]
-    async fn a_repository_without_settings_reads_as_the_defaults_until_saved() {
-        let directory = tempfile::tempdir().unwrap();
-        let database = open(directory.path()).await.unwrap();
-        let settings = read_repository_settings(&database, "/r").await.unwrap();
-        assert_eq!(settings.review_checkout_policy, ReviewCheckoutPolicy::Ask);
-        assert!(!settings.skip_checkout_confirm);
+    async fn a_repository_with_nothing_stored_reads_as_the_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let database = crate::storage::open(dir.path()).await.unwrap();
 
-        let mut changed = settings.clone();
-        changed.review_checkout_policy = ReviewCheckoutPolicy::WhenNeeded;
-        changed.setup_command = Some("bun install".into());
-        write_repository_settings(&database, &changed)
+        let settings = read_repository_settings(&database, "/code/pingex")
             .await
             .unwrap();
 
-        let read = read_repository_settings(&database, "/r").await.unwrap();
+        assert_eq!(settings.repo_key, "/code/pingex");
+        assert_eq!(settings.review_checkout_policy, ReviewCheckoutPolicy::Ask);
+        assert_eq!(settings.pr_source, PrSource::Origin);
+        assert_eq!(settings.setup_command, None);
+        assert!(!settings.skip_checkout_confirm);
+    }
+
+    #[tokio::test]
+    async fn stores_and_replaces_a_repositorys_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let database = crate::storage::open(dir.path()).await.unwrap();
+        let settings = RepositorySettings {
+            repo_key: "/code/pingex".into(),
+            setup_command: Some("bun install".into()),
+            review_checkout_policy: ReviewCheckoutPolicy::WhenNeeded,
+            skip_checkout_confirm: true,
+            worktree_dir: Some("~/worktrees/pingex".into()),
+            pr_source: PrSource::Upstream,
+            updated_at: 0,
+        };
+        write_repository_settings(&database, &settings)
+            .await
+            .unwrap();
+        let stored = read_repository_settings(&database, "/code/pingex")
+            .await
+            .unwrap();
+        assert_eq!(stored.setup_command.as_deref(), Some("bun install"));
         assert_eq!(
-            read.review_checkout_policy,
+            stored.review_checkout_policy,
             ReviewCheckoutPolicy::WhenNeeded
         );
-        assert_eq!(read.setup_command.as_deref(), Some("bun install"));
-        assert_eq!(
-            read_repository_settings(&database, "/other")
-                .await
-                .unwrap()
-                .review_checkout_policy,
-            ReviewCheckoutPolicy::Ask
-        );
+        assert_eq!(stored.pr_source, PrSource::Upstream);
+        assert!(stored.skip_checkout_confirm && stored.updated_at > 0);
+
+        let cleared = RepositorySettings {
+            setup_command: Some("  ".into()),
+            review_checkout_policy: ReviewCheckoutPolicy::Never,
+            ..stored
+        };
+        write_repository_settings(&database, &cleared)
+            .await
+            .unwrap();
+        let stored = read_repository_settings(&database, "/code/pingex")
+            .await
+            .unwrap();
+        assert_eq!(stored.setup_command, None);
+        assert_eq!(stored.review_checkout_policy, ReviewCheckoutPolicy::Never);
     }
 }

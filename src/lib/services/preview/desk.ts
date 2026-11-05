@@ -8,22 +8,23 @@
 // `ciaran` throughout. Extend these records rather than adding parallel ones,
 // so every desk screen shows the same repositories and PRs.
 
-import type { CheckoutStep, HarnessKind, Inbox, InboxPr, PrComment, PrDetail, StackListing } from "$lib/types";
+import type {
+  CheckoutStep,
+  FeedEntry,
+  HarnessKind,
+  Inbox,
+  InboxPr,
+  NeedsMe,
+  PrComment,
+  PrDetail,
+  PrTriage,
+  Repository,
+  StackListing,
+} from "$lib/types";
 import { inboxPr } from "./factories";
 import { previewInbox, previewPrDetail } from "./fixtures";
 
 export const DESK_VIEWER = "ciaran";
-
-/** A repository as the desk shows it. Stands in until Add repository gives
- *  the backend a repository record. */
-export type PreviewRepository = {
-  /** `owner/name`; empty with no GitHub remote. */
-  slug: string;
-  name: string;
-  /** The clone's folder; `null` for a PRs-only repository. */
-  path: string | null;
-  state: "cloned" | "prsOnly" | "noRemote";
-};
 
 /** An agent review in flight. Stands in until agent reviews have a backend
  *  record. */
@@ -39,16 +40,37 @@ export type PreviewAgentReview = {
   startedAt: number | null;
 };
 
-export const DESK_REPOS: PreviewRepository[] = [
-  { slug: "ciaran/codex-custom", name: "codex-custom", path: "/Users/ciaran/Projects/codex-custom", state: "cloned" },
-  {
-    slug: "ciaran/arctic-explorer",
-    name: "arctic-explorer",
-    path: "/Users/ciaran/Projects/arctic-explorer",
+/** A clone at `path` fed by its `origin`, `slug`. */
+function cloned(slug: string, path: string): Repository {
+  return {
+    key: path,
+    name: path.split("/").at(-1) ?? path,
+    slug,
+    path,
     state: "cloned",
+    feeds: [{ remote: "origin", slug, onlyMine: false }],
+  };
+}
+
+export const DESK_REPOS: Repository[] = [
+  cloned("ciaran/codex-custom", "/Users/ciaran/Projects/codex-custom"),
+  cloned("ciaran/arctic-explorer", "/Users/ciaran/Projects/arctic-explorer"),
+  {
+    key: "openai/codex",
+    name: "codex",
+    slug: "openai/codex",
+    path: null,
+    state: "prsOnly",
+    feeds: [{ remote: "", slug: "openai/codex", onlyMine: false }],
   },
-  { slug: "openai/codex", name: "codex", path: null, state: "prsOnly" },
-  { slug: "", name: "notes", path: "/Users/ciaran/Projects/notes", state: "noRemote" },
+  {
+    key: "/Users/ciaran/Projects/notes",
+    name: "notes",
+    slug: "",
+    path: "/Users/ciaran/Projects/notes",
+    state: "noRemote",
+    feeds: [],
+  },
 ];
 
 const url = (slug: string, number: number) => `https://github.com/${slug}/pull/${number}`;
@@ -100,6 +122,8 @@ const mainPrs: InboxPr[] = [
     maintainerCanModify: true,
     reviewDecision: "REVIEW_REQUIRED",
     reviewRequests: [DESK_VIEWER],
+    // Approved, then two more commits and a re-request.
+    reviews: [{ author: DESK_VIEWER, state: "APPROVED", commit: sha(400) }],
   }),
   inboxPr({
     number: 403,
@@ -125,6 +149,15 @@ const mainPrs: InboxPr[] = [
     additions: 86,
     deletions: 12,
     changedFiles: 2,
+  }),
+  // Someone else's, not asking me: only under Everyone.
+  inboxPr({
+    number: 420,
+    title: "Bump vitest to 4.1",
+    author: "tomasz",
+    headRef: "tomasz/vitest-4.1",
+    reviewDecision: "REVIEW_REQUIRED",
+    reviewRequests: ["mira-k"],
   }),
 ];
 
@@ -244,6 +277,9 @@ const codexPrs: InboxPr[] = [
 
 type RepoData = { inbox: Inbox; stacks: StackListing; details: Map<number, PrDetail> };
 
+const SYNCED_AT = Date.parse("2026-11-05T10:00:00Z");
+const minutesAgo = (minutes: number) => SYNCED_AT - minutes * 60_000;
+
 function inbox(slug: string, prs: InboxPr[]): Inbox {
   return {
     repo: slug,
@@ -252,8 +288,97 @@ function inbox(slug: string, prs: InboxPr[]): Inbox {
     events: [],
     rateLimit: { cost: 1, remaining: 4990, resetAt: "2026-11-05T11:00:00Z" },
     complete: true,
-    syncedAt: Date.parse("2026-11-05T10:00:00Z"),
+    syncedAt: SYNCED_AT,
+    triage: [],
+    counts: { needsMe: 0, mine: 0, reviewRequested: 0, everyone: 0 },
+    feed: [],
   };
+}
+
+/** Commits since my latest review, which the backend counts in the clone. */
+const COMMITS_SINCE_MY_REVIEW = new Map([[401, 2]]);
+
+/** "Since you last looked" for the main repository, newest first. */
+const MAIN_FEED: Omit<FeedEntry, "id">[] = [
+  { number: 415, kind: "reviewed", actor: "mira-k", state: "CHANGES_REQUESTED", at: minutesAgo(12) },
+  { number: 418, kind: "checksFailed", actor: null, state: null, at: minutesAgo(60) },
+  { number: 401, kind: "pushed", actor: "jo-r", state: null, at: minutesAgo(120) },
+  { number: 401, kind: "reviewRequested", actor: null, state: null, at: minutesAgo(120) },
+  { number: 412, kind: "reviewed", actor: "mira-k", state: "APPROVED", at: minutesAgo(180) },
+];
+
+// The seen state the activity fakes keep, per repository slug.
+const feeds = new Map<string, FeedEntry[]>();
+const muted = new Map<string, Map<number, string>>();
+
+/** Back to the seeded feed and no mutes. Tests call it between cases. */
+export function resetDeskActivity() {
+  feeds.clear();
+  muted.clear();
+  feeds.set(
+    "ciaran/codex-custom",
+    MAIN_FEED.map((entry, index) => ({ ...entry, id: String(MAIN_FEED.length - index) })),
+  );
+}
+resetDeskActivity();
+
+/** The desk service's Needs me rules (`review/desk/sync.rs`), for the fakes. */
+function needsMe(pr: InboxPr, viewer: string): NeedsMe | null {
+  if (pr.author !== viewer) return pr.reviewRequests.includes(viewer) ? "reviewRequested" : null;
+  if (pr.reviewDecision === "CHANGES_REQUESTED") return "changesRequested";
+  if (pr.checks === "FAILURE" || pr.checks === "ERROR") return "checksFailing";
+  if (pr.unresolvedThreads > 0) return "unresolved";
+  if (!pr.isDraft && pr.reviewDecision === "APPROVED" && (pr.checks === null || pr.checks === "SUCCESS"))
+    return "readyToMerge";
+  return null;
+}
+
+function withActivity(base: Inbox): Inbox {
+  const feed = feeds.get(base.repo) ?? [];
+  const mutes = muted.get(base.repo) ?? new Map<number, string>();
+  const triage: PrTriage[] = base.prs.map((pr) => {
+    const mine = pr.author === base.viewer;
+    const myReview = pr.reviews.find((review) => review.author === base.viewer) ?? null;
+    const commitsSinceMyReview = myReview?.commit ? (COMMITS_SINCE_MY_REVIEW.get(pr.number) ?? 0) : null;
+    const isMuted = mutes.get(pr.number) === pr.headSha;
+    return {
+      number: pr.number,
+      mine,
+      reviewRequested: !mine && (pr.reviewRequests.includes(base.viewer) || (commitsSinceMyReview ?? 0) > 0),
+      needsMe: isMuted ? null : needsMe(pr, base.viewer),
+      myReview: myReview?.state ?? null,
+      commitsSinceMyReview,
+      newActivity: feed.filter((entry) => entry.number === pr.number).length,
+      muted: isMuted,
+    };
+  });
+  const count = (keep: (entry: PrTriage) => boolean) => triage.filter(keep).length;
+  return {
+    ...base,
+    triage,
+    counts: {
+      needsMe: count((entry) => entry.needsMe !== null),
+      mine: count((entry) => entry.mine),
+      reviewRequested: count((entry) => entry.reviewRequested),
+      everyone: triage.length,
+    },
+    feed: structuredClone(feed),
+  };
+}
+
+export function deskMarkActivitySeen(repoDir: string, numbers: number[]) {
+  const slug = repoData(repoDir).inbox.repo;
+  feeds.set(
+    slug,
+    (feeds.get(slug) ?? []).filter((entry) => !numbers.includes(entry.number)),
+  );
+}
+
+export function deskMutePr(repoDir: string, number: number, headSha: string) {
+  const slug = repoData(repoDir).inbox.repo;
+  const mutes = muted.get(slug) ?? new Map<number, string>();
+  mutes.set(number, headSha);
+  muted.set(slug, mutes);
 }
 
 const unsupported: StackListing = { supported: false, stacks: [] };
@@ -277,7 +402,7 @@ const DATA = new Map<string, RepoData>([
 /** The desk repository a review command's `repoDir` names: its folder, or
  *  its slug for a PRs-only repository. Unknown folders are the main one, so
  *  older preview screens keep working. */
-export function deskRepo(repoDir: string): PreviewRepository {
+export function deskRepo(repoDir: string): Repository {
   return DESK_REPOS.find((repo) => repo.path === repoDir || (repo.slug && repo.slug === repoDir)) ?? DESK_REPOS[0];
 }
 
@@ -289,7 +414,7 @@ function repoData(repoDir: string): RepoData {
 }
 
 export function deskInbox(repoDir: string): Inbox {
-  return structuredClone(repoData(repoDir).inbox);
+  return withActivity(structuredClone(repoData(repoDir).inbox));
 }
 
 export function deskStacks(repoDir: string): StackListing {

@@ -197,15 +197,6 @@ const DDL: &str = "CREATE TABLE IF NOT EXISTS metadata (
      updated_at INTEGER NOT NULL,
      PRIMARY KEY (provider, repo)
  );
- CREATE TABLE IF NOT EXISTS repository_settings (
-     repo_key TEXT PRIMARY KEY,
-     setup_command TEXT,
-     review_checkout_policy TEXT NOT NULL DEFAULT 'ask',
-     skip_checkout_confirm INTEGER NOT NULL DEFAULT 0,
-     worktree_dir TEXT,
-     pr_source TEXT NOT NULL DEFAULT 'origin',
-     updated_at INTEGER NOT NULL
- );
  CREATE TABLE IF NOT EXISTS review_checkouts (
      repo_key TEXT NOT NULL,
      pr_number INTEGER NOT NULL,
@@ -229,6 +220,25 @@ const DDL: &str = "CREATE TABLE IF NOT EXISTS metadata (
      start_sha TEXT,
      created_at INTEGER NOT NULL,
      closed_at INTEGER
+ );
+ CREATE TABLE IF NOT EXISTS review_seen (
+     provider TEXT NOT NULL,
+     repo TEXT NOT NULL,
+     pr_number INTEGER NOT NULL,
+     seen_at INTEGER,
+     muted_head TEXT,
+     PRIMARY KEY (provider, repo, pr_number)
+ );
+ CREATE TABLE IF NOT EXISTS review_feed (
+     provider TEXT NOT NULL,
+     repo TEXT NOT NULL,
+     ordinal INTEGER NOT NULL,
+     pr_number INTEGER NOT NULL,
+     kind TEXT NOT NULL,
+     actor TEXT,
+     state TEXT,
+     at INTEGER NOT NULL,
+     PRIMARY KEY (provider, repo, ordinal)
  );
  CREATE TABLE IF NOT EXISTS project_instructions (
      project_path TEXT PRIMARY KEY,
@@ -332,6 +342,19 @@ const DDL: &str = "CREATE TABLE IF NOT EXISTS metadata (
      scope TEXT NOT NULL,
      parent_id TEXT,
      ordinal INTEGER NOT NULL
+ );
+ CREATE TABLE IF NOT EXISTS repository_settings (
+     repo_key TEXT PRIMARY KEY,
+     setup_command TEXT,
+     review_checkout_policy TEXT NOT NULL DEFAULT 'ask',
+     skip_checkout_confirm INTEGER NOT NULL DEFAULT 0,
+     worktree_dir TEXT,
+     pr_source TEXT NOT NULL DEFAULT 'origin',
+     updated_at INTEGER NOT NULL
+ );
+ CREATE TABLE IF NOT EXISTS review_prs_only_repos (
+     slug TEXT PRIMARY KEY,
+     added_at INTEGER NOT NULL
  );";
 
 /// Columns added after their table shipped. Re-running these on an up-to-date

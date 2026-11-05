@@ -5,6 +5,7 @@ import { closeAllDialogs } from "$lib/app/dialogs.svelte";
 import DialogHost from "$lib/components/DialogHost.svelte";
 import { commands } from "$lib/services/homeRouting";
 import { resetPreviewCheckouts } from "$lib/services/preview/checkouts";
+import { resetPreviewRepositories } from "$lib/services/preview/repositories";
 import ToastHost from "$lib/ToastHost.svelte";
 import { toaster } from "$lib/toaster";
 import type { CheckoutTarget } from "$lib/types";
@@ -28,8 +29,11 @@ function mount() {
 }
 
 describe("CheckoutActions", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     resetPreviewCheckouts();
+    resetPreviewRepositories();
+    const settings = await commands.reviewRepositorySettings(repoDir);
+    await commands.reviewSaveRepositorySettings(repoDir, { ...settings, setupCommand: "bun install" });
     closeAllDialogs();
     toaster.remove();
   });

@@ -25,7 +25,7 @@ const target: CheckoutTarget = {
   mine: false,
   stack: null,
 };
-const input = [{ type: "text" as const, text: "Review this", text_elements: [] }];
+const input = [{ type: "text" as const, text: "Review this" }];
 
 describe("startPrThread", () => {
   beforeEach(() => {

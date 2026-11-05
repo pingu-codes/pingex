@@ -11,6 +11,7 @@
     FolderPlus,
     FolderTree,
     GitBranch,
+    GitPullRequest,
     Layers3,
     ListRestart,
     MessageCircleQuestion,
@@ -44,6 +45,10 @@
     type TreeNode,
   } from "$lib/layout/sidebarTree";
   import UsageMeter from "$lib/layout/UsageMeter.svelte";
+  import type { AddRepositoryInitial } from "$lib/repositories/AddRepositoryDialog.svelte";
+  import RepositoryMark from "$lib/repositories/RepositoryMark.svelte";
+  import { ensureRepositories } from "$lib/repositories/repositoryStore.svelte";
+  import SidebarRepositories from "$lib/repositories/SidebarRepositories.svelte";
   import { STEP_LABELS } from "$lib/review/actions";
   import { ensurePrLinks, prLinks } from "$lib/review/prLinks.svelte";
   import { fileReviewThreads, withoutTaken } from "$lib/review/reviewFiling";
@@ -87,6 +92,7 @@
     sections = [],
     sectionsSupported = false,
     onAddProject,
+    onAddRepository,
     onAddWorkspace,
     onSelectThread,
     onNewThread,
@@ -108,6 +114,9 @@
     unfiledThreads = [],
     onNewThreadInDir,
     onAddWorktreeProject,
+    onOpenPullRequests,
+    pullRequestsOpen = false,
+    needsYou = {},
   }: {
     projects: Project[];
     account: Account | null;
@@ -119,6 +128,8 @@
     /** False hides every section affordance (older Codex). */
     sectionsSupported?: boolean;
     onAddProject: () => void;
+    /** Opens Add repository; omitted, the sidebar shows no repository UI. */
+    onAddRepository?: (initial?: AddRepositoryInitial) => void;
     onAddWorkspace?: () => void;
     onSelectThread: (project: Project, threadId: string) => void;
     onNewThread: (project?: Project) => void;
@@ -152,6 +163,11 @@
     unfiledThreads?: ThreadSummary[];
     /** Start a draft in an exact directory (an unadded worktree). */
     onNewThreadInDir?: (cwd: string) => void;
+    /** The Pull requests destination, or one repository's inbox; hidden without it. */
+    onOpenPullRequests?: (path?: string) => void;
+    pullRequestsOpen?: boolean;
+    /** PRs that need me, by repository folder, from the last inbox sync. */
+    needsYou?: Record<string, number>;
     /** Add an unadded worktree to the sidebar as a project. */
     onAddWorktreeProject?: (path: string) => void;
   } = $props();
@@ -186,6 +202,10 @@
   );
   $effect(() => {
     if (nesting) ensureWorktrees(repoPaths);
+  });
+  // Each repository's state: cloned, PRs only or no GitHub remote.
+  $effect(() => {
+    if (onAddRepository) void ensureRepositories(repoPaths);
   });
   const nested = $derived(
     nesting
@@ -248,6 +268,7 @@
           testId: "nest-worktrees",
           active: nesting,
         },
+        onAddRepository && { label: "Add repository", icon: GitPullRequest, onclick: () => onAddRepository() },
         { label: "Add project folder", icon: Plus, onclick: onAddProject },
       ] as (HeaderAction | false | undefined)[]
     ).filter((action): action is HeaderAction => Boolean(action)),
@@ -760,6 +781,9 @@
           >{project.name}</TooltipAnchor
         >
         <span class="shrink-0 text-[10px] text-surface-500">{projectHostLabel(project.path)}</span>
+        {#if onAddRepository}
+          <RepositoryMark path={project.path} />
+        {/if}
         {#if project.pinned}
           <Pin class="shrink-0 text-surface-500" size={11} />
         {/if}
@@ -785,6 +809,17 @@
       >
         <Ellipsis size={14} />
       </button>
+      {#if onOpenPullRequests && (needsYou[project.path] ?? 0) > 0}
+        <button
+          type="button"
+          class="status-badge preset-tonal-warning ml-1 shrink-0 group-hover/project:hidden"
+          aria-label="{needsYou[project.path]} need you"
+          title="{needsYou[project.path]} pull requests need you in {project.name}"
+          onclick={() => onOpenPullRequests?.(project.path)}
+        >
+          {needsYou[project.path]}
+        </button>
+      {/if}
       {#if onOpenWorktrees && project.kind !== "multiProject"}
         <div class="ml-1 shrink-0 group-hover/project:hidden">
           <BranchChip path={project.path} onOpen={() => onOpenWorktrees?.(project)} maxWidthClass="max-w-[6rem]" />
@@ -945,6 +980,27 @@
     </div>
   </div>
 
+  {#if onOpenPullRequests}
+    {@const needsYouTotal = Object.values(needsYou).reduce((sum, count) => sum + count, 0)}
+    <div class="px-2 pt-1">
+      <button
+        type="button"
+        onclick={() => onOpenPullRequests()}
+        data-testid="sidebar-pull-requests"
+        aria-current={pullRequestsOpen ? "page" : undefined}
+        class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition {pullRequestsOpen
+          ? "preset-tonal-primary"
+          : "text-surface-600-400 hover:preset-tonal"}"
+      >
+        <GitPullRequest size={14} />
+        <span class="grow">Pull requests</span>
+        {#if needsYouTotal > 0}
+          <span class="status-badge preset-tonal-warning">{needsYouTotal}</span>
+        {/if}
+      </button>
+    </div>
+  {/if}
+
   {#if searching}
     <SidebarSearch
       {projects}
@@ -989,6 +1045,9 @@
             {@render rootNode(node)}
           {/each}
         </div>
+      {/if}
+      {#if onAddRepository && !loading}
+        <SidebarRepositories {onAddRepository} />
       {/if}
     </div>
 
