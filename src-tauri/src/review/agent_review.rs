@@ -69,10 +69,6 @@ impl AgentReviewRequest {
     pub(crate) fn filed_under(&self) -> Option<&CheckoutTarget> {
         self.targets.last()
     }
-
-    pub(crate) fn numbers(&self) -> Vec<i64> {
-        self.targets.iter().map(|target| target.number).collect()
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, specta::Type)]

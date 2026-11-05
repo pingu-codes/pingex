@@ -36,18 +36,24 @@ export function isRetryableError(event: CodexEvent): boolean {
 
 export interface TurnEnd {
   threadId: string;
-  outcome: "completed" | "failed" | "reviewExited";
+  outcome: "completed" | "failed" | "interrupted" | "reviewExited";
 }
 
 /**
  * Whether this event ends the thread's turn, and how. Three things do:
- * `turn/completed`; an `error` Codex is not going to retry (one it will retry
- * leaves the turn running); and leaving review mode.
+ * `turn/completed`, which says in `turn.status` whether the turn finished,
+ * failed (the Claude and maki drivers report errors and refusals only this
+ * way) or was interrupted; an `error` Codex is not going to retry (one it
+ * will retry leaves the turn running); and leaving review mode.
  */
 export function turnEnd(event: CodexEvent): TurnEnd | null {
   const threadId = threadIdOf(event);
   if (!threadId) return null;
-  if (event.method === "turn/completed") return { threadId, outcome: "completed" };
+  if (event.method === "turn/completed") {
+    const status = (event.params as { turn?: { status?: unknown } }).turn?.status;
+    const outcome = status === "failed" ? "failed" : status === "interrupted" ? "interrupted" : "completed";
+    return { threadId, outcome };
+  }
   if (event.method === "error" && !isRetryableError(event)) return { threadId, outcome: "failed" };
   if (reviewTransition(event) === "exited") return { threadId, outcome: "reviewExited" };
   return null;

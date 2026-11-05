@@ -108,6 +108,47 @@ describe("the agent review queue", () => {
     expect((await commands.reviewFindings(repoDir, 412))[0].state).toBe("added");
   });
 
+  it.each(["failed", "interrupted"])("records a run whose turn ended %s as failed", async (status) => {
+    await enqueueAgentReview(repoDir, request(412));
+    await vi.waitFor(() => expect(commands.startTurn).toHaveBeenCalledTimes(1));
+    const threadId = (await vi.mocked(commands.startThread).mock.results[0].value).id as string;
+    // An earlier message held a findings block; the turn then failed.
+    vi.mocked(commands.readThread).mockResolvedValue(
+      finalMessage(
+        threadId,
+        '```json\n[{"path": "src/a.ts", "line": 3, "severity": "low", "title": "Typo", "body": "teh"}]\n```',
+      ) as never,
+    );
+    previewEmit({ method: "turn/completed", params: { threadId, turn: { id: "turn-1", status } } } as never);
+
+    await vi.waitFor(() => expect(statuses()).toEqual(["412:failed"]));
+    expect(await commands.reviewFindings(repoDir, 412)).toEqual([]);
+  });
+
+  it("puts each stack Finding into its own PR's pending review", async () => {
+    const targets = [412, 418].map(target);
+    await enqueueAgentReview(repoDir, { ...request(418), targets, keepDrafts: false });
+    await vi.waitFor(() => expect(commands.startTurn).toHaveBeenCalledTimes(1));
+    const threadId = (await vi.mocked(commands.startThread).mock.results[0].value).id as string;
+    vi.mocked(commands.readThread).mockResolvedValue(
+      finalMessage(
+        threadId,
+        '```json\n[{"pr": 412, "path": "src/a.ts", "line": 3, "severity": "low", "title": "Low", "body": "a"},\n' +
+          '{"pr": 418, "path": "src/b.ts", "line": 4, "severity": "low", "title": "High", "body": "b"}]\n```',
+      ) as never,
+    );
+    previewEmit({ method: "turn/completed", params: { threadId, turn: { id: "turn-1" } } } as never);
+
+    await vi.waitFor(async () => {
+      const lower = await commands.reviewPendingReview(repoDir, 412);
+      expect(lower?.entries).toEqual([expect.objectContaining({ kind: "acceptedFinding", body: "**Low**\n\na" })]);
+      expect(lower?.headSha).toBe(target(412).headSha);
+    });
+    const upper = await commands.reviewPendingReview(repoDir, 418);
+    expect(upper?.entries).toEqual([expect.objectContaining({ kind: "acceptedFinding", body: "**High**\n\nb" })]);
+    expect((await commands.reviewFindings(repoDir, 412))[0].state).toBe("added");
+  });
+
   it("reviews a whole stack as one unit filed under its top PR", async () => {
     const prs = [412, 415, 418].map(
       (number) =>

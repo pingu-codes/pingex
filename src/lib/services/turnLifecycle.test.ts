@@ -51,6 +51,15 @@ describe("turnEnd", () => {
     ).toEqual({ threadId: "t", outcome: "reviewExited" });
   });
 
+  it("reads how a completed turn ended from its status", () => {
+    const ended = (status?: string) =>
+      turnEnd(fakeEvent({ method: "turn/completed", params: { threadId: "t", turn: { id: "u", status } } }))?.outcome;
+    expect(ended("completed")).toBe("completed");
+    expect(ended(undefined)).toBe("completed");
+    expect(ended("failed")).toBe("failed");
+    expect(ended("interrupted")).toBe("interrupted");
+  });
+
   it("keeps the turn running through an error Codex will retry", () => {
     const retry = fakeEvent({ method: "error", params: { threadId: "t", willRetry: true } });
     expect(isRetryableError(retry)).toBe(true);

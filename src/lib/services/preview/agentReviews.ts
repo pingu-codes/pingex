@@ -152,7 +152,9 @@ function enqueue(repoDir: string, request: AgentReviewRequest, sinceSha: string 
 }
 
 /** The last fenced `json` block of `message`, as the contract reads it. */
-function parseBlock(message: string): Omit<Finding, "id" | "agentReviewId" | "headSha" | "prNumber">[] | string {
+function parseBlock(
+  message: string,
+): (Omit<Finding, "id" | "agentReviewId" | "headSha" | "prNumber"> & { pr: number | null })[] | string {
   const blocks = [...message.matchAll(/```json\s*\n([\s\S]*?)\n```/g)];
   const last = blocks.at(-1);
   if (!last) return "The final message has no findings block";
@@ -160,6 +162,7 @@ function parseBlock(message: string): Omit<Finding, "id" | "agentReviewId" | "he
     const listed = JSON.parse(last[1]) as Record<string, unknown>[];
     if (!Array.isArray(listed)) return "The findings block is malformed";
     return listed.map((entry) => ({
+      pr: typeof entry.pr === "number" ? entry.pr : null,
       path: String(entry.path),
       line: Number(entry.line),
       endLine: (entry.endLine as number | undefined) ?? null,
@@ -231,13 +234,17 @@ export const previewAgentReviewCommands: PreviewCommands = {
       entry.parseError = parsed;
       entry.findings = 0;
     } else {
-      const findings = parsed.map((finding, index) => ({
-        ...finding,
-        id: `${id}-${index + 1}`,
-        agentReviewId: id,
-        headSha: entry.headSha,
-        prNumber: entry.number,
-      }));
+      // As the desk files them: under the PR a Finding names, at its head.
+      const findings = parsed.map(({ pr, ...finding }, index) => {
+        const covered = entry.request.targets.find((target) => target.number === pr);
+        return {
+          ...finding,
+          id: `${id}-${index + 1}`,
+          agentReviewId: id,
+          headSha: covered?.headSha ?? entry.headSha,
+          prNumber: covered?.number ?? entry.number,
+        };
+      });
       state.findings = [...state.findings.filter((other) => other.agentReviewId !== id), ...findings];
       entry.findings = findings.length;
     }

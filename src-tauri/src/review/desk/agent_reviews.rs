@@ -22,7 +22,7 @@ use crate::review::agent_review::{
 };
 use crate::review::checkout_types::CheckoutTarget;
 use crate::review::findings::{
-    findings_from_report, parse_findings_block, DismissReason, Finding, FindingState,
+    findings_from_report, parse_findings_block, DismissReason, Finding, FindingState, ReviewedPr,
 };
 use crate::review::requirements::CheckoutStep;
 use crate::review::types::PrDetail;
@@ -207,15 +207,20 @@ impl ReviewDesk {
         };
         match parse_findings_block(&message) {
             Ok(reported) => {
-                let comment_ids = self.comment_ids(review.number).await;
-                let findings = findings_from_report(
-                    &review.id,
-                    &review.head_sha,
-                    review.number,
-                    &review.request.numbers(),
-                    reported,
-                    &comment_ids,
-                );
+                // Each PR of a stack review with its own head and comments.
+                let mut prs = Vec::new();
+                for target in &review.request.targets {
+                    prs.push(ReviewedPr {
+                        number: target.number,
+                        head_sha: if target.number == review.number {
+                            review.head_sha.clone()
+                        } else {
+                            target.head_sha.clone()
+                        },
+                        comment_ids: self.comment_ids(target.number).await,
+                    });
+                }
+                let findings = findings_from_report(&review.id, review.number, &prs, reported);
                 storage::write_findings(&self.database, PROVIDER, &review.repo, &id, &findings)
                     .await?;
                 let count = i64::try_from(findings.len()).unwrap_or(i64::MAX);
@@ -780,6 +785,44 @@ mod tests {
         assert_eq!(review.number, 2);
         assert_eq!(review.head_sha, top.head_sha);
         assert_eq!(review.request.targets.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_stack_reviews_findings_belong_to_their_own_pr_and_its_comments() {
+        let Some(fixture) = fixture().await else {
+            return;
+        };
+        let bottom = fixture.open_pr(1, "a", "a.rs");
+        let top = fixture.open_pr(2, "b", "b.rs");
+        // Comment 501 is on the bottom PR only.
+        detail(&fixture, &bottom);
+        let mut top_detail = detail(&fixture, &top);
+        top_detail.comments.clear();
+        fixture.github.put_detail(2, top_detail);
+        let review = fixture
+            .desk
+            .enqueue_agent_review(request(vec![target(&bottom), target(&top)]))
+            .await
+            .unwrap();
+        fixture.desk.claim_agent_reviews().await.unwrap();
+        let message = "```json\n[\
+            {\"pr\": 1, \"path\": \"a.rs\", \"line\": 1, \"severity\": \"high\", \"title\": \"Repeat\", \"body\": \"x\", \"sameAsCommentId\": 501},\
+            {\"pr\": 2, \"path\": \"b.rs\", \"line\": 1, \"severity\": \"low\", \"title\": \"New\", \"body\": \"y\"}\
+        ]\n```";
+
+        fixture
+            .desk
+            .record_agent_review_result(review.id, Some(message.into()), None)
+            .await
+            .unwrap();
+
+        let lower = fixture.desk.findings(1).await.unwrap();
+        assert_eq!(lower.len(), 1);
+        assert_eq!(lower[0].state, FindingState::Merged);
+        assert_eq!(lower[0].same_as_comment_id, Some(501));
+        assert_eq!(lower[0].head_sha, bottom.head_sha);
+        let upper = fixture.desk.findings(2).await.unwrap();
+        assert_eq!(upper[0].head_sha, top.head_sha);
     }
 
     #[tokio::test]

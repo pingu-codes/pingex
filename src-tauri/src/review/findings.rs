@@ -255,26 +255,37 @@ fn validate(finding: &ReportedFinding) -> Result<(), String> {
     Ok(())
 }
 
-/// The stored Findings of agent review `review_id` at `head_sha`. A Finding
-/// that names one of `comment_ids` (the PR's existing comments) is merged
-/// into it; one naming a comment the PR doesn't have stays a draft, without
-/// the claim. `default_pr` is the PR a Finding without `pr` belongs to;
-/// `prs` are the PRs the review covered.
+/// One PR an agent review covered: its head when the review ran and the ids
+/// of its existing comments.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ReviewedPr {
+    pub(crate) number: i64,
+    pub(crate) head_sha: String,
+    pub(crate) comment_ids: HashSet<i64>,
+}
+
+/// The stored Findings of agent review `review_id`. Each belongs to the PR
+/// it names among `prs` (the PRs the review covered), else to `default_pr`,
+/// and is stamped with that PR's head. A Finding that names one of that PR's
+/// comments is merged into it; one naming a comment the PR doesn't have
+/// stays a draft, without the claim.
 pub(crate) fn findings_from_report(
     review_id: &str,
-    head_sha: &str,
     default_pr: i64,
-    prs: &[i64],
+    prs: &[ReviewedPr],
     reported: Vec<ReportedFinding>,
-    comment_ids: &HashSet<i64>,
 ) -> Vec<Finding> {
     reported
         .into_iter()
         .enumerate()
         .map(|(index, finding)| {
+            let pr = finding
+                .pr
+                .and_then(|number| prs.iter().find(|pr| pr.number == number))
+                .or_else(|| prs.iter().find(|pr| pr.number == default_pr));
             let same_as = finding
                 .same_as_comment_id
-                .filter(|id| comment_ids.contains(id));
+                .filter(|id| pr.is_some_and(|pr| pr.comment_ids.contains(id)));
             let side = match finding.side.as_deref() {
                 Some(side) if side.eq_ignore_ascii_case("left") => "LEFT",
                 _ => "RIGHT",
@@ -282,11 +293,8 @@ pub(crate) fn findings_from_report(
             Finding {
                 id: format!("{review_id}-{}", index + 1),
                 agent_review_id: review_id.to_string(),
-                pr_number: finding
-                    .pr
-                    .filter(|number| prs.contains(number))
-                    .unwrap_or(default_pr),
-                head_sha: head_sha.to_string(),
+                pr_number: pr.map_or(default_pr, |pr| pr.number),
+                head_sha: pr.map(|pr| pr.head_sha.clone()).unwrap_or_default(),
                 path: finding.path,
                 line: finding.line,
                 end_line: finding.end_line.filter(|end| *end > finding.line),
@@ -377,8 +385,12 @@ The weekly reset is computed in UTC.
     #[test]
     fn a_finding_that_repeats_a_human_comment_is_merged_into_it() {
         let reported = parse_findings_block(REPORT).unwrap();
-        let comments = HashSet::from([501, 502]);
-        let findings = findings_from_report("ar1", "abc", 409, &[409], reported, &comments);
+        let pr = ReviewedPr {
+            number: 409,
+            head_sha: "abc".into(),
+            comment_ids: HashSet::from([501, 502]),
+        };
+        let findings = findings_from_report("ar1", 409, &[pr], reported);
         assert_eq!(findings[0].state, FindingState::Draft);
         assert_eq!(findings[0].same_as_comment_id, None);
         assert_eq!(findings[1].state, FindingState::Merged);
@@ -391,7 +403,12 @@ The weekly reset is computed in UTC.
     #[test]
     fn a_claim_to_repeat_a_comment_the_pr_lacks_stays_a_draft() {
         let reported = parse_findings_block(REPORT).unwrap();
-        let findings = findings_from_report("ar1", "abc", 409, &[409], reported, &HashSet::new());
+        let pr = ReviewedPr {
+            number: 409,
+            head_sha: "abc".into(),
+            ..ReviewedPr::default()
+        };
+        let findings = findings_from_report("ar1", 409, &[pr], reported);
         assert_eq!(findings[1].state, FindingState::Draft);
         assert_eq!(findings[1].same_as_comment_id, None);
     }
@@ -400,15 +417,18 @@ The weekly reset is computed in UTC.
     fn a_stack_finding_files_under_the_pr_it_names() {
         let message = "```json\n[{\"path\": \"a.rs\", \"line\": 3, \"severity\": \"low\", \"title\": \"x\", \"pr\": 412},\n {\"path\": \"b.rs\", \"line\": 3, \"severity\": \"low\", \"title\": \"y\", \"pr\": 999}]\n```";
         let reported = parse_findings_block(message).unwrap();
-        let findings = findings_from_report(
-            "ar1",
-            "abc",
-            418,
-            &[412, 415, 418],
-            reported,
-            &HashSet::new(),
-        );
+        let prs: Vec<ReviewedPr> = [(412, "a12"), (415, "a15"), (418, "a18")]
+            .into_iter()
+            .map(|(number, head)| ReviewedPr {
+                number,
+                head_sha: head.into(),
+                ..ReviewedPr::default()
+            })
+            .collect();
+        let findings = findings_from_report("ar1", 418, &prs, reported);
         assert_eq!(findings[0].pr_number, 412);
+        assert_eq!(findings[0].head_sha, "a12");
         assert_eq!(findings[1].pr_number, 418);
+        assert_eq!(findings[1].head_sha, "a18");
     }
 }

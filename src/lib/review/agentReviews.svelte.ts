@@ -17,7 +17,7 @@ import { readThread } from "$lib/services/api";
 import { activeTurns, setThreadHandler } from "$lib/services/codexEvents.svelte";
 import { availableHomes, commands } from "$lib/services/homeRouting";
 import { isTauri } from "$lib/services/tauri";
-import { turnEnd } from "$lib/services/turnLifecycle";
+import { type TurnEnd, turnEnd } from "$lib/services/turnLifecycle";
 import { toastError } from "$lib/toaster";
 import type {
   AgentReview,
@@ -42,7 +42,7 @@ export const DEFAULT_FOCUS: FocusArea[] = ["correctness", "tests"];
 /** Runs whose thread is working, by thread id. */
 const running = new Map<string, AgentReview>();
 /** Threads whose turn ended before the queue knew them (a very fast turn). */
-const endedEarly = new Map<string, "completed" | "failed" | "reviewExited">();
+const endedEarly = new Map<string, TurnEnd["outcome"]>();
 let listening = false;
 let pumping: Promise<void> | null = null;
 
@@ -176,17 +176,23 @@ export function finalMessage(detail: ThreadDetail): string | null {
   return null;
 }
 
-async function collect(
-  review: AgentReview,
-  threadId: string,
-  outcome: "completed" | "failed" | "reviewExited",
-): Promise<void> {
-  if (outcome === "failed") {
-    await finish(review, null, "The agent's turn failed. Open the thread to see why.");
+const FAILED = "The agent's turn failed. Open the thread to see why.";
+const INTERRUPTED = "The agent's turn was stopped before it finished.";
+
+async function collect(review: AgentReview, threadId: string, outcome: TurnEnd["outcome"]): Promise<void> {
+  if (outcome === "failed" || outcome === "interrupted") {
+    await finish(review, null, outcome === "failed" ? FAILED : INTERRUPTED);
     return;
   }
   try {
-    const text = finalMessage(await readThread(threadId));
+    const detail = await readThread(threadId);
+    // A run picked up after a restart has no turn event to go by.
+    const status = detail.turns.at(-1)?.status;
+    if (status === "failed" || status === "interrupted") {
+      await finish(review, null, status === "failed" ? FAILED : INTERRUPTED);
+      return;
+    }
+    const text = finalMessage(detail);
     await finish(review, text, text === null ? "The agent ended without a message" : null);
   } catch (cause) {
     await finish(review, null, errorMessage(cause));
@@ -204,28 +210,31 @@ async function finish(review: AgentReview, message: string | null, error: string
   void pumpAgentReviews();
 }
 
-/** "Keep findings as drafts" off: the run's Findings go straight into the
- *  PR's pending review (still unposted until Submit). */
+/** "Keep findings as drafts" off: the run's Findings go straight into their
+ *  PR's pending review (still unposted until Submit), each PR of a stack
+ *  review its own. */
 async function addToPendingReview(review: AgentReview): Promise<void> {
-  const findings = (await commands.reviewFindings(review.repoDir, review.number)).filter(
-    (finding) => finding.agentReviewId === review.id && finding.state === "draft",
-  );
-  if (findings.length === 0) return;
-  const stored = await commands.reviewPendingReview(review.repoDir, review.number);
-  const pending: PendingReview = stored ?? {
-    headSha: review.headSha,
-    entries: [],
-    summary: "",
-    verdict: "comment",
-    updatedAt: 0,
-  };
-  const entries = findings.map((finding) => acceptedEntry(finding, `acceptedFinding-${finding.id}`));
-  await commands.reviewSavePendingReview(review.repoDir, review.number, {
-    ...pending,
-    entries: [...pending.entries, ...entries],
-  });
-  for (const finding of findings) {
-    await commands.reviewSetFindingState(review.repoDir, finding.id, "added", null, null);
+  for (const target of review.request.targets) {
+    const findings = (await commands.reviewFindings(review.repoDir, target.number)).filter(
+      (finding) => finding.agentReviewId === review.id && finding.state === "draft",
+    );
+    if (findings.length === 0) continue;
+    const stored = await commands.reviewPendingReview(review.repoDir, target.number);
+    const pending: PendingReview = stored ?? {
+      headSha: target.number === review.number ? review.headSha : target.headSha,
+      entries: [],
+      summary: "",
+      verdict: "comment",
+      updatedAt: 0,
+    };
+    const entries = findings.map((finding) => acceptedEntry(finding, `acceptedFinding-${finding.id}`));
+    await commands.reviewSavePendingReview(review.repoDir, target.number, {
+      ...pending,
+      entries: [...pending.entries, ...entries],
+    });
+    for (const finding of findings) {
+      await commands.reviewSetFindingState(review.repoDir, finding.id, "added", null, null);
+    }
   }
 }
 
