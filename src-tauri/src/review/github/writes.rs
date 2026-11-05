@@ -363,9 +363,56 @@ pub(crate) fn create_pr(host: &Host, dir: &Path, slug: &str, pr: &NewPr) -> Resu
         .ok_or_else(|| "GitHub did not say which pull request it opened".to_string())
 }
 
+fn rename_branch_args(slug: &str, from: &str, to: &str) -> Result<Vec<String>, String> {
+    let (from, to) = (require_branch(from)?, require_branch(to)?);
+    Ok(strings(&[
+        "api",
+        "--method",
+        "POST",
+        &format!("repos/{slug}/branches/{from}/rename"),
+        "-f",
+        &format!("new_name={to}"),
+    ]))
+}
+
+/// Rename a git branch on GitHub (`POST /repos/{o}/{r}/branches/{b}/rename`):
+/// open PRs from or onto it follow the new name.
+pub(crate) fn rename_branch(
+    host: &Host,
+    dir: &Path,
+    slug: &str,
+    from: &str,
+    to: &str,
+) -> Result<(), String> {
+    let args = rename_branch_args(slug, from, to)?;
+    write(
+        host,
+        dir,
+        &args,
+        "Could not rename the git branch on GitHub",
+    )
+    .map(drop)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn renaming_a_git_branch_posts_to_the_rename_endpoint() {
+        assert_eq!(
+            rename_branch_args("pingex/desk", "feat/old", "feat/new").unwrap(),
+            vec![
+                "api",
+                "--method",
+                "POST",
+                "repos/pingex/desk/branches/feat/old/rename",
+                "-f",
+                "new_name=feat/new"
+            ]
+        );
+        assert!(rename_branch_args("pingex/desk", "feat/old", "--force").is_err());
+    }
 
     #[test]
     fn a_review_is_pinned_to_the_head_it_was_written_against() {

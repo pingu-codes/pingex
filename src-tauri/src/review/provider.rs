@@ -78,4 +78,7 @@ pub(crate) trait GitHubProvider: Send + Sync {
     fn rerun_failed_checks(&self, number: i64) -> Result<(), String>;
     /// Open a PR and return its number.
     fn create_pr(&self, pr: &NewPr) -> Result<i64, String>;
+    /// Rename a git branch on GitHub. PRs whose head or base it is follow
+    /// the new name.
+    fn rename_branch(&self, from: &str, to: &str) -> Result<(), String>;
 }

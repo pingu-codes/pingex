@@ -44,6 +44,10 @@ pub(crate) enum Sent {
     MarkReady(i64),
     RerunFailedChecks(i64),
     CreatePr(NewPr),
+    RenameBranch {
+        from: String,
+        to: String,
+    },
 }
 
 #[derive(Default)]
@@ -321,5 +325,21 @@ impl GitHubProvider for FakeGitHub {
             ..InboxPr::default()
         });
         Ok(number)
+    }
+
+    fn rename_branch(&self, from: &str, to: &str) -> Result<(), String> {
+        self.record(Sent::RenameBranch {
+            from: from.to_string(),
+            to: to.to_string(),
+        })?;
+        for pr in self.state().prs.iter_mut() {
+            if pr.head_ref == from {
+                pr.head_ref = to.to_string();
+            }
+            if pr.base_ref == from {
+                pr.base_ref = to.to_string();
+            }
+        }
+        Ok(())
     }
 }

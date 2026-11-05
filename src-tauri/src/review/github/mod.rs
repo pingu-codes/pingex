@@ -135,4 +135,8 @@ impl GitHubProvider for GhCli {
     fn create_pr(&self, pr: &NewPr) -> Result<i64, String> {
         writes::create_pr(&self.host, &self.dir, &self.repo()?, pr)
     }
+
+    fn rename_branch(&self, from: &str, to: &str) -> Result<(), String> {
+        writes::rename_branch(&self.host, &self.dir, &self.repo()?, from, to)
+    }
 }
