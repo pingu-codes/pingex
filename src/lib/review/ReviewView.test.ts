@@ -1,73 +1,46 @@
-import { render, screen, waitFor } from "@testing-library/svelte";
+import { render, screen, waitFor, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import ReviewView from "$lib/review/ReviewView.svelte";
-import { commands } from "$lib/services/homeRouting";
-
-vi.mock("$lib/services/homeRouting", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
-  return {
-    ...actual,
-    commands: {
-      ...actual.commands,
-      reviewPrDetail: vi.fn(actual.commands.reviewPrDetail),
-      reviewLoadDraft: vi.fn(actual.commands.reviewLoadDraft),
-    },
-  };
-});
 
 // In browser mode (isTauri() === false) the review API serves preview fixtures,
 // so the whole view renders without Tauri.
 describe("ReviewView", () => {
-  it("lists open PRs and opens one into the three-pane view", async () => {
+  it("lists open PRs and opens one onto the review page", async () => {
     const user = userEvent.setup();
     render(ReviewView, { repoDir: "/repo", repoName: "repo", onBack: vi.fn(), onAskCodex: vi.fn() });
 
-    // Picker lists the fixture PRs.
-    await waitFor(() => expect(screen.getByText(/Add pull-request review view/)).toBeInTheDocument());
+    await user.click(await screen.findByText(/Add pull-request review view/));
 
-    await user.click(screen.getByText(/Add pull-request review view/));
-
-    // Three-pane view: the changed file and the review panel are present.
-    await waitFor(() => expect(screen.getAllByText("src/lib/loader.ts").length).toBeGreaterThan(0));
-    expect(screen.getByRole("button", { name: "Ask Codex" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Start review" })).toBeInTheDocument();
+    await screen.findByRole("heading", { name: "Add pull-request review view" });
+    expect(screen.getByRole("region", { name: "src/lib/loader.ts" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Your review" })).toBeInTheDocument();
   });
 
-  it("asks Codex to review with a prompt containing the diff", async () => {
+  it("asks an agent about selected lines with a prompt naming them", async () => {
     const user = userEvent.setup();
     const onAskCodex = vi.fn();
-    render(ReviewView, { repoDir: "/repo", repoName: "repo", onBack: vi.fn(), onAskCodex });
+    render(ReviewView, { repoDir: "/repo", repoName: "repo", initialPr: 128, onBack: vi.fn(), onAskCodex });
 
-    await waitFor(() => expect(screen.getByText(/Add pull-request review view/)).toBeInTheDocument());
-    await user.click(screen.getByText(/Add pull-request review view/));
-    await waitFor(() => expect(screen.getAllByText("src/lib/loader.ts").length).toBeGreaterThan(0));
+    const loader = within(await screen.findByRole("region", { name: "src/lib/loader.ts" }));
+    await user.click(loader.getByRole("button", { name: "Select line 4" }));
+    await user.click(
+      within(screen.getByRole("toolbar", { name: "Line 4" })).getByRole("button", { name: "Ask agent" }),
+    );
 
-    await user.click(screen.getByRole("button", { name: "Ask Codex" }));
     expect(onAskCodex).toHaveBeenCalledOnce();
     const [cwd, prompt] = onAskCodex.mock.calls[0];
     expect(cwd).toBe("/repo");
-    expect(prompt).toContain("src/lib/loader.ts");
+    expect(prompt).toContain("src/lib/loader.ts:4");
+    expect(prompt).toContain("if (!path) {");
   });
 
-  it("ignores a PR that finishes loading after the user opened another", async () => {
+  it("goes back from a PR to the picker", async () => {
     const user = userEvent.setup();
-    vi.mocked(commands.reviewLoadDraft).mockClear();
-    const actual = vi.mocked(commands.reviewPrDetail).getMockImplementation()!;
-    let releaseFirst!: () => void;
-    vi.mocked(commands.reviewPrDetail).mockImplementationOnce(
-      (repoDir, number) => new Promise((resolve) => (releaseFirst = () => resolve(actual(repoDir, number)))),
-    );
-    render(ReviewView, { repoDir: "/repo", repoName: "repo", onBack: vi.fn(), onAskCodex: vi.fn() });
+    render(ReviewView, { repoDir: "/repo", repoName: "repo", initialPr: 128, onBack: vi.fn(), onAskCodex: vi.fn() });
+
+    await screen.findByRole("heading", { name: "Add pull-request review view" });
+    await user.click(screen.getByRole("button", { name: "Pull requests" }));
     await waitFor(() => expect(screen.getByText(/Native git worktree service/)).toBeInTheDocument());
-
-    await user.click(screen.getByText(/Add pull-request review view/));
-    await user.click(screen.getByText(/Native git worktree service/));
-    await waitFor(() => expect(commands.reviewLoadDraft).toHaveBeenCalledWith("github", "repo", 126));
-    releaseFirst();
-
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    // The stale PR's draft was never restored onto the PR now showing.
-    expect(commands.reviewLoadDraft).not.toHaveBeenCalledWith("github", "repo", 128);
   });
 });

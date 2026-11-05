@@ -85,6 +85,9 @@ pub(crate) struct PrFile {
     pub(crate) hunks: Vec<DiffHunk>,
     /// Whether the file's patch was omitted (binary, or too large).
     pub(crate) patch_truncated: bool,
+    /// The file's blob id at the head, when the provider gives one. Viewed
+    /// state is keyed by it, so a file that changes reads as unviewed.
+    pub(crate) blob_sha: Option<String>,
 }
 
 /// One review or conversation comment, flattened; the frontend groups inline
@@ -92,7 +95,8 @@ pub(crate) struct PrFile {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PrComment {
-    /// REST `databaseId`; 0 for a conversation comment with no numeric id.
+    /// REST id (`databaseId` for an inline comment, from the URL for a
+    /// conversation comment); 0 when GitHub gave neither.
     pub(crate) id: i64,
     pub(crate) author: String,
     pub(crate) body: String,
@@ -126,6 +130,8 @@ pub(crate) struct PrDetail {
     pub(crate) summary: PrSummary,
     pub(crate) body: String,
     pub(crate) head_sha: String,
+    /// The tip of the base git branch when the PR was read.
+    pub(crate) base_sha: String,
     pub(crate) commits: Vec<PrCommit>,
     pub(crate) files: Vec<PrFile>,
     pub(crate) comments: Vec<PrComment>,
@@ -151,6 +157,11 @@ pub(crate) struct PendingComment {
     pub(crate) line: i64,
     #[serde(default)]
     pub(crate) side: Option<String>,
+    /// The first line of a multi-line comment; `line` is its last.
+    #[serde(default)]
+    pub(crate) start_line: Option<i64>,
+    #[serde(default)]
+    pub(crate) start_side: Option<String>,
     pub(crate) body: String,
 }
 
@@ -453,6 +464,18 @@ pub(crate) struct ReviewSubmission {
     /// even if the author pushes before submit.
     pub(crate) commit_id: Option<String>,
     pub(crate) comments: Vec<PendingComment>,
+    /// Replies to existing review threads, posted inside this review.
+    #[serde(default)]
+    pub(crate) replies: Vec<ReviewReply>,
+}
+
+/// A reply to an existing review thread, posted as part of a review.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewReply {
+    /// The review thread's node id.
+    pub(crate) thread_id: String,
+    pub(crate) body: String,
 }
 
 /// A comment to edit or delete. GitHub keeps inline review comments and
@@ -540,4 +563,13 @@ pub(crate) struct ReviewRequests {
     /// `owner/name`.
     pub(crate) slug: String,
     pub(crate) count: i64,
+}
+
+/// A changed file and its blob id at the head, which viewed state is keyed
+/// by.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FileBlob {
+    pub(crate) path: String,
+    pub(crate) blob_sha: String,
 }

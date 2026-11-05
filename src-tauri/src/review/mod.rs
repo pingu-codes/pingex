@@ -9,7 +9,8 @@
 //! The wire types in `types` are provider-neutral. Unified patches become
 //! hunks with anchors in `diff`; `feed` derives "since you last looked" from
 //! two inbox snapshots; `requirements` is the table of the checkout step each
-//! desk action needs.
+//! desk action needs; `pending` is the typed pending review and how it
+//! becomes one GitHub review.
 
 pub(crate) mod checkout_commands;
 pub(crate) mod checkout_types;
@@ -20,6 +21,7 @@ pub(crate) mod diff;
 pub(crate) mod fake;
 mod feed;
 pub(crate) mod github;
+pub(crate) mod pending;
 pub(crate) mod provider;
 pub(crate) mod repository;
 pub(crate) mod requirements;

@@ -22,6 +22,7 @@ function file(overrides: Partial<PrFile> = {}): PrFile {
     deletions: 1,
     patch: "@@ -1,2 +1,3 @@\n ctx\n-old\n+new\n+extra",
     patchTruncated: false,
+    blobSha: null,
     hunks: [
       {
         header: "@@ -1,2 +1,3 @@",

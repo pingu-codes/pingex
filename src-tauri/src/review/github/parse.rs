@@ -102,9 +102,23 @@ pub(crate) struct PrView {
     pub(crate) summary: PrSummary,
     pub(crate) body: String,
     pub(crate) head_sha: String,
+    pub(crate) base_sha: String,
     pub(crate) commits: Vec<PrCommit>,
     pub(crate) checks: Option<ChecksSummary>,
     pub(crate) conversation: Vec<PrComment>,
+}
+
+/// A conversation comment's REST id. `gh` gives the GraphQL node id, so the
+/// number comes from the comment's URL (`...#issuecomment-<id>`).
+fn conversation_comment_id(comment: &Value) -> i64 {
+    comment
+        .get("id")
+        .and_then(Value::as_i64)
+        .or_else(|| {
+            let url = comment.get("url").and_then(Value::as_str)?;
+            url.rsplit_once("#issuecomment-")?.1.parse().ok()
+        })
+        .unwrap_or(0)
 }
 
 pub(crate) fn parse_pr_view(json: &Value) -> PrView {
@@ -148,7 +162,7 @@ pub(crate) fn parse_pr_view(json: &Value) -> PrView {
             items
                 .iter()
                 .map(|comment| PrComment {
-                    id: comment.get("id").and_then(Value::as_i64).unwrap_or(0),
+                    id: conversation_comment_id(comment),
                     author: author_login(comment),
                     body: str_field(comment, "body"),
                     created_at: str_field(comment, "createdAt"),
@@ -162,6 +176,7 @@ pub(crate) fn parse_pr_view(json: &Value) -> PrView {
         summary: parse_pr_summary(json),
         body: str_field(json, "body"),
         head_sha: str_field(json, "headRefOid"),
+        base_sha: str_field(json, "baseRefOid"),
         commits,
         checks: parse_checks(json),
         conversation,
@@ -205,6 +220,11 @@ pub(crate) fn parse_files(json: &Value) -> (Vec<PrFile>, bool) {
                 hunks: parse_patch(&patch),
                 patch,
                 patch_truncated,
+                blob_sha: file
+                    .get("sha")
+                    .and_then(Value::as_str)
+                    .filter(|sha| !sha.is_empty())
+                    .map(str::to_string),
             }
         })
         .collect();
@@ -308,13 +328,15 @@ mod tests {
             "url": "https://github.com/o/r/pull/7",
             "body": "Closes #1",
             "headRefOid": "abcdef1234567890",
+            "baseRefOid": "1234567890abcdef",
             "commits": [
                 {"oid": "abcdef1234567890", "messageHeadline": "Fix the bug",
                  "authors": [{"login": "dev", "name": "Dev"}]}
             ],
             "comments": [
-                {"id": 100, "author": {"login": "rev"}, "body": "LGTM overall",
-                 "createdAt": "2026-07-21T09:30:00Z"}
+                {"id": "IC_kwDOAbc123", "author": {"login": "rev"}, "body": "LGTM overall",
+                 "createdAt": "2026-07-21T09:30:00Z",
+                 "url": "https://github.com/o/r/pull/7#issuecomment-2471"}
             ],
             "statusCheckRollup": [
                 {"__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS"},
@@ -332,6 +354,9 @@ mod tests {
         assert_eq!(view.commits[0].author, "dev");
         assert_eq!(view.conversation.len(), 1);
         assert_eq!(view.conversation[0].author, "rev");
+        // gh gives a node id; the REST id that edits and deletes need is in the URL.
+        assert_eq!(view.conversation[0].id, 2471);
+        assert_eq!(view.base_sha, "1234567890abcdef");
         let checks = view.checks.expect("checks");
         assert_eq!(checks.total, 3);
         assert_eq!(checks.passing, 1);

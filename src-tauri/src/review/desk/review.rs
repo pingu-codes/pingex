@@ -183,8 +183,11 @@ mod tests {
                 path: "src/lib.rs".into(),
                 line: 1,
                 side: Some("RIGHT".into()),
+                start_line: None,
+                start_side: None,
                 body: "Name this".into(),
             }],
+            replies: vec![],
         };
 
         fixture.desk.submit_review(3, review.clone()).await.unwrap();

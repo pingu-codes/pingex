@@ -16,6 +16,8 @@
 //! | `seen` | Seen head and "changes since" |
 //! | `activity` | Which inbox activity the viewer has seen, and muted PRs |
 //! | `review` | One PR under review: detail, freshness, the review and comments written on it |
+//! | `pending` | The pending review: stored per PR, submitted as one review |
+//! | `viewed` | Files marked viewed, keyed by blob id |
 //! | `pr` | Changes to the PR itself: merge, close, retarget, mark ready, checks, new PRs |
 //! | `checkouts` | No checkout: PR refs, diffs and files by SHA |
 //! | `steps` | Review checkouts, worktrees, promotion and the step plan |
@@ -33,6 +35,7 @@ mod activity;
 mod checkouts;
 mod cleanup;
 mod links;
+mod pending;
 mod pr;
 mod repositories;
 mod review;
@@ -41,6 +44,7 @@ mod steps;
 mod sync;
 #[cfg(test)]
 mod test_support;
+mod viewed;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

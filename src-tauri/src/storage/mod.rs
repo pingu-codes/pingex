@@ -31,6 +31,7 @@ mod review;
 mod review_checkouts;
 mod review_repositories;
 mod review_seen;
+mod review_viewed;
 mod schema;
 mod search;
 mod sections;
@@ -90,6 +91,7 @@ pub(crate) use review_repositories::{
 pub(crate) use review_seen::{
     append_feed, mark_prs_seen, mute_pr, read_feed, read_seen_prs, SeenPr,
 };
+pub(crate) use review_viewed::{mark_viewed_files, read_viewed_files, unmark_viewed_files};
 pub(crate) use search::{
     delete_thread_search, rename_thread_search, search_thread_index, set_thread_search_archived,
     thread_ids_with_message_match, upsert_thread_search, MessageScope, StoredThreadSearch,

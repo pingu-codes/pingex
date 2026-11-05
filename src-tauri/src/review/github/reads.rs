@@ -16,7 +16,7 @@ const PR_LIST_LIMIT: &str = "50";
 const PR_LIST_FIELDS: &str =
     "number,title,author,state,isDraft,baseRefName,headRefName,updatedAt,url";
 const PR_VIEW_FIELDS: &str = "number,title,author,state,isDraft,baseRefName,headRefName,\
-    updatedAt,url,body,headRefOid,commits,comments,statusCheckRollup";
+    updatedAt,url,body,headRefOid,baseRefOid,commits,comments,statusCheckRollup";
 
 /// Paginated on `reviewThreads` (see `gh_graphql`); a thread's first 100
 /// comments are plenty for display.
@@ -99,6 +99,7 @@ pub(crate) fn fetch_pr_detail(host: &Host, dir: &Path, number: i64) -> Result<Pr
         summary: parsed.summary,
         body: parsed.body,
         head_sha: parsed.head_sha,
+        base_sha: parsed.base_sha,
         commits: parsed.commits,
         files,
         comments,

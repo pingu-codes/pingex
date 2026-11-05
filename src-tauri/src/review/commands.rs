@@ -8,10 +8,11 @@ use tauri::State;
 
 use super::desk::ReviewDesk;
 use super::github::GhCli;
+use super::pending::PendingReview;
 use super::repository::{FolderFacts, KnownClone, Repository};
 use super::types::{
-    ChangesSince, CheckLog, CommentRef, FetchedPr, GitHubAccount, GitHubRepo, Inbox, MergeRequest,
-    NewPr, PendingComment, PrDetail, PrFile, PrFileContents, PrFreshness, PrSummary,
+    ChangesSince, CheckLog, CommentRef, FetchedPr, FileBlob, GitHubAccount, GitHubRepo, Inbox,
+    MergeRequest, NewPr, PendingComment, PrDetail, PrFile, PrFileContents, PrFreshness, PrSummary,
     ProviderStatus, ReviewRequests, ReviewSubmission, ReviewVerdict, ShaDiff, StackListing,
 };
 use crate::storage::{self, RepositorySettings, ReviewDraft};
@@ -117,6 +118,7 @@ pub(crate) async fn review_submit(
         body,
         commit_id,
         comments,
+        replies: Vec::new(),
     };
     desk(&window, &state, repo_dir)
         .submit_review(number, review)
@@ -420,6 +422,90 @@ pub(crate) async fn review_repositories_requesting_review(
 ) -> Result<Vec<ReviewRequests>, String> {
     account_desk(&window, &state)
         .repositories_requesting_review()
+        .await
+}
+
+/// PR `number`'s pending review, if one was started.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_pending_review(
+    repo_dir: String,
+    number: i64,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<Option<PendingReview>, String> {
+    desk(&window, &state, repo_dir).pending_review(number).await
+}
+
+/// Replace PR `number`'s pending review; an empty one is dropped.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_save_pending_review(
+    repo_dir: String,
+    number: i64,
+    review: PendingReview,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    desk(&window, &state, repo_dir)
+        .save_pending_review(number, review)
+        .await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_discard_pending_review(
+    repo_dir: String,
+    number: i64,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    desk(&window, &state, repo_dir)
+        .discard_pending_review(number)
+        .await
+}
+
+/// Post the stored pending review as one GitHub review, then forget it.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_submit_pending_review(
+    repo_dir: String,
+    number: i64,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    desk(&window, &state, repo_dir)
+        .submit_pending_review(number)
+        .await
+}
+
+/// Which of the PR's changed files are still marked viewed at their blob ids.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_viewed_files(
+    repo_dir: String,
+    number: i64,
+    files: Vec<FileBlob>,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    desk(&window, &state, repo_dir)
+        .viewed_files(number, files)
+        .await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_set_viewed(
+    repo_dir: String,
+    number: i64,
+    files: Vec<FileBlob>,
+    viewed: bool,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    desk(&window, &state, repo_dir)
+        .set_viewed(number, files, viewed)
         .await
 }
 

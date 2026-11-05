@@ -26,28 +26,67 @@ fn review_event(verdict: ReviewVerdict) -> &'static str {
     }
 }
 
+const REPLY_IN_REVIEW_MUTATION: &str = "mutation($review:ID!,$thread:ID!,$body:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewId:$review,pullRequestReviewThreadId:$thread,body:$body}){comment{id}}}";
+
 /// The JSON body for `POST pulls/<n>/reviews`. `commit_id` pins the review
 /// and its inline comments to the head the reviewer actually read; without
 /// it GitHub anchors them to whatever the head is at submit time, so a push
 /// in between moves comments onto lines the reviewer never saw.
-fn review_payload(review: &ReviewSubmission) -> serde_json::Value {
+///
+/// With `pending`, the body has no `event`, so GitHub keeps the review
+/// pending: replies are added to it before it is submitted.
+fn review_payload(review: &ReviewSubmission, pending: bool) -> serde_json::Value {
     let mut payload = json!({
-        "event": review_event(review.verdict),
         "body": review.body,
         "comments": review.comments
             .iter()
-            .map(|comment: &PendingComment| json!({
-                "path": comment.path,
-                "line": comment.line,
-                "side": comment.side.clone().unwrap_or_else(|| "RIGHT".to_string()),
-                "body": comment.body,
-            }))
+            .map(|comment: &PendingComment| {
+                let mut entry = json!({
+                    "path": comment.path,
+                    "line": comment.line,
+                    "side": comment.side.clone().unwrap_or_else(|| "RIGHT".to_string()),
+                    "body": comment.body,
+                });
+                if let Some(start_line) = comment.start_line {
+                    entry["start_line"] = json!(start_line);
+                    entry["start_side"] = json!(comment
+                        .start_side
+                        .clone()
+                        .or_else(|| comment.side.clone())
+                        .unwrap_or_else(|| "RIGHT".to_string()));
+                }
+                entry
+            })
             .collect::<Vec<_>>(),
     });
+    if !pending {
+        payload["event"] = json!(review_event(review.verdict));
+    }
     if let Some(commit_id) = &review.commit_id {
         payload["commit_id"] = json!(commit_id);
     }
     payload
+}
+
+/// The body that submits a pending review.
+fn submit_event_payload(review: &ReviewSubmission) -> serde_json::Value {
+    json!({ "event": review_event(review.verdict), "body": review.body })
+}
+
+/// `gh api graphql` arguments adding one reply to pending review `review_node`.
+fn reply_in_review_args(review_node: &str, thread_id: &str, body: &str) -> Vec<String> {
+    strings(&[
+        "api",
+        "graphql",
+        "-f",
+        &format!("query={REPLY_IN_REVIEW_MUTATION}"),
+        "-f",
+        &format!("review={review_node}"),
+        "-f",
+        &format!("thread={thread_id}"),
+        "-f",
+        &format!("body={body}"),
+    ])
 }
 
 /// Run a write and turn a refusal into a redacted message.
@@ -88,11 +127,51 @@ pub(crate) fn submit_review(
     // one path that takes `commit_id`. The JSON goes through stdin
     // (`--input -`) since nested `comments` cannot be `-f` fields.
     let endpoint = format!("repos/{slug}/pulls/{number}/reviews");
-    let output = run_gh_with_input(host, dir, &endpoint, &review_payload(review).to_string())?;
+    if review.replies.is_empty() {
+        let body = review_payload(review, false).to_string();
+        let output = run_gh_with_input(host, dir, &endpoint, &body)?;
+        if !output.ok {
+            return Err(redact_gh_error("Could not submit the review", &output));
+        }
+        return Ok(());
+    }
+    // Replies to existing threads cannot ride in the REST body. Open the
+    // review pending, attach each reply to it, then submit it; a failure
+    // part way deletes the pending review so nothing half-posts.
+    let body = review_payload(review, true).to_string();
+    let output = run_gh_with_input(host, dir, &endpoint, &body)?;
     if !output.ok {
         return Err(redact_gh_error("Could not submit the review", &output));
     }
-    Ok(())
+    let created: serde_json::Value = serde_json::from_str(&output.stdout)
+        .map_err(|_| "GitHub did not say which review it opened".to_string())?;
+    let (Some(id), Some(node)) = (
+        created.get("id").and_then(serde_json::Value::as_i64),
+        created.get("node_id").and_then(serde_json::Value::as_str),
+    ) else {
+        return Err("GitHub did not say which review it opened".to_string());
+    };
+    let finish = || -> Result<(), String> {
+        for reply in &review.replies {
+            let args = reply_in_review_args(node, &reply.thread_id, &reply.body);
+            write(host, dir, &args, "Could not add a reply to the review")?;
+        }
+        let events = format!("{endpoint}/{id}/events");
+        let output = run_gh_with_input(
+            host,
+            dir,
+            &events,
+            &submit_event_payload(review).to_string(),
+        )?;
+        if !output.ok {
+            return Err(redact_gh_error("Could not submit the review", &output));
+        }
+        Ok(())
+    };
+    finish().inspect_err(|_| {
+        let discard = strings(&["api", "--method", "DELETE", &format!("{endpoint}/{id}")]);
+        let _ = write(host, dir, &discard, "Could not discard the pending review");
+    })
 }
 
 pub(crate) fn reply_to_comment(
@@ -299,16 +378,53 @@ mod tests {
                 path: "src/lib.rs".into(),
                 line: 3,
                 side: None,
+                start_line: None,
+                start_side: None,
                 body: "nit".into(),
             }],
+            replies: vec![],
         };
-        let payload = review_payload(&review);
+        let payload = review_payload(&review, false);
         assert_eq!(payload["commit_id"], sha);
         assert_eq!(payload["event"], "APPROVE");
         assert_eq!(payload["comments"][0]["side"], "RIGHT");
-        assert!(review_payload(&ReviewSubmission::default())
+        assert!(payload["comments"][0].get("start_line").is_none());
+        assert!(review_payload(&ReviewSubmission::default(), false)
             .get("commit_id")
             .is_none());
+    }
+
+    #[test]
+    fn a_review_with_replies_opens_pending_and_ranges_carry_their_first_line() {
+        let review = ReviewSubmission {
+            verdict: ReviewVerdict::RequestChanges,
+            body: "See inline".into(),
+            commit_id: None,
+            comments: vec![PendingComment {
+                path: "a.rs".into(),
+                line: 9,
+                side: Some("LEFT".into()),
+                start_line: Some(7),
+                start_side: None,
+                body: "range".into(),
+            }],
+            replies: vec![crate::review::types::ReviewReply {
+                thread_id: "PRRT_1".into(),
+                body: "Agreed".into(),
+            }],
+        };
+        let pending = review_payload(&review, true);
+        assert!(pending.get("event").is_none());
+        assert_eq!(pending["comments"][0]["start_line"], 7);
+        assert_eq!(pending["comments"][0]["start_side"], "LEFT");
+        assert_eq!(
+            submit_event_payload(&review),
+            json!({"event": "REQUEST_CHANGES", "body": "See inline"})
+        );
+        let args = reply_in_review_args("PRR_9", "PRRT_1", "Agreed");
+        assert!(args.contains(&"review=PRR_9".to_string()));
+        assert!(args.contains(&"thread=PRRT_1".to_string()));
+        assert!(args.contains(&"body=Agreed".to_string()));
     }
 
     #[test]
