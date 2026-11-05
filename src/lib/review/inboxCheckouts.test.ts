@@ -17,7 +17,9 @@ vi.mock("$lib/services/homeRouting", async (importOriginal) => {
       ...actual.commands,
       startThread: vi.fn(actual.commands.startThread),
       startTurn: vi.fn(actual.commands.startTurn),
-      reviewCheckLogs: vi.fn(() => Promise.resolve([{ name: "test:changed", log: "expected 2, got 3", truncated: false }])),
+      reviewCheckLogs: vi.fn(() =>
+        Promise.resolve([{ name: "test:changed", log: "expected 2, got 3", truncated: false }]),
+      ),
     },
   };
 });
