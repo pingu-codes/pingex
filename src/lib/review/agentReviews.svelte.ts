@@ -11,6 +11,7 @@
 //   rerunAgentReview(review, targets)     "Re-run on new commits"
 
 import { HARNESS_INFO, HARNESS_KINDS } from "$lib/bindings";
+import { acceptedEntry } from "$lib/review/findingText";
 import { startPrThread } from "$lib/review/prThreads";
 import { readThread } from "$lib/services/api";
 import { activeTurns, setThreadHandler } from "$lib/services/codexEvents.svelte";
@@ -26,6 +27,7 @@ import type {
   FocusArea,
   HarnessKind,
   InboxPr,
+  PendingReview,
   ThreadDetail,
 } from "$lib/types";
 import { can } from "$lib/utils/capabilities";
@@ -193,12 +195,38 @@ async function collect(
 
 async function finish(review: AgentReview, message: string | null, error: string | null): Promise<void> {
   try {
-    await commands.reviewRecordAgentReviewResult(review.repoDir, review.id, message, error);
+    const done = await commands.reviewRecordAgentReviewResult(review.repoDir, review.id, message, error);
+    if (done.status === "done" && done.findings > 0 && !review.request.keepDrafts) await addToPendingReview(done);
   } catch (cause) {
     toastError(`Agent review on #${review.number}: ${errorMessage(cause)}`);
   }
   await refreshAgentReviews(review.repoDir).catch(() => []);
   void pumpAgentReviews();
+}
+
+/** "Keep findings as drafts" off: the run's Findings go straight into the
+ *  PR's pending review (still unposted until Submit). */
+async function addToPendingReview(review: AgentReview): Promise<void> {
+  const findings = (await commands.reviewFindings(review.repoDir, review.number)).filter(
+    (finding) => finding.agentReviewId === review.id && finding.state === "draft",
+  );
+  if (findings.length === 0) return;
+  const stored = await commands.reviewPendingReview(review.repoDir, review.number);
+  const pending: PendingReview = stored ?? {
+    headSha: review.headSha,
+    entries: [],
+    summary: "",
+    verdict: "comment",
+    updatedAt: 0,
+  };
+  const entries = findings.map((finding) => acceptedEntry(finding, `acceptedFinding-${finding.id}`));
+  await commands.reviewSavePendingReview(review.repoDir, review.number, {
+    ...pending,
+    entries: [...pending.entries, ...entries],
+  });
+  for (const finding of findings) {
+    await commands.reviewSetFindingState(review.repoDir, finding.id, "added", null, null);
+  }
 }
 
 function onEvent(event: CodexEvent) {

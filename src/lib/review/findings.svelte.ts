@@ -4,31 +4,13 @@
 // human comment); the pending review holds the text an added one posts.
 
 import { agentReviews } from "$lib/review/agentReviews.svelte";
+import { findingAnchor, findingBody } from "$lib/review/findingText";
 import type { PendingReviewStore } from "$lib/review/pendingReview.svelte";
 import type { DiffSide } from "$lib/review/reviewPage";
 import { commands } from "$lib/services/homeRouting";
-import type { AgentReview, DiffAnchor, DismissReason, Finding, PendingEntry } from "$lib/types";
+import type { AgentReview, DismissReason, Finding, PendingEntry } from "$lib/types";
 
-/** The text an added Finding posts, before the reviewer edits it: an
- *  ordinary comment, with no agent marker. */
-export function findingBody(finding: Finding): string {
-  const title = finding.title.trim();
-  const body = finding.body.trim();
-  if (!title) return body;
-  if (!body) return title;
-  return `**${title}**\n\n${body}`;
-}
-
-/** Where a Finding sits in the diff, as a pending entry anchors it. */
-export function findingAnchor(finding: Finding): DiffAnchor {
-  const end = finding.endLine ?? finding.line;
-  return {
-    path: finding.path,
-    side: finding.side,
-    line: end,
-    startLine: end > finding.line ? finding.line : null,
-  };
-}
+export { findingAnchor, findingBody };
 
 export const DISMISS_LABELS: Record<DismissReason, string> = {
   notAProblem: "Not a problem",
@@ -127,6 +109,21 @@ export class FindingsStore {
     if (entry) this.pending.update(entry.id, { body });
     else this.pending.add({ kind: "acceptedFinding", findingId: finding.id, anchor: findingAnchor(finding), body });
     await this.setState(finding, "added");
+  }
+
+  /** Put Findings the desk already marked added (a run with "Keep findings
+   *  as drafts" off) into the pending review, once. */
+  adoptAdded(): void {
+    for (const finding of this.findings) {
+      if (finding.state === "added" && !this.pending.hasFinding(finding.id)) {
+        this.pending.add({
+          kind: "acceptedFinding",
+          findingId: finding.id,
+          anchor: findingAnchor(finding),
+          body: findingBody(finding),
+        });
+      }
+    }
   }
 
   /** Take it back out of the review. */

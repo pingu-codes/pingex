@@ -104,7 +104,7 @@
     if (key && key !== seenFinish) {
       const reload = seenFinish !== "" && latest?.status === "done";
       seenFinish = key;
-      if (reload) void findings.load();
+      if (reload) void findings.load().then(() => findings.adoptAdded());
     }
   });
 

@@ -4,6 +4,7 @@ import { previewEmit } from "$lib/services/codexEvents.svelte";
 import { commands } from "$lib/services/homeRouting";
 import { clearPreviewAgentReviews } from "$lib/services/preview/agentReviews";
 import { resetPreviewCheckouts } from "$lib/services/preview/checkouts";
+import { resetDeskReviewState } from "$lib/services/preview/desk";
 import type { AgentReviewRequest, CheckoutTarget, InboxPr, ThreadDetail } from "$lib/types";
 
 vi.mock("$lib/services/homeRouting", async (importOriginal) => {
@@ -58,6 +59,7 @@ describe("the agent review queue", () => {
   beforeEach(() => {
     clearPreviewAgentReviews();
     resetPreviewCheckouts();
+    resetDeskReviewState();
     vi.mocked(commands.startThread).mockClear();
     vi.mocked(commands.startTurn).mockClear();
   });
@@ -85,6 +87,25 @@ describe("the agent review queue", () => {
     const done = agentReviews.byRepo[repoDir].find((review) => review.number === 412);
     expect(done?.findings).toBe(1);
     expect((await commands.reviewFindings(repoDir, 412)).map((finding) => finding.title)).toEqual(["Off by one"]);
+  });
+
+  it("puts findings straight into the pending review when they aren't kept as drafts", async () => {
+    await enqueueAgentReview(repoDir, { ...request(412), keepDrafts: false });
+    await vi.waitFor(() => expect(commands.startTurn).toHaveBeenCalledTimes(1));
+    const threadId = (await vi.mocked(commands.startThread).mock.results[0].value).id as string;
+    vi.mocked(commands.readThread).mockResolvedValue(
+      finalMessage(
+        threadId,
+        '```json\n[{"path": "src/a.ts", "line": 3, "severity": "low", "title": "Typo", "body": "teh"}]\n```',
+      ) as never,
+    );
+    previewEmit({ method: "turn/completed", params: { threadId, turn: { id: "turn-1" } } } as never);
+
+    await vi.waitFor(async () => {
+      const pending = await commands.reviewPendingReview(repoDir, 412);
+      expect(pending?.entries).toEqual([expect.objectContaining({ kind: "acceptedFinding", body: "**Typo**\n\nteh" })]);
+    });
+    expect((await commands.reviewFindings(repoDir, 412))[0].state).toBe("added");
   });
 
   it("reviews a whole stack as one unit filed under its top PR", async () => {
