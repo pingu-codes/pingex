@@ -1,7 +1,7 @@
 /**
  * Which support tier the connected Codex falls in, and the banner that says
  * so when it falls outside. The tiers are documented in
- * `docs/SUPPORTED_VERSIONS.md`; `deno task versions:check` keeps these two
+ * `docs/SUPPORTED_VERSIONS.md`; `bun run versions:check` keeps these two
  * constants in step with that table.
  *
  * Nothing else in the app branches on the version: optional APIs are probed

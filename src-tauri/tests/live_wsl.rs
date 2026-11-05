@@ -1,7 +1,7 @@
 //! Live suite for a WSL Host: the app's real spawn path against a real
 //! distribution.
 //!
-//! Run:  `PINGEX_E2E_WSL=<distro> deno task test:e2e:wsl`
+//! Run:  `PINGEX_E2E_WSL=<distro> bun run test:e2e:wsl`
 //! Optional: `PINGEX_E2E_WSL_CODEX=<path or name>` (default `codex`),
 //! `PINGEX_E2E_WSL_HOME=<CODEX_HOME inside the distribution>` (default
 //! `$HOME/.codex` there). Skips silently without the variable so

@@ -1,13 +1,15 @@
+import { readdirSync, writeFileSync } from "node:fs";
+
 /** Build `demo/screenshots/index.html` — a contact sheet of every captured
  * shot, light and dark side by side, so a demo set can be reviewed in one
- * place. Run after the capture: `deno task demo`. */
+ * place. Run after the capture: `bun run demo`. */
 
 const ROOT = new URL("./screenshots/", import.meta.url);
 
 function shots(theme: string): string[] {
   try {
-    return [...Deno.readDirSync(new URL(`${theme}/`, ROOT))]
-      .filter((entry) => entry.isFile && entry.name.endsWith(".png"))
+    return readdirSync(new URL(`${theme}/`, ROOT), { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".png"))
       .map((entry) => entry.name)
       .sort();
   } catch {
@@ -18,8 +20,8 @@ function shots(theme: string): string[] {
 const light = shots("light");
 const dark = new Set(shots("dark"));
 if (light.length === 0) {
-  console.error("No screenshots found — run `deno task demo:capture` first.");
-  Deno.exit(1);
+  console.error("No screenshots found — run `bun run demo:capture` first.");
+  process.exit(1);
 }
 
 const title = (name: string) =>
@@ -63,11 +65,11 @@ const html = `<!doctype html>
 </head>
 <body>
 <h1>Pingex — demo screenshots</h1>
-<p class="lede">${light.length} shots, captured from the browser preview fixtures. Regenerate with <code>deno task demo</code>.</p>
+<p class="lede">${light.length} shots, captured from the browser preview fixtures. Regenerate with <code>bun run demo</code>.</p>
 ${rows}
 </body>
 </html>
 `;
 
-Deno.writeTextFileSync(new URL("index.html", ROOT), html);
+writeFileSync(new URL("index.html", ROOT), html);
 console.log(`Wrote demo/screenshots/index.html (${light.length} shots).`);

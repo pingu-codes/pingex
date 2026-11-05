@@ -6,7 +6,7 @@
  * `buildTurnInput` actually produces — not a hand-written approximation. This
  * test regenerates it and fails when the checked-in copy is stale, so a change
  * to the composer's wire format is visible in the diff and gets re-verified
- * downstream. Rewrite it with `deno task test -u src/lib/composer/turnInputFixtures.test.ts`.
+ * downstream. Rewrite it with `bun run test -u src/lib/composer/turnInputFixtures.test.ts`.
  *
  * Placeholders (`${CWD}`, `${SKILL_PATH}`, `${IMAGE_PATH}`) are substituted by
  * the Rust harness with real paths from the running server.

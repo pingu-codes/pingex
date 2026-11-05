@@ -332,7 +332,7 @@ Window binding: `AppState.contexts` becomes `HashMap<ProfileId,
 ProfileContext>`, each holding the db and a map of `home_id` to `HomeContext`.
 `bindings` maps window label to profile. `HomePicker` becomes
 `ProfilePicker`, shown only when no profile exists and nothing can be imported.
-`deno task dev` reads `PINGEX_PROFILE` (default `default`); `dev:work` sets
+`bun run dev` reads `PINGEX_PROFILE` (default `default`); `dev:work` sets
 `work`. `--codex-home` and `CODEX_HOME` remain as a shortcut meaning "ensure
 this Codex home exists and make it the project default for this launch".
 
@@ -464,7 +464,7 @@ error. Claude adds AskUserQuestion and a resumed turn; Codex adds review mode
 and a queued message. `src/lib/testing/codexEvents.ts` and
 `preview/stream.ts` play these fixtures.
 
-`deno task test:e2e:claude` runs `src-tauri/tests/live_claude/`, gated on
+`bun run test:e2e:claude` runs `src-tauri/tests/live_claude/`, gated on
 `PINGEX_E2E_CLAUDE`, on the user's own OAuth `~/.claude` (never `--bare`),
 model `haiku`, `--max-turns 2`, `--no-session-persistence` except the resume
 test, which uses a throwaway `CLAUDE_CONFIG_DIR`. `expect_legacy` for Claude
@@ -474,7 +474,7 @@ mid-turn `set_model`).
 `docs/SUPPORTED_VERSIONS.md` gains a per-harness table: Codex keeps its three
 tiers; Claude Code has a tested version (`2.1.251`) and a protocol floor
 (`1.0.59`) below which the driver refuses to start. Above the tested version
-the app warns. `deno task versions:check` compares the doc with `claude
+the app warns. `bun run versions:check` compares the doc with `claude
 --version` when a binary resolves. ADR 0001 gets one amendment: it applies
 to every harness; tiers exist only where there is a mirror to test against.
 
@@ -598,7 +598,7 @@ Branch `feat/maki-harness`, 2026-10-27, verified against maki 0.6.5:
 - maki is optional: a Home is added by hand in Settings, and only Codex and
   Claude Homes are created for every Host.
 - Tests: translator tests over streams recorded from maki 0.6.5
-  (`tests/fixtures/protocol/maki/`), and `deno task test:e2e:maki`.
+  (`tests/fixtures/protocol/maki/`), and `bun run test:e2e:maki`.
 
 ## Not yet specified
 
@@ -635,7 +635,7 @@ remote control and teleport.
 - The draft composer offers both harnesses when both Homes exist, remembers
   the per-project default, and shows Claude's permission modes and Codex's
   presets from the same popover component.
-- `deno task test` passes the golden fixtures for both harnesses;
-  `deno task test:e2e:claude` passes against the installed CLI;
-  `deno task versions:check` fails when `docs/SUPPORTED_VERSIONS.md` is behind
+- `bun run test` passes the golden fixtures for both harnesses;
+  `bun run test:e2e:claude` passes against the installed CLI;
+  `bun run versions:check` fails when `docs/SUPPORTED_VERSIONS.md` is behind
   the installed `claude`.

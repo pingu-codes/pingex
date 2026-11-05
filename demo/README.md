@@ -4,11 +4,11 @@ A scripted tour of Pingex that saves a screenshot of every major feature —
 for READMEs, release notes, or showing the app off without a live Codex session.
 
 ```sh
-deno task demo          # capture, then build the contact sheet
+bun run demo          # capture, then build the contact sheet
 open demo/screenshots/index.html
 ```
 
-Individual steps: `deno task demo:capture` (Playwright) and `deno task demo:index`
+Individual steps: `bun run demo:capture` (Playwright) and `bun run demo:index`
 (contact sheet). The capture starts the browser preview itself via
 `playwright.demo.config.ts`, or reuses one already on port 1420.
 
@@ -44,5 +44,5 @@ demo shows (project names, thread contents, PR diffs, integrations), edit those
 fixtures; the e2e suite in `tests/browser` reads the same data, so keep its
 expectations in mind when you do.
 
-This is capture-only tooling: it is excluded from `deno task test:e2e`, and a
+This is capture-only tooling: it is excluded from `bun run test:e2e`, and a
 failing step here means a shot could not be posed, not that the app is broken.

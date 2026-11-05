@@ -419,7 +419,7 @@ fn fresh_plan_prompt(plan: &str) -> String {
         .join("plan-handoff.json");
     let text = std::fs::read_to_string(&path).unwrap_or_else(|error| {
         panic!(
-            "{} unreadable ({error}); run `deno task test src/lib/thread/planHandoff.test.ts` to generate it",
+            "{} unreadable ({error}); run `bun run test src/lib/thread/planHandoff.test.ts` to generate it",
             path.display()
         )
     });

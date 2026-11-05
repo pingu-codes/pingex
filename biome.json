@@ -14,7 +14,7 @@
       "!src-tauri/target",
       "!src-tauri/gen",
       "!test-results",
-      "!deno.lock",
+      "!bun.lock",
       "!src-tauri/icons",
       "!src/lib/bindings.ts",
       "!.claude/worktrees"
@@ -50,6 +50,14 @@
   },
   "overrides": [
     {
+      "includes": ["tests/browser/**", "demo/**"],
+      "linter": {
+        "domains": {
+          "playwright": "recommended"
+        }
+      }
+    },
+    {
       "includes": ["scripts/**"],
       "linter": {
         "rules": {
@@ -74,6 +82,9 @@
   ],
   "linter": {
     "enabled": true,
+    "domains": {
+      "playwright": "none"
+    },
     "rules": {
       "preset": "recommended",
       "style": {

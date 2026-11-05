@@ -89,6 +89,8 @@ describe("native side questions", () => {
 
   it("reopens saved history and sends another question on the same conversation", async () => {
     mocks.readNativeSideQuestion.mockResolvedValue([exchange()]);
+    // Request ids are unique per question; reusing the saved one would key two rows alike.
+    mocks.prepareNativeSideQuestion.mockResolvedValue("follow-up");
     setup();
     expect(await screen.findByText("An answer")).toBeInTheDocument();
     const user = userEvent.setup();

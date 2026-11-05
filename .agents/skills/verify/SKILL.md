@@ -6,7 +6,7 @@ description: How to build, run, and drive the Pingu Codex app to verify changes 
 # Verifying Pingu Codex changes
 
 ## Fast checks
-- `cd app && deno task check` — svelte-check (types).
+- `cd app && bun run check` — svelte-check (types).
 - `cd src-tauri && cargo check` (or `cargo test` for the storage tests).
 
 ## Browser preview surface (covers most frontend work)
@@ -14,7 +14,7 @@ The frontend runs without Tauri: `api.ts` gates on `isTauri()` and serves previe
 fixtures, including a fake streaming turn (send any message; include the word
 "approve" to trigger a fake approval card).
 
-1. `cd app && deno task frontend:dev` → http://localhost:1420 (leave running in background).
+1. `cd app && bun run frontend:dev` → http://localhost:1420 (leave running in background).
 2. Drive headless with Python Playwright (installed via pyenv). The bundled
    headless-shell build is missing; launch the full Chromium build explicitly:
    ```python
@@ -29,7 +29,7 @@ fixtures, including a fake streaming turn (send any message; include the word
 - Known noise: `/favicon.ico` 404 in console — pre-existing, ignore.
 
 ## Real Tauri surface
-- `cd app && deno task dev` (sets `CODEX_HOME=$HOME/.codex-personal`, opens a window).
+- `cd app && bun run dev` (sets `CODEX_HOME=$HOME/.codex-personal`, opens a window).
 - The `codex` shell alias is guarded; the real binary is `/opt/homebrew/bin/codex`.
   Set `PINGU_CODEX_CLI_PATH=/opt/homebrew/bin/codex` if `codex` is not resolvable.
 - Protocol smoke test without the GUI (validates app-server wire assumptions):

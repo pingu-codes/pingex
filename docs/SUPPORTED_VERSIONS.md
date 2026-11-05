@@ -24,11 +24,11 @@ stable* gets a warning banner on connect, and so does anything newer than
 Claude Code has no tiers: the driver supports whatever is installed, probes
 `system/init.capabilities[]`, and refuses to start only below the floor. The
 recorded streams under `tests/fixtures/protocol/claude/` are from the tested
-version. `deno task versions:check` does not cover Claude yet.
+version. `bun run versions:check` does not cover Claude yet.
 
 maki is driven through the generic ACP driver (`src-tauri/src/acp/`). It
 releases about twice a week, so the floor is the release the live suite last
-passed on (`deno task test:e2e:maki`), not a protocol boundary; raise both
+passed on (`bun run test:e2e:maki`), not a protocol boundary; raise both
 together. Its recorded streams are under `tests/fixtures/protocol/maki/`, and
 `versions:check` does not cover it.
 
@@ -40,7 +40,7 @@ together. Its recorded streams are under `tests/fixtures/protocol/maki/`, and
   (`CodexSession::send_gated`). The frontend gets an error prefixed with the
   feature's `error_prefix` (`src/lib/services/api.ts`, `*_UNSUPPORTED`) and
   falls back — it never sees a version number.
-- **Tested against stable.** `deno task test:e2e:codex` runs the live suite
+- **Tested against stable.** `bun run test:e2e:codex` runs the live suite
   against the installed CLI (`PINGEX_E2E_CODEX` to point it elsewhere). Each
   version-dependent test takes the modern branch where the API exists and,
   where it does not, asserts the refusal is one the classifier recognises
@@ -224,6 +224,6 @@ When a new Codex release ships:
    move its ✓ in the matrix. If upstream added protocol the app should read,
    diff `codex-rs/app-server-protocol/src/protocol/common.rs` between the
    tags and follow the pattern in `src-tauri/src/codex/events.rs`.
-4. `deno task versions:check` — fails if the table and the mirror disagree.
-5. `deno task typegen`, then `deno task test:e2e:codex` against the new stable
+4. `bun run versions:check` — fails if the table and the mirror disagree.
+5. `bun run typegen`, then `bun run test:e2e:codex` against the new stable
    (and against last stable if a binary is to hand: `PINGEX_E2E_CODEX=…`).

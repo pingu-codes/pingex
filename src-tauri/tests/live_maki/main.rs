@@ -1,5 +1,5 @@
 //! The wire facts the ACP driver relies on, checked against a real maki
-//! (`deno task test:e2e:maki`). Each test documents one assumption in
+//! (`bun run test:e2e:maki`). Each test documents one assumption in
 //! `src-tauri/src/acp/`; when maki changes, the failing test names it.
 
 mod harness;

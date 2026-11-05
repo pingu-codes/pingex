@@ -52,14 +52,16 @@ def shape(cmd: str) -> str:
             return f"cargo {word}"
     if "test:e2e" in s or "playwright" in s:
         return "playwright / live e2e"
-    if re.search(r"deno task test\b", s):
-        return "deno task test <filter>" if re.search(r"deno task test(?: --)? \S*\.test", cmd) else "deno task test (all)"
-    if "deno task check" in s or "svelte-check" in s:
-        return "deno task check"
-    if "deno task lint" in s or "biome" in s:
-        return "deno task lint"
-    if "deno task typegen" in s:
-        return "deno task typegen"
+    # `deno task` matches sessions from before the move to Bun.
+    runner = r"(?:bun run|deno task)"
+    if re.search(rf"{runner} test\b", s):
+        return "test <filter>" if re.search(rf"{runner} test(?: --)? \S*\.test", cmd) else "test (all)"
+    if re.search(rf"{runner} check\b", s) or "svelte-check" in s:
+        return "check"
+    if re.search(rf"{runner} lint\b", s) or "biome" in s:
+        return "lint"
+    if re.search(rf"{runner} typegen\b", s):
+        return "typegen"
     if re.match(r"(cd \S+ *(&&|;) *)?git\b", s):
         return "git"
     if re.match(r"(cd \S+ *(&&|;) *)?(cat|head|tail|sed -n|grep|rg|find|ls|wc|awk|tree|diff)\b", s):

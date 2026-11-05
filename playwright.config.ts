@@ -10,7 +10,7 @@ export default defineConfig({
   reporter: "list",
   outputDir: "test-results",
   use: {
-    baseURL: "http://127.0.0.1:1420",
+    baseURL: "http://localhost:1420",
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
   },
@@ -20,8 +20,8 @@ export default defineConfig({
     { name: "webkit", use: { browserName: "webkit", viewport: { width: 1180, height: 760 } } },
   ],
   webServer: {
-    command: "deno task frontend:dev",
-    url: "http://127.0.0.1:1420",
+    command: "bun run frontend:dev",
+    url: "http://localhost:1420",
     reuseExistingServer: !ci,
     timeout: 120_000,
   },

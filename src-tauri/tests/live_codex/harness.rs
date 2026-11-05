@@ -11,7 +11,7 @@
 //!   (default `~/.codex-personal`, then `~/.codex`)
 //!
 //! Every test gets its own app-server and scratch home, so tests run in
-//! parallel (`RUST_TEST_THREADS`, 2 in `deno task test:e2e:codex`). Four at
+//! parallel (`RUST_TEST_THREADS`, 2 in `bun run test:e2e:codex`). Four at
 //! once was faster but drew upstream stalls (a response stream that opens and
 //! never delivers) in half the runs; two stayed green.
 //!

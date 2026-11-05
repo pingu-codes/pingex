@@ -25,7 +25,7 @@ Pingex covers the core Codex desktop experience — threads with reasoning and c
 
 - macOS (the current desktop handoff and quick-chat integrations use macOS APIs)
     - In the future we aim to support other platforms
-- [Deno](https://deno.com/) 2+
+- [Bun](https://bun.sh/) 1.4+ (`bun install` once after cloning)
 - Rust toolchain
 - A `codex` CLI on `PATH`, or a path configured in Pingex settings — see
   [Supported Codex versions](docs/SUPPORTED_VERSIONS.md) for which releases
@@ -34,8 +34,8 @@ Pingex covers the core Codex desktop experience — threads with reasoning and c
 ## Development
 
 ```sh
-deno task dev          # app against ~/.codex-personal
-deno task frontend:dev # browser-only frontend preview
+bun run dev          # app against ~/.codex-personal
+bun run frontend:dev # browser-only frontend preview
 ```
 
 `PINGEX_CODEX_CLI_PATH` overrides the Codex binary for Pingex. The older `PINGU_CODEX_CLI_PATH` remains a compatibility fallback; prefer `CODEX_CLI_PATH` or the Pingex-specific variable for new setups.
@@ -43,20 +43,20 @@ deno task frontend:dev # browser-only frontend preview
 ## Verification
 
 ```sh
-deno task check
-deno task lint
-deno task test
-deno task rust:fmt -- --check
-deno task rust:lint -- -D warnings
-deno task rust:test
+bun run check
+bun run lint
+bun run test
+bun run rust:fmt -- --check
+bun run rust:lint -- -- -D warnings
+bun run rust:test
 ```
 
-Browser preview coverage is available through `deno task test:e2e:install` followed by `deno task test:e2e`. `deno task test:e2e:codex` drives the installed `codex` binary end-to-end with a real model (opt-in; see CONTRIBUTING.md).
+Browser preview coverage is available through `bun run test:e2e:install` followed by `bun run test:e2e`. `bun run test:e2e:codex` drives the installed `codex` binary end-to-end with a real model (opt-in; see CONTRIBUTING.md).
 
 ## Local build
 
 ```sh
-deno task app:build
+bun run app:build
 ```
 
 The local Tauri bundle is created under `src-tauri/target/release/bundle/`. It is unsigned, in the future we may sign it for developer use (if I can be bothered to pay the extortionate fee to Apple just to be able to sign binaries...)

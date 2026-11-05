@@ -72,6 +72,7 @@
 
   /** Copies the rendered message by default, or its markdown source on Shift+click. */
   function copyMessage(event: MouseEvent) {
+    // biome-ignore lint/performance/useDomNodeTextContent: innerText keeps the rendered line breaks the user sees.
     copyPlainOrMarkdown(event, messageEl?.innerText ?? item.text ?? "", item.text ?? "");
     copied.trigger();
   }

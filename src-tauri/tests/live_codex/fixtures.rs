@@ -27,7 +27,7 @@ pub fn load() -> Vec<Fixture> {
     let path = path();
     let text = std::fs::read_to_string(&path).unwrap_or_else(|error| {
         panic!(
-            "{} unreadable ({error}); run `deno task test src/lib/composer/turnInputFixtures.test.ts` to generate it",
+            "{} unreadable ({error}); run `bun run test src/lib/composer/turnInputFixtures.test.ts` to generate it",
             path.display()
         )
     });

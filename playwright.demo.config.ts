@@ -1,6 +1,6 @@
 import { defineConfig } from "@playwright/test";
 
-/** Screenshot capture for demos and docs — not part of `deno task test:e2e`.
+/** Screenshot capture for demos and docs — not part of `bun run test:e2e`.
  * Runs the same browser preview the e2e suite uses, but drives it purely to
  * pose the UI and save images. See `demo/README.md`. */
 export default defineConfig({
@@ -17,7 +17,7 @@ export default defineConfig({
   reporter: "list",
   outputDir: "test-results/demo",
   use: {
-    baseURL: "http://127.0.0.1:1420",
+    baseURL: "http://localhost:1420",
     // Retina-quality images at a comfortable window size.
     viewport: { width: 1440, height: 900 },
     deviceScaleFactor: 2,
@@ -27,8 +27,8 @@ export default defineConfig({
     { name: "dark", use: { browserName: "chromium", colorScheme: "dark" } },
   ],
   webServer: {
-    command: "deno task frontend:dev",
-    url: "http://127.0.0.1:1420",
+    command: "bun run frontend:dev",
+    url: "http://localhost:1420",
     reuseExistingServer: true,
     timeout: 120_000,
   },

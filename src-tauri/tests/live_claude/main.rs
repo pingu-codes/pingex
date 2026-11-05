@@ -1,5 +1,5 @@
 //! Live end-to-end tests against a real `claude` CLI on a cheap model.
-//! Run with `deno task test:e2e:claude`; skipped unless `PINGEX_LIVE_E2E=1`.
+//! Run with `bun run test:e2e:claude`; skipped unless `PINGEX_LIVE_E2E=1`.
 
 mod harness;
 

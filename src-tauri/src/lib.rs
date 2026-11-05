@@ -760,7 +760,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         ])
 }
 
-/// Regenerates `src/lib/bindings.ts`. Run via `deno task typegen`.
+/// Regenerates `src/lib/bindings.ts`. Run via `bun run typegen`.
 #[cfg(test)]
 #[test]
 fn export_bindings() {
@@ -852,7 +852,7 @@ pub fn run() {
     let context = HomeContext::new(runtime, database);
     let specta = specta_builder();
     // Regenerate the frontend bindings on every debug launch; the file is
-    // committed so `deno task check` works without a Rust toolchain.
+    // committed so `bun run check` works without a Rust toolchain.
     #[cfg(debug_assertions)]
     write_bindings();
     let invoke_handler = specta.invoke_handler();

@@ -19,8 +19,8 @@ function installDomShims(): void {
     value: () => {},
   });
 
-  // Deno exposes a process-backed localStorage whose SQLite database may be
-  // read-only in parallel Vitest workers. Tests need the browser semantics, so
+  // Some runtimes (Deno, recent Node) expose a process-backed localStorage
+  // that parallel Vitest workers can share or find read-only. Tests need the browser semantics, so
   // use a per-worker in-memory implementation instead.
   const localValues = new Map<string, string>();
   const memoryLocalStorage: Storage = {

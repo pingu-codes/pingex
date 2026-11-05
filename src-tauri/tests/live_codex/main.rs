@@ -8,7 +8,7 @@
 //! in `tests/fixtures/protocol/turn-inputs.json`) and checks the server takes
 //! it and the model does what the input asked.
 //!
-//! Run:  `deno task test:e2e:codex`   (PINGEX_LIVE_E2E=1, needs a Codex login)
+//! Run:  `bun run test:e2e:codex`   (PINGEX_LIVE_E2E=1, needs a Codex login)
 //! Skips silently otherwise so `cargo test` stays offline.
 
 #[macro_use]

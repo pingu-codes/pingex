@@ -13,11 +13,11 @@ the conversation, so prefer quiet runs and pipe through `tail` when in doubt.
 
 | Rung | Frontend | Rust | Cost |
 |---|---|---|---|
-| 1. Types compile | `deno task check` | `cd src-tauri && cargo check` | 8s / 14s |
-| 2. Tests near the edit | `deno task test:changed` (vitest `--changed`) or `deno task test -- path/to/x.test.ts` | `deno task rust:test:lib -- module::name` | 15s / 7s |
-| 3. Everything, once, before finishing | `deno task preflight` (check + lint + all vitest) | `deno task rust:preflight` (fmt + clippy + lib tests) | 45s / 30s |
-| 4. Browser e2e | `deno task test:e2e:quick` (one chromium project) — full matrix `deno task test:e2e` only for layout/webkit work | | 15s+ |
-| 5. Live harness | `deno task test:e2e:codex` / `test:e2e:claude` — spends real quota, confirm with the user first | | minutes |
+| 1. Types compile | `bun run check` | `cd src-tauri && cargo check` | 8s / 14s |
+| 2. Tests near the edit | `bun run test:changed` (vitest `--changed`) or `bun run test path/to/x.test.ts` | `bun run rust:test:lib module::name` | 15s / 7s |
+| 3. Everything, once, before finishing | `bun run preflight` (check + lint + all vitest) | `bun run rust:preflight` (fmt + clippy + lib tests) | 45s / 30s |
+| 4. Browser e2e | `bun run test:e2e:quick` (one chromium project) — full matrix `bun run test:e2e` only for layout/webkit work | | 15s+ |
+| 5. Live harness | `bun run test:e2e:codex` / `test:e2e:claude` — spends real quota, confirm with the user first | | minutes |
 
 Do not run rung 3 after every edit. Fix with rung 1 and 2, then run rung 3 once.
 
@@ -29,13 +29,13 @@ The frontend runs without Tauri: `api.ts` gates on `isTauri()` and serves previe
 fixtures, including a fake streaming turn (send any message; include the word
 "approve" to trigger a fake approval card).
 
-1. `deno task frontend:dev` → http://localhost:1420 (run in background; Playwright
+1. `bun run frontend:dev` → http://localhost:1420 (run in background; Playwright
    reuses it if already up).
 2. Prefer writing a Playwright spec under `tests/browser/` and running
-   `deno task test:e2e:quick tests/browser/<spec>.spec.ts` (no `--`; deno forwards the path) over ad hoc
+   `bun run test:e2e:quick tests/browser/<spec>.spec.ts` (no `--`; bun forwards the path) over ad hoc
    scripts: it uses the pinned browser build and the shared fixtures.
 3. If you do need a one-off script, use the Playwright bundled with the repo
-   (`deno run -A npm:playwright@1.61.1 ...`) rather than a hard-coded Chromium
+   (`bunx playwright ...`) rather than a hard-coded Chromium
    path under `~/Library/Caches/ms-playwright`; those builds rotate.
 4. Useful flows: click preview thread "Custom frontend skeleton" (attachments,
    diff truncation, "Worked for" reasoning collapse); type in the composer and
@@ -45,7 +45,7 @@ fixtures, including a fake streaming turn (send any message; include the word
 - Known noise: `/favicon.ico` 404 in console — pre-existing, ignore.
 
 ## Real Tauri surface
-- `deno task dev` (sets `CODEX_HOME=$HOME/.codex-personal`, opens a window).
+- `bun run dev` (sets `CODEX_HOME=$HOME/.codex-personal`, opens a window).
 - The `codex` shell alias is guarded; the real binary is `/opt/homebrew/bin/codex`.
   Set `PINGEX_E2E_CODEX=/opt/homebrew/bin/codex` for the live suites.
 - Protocol smoke test without the GUI (validates app-server wire assumptions):

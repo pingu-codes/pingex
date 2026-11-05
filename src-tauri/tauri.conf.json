@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "codes.pingu.pingex",
   "build": {
-    "beforeDevCommand": "deno task frontend:dev",
+    "beforeDevCommand": "bun run frontend:dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "deno task build",
+    "beforeBuildCommand": "bun run build",
     "frontendDist": "../dist"
   },
   "app": {

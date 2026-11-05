@@ -85,7 +85,7 @@ duplicated (section 1); §1.1, §1.4 and §1.5 are done.
 - **Where:** 51 files in each tree.
 - **What:** 50 of the 51 are byte-identical (~205 KB). The one that differs,
   `.agents/skills/verify/SKILL.md`, is stale: it still says
-  `cd app && deno task check`. Several skills are generic and unrelated to
+  `cd app && bun run check`. Several skills are generic and unrelated to
   this repo (`teach`, `setup-matt-pocock-skills`, `triage`, `to-tickets`,
   `ask-matt`).
 - **Proposal:** make `.agents/skills` a symlink to `.claude/skills`, after
@@ -114,23 +114,16 @@ duplicated (section 1); §1.1, §1.4 and §1.5 are done.
 ### 1.6 `scripts/check-project-integrations.ts`
 - **What:** 6.7 KB ad-hoc protocol probe with a hard-coded
   `/opt/homebrew/bin/codex`. It's referenced only from
-  `features/03-integrations.md:28` and isn't a deno task. It sits outside the
+  `features/03-integrations.md:28` and isn't a package script. It sits outside the
   three-tier version policy the live suite enforces.
 - **Proposal:** port the plugin and project-rule cases to `live_codex` and
   delete the script. Skills and MCP are already covered in
   `live_codex/main.rs:69-103`.
 - **Savings:** ~180 lines. **Risk:** med (the live suite spends quota).
 
-### 1.7 deno.json: pin each tool version once
-- **Where:** `vitest@4.1.10` appears 4 times, `playwright@1.61.1` 5,
-  `@biomejs/biome@2.5.4` 4 and `vite@8.1.5` 3. The `imports` entries for
-  CLIs (`@biomejs/biome`, `svelte-check`, `@tauri-apps/cli`) are never
-  imported by code.
-- **Proposal:** add base tasks (`"vitest": "deno run -A npm:vitest@4.1.10"`,
-  `"pw"`, `"biome"`, `"vite"`) and compose the rest from them
-  (`"test": "deno task vitest run"`). Drop the unused import entries.
-- **Savings:** readability; a version bump becomes a one-line edit.
-  **Risk:** low.
+### 1.7 ~~deno.json: pin each tool version once~~ (resolved)
+- Resolved by the move to Bun: `package.json` pins each tool once in
+  `devDependencies`, and scripts call the binaries by name.
 
 ### 1.8 Small config overlaps
 - `vitest.config.ts:54-57` and `vite.config.ts:13-16` both declare the same
@@ -1119,7 +1112,7 @@ Carried over from the cleanup log's "Found, not yet fixed" list:
    wording first.
 
 Verify each step with the cheapest rung that proves it (see the `verify`
-skill): `deno task check` / `cargo check`, then `test:changed` /
+skill): `bun run check` / `cargo check`, then `test:changed` /
 `rust:test:lib`, then `preflight` once per batch.
 
 ---
