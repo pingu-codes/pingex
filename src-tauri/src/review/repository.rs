@@ -111,6 +111,8 @@ pub(crate) struct FolderFacts {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct KnownClone {
+    /// The slug it was looked up by, as given.
+    pub(crate) slug: String,
     pub(crate) path: String,
     /// The remote that points at the repository.
     pub(crate) remote: String,

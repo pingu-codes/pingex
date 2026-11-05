@@ -736,7 +736,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             review::commands::review_repository_settings,
             review::commands::review_save_repository_settings,
             review::commands::review_link_clone,
-            review::commands::review_find_clone,
+            review::commands::review_find_clones,
             review::commands::review_clone_repository,
             review::commands::review_prs_only_repositories,
             review::commands::review_add_prs_only_repository,

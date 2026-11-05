@@ -546,16 +546,16 @@ pub(crate) async fn review_link_clone(
     desk(&window, &state, repo_dir).link_clone(slug).await
 }
 
-/// The first of `cwds` (folders Pingex knows) that is a clone of `slug`.
+/// For each of `slugs`, a clone of it among `cwds` (folders Pingex knows).
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn review_find_clone(
-    slug: String,
+pub(crate) async fn review_find_clones(
+    slugs: Vec<String>,
     cwds: Vec<String>,
     window: crate::HomeWindow,
     state: State<'_, AppState>,
-) -> Result<Option<KnownClone>, String> {
-    account_desk(&window, &state).find_clone(slug, cwds).await
+) -> Result<Vec<KnownClone>, String> {
+    account_desk(&window, &state).find_clones(slugs, cwds).await
 }
 
 /// Clone `url` into `<parent_dir>/<name>` on `host`; returns the clone's path

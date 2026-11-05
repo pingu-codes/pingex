@@ -166,25 +166,37 @@ impl ReviewDesk {
         self.repository().await
     }
 
-    /// The first of `candidates` (folders Pingex knows) that is a clone of
-    /// GitHub repository `slug`. Unreadable folders are skipped.
-    pub(crate) async fn find_clone(
+    /// For each of `slugs`, the first of `candidates` (folders Pingex knows)
+    /// that is a clone of it; slugs with no clone are left out. Unreadable
+    /// folders are skipped.
+    pub(crate) async fn find_clones(
         &self,
-        slug: String,
+        slugs: Vec<String>,
         candidates: Vec<String>,
-    ) -> Result<Option<KnownClone>, String> {
-        self.blocking("Looking for a clone failed", move |desk| {
-            let wanted = slug.to_lowercase();
-            Ok(candidates.into_iter().find_map(|path| {
-                let remotes = remotes::read_remotes(&desk.host, Path::new(&path)).ok()?;
-                let remote = remotes
-                    .into_iter()
-                    .find(|remote| remote.slug.as_deref() == Some(wanted.as_str()))?;
-                Some(KnownClone {
-                    path,
-                    remote: remote.name,
-                })
-            }))
+    ) -> Result<Vec<KnownClone>, String> {
+        self.blocking("Looking for clones failed", move |desk| {
+            let mut found: Vec<KnownClone> = Vec::new();
+            for path in candidates {
+                let Ok(remotes) = remotes::read_remotes(&desk.host, Path::new(&path)) else {
+                    continue;
+                };
+                for slug in &slugs {
+                    let wanted = slug.to_lowercase();
+                    let remote = remotes
+                        .iter()
+                        .find(|remote| remote.slug.as_deref() == Some(wanted.as_str()));
+                    if let Some(remote) = remote {
+                        if !found.iter().any(|clone| clone.slug == *slug) {
+                            found.push(KnownClone {
+                                slug: slug.clone(),
+                                path: path.clone(),
+                                remote: remote.name.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+            Ok(found)
         })
         .await
     }
@@ -389,22 +401,23 @@ mod tests {
 
         let found = fixture
             .desk
-            .find_clone("PINGEX/desk".into(), candidates.clone())
+            .find_clones(
+                vec!["PINGEX/desk".into(), "someone/else".into()],
+                candidates,
+            )
             .await
-            .unwrap()
             .unwrap();
-        assert_eq!(
-            (found.path.as_str(), found.remote.as_str()),
-            (path.as_str(), "origin")
-        );
-        assert_eq!(
-            fixture
-                .desk
-                .find_clone("someone/else".into(), candidates)
-                .await
-                .unwrap(),
-            None
-        );
+        let found: Vec<_> = found
+            .iter()
+            .map(|clone| {
+                (
+                    clone.slug.as_str(),
+                    clone.path.as_str(),
+                    clone.remote.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(found, [("PINGEX/desk", path.as_str(), "origin")]);
 
         // The clone feeds nothing until it is linked.
         let settings = fixture.desk.repository_settings().await.unwrap();
