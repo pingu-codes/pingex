@@ -9,8 +9,13 @@
   import type { PrFile } from "$lib/types";
   import { errorMessage } from "$lib/utils/errors";
 
-  let { repoDir, base, head, close }: { repoDir: string; base: string; head: string; close: DialogClose<true> } =
-    $props();
+  let {
+    repoDir,
+    base,
+    head,
+    title = "Compare start to tip",
+    close,
+  }: { repoDir: string; base: string; head: string; title?: string; close: DialogClose<true> } = $props();
 
   let files = $state<PrFile[] | null>(null);
   let error = $state<string | null>(null);
@@ -23,12 +28,7 @@
   });
 </script>
 
-<DialogShell
-  title="Compare start to tip"
-  subtitle="{base.slice(0, 7)} → {head.slice(0, 7)}"
-  width={760}
-  onClose={() => close()}
->
+<DialogShell {title} subtitle="{base.slice(0, 7)} → {head.slice(0, 7)}" width={760} onClose={() => close()}>
   {#snippet icon()}
     <GitCompare size={17} class="text-primary-500" />
   {/snippet}

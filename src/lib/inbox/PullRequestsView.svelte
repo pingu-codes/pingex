@@ -37,7 +37,9 @@
   import PrRow from "$lib/inbox/PrRow.svelte";
   import SinceYouLooked from "$lib/inbox/SinceYouLooked.svelte";
   import StackCard from "$lib/inbox/StackCard.svelte";
+  import CompareCommitsDialog from "$lib/review/CompareCommitsDialog.svelte";
   import { commands } from "$lib/services/homeRouting";
+  import { stackInputFor } from "$lib/stack/stack";
   import { toastError } from "$lib/toaster";
   import type { InboxPr } from "$lib/types";
   import { errorMessage } from "$lib/utils/errors";
@@ -90,6 +92,40 @@
       label: `${FILTER_LABELS[value]} ${inbox?.counts[value] ?? 0}`,
     })),
   );
+  // How far behind its base each of my stacks is ("Behind main by 3").
+  let behind = $state<Record<number, number | null>>({});
+  $effect(() => {
+    const current = inbox;
+    const listing = stacks;
+    if (!current || !listing.supported) return;
+    const authorOf = new Map(current.prs.map((pr) => [pr.number, pr.author]));
+    const mine = listing.stacks.filter(
+      (stack) =>
+        stack.open && stack.prs.some((pr) => pr.state === "open" && authorOf.get(pr.number) === current.viewer),
+    );
+    if (mine.length === 0) return;
+    void commands
+      .reviewStacksBehind(
+        repoPath,
+        mine.map((stack) => stackInputFor(stack, current)),
+      )
+      .then((rows) => (behind = Object.fromEntries((rows ?? []).map((row) => [row.number, row.behind]))))
+      .catch(() => {});
+  });
+
+  function compareBase(group: StackGroup) {
+    if (!inbox) return;
+    const input = stackInputFor(group.stack, inbox);
+    const bottom = input.prs.find((pr) => pr.open && !pr.merged);
+    if (!bottom || !input.baseSha) return;
+    void openDialog(CompareCommitsDialog, {
+      repoDir: repoPath,
+      base: bottom.headSha,
+      head: input.baseSha,
+      title: `What ${input.baseRef} gained since ${group.name} forked`,
+    });
+  }
+
   const CHIPS: { key: keyof InboxChips; label: string }[] = [
     { key: "drafts", label: "Drafts" },
     { key: "ciFailing", label: "CI failing" },
@@ -383,6 +419,8 @@
                 threadCount={worktree ? threadCountForPath(projects(), worktree.path) : 0}
                 onOpenStack={handlers.openStack ? () => handlers.openStack?.(repoPath, group) : undefined}
                 onRestack={handlers.restack ? () => handlers.restack?.(repoPath, group) : undefined}
+                behind={behind[group.stack.number] ?? null}
+                onCompare={() => compareBase(group)}
               >
                 {#snippet row(entry, index)}
                   {@render prRow(entry, index, group)}

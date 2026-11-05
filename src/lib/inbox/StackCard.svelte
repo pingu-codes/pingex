@@ -7,7 +7,9 @@
 <script lang="ts">
   import { Folder, GitBranch } from "@lucide/svelte";
   import type { Snippet } from "svelte";
+  import ActionMenu from "$lib/components/ActionMenu.svelte";
   import type { InboxRow, StackGroup } from "$lib/inbox/inbox";
+  import { behindLabel } from "$lib/stack/stack";
   import type { WorktreeEntry } from "$lib/types";
 
   let {
@@ -17,6 +19,8 @@
     threadCount = 0,
     onOpenStack,
     onRestack,
+    behind = null,
+    onCompare,
     row,
   }: {
     group: StackGroup;
@@ -26,11 +30,16 @@
     threadCount?: number;
     onOpenStack?: () => void;
     onRestack?: () => void;
+    /** Commits the base has that the stack doesn't; `null` when unknown. */
+    behind?: number | null;
+    /** What the base gained since the stack forked. */
+    onCompare?: () => void;
     row: Snippet<[InboxRow, number]>;
   } = $props();
 
   const count = $derived(group.stack.prs.filter((entry) => entry.state === "open").length);
   const worktreeName = $derived(worktree?.path.split("/").pop() ?? "");
+  const behindText = $derived(behindLabel(group.stack.baseRef, behind));
 </script>
 
 <section class="panel-card overflow-hidden" aria-label="Stack {group.name}">
@@ -44,6 +53,26 @@
     {#if mine}
       <span class="text-surface-500">{count} PR{count === 1 ? "" : "s"} onto</span>
       <span class="status-badge preset-tonal font-mono">{group.stack.baseRef}</span>
+      {#if behindText}
+        <ActionMenu
+          entries={[
+            {
+              id: "restack",
+              label: "Restack",
+              disabled: !onRestack,
+              title: onRestack ? undefined : "Not available yet",
+            },
+            { id: "compare", label: "Compare", disabled: !onCompare },
+          ]}
+          label={behindText}
+          buttonLabel={behindText}
+          onSelect={(id) => (id === "restack" ? onRestack?.() : onCompare?.())}
+        >
+          {#snippet row({ buttonProps })}
+            <button {...buttonProps} type="button" class="status-badge preset-tonal-warning">{behindText}</button>
+          {/snippet}
+        </ActionMenu>
+      {/if}
       <span class="grow"></span>
       {#if worktree}
         <span class="status-badge preset-tonal" title="Worktree for this stack">
