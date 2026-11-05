@@ -1,12 +1,12 @@
 //! Mapping `gh` JSON onto the provider-neutral wire types.
 //!
 //! Nothing here touches the network or the filesystem, so all of it is unit
-//! tested against fixture JSON. Diff bodies are handed to `super::diff`.
+//! tested against fixture JSON. Diff bodies are handed to `review::diff`.
 
 use serde_json::Value;
 
-use super::diff::parse_patch;
-use super::types::{ChecksSummary, PrComment, PrCommit, PrFile, PrFreshness, PrSummary};
+use crate::review::diff::parse_patch;
+use crate::review::types::{ChecksSummary, PrComment, PrCommit, PrFile, PrSummary};
 
 /// Upper bound on changed files fetched for one PR so a huge diff cannot stall
 /// the UI; the frontend shows a "truncated" note when this bites.
@@ -266,23 +266,6 @@ pub(crate) fn parse_review_threads(json: &Value) -> Vec<PrComment> {
     comments
 }
 
-/// Decide whether a locally-open PR is stale relative to the remote. Any change
-/// to the head SHA or the `updatedAt` timestamp counts as drift.
-pub(crate) fn compute_freshness(
-    known_head: &str,
-    known_updated_at: &str,
-    remote_head: &str,
-    remote_updated_at: &str,
-) -> PrFreshness {
-    let stale = (!remote_head.is_empty() && remote_head != known_head)
-        || (!remote_updated_at.is_empty() && remote_updated_at != known_updated_at);
-    PrFreshness {
-        stale,
-        remote_head: remote_head.to_string(),
-        remote_updated_at: remote_updated_at.to_string(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -423,17 +406,5 @@ mod tests {
         assert_eq!(comments[1].id, 2);
         assert_eq!(comments[1].path.as_deref(), Some("a.rs"));
         assert_eq!(comments[1].line, Some(5));
-    }
-    #[test]
-    fn freshness_detects_head_and_timestamp_drift() {
-        let same = compute_freshness("abc", "t1", "abc", "t1");
-        assert!(!same.stale);
-        let new_head = compute_freshness("abc", "t1", "def", "t1");
-        assert!(new_head.stale);
-        let new_time = compute_freshness("abc", "t1", "abc", "t2");
-        assert!(new_time.stale);
-        // An empty remote (fetch failed) is not treated as drift.
-        let empty = compute_freshness("abc", "t1", "", "");
-        assert!(!empty.stale);
     }
 }

@@ -501,6 +501,18 @@ export const commands = {
 	reviewMarkSeen: (repoDir: string, number: number, sha: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("review_mark_seen", { repoDir, number, sha, window }),
 	/**  Drop the refs kept for a closed PR. */
 	reviewForgetPr: (repoDir: string, number: number, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("review_forget_pr", { repoDir, number, window }),
+	reviewEditComment: (repoDir: string, comment: CommentRef, body: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("review_edit_comment", { repoDir, comment, body, window }),
+	reviewDeleteComment: (repoDir: string, comment: CommentRef, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("review_delete_comment", { repoDir, comment, window }),
+	reviewMerge: (repoDir: string, number: number, request: MergeRequest, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("review_merge", { repoDir, number, request, window }),
+	reviewClose: (repoDir: string, number: number, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("review_close", { repoDir, number, window }),
+	reviewRetarget: (repoDir: string, number: number, base: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("review_retarget", { repoDir, number, base, window }),
+	reviewMarkReady: (repoDir: string, number: number, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("review_mark_ready", { repoDir, number, window }),
+	reviewCheckLogs: (repoDir: string, number: number, window: HomeRoute | null = null) => __TAURI_INVOKE<CheckLog[]>("review_check_logs", { repoDir, number, window }),
+	reviewRerunFailedChecks: (repoDir: string, number: number, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("review_rerun_failed_checks", { repoDir, number, window }),
+	/**  Open a PR from a pushed git branch; returns its number. */
+	reviewCreatePr: (repoDir: string, pr: NewPr, window: HomeRoute | null = null) => __TAURI_INVOKE<number>("review_create_pr", { repoDir, pr, window }),
+	reviewMyRepositories: (window: HomeRoute | null = null) => __TAURI_INVOKE<GitHubRepo[]>("review_my_repositories", { window }),
+	reviewRepositoriesRequestingReview: (window: HomeRoute | null = null) => __TAURI_INVOKE<ReviewRequests[]>("review_repositories_requesting_review", { window }),
 	reviewSaveDraft: (provider: string, repo: string, prNumber: number, headSha: string, payload: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("review_save_draft", { provider, repo, prNumber, headSha, payload, window }),
 	reviewLoadDraft: (provider: string, repo: string, prNumber: number, window: HomeRoute | null = null) => __TAURI_INVOKE<{
 	headSha: string,
@@ -589,6 +601,8 @@ export const events = {
 };
 
 /* Constants */
+export const DESK_ACTION_STEPS = {"addressReview":"worktree","agentReviewWithTests":"reviewCheckout","askAgent":"noCheckout","changesSince":"noCheckout","close":"noCheckout","comment":"noCheckout","diffReview":"noCheckout","fixCi":"worktree","fixInThread":"worktree","markReady":"noCheckout","merge":"noCheckout","openInEditor":"reviewCheckout","push":"worktree","read":"noCheckout","resolveConflicts":"worktree","resolveThread":"noCheckout","restack":"worktree","retarget":"noCheckout","runLocally":"reviewCheckout","submitReview":"noCheckout","viewWholeFile":"noCheckout"} as const;
+
 export const HARNESS_CAPABILITIES = {"claude":["permissionModes","liveToolResults","compact","sideQuestions"],"codex":["goals","revert","collaborationModes","compact","fork","review","sideQuestions"],"maki":["permissionModes","liveToolResults"]} as const;
 
 export const HARNESS_INFO = {"claude":{"configDir":".claude","configDirEditable":true,"defaultBinary":"claude","label":"Claude Code","name":"Claude","optional":false,"probesStatus":true},"codex":{"configDir":".codex","configDirEditable":true,"defaultBinary":"codex","label":"Codex","name":"Codex","optional":false,"probesStatus":false},"maki":{"configDir":".config/maki","configDirEditable":false,"defaultBinary":"maki","label":"maki","name":"maki","optional":true,"probesStatus":true}} as const;
@@ -764,6 +778,22 @@ export type ChangesSummary = {
 	deletions: number,
 };
 
+/**  A failing check's log, as the check finished; never streamed. */
+export type CheckLog = {
+	name: string,
+	log: string,
+	truncated: boolean,
+};
+
+/**  Where a PR's code lives, lowest first. Each step adds to the one below. */
+export type CheckoutStep = 
+/**  The PR's commits as fetched refs; the working tree is untouched. */
+"noCheckout" | 
+/**  A detached, Pingex-owned checkout at the PR head that can run code. */
+"reviewCheckout" | 
+/**  A named worktree on the PR's git branch, where commits and pushes go. */
+"worktree";
+
 /**  A compact rollup of the head commit's status checks. */
 export type ChecksSummary = {
 	total: number,
@@ -838,6 +868,16 @@ export type CommandApprovalParams = {
 	approvalId?: string | null,
 };
 
+/**
+ *  A comment to edit or delete. GitHub keeps inline review comments and
+ *  conversation comments in different collections.
+ */
+export type CommentRef = 
+/**  An inline comment in a review thread. */
+{ kind: "review"; id: number } | 
+/**  A comment in the PR's conversation. */
+{ kind: "conversation"; id: number };
+
 /**  The commit `git_commit` produced, with whatever the hooks printed. */
 export type CommitResult = {
 	hash: string,
@@ -899,6 +939,17 @@ export type DeltaParams = {
 	itemId?: string | null,
 	delta?: string | null,
 };
+
+/**  A desk action that touches a PR's code, or explicitly does not. */
+export type DeskAction = "read" | "comment" | "submitReview" | "resolveThread" | "viewWholeFile" | "changesSince" | "merge" | "close" | "retarget" | "markReady" | 
+/**  An agent review that reads the patch and runs nothing. */
+"diffReview" | 
+/**  Ask an agent about a line or a file. */
+"askAgent" | 
+/**  An agent review with "Run tests" on. */
+"agentReviewWithTests" | "runLocally" | "openInEditor" | "fixInThread" | "addressReview" | "fixCi" | 
+/**  Push to the PR's git branch. */
+"push" | "restack" | "resolveConflicts";
 
 /**  A single `@@` hunk of a file's diff with parsed lines and stable anchors. */
 export type DiffHunk = {
@@ -1045,6 +1096,19 @@ export type GitContext = {
 	identityName: string | null,
 	identityEmail: string | null,
 	error: string | null,
+};
+
+/**  A repository on GitHub the signed-in account can see, for Add repository. */
+export type GitHubRepo = {
+	/**  `owner/name`. */
+	slug: string,
+	private: boolean,
+	fork: boolean,
+	/**  The upstream's `owner/name` for a fork, when GitHub reports it. */
+	parent: string | null,
+	defaultBranch: string,
+	cloneUrl: string,
+	sshUrl: string,
 };
 
 /**  High-level repository facts for a directory. */
@@ -1466,6 +1530,17 @@ export type MemoryToggle = {
 	value: boolean,
 };
 
+export type MergeMethod = "merge" | "squash" | "rebase";
+
+/**
+ *  A merge, refused by the provider when the PR's head is no longer
+ *  `head_sha`, so it never merges commits nobody saw.
+ */
+export type MergeRequest = {
+	method: MergeMethod,
+	headSha: string | null,
+};
+
 export type ModelReroutedParams = {
 	threadId?: string | null,
 	turnId?: string | null,
@@ -1479,6 +1554,17 @@ export type ModelUsage = {
 	tokens: UsageTokens,
 	costUsd: number | null,
 	turns: number,
+};
+
+/**  A pull request to open, for "Add git branch on top" and "Split". */
+export type NewPr = {
+	/**  The git branch it merges into. */
+	base: string,
+	/**  The git branch with its commits, already pushed. */
+	head: string,
+	title: string,
+	body: string,
+	draft: boolean,
 };
 
 /**
@@ -1850,6 +1936,13 @@ export type ReviewDraft = {
 	/**  Opaque JSON owned by the frontend (pending comments, chosen event). */
 	payload: string,
 	updatedAt: number,
+};
+
+/**  A repository with open PRs that ask the signed-in account for review. */
+export type ReviewRequests = {
+	/**  `owner/name`. */
+	slug: string,
+	count: number,
 };
 
 /**
@@ -2505,4 +2598,4 @@ function makeEvent<T>(name: string, serialize?: (payload: T) => unknown, deseria
 
 
 /** Command argument names for explicit Home routing. */
-export const commandArguments = {"addNativeSideQuestion":["parentThreadId","sideThreadId","title","window"],"addProfileProject":["path","host"],"addProject":["path","window"],"addProjectSource":["projectPath","sourcePath","kind","window"],"addSideQuestion":["parentThreadId","sideThreadId","title","inheritedTurns","window"],"addThreadBranch":["parentThreadId","threadId","replacedTurnId","inheritedTurns","window"],"addWorktreeProject":["path","window"],"allowThreadImage":["path","window"],"answerNativeSideQuestion":["parentThreadId","sideThreadId","requestId","window"],"applySessionFocus":["hide","collapseProjects","collapseFolders","window"],"archiveThread":["threadId","window"],"autoNameThread":["threadId","seed","window"],"bootstrap":["window"],"bootstrapProfile":["refresh"],"cancelNativeSideQuestion":["parentThreadId","sideThreadId","requestId","window"],"clearWireLog":[],"compactThread":["threadId","window"],"copyText":["text"],"createSidebarFolder":["scope","parentId","name","window"],"createSkill":["name","description","body","cwds","window"],"createThreadSection":["name","color","window"],"createWorkspace":["input","window"],"deleteDraft":["project","window"],"deleteMemory":["homeId","path","projects"],"deleteSidebarFolder":["id","window"],"deleteSkill":["path","cwds","window"],"deleteThread":["threadId","window"],"deleteThreadSection":["sectionId","window"],"disconnectConnection":["clientId","window"],"forkThread":["threadId","beforeTurnId","lastTurnId","cwd","window"],"getQuickShortcut":[],"gitBranches":["dir","limit","window"],"gitChangesSummary":["dir","window"],"gitCheckoutBranch":["dir","name","force","window"],"gitCommit":["dir","message","window"],"gitContext":["dir","window"],"gitCreateBranch":["dir","name","base","checkout","window"],"gitDiscard":["dir","paths","untrackedPaths","window"],"gitFetch":["dir","window"],"gitFileDiff":["dir","base","path","untracked","maxBytes","window"],"gitPull":["dir","window"],"gitPush":["dir","setUpstream","window"],"gitRecentCommits":["dir","limit","window"],"gitRepoInfo":["dir","window"],"gitStage":["dir","paths","window"],"gitStagedFileDiff":["dir","path","maxBytes","window"],"gitStatus":["dir","window"],"gitUnstage":["dir","paths","window"],"gitWorktreeAdd":["repoDir","request","window"],"gitWorktreeAddTemp":["repoDir","window"],"gitWorktreeHandoff":["worktreePath","targetDir","commitUncommitted","branchName","window"],"gitWorktreeHandoffPreflight":["worktreePath","targetDir","window"],"gitWorktreeLock":["repoDir","path","reason","window"],"gitWorktreePrune":["repoDir","window"],"gitWorktreeRemove":["repoDir","path","force","window"],"gitWorktreeUnlock":["repoDir","path","window"],"gitWorktrees":["repoDir","window"],"handoffCommand":["threadId","cwd","window"],"handoffLaunchTerminal":["threadId","cwd","window"],"handoffThreadLink":["threadId","cwd","label","window"],"interruptTurn":["threadId","turnId","window"],"invalidateThreadCache":["threadId","window"],"listConnections":["window"],"listHarnessModels":["harness","window"],"listIntegrations":["cwds","forceReload","window"],"listMcpServerStatus":["window"],"listMemories":["projects"],"listModels":["window"],"listProjectFiles":["root","window"],"listProjectSources":["projectPath","window"],"listSkillsFor":["cwds","window"],"listSubagents":["threadId","window"],"listThreadsPage":["cursor","pageSize","archived","projectPath","window"],"listWslDistros":[],"loadDraft":["project","window"],"mcpOauthLogin":["name","window"],"moveThreadToSection":["threadId","sectionId","window"],"moveThreadToWorkspace":["threadId","workspaceId","window"],"openExternalUrl":["url"],"openHomeWindow":["path","host"],"openInZed":["path","window"],"placeSidebarItem":["scope","item","parentId","siblings","window"],"prepareNativeSideQuestion":["parentThreadId","sideThreadId","question","window"],"prepareProfileWorkspace":["sourceHomeKey","workspaceId","targetHomeKey"],"queueAdd":["threadId","input","clientUserMessageId","window"],"queueDelete":["threadId","queuedSubmissionId","window"],"queueList":["threadId","cursor","window"],"queueReorder":["threadId","queuedSubmissionIds","window"],"queueUpdate":["threadId","queuedSubmissionId","input","window"],"quickOpenFullThread":["threadId"],"readAccountRateLimits":["window"],"readCodexServerInfo":["window"],"readConfigSettings":["window"],"readContextBreakdown":["threadId","window"],"readFilePreview":["path","maxBytes","window"],"readHomeOverview":["window"],"readHomeStatus":["id"],"readLaunchState":["window"],"readMemory":["homeId","path"],"readNativeSideQuestion":["parentThreadId","sideThreadId","window"],"readPromptPartsText":["threadId","window"],"readRuntimeSettings":["window"],"readSkill":["path","window"],"readThread":["threadId","window"],"readThreadUsage":["threadId","window"],"readUsageBreakdown":["scope","since","window"],"readWireLog":["window"],"recordUserInputRequest":["threadId","turnId","itemId","item","afterItemId","window"],"refreshConnections":["window"],"registerProfileHome":["harness","host","configDir","binary","label"],"reindexSource":["id","window"],"remotePairingStart":["window"],"remotePairingStatus":["pairingCode","window"],"removeMcpServer":["name","window"],"removeProfileHome":["id"],"removeProject":["path","window"],"removeProjectSource":["id","projectPath","window"],"removeRecentHome":["path","host","window"],"removeSideQuestion":["sideThreadId","window"],"removeStaged":["id","window"],"renameConnection":["clientId","name","window"],"renameProject":["path","name","window"],"renameSidebarFolder":["id","name","window"],"renameThread":["threadId","name","window"],"resetSidebarOrder":["scope","window"],"respondApproval":["requestId","decision","window"],"respondServerRequest":["requestId","result","window"],"respondUserInput":["requestId","answers","threadId","turnId","itemId","item","window"],"revealInFinder":["path","window"],"revertThread":["threadId","beforeTurnId","keptTurnIds","window"],"reviewChangesSince":["repoDir","number","baseSha","headSha","window"],"reviewCheckFresh":["repoDir","number","knownHead","knownUpdatedAt","window"],"reviewDeleteDraft":["provider","repo","prNumber","window"],"reviewDiff":["repoDir","baseSha","headSha","window"],"reviewFetchPrs":["repoDir","numbers","window"],"reviewFile":["repoDir","sha","path","window"],"reviewForgetPr":["repoDir","number","window"],"reviewInbox":["repoDir","window"],"reviewListPrs":["repoDir","window"],"reviewLoadDraft":["provider","repo","prNumber","window"],"reviewLocalDiff":["repoDir","base","head","window"],"reviewMarkSeen":["repoDir","number","sha","window"],"reviewPrDetail":["repoDir","number","window"],"reviewProviderStatus":["repoDir","window"],"reviewReply":["repoDir","number","commentId","body","window"],"reviewResolveThread":["repoDir","threadId","window"],"reviewSaveDraft":["provider","repo","prNumber","headSha","payload","window"],"reviewStacks":["repoDir","window"],"reviewSubmit":["repoDir","number","event","body","commitId","comments","window"],"revokeConnection":["clientId","window"],"saveDraft":["project","content","window"],"saveMcpServer":["server","window"],"saveProjectInstructions":["projectPath","instructions","window"],"searchProjectFiles":["root","query","limit","window"],"searchThreads":["query","cursor","filter","generation","window"],"searchWorkspace":["projectPath","query","cursor","generation","window"],"selectCodexHome":["path","host","window"],"setCodexBinary":["path","window"],"setIntegrationEnabled":["kind","id","enabled","projectPath","window"],"setMcpEnabled":["name","enabled","window"],"setMemoryToggle":["homeId","key","value","projects"],"setProfileDefaultHome":["id"],"setProjectArchived":["path","archived","window"],"setProjectExpanded":["path","expanded","window"],"setProjectPinned":["path","pinned","window"],"setQuickShortcut":["accelerator"],"setSidebarFolderExpanded":["id","expanded","window"],"setSkillEnabled":["name","enabled","path","window"],"setThreadBranchEditTurn":["threadId","editTurnId","window"],"setThreadPinned":["threadId","pinned","window"],"setThreadsHidden":["threadIds","hidden","window"],"setWireLogging":["enabled","window"],"sideQuestionMode":["parentThreadId","window"],"stageAttachment":["sourcePath","window"],"stageClipboardImage":["filename","mime","bytes","window"],"startReview":["threadId","target","window"],"startThread":["cwd","workspaceId","harness","window"],"startTurn":["threadId","input","options","window"],"threadGoalClear":["threadId","window"],"threadGoalGet":["threadId","window"],"threadGoalSet":["threadId","objective","status","tokenBudget","clearTokenBudget","window"],"threadsWithActiveTurns":["window"],"threadsWithUnansweredQuestions":["window"],"unarchiveThread":["threadId","window"],"updateProfileHome":["id","configDir","binary","label"],"updateRuntimeSettings":["codexHome","codexBinary","claudeBinary","claudeConfigDir","codexHost","claudeHost","window"],"updateSubagentPolicy":["threadId","modelPolicy","reasoningEffortPolicy","window"],"updateThreadSection":["sectionId","name","color","window"],"updateTurnSettings":["threadId","turnId","model","effort","speedTier","window"],"updateWorkspace":["input","window"],"writeConfigSetting":["key","value","unset","window"],"writeMemory":["homeId","path","contents","projects"]} as const;
+export const commandArguments = {"addNativeSideQuestion":["parentThreadId","sideThreadId","title","window"],"addProfileProject":["path","host"],"addProject":["path","window"],"addProjectSource":["projectPath","sourcePath","kind","window"],"addSideQuestion":["parentThreadId","sideThreadId","title","inheritedTurns","window"],"addThreadBranch":["parentThreadId","threadId","replacedTurnId","inheritedTurns","window"],"addWorktreeProject":["path","window"],"allowThreadImage":["path","window"],"answerNativeSideQuestion":["parentThreadId","sideThreadId","requestId","window"],"applySessionFocus":["hide","collapseProjects","collapseFolders","window"],"archiveThread":["threadId","window"],"autoNameThread":["threadId","seed","window"],"bootstrap":["window"],"bootstrapProfile":["refresh"],"cancelNativeSideQuestion":["parentThreadId","sideThreadId","requestId","window"],"clearWireLog":[],"compactThread":["threadId","window"],"copyText":["text"],"createSidebarFolder":["scope","parentId","name","window"],"createSkill":["name","description","body","cwds","window"],"createThreadSection":["name","color","window"],"createWorkspace":["input","window"],"deleteDraft":["project","window"],"deleteMemory":["homeId","path","projects"],"deleteSidebarFolder":["id","window"],"deleteSkill":["path","cwds","window"],"deleteThread":["threadId","window"],"deleteThreadSection":["sectionId","window"],"disconnectConnection":["clientId","window"],"forkThread":["threadId","beforeTurnId","lastTurnId","cwd","window"],"getQuickShortcut":[],"gitBranches":["dir","limit","window"],"gitChangesSummary":["dir","window"],"gitCheckoutBranch":["dir","name","force","window"],"gitCommit":["dir","message","window"],"gitContext":["dir","window"],"gitCreateBranch":["dir","name","base","checkout","window"],"gitDiscard":["dir","paths","untrackedPaths","window"],"gitFetch":["dir","window"],"gitFileDiff":["dir","base","path","untracked","maxBytes","window"],"gitPull":["dir","window"],"gitPush":["dir","setUpstream","window"],"gitRecentCommits":["dir","limit","window"],"gitRepoInfo":["dir","window"],"gitStage":["dir","paths","window"],"gitStagedFileDiff":["dir","path","maxBytes","window"],"gitStatus":["dir","window"],"gitUnstage":["dir","paths","window"],"gitWorktreeAdd":["repoDir","request","window"],"gitWorktreeAddTemp":["repoDir","window"],"gitWorktreeHandoff":["worktreePath","targetDir","commitUncommitted","branchName","window"],"gitWorktreeHandoffPreflight":["worktreePath","targetDir","window"],"gitWorktreeLock":["repoDir","path","reason","window"],"gitWorktreePrune":["repoDir","window"],"gitWorktreeRemove":["repoDir","path","force","window"],"gitWorktreeUnlock":["repoDir","path","window"],"gitWorktrees":["repoDir","window"],"handoffCommand":["threadId","cwd","window"],"handoffLaunchTerminal":["threadId","cwd","window"],"handoffThreadLink":["threadId","cwd","label","window"],"interruptTurn":["threadId","turnId","window"],"invalidateThreadCache":["threadId","window"],"listConnections":["window"],"listHarnessModels":["harness","window"],"listIntegrations":["cwds","forceReload","window"],"listMcpServerStatus":["window"],"listMemories":["projects"],"listModels":["window"],"listProjectFiles":["root","window"],"listProjectSources":["projectPath","window"],"listSkillsFor":["cwds","window"],"listSubagents":["threadId","window"],"listThreadsPage":["cursor","pageSize","archived","projectPath","window"],"listWslDistros":[],"loadDraft":["project","window"],"mcpOauthLogin":["name","window"],"moveThreadToSection":["threadId","sectionId","window"],"moveThreadToWorkspace":["threadId","workspaceId","window"],"openExternalUrl":["url"],"openHomeWindow":["path","host"],"openInZed":["path","window"],"placeSidebarItem":["scope","item","parentId","siblings","window"],"prepareNativeSideQuestion":["parentThreadId","sideThreadId","question","window"],"prepareProfileWorkspace":["sourceHomeKey","workspaceId","targetHomeKey"],"queueAdd":["threadId","input","clientUserMessageId","window"],"queueDelete":["threadId","queuedSubmissionId","window"],"queueList":["threadId","cursor","window"],"queueReorder":["threadId","queuedSubmissionIds","window"],"queueUpdate":["threadId","queuedSubmissionId","input","window"],"quickOpenFullThread":["threadId"],"readAccountRateLimits":["window"],"readCodexServerInfo":["window"],"readConfigSettings":["window"],"readContextBreakdown":["threadId","window"],"readFilePreview":["path","maxBytes","window"],"readHomeOverview":["window"],"readHomeStatus":["id"],"readLaunchState":["window"],"readMemory":["homeId","path"],"readNativeSideQuestion":["parentThreadId","sideThreadId","window"],"readPromptPartsText":["threadId","window"],"readRuntimeSettings":["window"],"readSkill":["path","window"],"readThread":["threadId","window"],"readThreadUsage":["threadId","window"],"readUsageBreakdown":["scope","since","window"],"readWireLog":["window"],"recordUserInputRequest":["threadId","turnId","itemId","item","afterItemId","window"],"refreshConnections":["window"],"registerProfileHome":["harness","host","configDir","binary","label"],"reindexSource":["id","window"],"remotePairingStart":["window"],"remotePairingStatus":["pairingCode","window"],"removeMcpServer":["name","window"],"removeProfileHome":["id"],"removeProject":["path","window"],"removeProjectSource":["id","projectPath","window"],"removeRecentHome":["path","host","window"],"removeSideQuestion":["sideThreadId","window"],"removeStaged":["id","window"],"renameConnection":["clientId","name","window"],"renameProject":["path","name","window"],"renameSidebarFolder":["id","name","window"],"renameThread":["threadId","name","window"],"resetSidebarOrder":["scope","window"],"respondApproval":["requestId","decision","window"],"respondServerRequest":["requestId","result","window"],"respondUserInput":["requestId","answers","threadId","turnId","itemId","item","window"],"revealInFinder":["path","window"],"revertThread":["threadId","beforeTurnId","keptTurnIds","window"],"reviewChangesSince":["repoDir","number","baseSha","headSha","window"],"reviewCheckFresh":["repoDir","number","knownHead","knownUpdatedAt","window"],"reviewCheckLogs":["repoDir","number","window"],"reviewClose":["repoDir","number","window"],"reviewCreatePr":["repoDir","pr","window"],"reviewDeleteComment":["repoDir","comment","window"],"reviewDeleteDraft":["provider","repo","prNumber","window"],"reviewDiff":["repoDir","baseSha","headSha","window"],"reviewEditComment":["repoDir","comment","body","window"],"reviewFetchPrs":["repoDir","numbers","window"],"reviewFile":["repoDir","sha","path","window"],"reviewForgetPr":["repoDir","number","window"],"reviewInbox":["repoDir","window"],"reviewListPrs":["repoDir","window"],"reviewLoadDraft":["provider","repo","prNumber","window"],"reviewLocalDiff":["repoDir","base","head","window"],"reviewMarkReady":["repoDir","number","window"],"reviewMarkSeen":["repoDir","number","sha","window"],"reviewMerge":["repoDir","number","request","window"],"reviewMyRepositories":["window"],"reviewPrDetail":["repoDir","number","window"],"reviewProviderStatus":["repoDir","window"],"reviewReply":["repoDir","number","commentId","body","window"],"reviewRepositoriesRequestingReview":["window"],"reviewRerunFailedChecks":["repoDir","number","window"],"reviewResolveThread":["repoDir","threadId","window"],"reviewRetarget":["repoDir","number","base","window"],"reviewSaveDraft":["provider","repo","prNumber","headSha","payload","window"],"reviewStacks":["repoDir","window"],"reviewSubmit":["repoDir","number","event","body","commitId","comments","window"],"revokeConnection":["clientId","window"],"saveDraft":["project","content","window"],"saveMcpServer":["server","window"],"saveProjectInstructions":["projectPath","instructions","window"],"searchProjectFiles":["root","query","limit","window"],"searchThreads":["query","cursor","filter","generation","window"],"searchWorkspace":["projectPath","query","cursor","generation","window"],"selectCodexHome":["path","host","window"],"setCodexBinary":["path","window"],"setIntegrationEnabled":["kind","id","enabled","projectPath","window"],"setMcpEnabled":["name","enabled","window"],"setMemoryToggle":["homeId","key","value","projects"],"setProfileDefaultHome":["id"],"setProjectArchived":["path","archived","window"],"setProjectExpanded":["path","expanded","window"],"setProjectPinned":["path","pinned","window"],"setQuickShortcut":["accelerator"],"setSidebarFolderExpanded":["id","expanded","window"],"setSkillEnabled":["name","enabled","path","window"],"setThreadBranchEditTurn":["threadId","editTurnId","window"],"setThreadPinned":["threadId","pinned","window"],"setThreadsHidden":["threadIds","hidden","window"],"setWireLogging":["enabled","window"],"sideQuestionMode":["parentThreadId","window"],"stageAttachment":["sourcePath","window"],"stageClipboardImage":["filename","mime","bytes","window"],"startReview":["threadId","target","window"],"startThread":["cwd","workspaceId","harness","window"],"startTurn":["threadId","input","options","window"],"threadGoalClear":["threadId","window"],"threadGoalGet":["threadId","window"],"threadGoalSet":["threadId","objective","status","tokenBudget","clearTokenBudget","window"],"threadsWithActiveTurns":["window"],"threadsWithUnansweredQuestions":["window"],"unarchiveThread":["threadId","window"],"updateProfileHome":["id","configDir","binary","label"],"updateRuntimeSettings":["codexHome","codexBinary","claudeBinary","claudeConfigDir","codexHost","claudeHost","window"],"updateSubagentPolicy":["threadId","modelPolicy","reasoningEffortPolicy","window"],"updateThreadSection":["sectionId","name","color","window"],"updateTurnSettings":["threadId","turnId","model","effort","speedTier","window"],"updateWorkspace":["input","window"],"writeConfigSetting":["key","value","unset","window"],"writeMemory":["homeId","path","contents","projects"]} as const;

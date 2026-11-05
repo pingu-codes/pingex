@@ -13,10 +13,10 @@ use std::sync::{Mutex, OnceLock};
 
 use serde_json::Value;
 
-use super::gh::{redact_gh_error, run_gh, READ_TIMEOUT};
 use super::parse::str_field;
-use super::queries::merge_paginated_arrays;
-use super::types::{PrStack, StackListing, StackPr};
+use super::reads::merge_paginated_arrays;
+use super::run::{redact_gh_error, run_gh, READ_TIMEOUT};
+use crate::review::types::{PrStack, StackListing, StackPr};
 use crate::util::host::Host;
 
 /// Repositories that answered 404 for stacks this run, by `owner/name`.
@@ -97,9 +97,10 @@ mod tests {
 
     #[test]
     fn parses_native_stacks_bottom_first() {
-        let json: Value =
-            serde_json::from_str(include_str!("../../../tests/fixtures/github/stacks.json"))
-                .unwrap();
+        let json: Value = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/github/stacks.json"
+        ))
+        .unwrap();
         let stacks = parse_stacks(&json);
         assert_eq!(stacks.len(), 2);
         let stack = &stacks[0];

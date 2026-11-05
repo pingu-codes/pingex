@@ -539,11 +539,14 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         // unified mode cannot express `skip_serializing_if`, so we do not use it.
         .disable_serde_phases()
         .typ::<harness::Capability>()
+        .typ::<review::requirements::CheckoutStep>()
+        .typ::<review::requirements::DeskAction>()
         .typ::<claude::modes::ClaudeModeSettings>()
         .constant("HARNESS_CAPABILITIES", harness::declared_capabilities())
         .constant("HARNESS_KINDS", harness::HarnessKind::ALL)
         .constant("HARNESS_INFO", harness::harness_info())
         .constant("HARNESS_MODES", harness::harness_modes())
+        .constant("DESK_ACTION_STEPS", review::requirements::action_steps())
         .commands(tauri_specta::collect_commands![
             // Projects and the bootstrap payload
             profiles::bootstrap_profile,
@@ -715,6 +718,17 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             review::commands::review_changes_since,
             review::commands::review_mark_seen,
             review::commands::review_forget_pr,
+            review::commands::review_edit_comment,
+            review::commands::review_delete_comment,
+            review::commands::review_merge,
+            review::commands::review_close,
+            review::commands::review_retarget,
+            review::commands::review_mark_ready,
+            review::commands::review_check_logs,
+            review::commands::review_rerun_failed_checks,
+            review::commands::review_create_pr,
+            review::commands::review_my_repositories,
+            review::commands::review_repositories_requesting_review,
             review::commands::review_save_draft,
             review::commands::review_load_draft,
             review::commands::review_delete_draft,

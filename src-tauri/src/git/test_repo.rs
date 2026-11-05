@@ -139,4 +139,14 @@ impl TestRepo {
         );
         sha
     }
+
+    /// Make `origin` read as GitHub repository `slug` (`owner/name`) to code
+    /// that matches remote URLs, while fetches still reach the bare remote
+    /// through `url.<remote>.insteadOf`.
+    pub(crate) fn serve_as_github(&self, slug: &str) {
+        let url = format!("https://github.com/{slug}.git");
+        let remote = self.remote.to_str().unwrap();
+        self.git(&["config", &format!("url.{remote}.insteadOf"), &url]);
+        self.git(&["remote", "set-url", "origin", &url]);
+    }
 }

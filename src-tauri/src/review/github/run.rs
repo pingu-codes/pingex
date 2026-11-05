@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use super::types::ProviderStatus;
+use crate::review::types::ProviderStatus;
 use crate::util::host::Host;
 use crate::util::process::{self, CommandOutput, Run, RunError};
 
@@ -44,6 +44,7 @@ fn spawn_gh(
     args: &[&str],
     stdin: Option<&str>,
     timeout: Duration,
+    max_stdout: Option<usize>,
 ) -> Result<CommandOutput, String> {
     let dir = host.path_string(dir);
     let binary = host.resolve_binary("gh").unwrap_or_else(|| "gh".into());
@@ -55,7 +56,7 @@ fn spawn_gh(
         env: &NON_INTERACTIVE,
         stdin,
         timeout,
-        max_stdout: None,
+        max_stdout,
     })
     .map_err(describe)
 }
@@ -71,7 +72,19 @@ pub(crate) fn run_gh(
     args: &[&str],
     timeout: Duration,
 ) -> Result<CommandOutput, String> {
-    spawn_gh(host, dir, args, None, timeout)
+    spawn_gh(host, dir, args, None, timeout, None)
+}
+
+/// `run_gh`, reading at most `max_stdout` bytes (`CommandOutput::truncated`
+/// says when it stopped), for output that can be huge, like a CI log.
+pub(crate) fn run_gh_capped(
+    host: &Host,
+    dir: &Path,
+    args: &[&str],
+    timeout: Duration,
+    max_stdout: usize,
+) -> Result<CommandOutput, String> {
+    spawn_gh(host, dir, args, None, timeout, Some(max_stdout))
 }
 
 /// POST a JSON body to a `gh api` endpoint by piping it through stdin. Used for
@@ -88,6 +101,7 @@ pub(crate) fn run_gh_with_input(
         &["api", "--method", "POST", endpoint, "--input", "-"],
         Some(body),
         WRITE_TIMEOUT,
+        None,
     )
 }
 

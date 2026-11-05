@@ -1,25 +1,23 @@
-//! Provider-neutral pull-request review service.
+//! The review desk: pull requests, stacks and the checkouts they need.
 //!
-//! Read-only inspection and review actions go through this module. The first
-//! (and currently only) adapter is GitHub, backed by the installed `gh` CLI. As
-//! with the native Git service, every invocation uses an argument array (never a
-//! shell string), a bounded timeout, and redacted errors so raw stderr never
-//! leaks. Absence of `gh` or a missing login is reported as an actionable state
-//! rather than a hard failure.
+//! `desk::ReviewDesk` is the service and the backend test seam; the Tauri
+//! commands in `commands` are thin wrappers over it. GitHub sits behind the
+//! `provider::GitHubProvider` port: `github::GhCli` is the production adapter
+//! over the `gh` CLI, and `fake::FakeGitHub` backs tests. Nothing outside
+//! `github` names `gh`.
 //!
-//! The wire types (`PrSummary`, `PrFile`, `DiffHunk`, `PrComment`, ...) are
-//! deliberately provider-neutral; a future adapter (GitLab, Gitea) would map its
-//! own API onto the same shapes so the frontend never changes. Pure parsing and
-//! mapping is split in two — `gh` JSON -> types in `parse`, unified patch ->
-//! hunks with anchors in `diff` — and both are unit tested with fixtures; the
-//! network is never touched in tests.
+//! The wire types in `types` are provider-neutral. Unified patches become
+//! hunks with anchors in `diff`; `feed` derives "since you last looked" from
+//! two inbox snapshots; `requirements` is the table of the checkout step each
+//! desk action needs.
 
-mod actions;
 pub(crate) mod commands;
+pub(crate) mod desk;
 pub(crate) mod diff;
-mod gh;
-mod inbox;
-mod parse;
-mod queries;
-mod stacks;
-mod types;
+#[cfg(test)]
+pub(crate) mod fake;
+mod feed;
+pub(crate) mod github;
+pub(crate) mod provider;
+pub(crate) mod requirements;
+pub(crate) mod types;

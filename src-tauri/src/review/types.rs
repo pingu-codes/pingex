@@ -144,7 +144,7 @@ pub(crate) struct PrFreshness {
 }
 
 /// One pending inline comment to attach to a submitted review.
-#[derive(Clone, Debug, Deserialize, specta::Type)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PendingComment {
     pub(crate) path: String,
@@ -322,4 +322,136 @@ pub(crate) struct ShaDiff {
     pub(crate) files: Vec<PrFile>,
     /// The patch passed the read cap; the last files are missing or cut.
     pub(crate) truncated: bool,
+}
+
+// --- The GitHub provider port's inputs and outputs (see `provider`) ---
+
+/// One inbox read from the provider: who is signed in, the open PRs, and
+/// what the read cost.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct InboxRead {
+    /// `owner/name`.
+    pub(crate) repo: String,
+    pub(crate) viewer: String,
+    pub(crate) prs: Vec<InboxPr>,
+    pub(crate) rate_limit: Option<RateLimit>,
+    /// False when the repository has more open PRs than one read returns.
+    pub(crate) complete: bool,
+}
+
+/// A PR's head as the provider has it now, for the stale-head check.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct PrHead {
+    pub(crate) head_sha: String,
+    pub(crate) updated_at: String,
+}
+
+/// The verdict a submitted review carries.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum ReviewVerdict {
+    #[default]
+    Comment,
+    Approve,
+    RequestChanges,
+}
+
+impl ReviewVerdict {
+    /// The UI's event name. Anything unrecognised is a plain comment, the
+    /// only verdict that cannot approve or block by accident.
+    pub(crate) fn from_event(event: &str) -> Self {
+        match event {
+            "approve" | "APPROVE" => Self::Approve,
+            "request-changes" | "REQUEST_CHANGES" | "requestChanges" => Self::RequestChanges,
+            _ => Self::Comment,
+        }
+    }
+}
+
+/// One review, posted to the provider in one call.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewSubmission {
+    pub(crate) verdict: ReviewVerdict,
+    /// The summary.
+    pub(crate) body: String,
+    /// The head the reviewer read. The review and its comments stay on it
+    /// even if the author pushes before submit.
+    pub(crate) commit_id: Option<String>,
+    pub(crate) comments: Vec<PendingComment>,
+}
+
+/// A comment to edit or delete. GitHub keeps inline review comments and
+/// conversation comments in different collections.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "id")]
+pub(crate) enum CommentRef {
+    /// An inline comment in a review thread.
+    Review(i64),
+    /// A comment in the PR's conversation.
+    Conversation(i64),
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum MergeMethod {
+    #[default]
+    Merge,
+    Squash,
+    Rebase,
+}
+
+/// A merge, refused by the provider when the PR's head is no longer
+/// `head_sha`, so it never merges commits nobody saw.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MergeRequest {
+    pub(crate) method: MergeMethod,
+    pub(crate) head_sha: Option<String>,
+}
+
+/// A pull request to open, for "Add git branch on top" and "Split".
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct NewPr {
+    /// The git branch it merges into.
+    pub(crate) base: String,
+    /// The git branch with its commits, already pushed.
+    pub(crate) head: String,
+    pub(crate) title: String,
+    pub(crate) body: String,
+    pub(crate) draft: bool,
+}
+
+/// A failing check's log, as the check finished; never streamed.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CheckLog {
+    pub(crate) name: String,
+    pub(crate) log: String,
+    pub(crate) truncated: bool,
+}
+
+/// A repository on GitHub the signed-in account can see, for Add repository.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GitHubRepo {
+    /// `owner/name`.
+    pub(crate) slug: String,
+    pub(crate) private: bool,
+    pub(crate) fork: bool,
+    /// The upstream's `owner/name` for a fork, when GitHub reports it.
+    pub(crate) parent: Option<String>,
+    pub(crate) default_branch: String,
+    pub(crate) clone_url: String,
+    pub(crate) ssh_url: String,
+}
+
+/// A repository with open PRs that ask the signed-in account for review.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewRequests {
+    /// `owner/name`.
+    pub(crate) slug: String,
+    pub(crate) count: i64,
 }

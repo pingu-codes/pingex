@@ -1,18 +1,14 @@
-//! Fetching pull requests: the `gh` field lists, the GraphQL query for inline
-//! review threads, and the local-diff path that works before a PR exists.
+//! Fetching pull requests: the `gh` field lists and the GraphQL query for
+//! inline review threads.
 
 use serde_json::Value;
 use std::path::Path;
 
+use crate::review::types::{PrComment, PrDetail, PrHead, PrSummary};
 use crate::util::host::Host;
 
-use super::diff::parse_git_diff;
-use super::gh::{gh_graphql, redact_gh_error, repo_name_with_owner, run_gh, GqlVar, READ_TIMEOUT};
-use super::parse::{
-    compute_freshness, parse_files, parse_pr_list, parse_pr_view, parse_review_threads, str_field,
-};
-use super::types::{PrComment, PrDetail, PrFile, PrFreshness, PrSummary};
-use crate::git::run_git;
+use super::parse::{parse_files, parse_pr_list, parse_pr_view, parse_review_threads, str_field};
+use super::run::{gh_graphql, redact_gh_error, repo_name_with_owner, run_gh, GqlVar, READ_TIMEOUT};
 
 /// How many open PRs the picker lists.
 const PR_LIST_LIMIT: &str = "50";
@@ -144,13 +140,8 @@ pub(crate) fn merge_paginated_arrays(stdout: &str) -> Value {
     Value::Array(merged)
 }
 
-pub(crate) fn check_freshness(
-    host: &Host,
-    dir: &Path,
-    number: i64,
-    known_head: &str,
-    known_updated_at: &str,
-) -> Result<PrFreshness, String> {
+/// The PR's head and `updatedAt` as GitHub has them now.
+pub(crate) fn pr_head(host: &Host, dir: &Path, number: i64) -> Result<PrHead, String> {
     let number_str = number.to_string();
     let output = run_gh(
         host,
@@ -166,53 +157,9 @@ pub(crate) fn check_freshness(
     }
     let json: Value = serde_json::from_str(&output.stdout)
         .map_err(|_| "Could not parse the pull request".to_string())?;
-    Ok(compute_freshness(
-        known_head,
-        known_updated_at,
-        &str_field(&json, "headRefOid"),
-        &str_field(&json, "updatedAt"),
-    ))
-}
-
-/// Diff the working tree against a base revision, producing the same `PrFile`
-/// shape as a real PR so the review view works before a PR exists.
-pub(crate) fn local_diff(
-    host: &crate::util::host::Host,
-    dir: &Path,
-    base: &str,
-    head: Option<&str>,
-) -> Result<Vec<PrFile>, String> {
-    let range = diff_range(base, head)?;
-    // Reuses the native Git service's runner, so the local diff gets the same
-    // argument-array discipline and timeout handling as everything else. The
-    // trailing `--` keeps the range from being read as a path.
-    let output = run_git(
-        host,
-        dir,
-        &["diff", "--no-color", &range, "--"],
-        READ_TIMEOUT,
-    )?;
-    if !output.ok {
-        return Err("Could not diff against that base revision".to_string());
-    }
-    Ok(parse_git_diff(&output.stdout))
-}
-
-/// The `git diff` revision argument for a user-typed base and head. A
-/// revision starting with `-` would be parsed as an option (`--output=...`
-/// writes a file), so it is refused rather than passed through.
-fn diff_range(base: &str, head: Option<&str>) -> Result<String, String> {
-    let base = base.trim();
-    let head = head.map(str::trim).filter(|head| !head.is_empty());
-    if base.is_empty() {
-        return Err("Enter a base revision".to_string());
-    }
-    if base.starts_with('-') || head.is_some_and(|head| head.starts_with('-')) {
-        return Err("A revision cannot start with '-'".to_string());
-    }
-    Ok(match head {
-        Some(head) => format!("{base}...{head}"),
-        None => base.to_string(),
+    Ok(PrHead {
+        head_sha: str_field(&json, "headRefOid"),
+        updated_at: str_field(&json, "updatedAt"),
     })
 }
 
@@ -231,16 +178,6 @@ mod tests {
             .map(|file| file["filename"].as_str().unwrap())
             .collect();
         assert_eq!(names, ["a", "b"]);
-    }
-
-    #[test]
-    fn diff_ranges_refuse_option_like_revisions() {
-        assert_eq!(diff_range("main", None).unwrap(), "main");
-        assert_eq!(diff_range("main", Some("feat")).unwrap(), "main...feat");
-        assert_eq!(diff_range(" main ", Some(" ")).unwrap(), "main");
-        assert!(diff_range("--output=/tmp/x", None).is_err());
-        assert!(diff_range("main", Some("--output=/tmp/x")).is_err());
-        assert!(diff_range("", None).is_err());
     }
 
     #[test]
