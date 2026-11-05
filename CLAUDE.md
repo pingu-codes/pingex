@@ -7,9 +7,8 @@ A mirror codex source code can be found at `../codex-mirror`
 
 ## Frontend Best Practices
 
-We use "Skeleton" as a component / styling library. Before creating a new component always check if it already exists in Skeleton.
-Skeleton's docs are vendored at `llms/skeleton.txt` (790 KB): `grep -n` it for
-the component name, then `Read` that range. Never read it whole.
+We use "Skeleton" as our component / styling library. Before creating a new component ALWAYS check if it already exists in Skeleton.
+Skeleton's docs are vendored at `llms/skeleton.txt` Always use a subagent or attempt to find only the part you need to avoid bloating context.
 
 ## Supported Codex versions
 
@@ -61,19 +60,11 @@ directly. Vocabulary in `CONTEXT.md`, mechanics in `features/13-harnesses.md`
 Cost in this repo is context size times turn count, and the 1M-context model
 never compacts, so what enters the conversation stays there.
 
-- Find the symbol with `grep -n` first, then `Read` that range with
-  `offset`/`limit`. Never `cat` or `sed -n 1,900p` a whole file; the hot ones
-  (`ThreadView.svelte`, `Composer.svelte`, `api.ts`, `Sidebar.svelte`) are
-  25k+ chars each.
 - Delegate broad "where is X handled" searches to an Explore subagent and keep
   only its conclusion.
 - Verify with the cheapest rung that proves the change (ladder in the `verify`
   skill): `deno task check` / `cargo check`, then `test:changed` /
   `rust:test:lib`, then `preflight` once before finishing. Not after every edit.
-- Pipe noisy commands through `tail`; never paste transcripts, tool-result
-  files or full test logs back into the conversation.
-- Switch tasks in a new session (or `/clear`). Write a short handoff note
-  first if the next task depends on what you found.
 - In a `.claude/worktrees/*` checkout, set `CARGO_TARGET_DIR` to the main
   repo's `src-tauri/target` so cargo reuses the warm cache.
 - `python3 scripts/session_stats.py` reports where past sessions spent tokens
