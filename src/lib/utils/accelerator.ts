@@ -46,3 +46,32 @@ export function acceleratorFromEvent(event: KeyboardEvent): string | null {
   parts.push(key);
   return parts.join("+");
 }
+
+/** How each accelerator token reads in a menu's shortcut hint. */
+const HINT_TOKENS: Record<string, string> = {
+  CmdOrCtrl: "⌘",
+  Control: "⌃",
+  Alt: "⌥",
+  Shift: "⇧",
+  Enter: "↵",
+  Up: "↑",
+  Down: "↓",
+  Left: "←",
+  Right: "→",
+  Escape: "⎋",
+  Backspace: "⌫",
+  Delete: "⌦",
+  Tab: "⇥",
+  Space: "␣",
+};
+
+/**
+ * An accelerator (`CmdOrCtrl+Shift+C`) as a shortcut hint (`⌘⇧C`), the way
+ * menus print it. The inverse of matching `acceleratorFromEvent`.
+ */
+export function formatAccelerator(accelerator: string): string {
+  return accelerator
+    .split("+")
+    .map((token) => HINT_TOKENS[token] ?? token)
+    .join("");
+}

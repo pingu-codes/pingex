@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { acceleratorFromEvent } from "$lib/utils/accelerator";
+import { acceleratorFromEvent, formatAccelerator } from "$lib/utils/accelerator";
 
 function keydown(init: KeyboardEventInit): KeyboardEvent {
   return new KeyboardEvent("keydown", init);
@@ -26,5 +26,22 @@ describe("acceleratorFromEvent", () => {
   it("returns null while only modifiers are held", () => {
     expect(acceleratorFromEvent(keydown({ key: "Meta", metaKey: true }))).toBeNull();
     expect(acceleratorFromEvent(keydown({ key: "Shift", shiftKey: true }))).toBeNull();
+  });
+});
+
+describe("formatAccelerator", () => {
+  it("writes an accelerator the way a menu hint shows it", () => {
+    expect(formatAccelerator("Enter")).toBe("↵");
+    expect(formatAccelerator("T")).toBe("T");
+    expect(formatAccelerator("CmdOrCtrl+Shift+C")).toBe("⌘⇧C");
+    expect(formatAccelerator("Alt+Up")).toBe("⌥↑");
+    expect(formatAccelerator("Shift+V")).toBe("⇧V");
+    expect(formatAccelerator("F2")).toBe("F2");
+  });
+
+  it("round-trips with the keydown that produces it", () => {
+    const shortcut = acceleratorFromEvent(keydown({ key: "ArrowDown", altKey: true }));
+    expect(shortcut).toBe("Alt+Down");
+    expect(formatAccelerator(shortcut ?? "")).toBe("⌥↓");
   });
 });
