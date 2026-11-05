@@ -7,6 +7,7 @@
 import { checkCodexVersion } from "$lib/app/codexVersion.svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
 import AddProjectDialog from "$lib/layout/AddProjectDialog.svelte";
+import AddRepositoryDialog, { type AddRepositoryInitial } from "$lib/repositories/AddRepositoryDialog.svelte";
 import { seedActiveTurns, setUnansweredQuestions } from "$lib/services/codexEvents.svelte";
 import { addProfileProject, commands } from "$lib/services/homeRouting";
 import { isTauri } from "$lib/services/tauri";
@@ -282,6 +283,21 @@ export async function quietRefresh(): Promise<void> {
   } catch {
     // Sidebar refresh after thread creation is best-effort.
   }
+}
+
+/** Add repository: from GitHub, a local folder or a URL. A cloned or linked
+ *  folder becomes a project; the browser preview only records PRs-only ones. */
+export async function addRepository(initial: AddRepositoryInitial = {}): Promise<void> {
+  const knownFolders = (appData.data?.projects ?? [])
+    .filter((project) => project.kind !== "multiProject")
+    .map((project) => project.path);
+  await openDialog(AddRepositoryDialog, {
+    knownFolders,
+    initial,
+    addFolder: async (path: string, host: Host | null) => {
+      if (isTauri()) await applyFresh(addProfileProject(path, host));
+    },
+  });
 }
 
 export async function addProject(): Promise<void> {

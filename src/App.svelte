@@ -14,7 +14,15 @@
     slashCommand,
     threadCreated,
   } from "$lib/app/actions.svelte";
-  import { addProject, appData, applyData, projectForCwd, projects, refresh } from "$lib/app/appData.svelte";
+  import {
+    addProject,
+    addRepository,
+    appData,
+    applyData,
+    projectForCwd,
+    projects,
+    refresh,
+  } from "$lib/app/appData.svelte";
   import { expectedCwdFor, handoff, movedToWorktree } from "$lib/app/handoff.svelte";
   import {
     browseForHome,
@@ -111,6 +119,7 @@
         selectedThread={rootThreadId(view.threadId, appData.data?.threadBranches ?? []) ?? view.threadId}
         loading={appData.loading}
         onAddProject={addProject}
+        onAddRepository={addRepository}
         onAddWorkspace={() => openWorkspaceDialog()}
         onSelectThread={openThread}
         onNewThread={newThread}

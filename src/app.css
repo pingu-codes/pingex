@@ -90,6 +90,12 @@ button {
   @apply inline-grid h-4 min-w-4 place-items-center rounded border border-surface-300-700 px-1 font-mono text-[10px] leading-[14px] text-surface-500;
 }
 
+/* Compact status pill (a PR count, "Link clone"); pair it with a
+   `preset-tonal-*` for its colour. Skeleton's `badge` is larger. */
+@utility status-badge {
+  @apply inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] leading-[14px] font-medium whitespace-nowrap;
+}
+
 /* Icon button on a sidebar row, hidden until it takes focus. The caller adds
    its size and the row's reveal, e.g. `group-hover/thread:opacity-100`. */
 @utility row-action {
