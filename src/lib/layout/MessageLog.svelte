@@ -108,9 +108,7 @@
         {#if open}
           <pre
             class="max-h-64 overflow-auto bg-surface-100-900 px-3 py-2 font-mono text-[11px] leading-4 whitespace-pre-wrap"
-          >{formatPayload(
-              message.payload,
-            )}</pre>
+          >{formatPayload(message.payload)}</pre>
           {#if message.truncated}
             <p class="px-3 pb-2 text-[11px] text-surface-500">Payload truncated — too large to keep in full.</p>
           {/if}

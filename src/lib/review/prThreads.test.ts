@@ -1,0 +1,75 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { prLinks, resetPrLinks } from "$lib/review/prLinks.svelte";
+import { commands } from "$lib/services/homeRouting";
+import { resetPreviewCheckouts, setPreviewCheckout } from "$lib/services/preview/checkouts";
+import type { CheckoutTarget } from "$lib/types";
+import { startPrThread } from "./prThreads";
+
+vi.mock("$lib/services/homeRouting", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
+  return {
+    ...actual,
+    commands: {
+      ...actual.commands,
+      startThread: vi.fn(actual.commands.startThread),
+      startTurn: vi.fn(actual.commands.startTurn),
+    },
+  };
+});
+
+const repoDir = "/Users/ciaran/Projects/codex-custom";
+const target: CheckoutTarget = {
+  number: 409,
+  headRef: "jo-r/usage-meter",
+  headSha: "4".repeat(40),
+  mine: false,
+  stack: null,
+};
+const input = [{ type: "text" as const, text: "Review this", text_elements: [] }];
+
+describe("startPrThread", () => {
+  beforeEach(() => {
+    resetPreviewCheckouts();
+    resetPrLinks();
+    vi.mocked(commands.startThread).mockClear();
+    vi.mocked(commands.startTurn).mockClear();
+  });
+
+  it("starts a read-only thread in the clone at No checkout and records its PR link first", async () => {
+    const { thread, link } = await startPrThread({
+      repoDir,
+      target,
+      input,
+      options: { sandboxMode: "workspace-write", approvalPolicy: "never" },
+    });
+
+    expect(commands.startThread).toHaveBeenCalledWith(repoDir, null, null);
+    expect(vi.mocked(commands.startTurn).mock.calls[0][2]).toMatchObject({
+      sandboxMode: "read-only",
+      approvalPolicy: "on-request",
+    });
+    expect(link).toMatchObject({ threadId: thread.id, prNumber: 409, step: "noCheckout", startSha: target.headSha });
+    expect(prLinks.byThread[thread.id]?.prNumber).toBe(409);
+  });
+
+  it("runs in the worktree with the caller's permissions once the PR has one", async () => {
+    setPreviewCheckout(repoDir, {
+      number: 409,
+      step: "worktree",
+      path: "/wt/usage-meter",
+      headSha: target.headSha,
+      gitBranch: target.headRef,
+      setupPending: null,
+      behindHead: false,
+    });
+    await startPrThread({ repoDir, target, input, options: { sandboxMode: "workspace-write" } });
+
+    expect(commands.startThread).toHaveBeenCalledWith("/wt/usage-meter", null, null);
+    expect(vi.mocked(commands.startTurn).mock.calls[0][2]).toMatchObject({ sandboxMode: "workspace-write" });
+  });
+
+  it("refuses a harness without a read-only sandbox below the Worktree step", async () => {
+    await expect(startPrThread({ repoDir, target, input, harness: "maki" })).rejects.toThrow(/read-only sandbox/);
+    expect(commands.startThread).not.toHaveBeenCalled();
+  });
+});

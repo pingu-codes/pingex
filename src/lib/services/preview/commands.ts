@@ -22,6 +22,7 @@ import type {
 } from "$lib/types";
 import { basename } from "$lib/utils/path";
 import { previewStageBytes, previewStageFromPath } from "./attachments";
+import { previewCheckoutCommands } from "./checkouts";
 import { DESK_REPOS, DESK_VIEWER, deskInbox, deskPrDetail, deskStacks } from "./desk";
 import { worktreeEntry } from "./factories";
 import {
@@ -79,7 +80,6 @@ import {
   previewSetMemoryToggle,
   previewWriteMemory,
 } from "./memories";
-import { previewCheckoutCommands } from "./checkouts";
 import { previewCompact, previewInterrupt, previewStreamTurn } from "./stream";
 
 type Commands = typeof commands;

@@ -12,6 +12,7 @@
     FolderPlus,
     GitBranch,
     GitFork,
+    GitPullRequest,
     Layers3,
     ListRestart,
     Pencil,
@@ -25,6 +26,7 @@
   } from "@lucide/svelte";
   import { Menu, Portal, type useMenu } from "@skeletonlabs/skeleton-svelte";
   import type { Component } from "svelte";
+  import { prLinks } from "$lib/review/prLinks.svelte";
   import type { MenuAction, MenuTarget } from "$lib/types";
   import { can } from "$lib/utils/capabilities";
 
@@ -104,6 +106,13 @@
         },
         { action: "moveToWorkspace", icon: Layers3, label: "Move to workspace" },
         { action: "moveToSection", icon: Bookmark, label: "Move to section", show: sectionsSupported },
+        {
+          action: "moveToPr",
+          icon: GitPullRequest,
+          label: "Move to PR…",
+          title: "File it under another pull request; its recorded start stays",
+          show: prLinks.byThread[target.thread.id] !== undefined,
+        },
         { action: "createWorktree", icon: GitBranch, label: "Create worktree", show: !multi },
         { action: "fork", icon: GitFork, label: "Fork thread", show: can(target.thread.harness, "fork") },
         { action: "archive", icon: Archive, label: "Archive thread" },

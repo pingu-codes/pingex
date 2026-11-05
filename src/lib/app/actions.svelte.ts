@@ -43,6 +43,8 @@ import {
   ROOT_SCOPE,
   refOf,
 } from "$lib/layout/sidebarTree";
+import MoveToPrDialog from "$lib/review/MoveToPrDialog.svelte";
+import { moveThreadToPr, prLinks } from "$lib/review/prLinks.svelte";
 import { forkThread, gitWorktreeAdd, updateWorkspace } from "$lib/services/api";
 import { commands } from "$lib/services/homeRouting";
 import type {
@@ -168,6 +170,15 @@ async function confirmDelete(target: MenuTarget) {
   forgetOptimisticThread(target.thread.id);
   applyTicketed(deleted, ticket);
   clearThread(target.thread.id);
+}
+
+/** File a linked thread under another of its repository's PRs, or none. */
+async function moveToPr(threadId: string) {
+  const link = prLinks.byThread[threadId];
+  if (!link) return;
+  const choice = await openDialog(MoveToPrDialog, { link });
+  if (!choice || choice.number === link.prNumber) return;
+  await moveThreadToPr(threadId, choice.number);
 }
 
 async function moveToWorkspace(threadId: string) {
@@ -385,6 +396,9 @@ export async function menuAction(action: MenuAction, target: MenuTarget): Promis
         return;
       case "moveToSection":
         if (target.kind === "thread") await moveToSection(target.thread.id, target.thread.sectionId);
+        return;
+      case "moveToPr":
+        if (target.kind === "thread") await moveToPr(target.thread.id);
         return;
       case "archive": {
         if (target.kind !== "thread") return;

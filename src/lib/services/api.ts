@@ -66,7 +66,7 @@ export async function listSubagents(threadId: string): Promise<SubagentDetail[]>
   return commands.listSubagents(threadId) as Promise<SubagentDetail[]>;
 }
 
-interface StartedThread {
+export interface StartedThread {
   speedTier?: string | null;
   id: string;
   cwd?: string;
@@ -89,6 +89,32 @@ export async function listHarnessModels(harness: HarnessKind): Promise<Model[]> 
 
 export async function startTurn(threadId: string, input: UserInputPart[], options?: TurnOptions): Promise<Turn> {
   return commands.startTurn(threadId, input, options ?? null) as Promise<Turn>;
+}
+
+/**
+ * Start a thread and send its first turn: the two calls every new thread
+ * takes. `beforeTurn` runs in between with the new thread's id, so what it
+ * records (a PR link, say) exists before the turn's first event arrives.
+ */
+export async function startThreadWithTurn(
+  cwd: string,
+  input: UserInputPart[],
+  {
+    workspaceId,
+    harness,
+    options,
+    beforeTurn,
+  }: {
+    workspaceId?: string | null;
+    harness?: HarnessKind | null;
+    options?: TurnOptions;
+    beforeTurn?: (thread: StartedThread) => Promise<void>;
+  } = {},
+): Promise<{ thread: StartedThread; turn: Turn }> {
+  const thread = await startThread(cwd, workspaceId, harness);
+  await beforeTurn?.(thread);
+  const turn = await startTurn(thread.id, input, options);
+  return { thread, turn };
 }
 
 /**

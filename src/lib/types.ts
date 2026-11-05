@@ -50,6 +50,7 @@ export type MenuAction =
   | "moveDown"
   | "moveToWorkspace"
   | "moveToSection"
+  | "moveToPr"
   | "deleteSection"
   | "newFolder"
   | "deleteFolder"

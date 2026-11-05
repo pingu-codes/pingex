@@ -44,6 +44,10 @@
     type TreeNode,
   } from "$lib/layout/sidebarTree";
   import UsageMeter from "$lib/layout/UsageMeter.svelte";
+  import { STEP_LABELS } from "$lib/review/actions";
+  import { ensurePrLinks, prLinks } from "$lib/review/prLinks.svelte";
+  import { fileReviewThreads, withoutTaken } from "$lib/review/reviewFiling";
+  import StepDot from "$lib/review/StepDot.svelte";
   import { accountUsage } from "$lib/services/accountUsage.svelte";
   import { activeTurns, approvals, unansweredQuestions, userInputRequests } from "$lib/services/codexEvents.svelte";
   import { remoteConnections } from "$lib/services/connections.svelte";
@@ -152,7 +156,25 @@
     onAddWorktreeProject?: (path: string) => void;
   } = $props();
 
-  const visibleProjects = $derived(projects.filter((project) => !project.archived));
+  // --- PR links -----------------------------------------------------------------
+  // Threads about someone else's PR, or my PR without a worktree, leave their
+  // cwd's list for their repository's Reviews group (`reviewFiling.ts`).
+  $effect(() => {
+    void ensurePrLinks();
+  });
+  const filing = $derived(
+    fileReviewThreads(
+      projects.filter((project) => !project.archived),
+      unfiledThreads,
+      prLinks.byThread,
+    ),
+  );
+  const reviewThreads = (project: Project) => filing.reviews[project.path] ?? [];
+  const reviewsScope = (path: string) => `reviews:${path}`;
+
+  const visibleProjects = $derived(
+    projects.filter((project) => !project.archived).map((project) => withoutTaken(project, filing.taken)),
+  );
 
   // --- Worktree nesting --------------------------------------------------------
   // With nesting on, each repository row carries its worktrees: adopted
@@ -165,7 +187,15 @@
   $effect(() => {
     if (nesting) ensureWorktrees(repoPaths);
   });
-  const nested = $derived(nesting ? nestProjects(visibleProjects, worktreeMap.byRepo, unfiledThreads) : null);
+  const nested = $derived(
+    nesting
+      ? nestProjects(
+          visibleProjects,
+          worktreeMap.byRepo,
+          unfiledThreads.filter((thread) => !filing.taken.has(thread.id)),
+        )
+      : null,
+  );
   $effect(() => {
     worktreeMap.unaddedParents = nested?.unaddedParents ?? {};
   });
@@ -558,6 +588,16 @@
           <GitBranch size={10} />
         </span>
       {/if}
+      {#if prLinks.byThread[thread.id]}
+        {@const link = prLinks.byThread[thread.id]}
+        <span
+          class="inline-flex shrink-0 items-center gap-1 rounded px-1 font-mono text-[10px] text-surface-500 preset-tonal"
+          title="#{link.prNumber} · started at {STEP_LABELS[link.step].toLowerCase()}"
+          data-testid="pr-chip"
+        >
+          <StepDot step={link.step} />#{link.prNumber}
+        </span>
+      {/if}
       {#if sideQuestionCount(thread.id) > 0}
         <span
           class="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-primary-500/15 px-1.5 text-[9px] font-medium text-primary-500"
@@ -752,6 +792,14 @@
       {/if}
     </div>
     <Collapsible.Content class="ml-[27px] border-l border-surface-200-800 pl-1.5">
+      {#if reviewThreads(project).length > 0}
+        <div data-testid="reviews-group" class="mb-0.5">
+          <div class="eyebrow px-2 pb-0.5 pt-1.5 text-[10px]">Reviews</div>
+          {#each reviewThreads(project) as row (row.thread.id)}
+            {@render threadRow(project, row.thread, reviewsScope(project.path))}
+          {/each}
+        </div>
+      {/if}
       {#each worktreeChildren(project) as child (child.path)}
         {#if child.adopted}
           {@render projectRow(child.adopted, nestedScope(project.path))}
@@ -760,7 +808,7 @@
         {/if}
       {/each}
       {#if project.threads.length === 0}
-        {#if worktreeChildren(project).length === 0}
+        {#if worktreeChildren(project).length === 0 && reviewThreads(project).length === 0}
           <p class="px-2 py-2 text-xs text-surface-500">No Codex threads yet</p>
         {/if}
       {:else}

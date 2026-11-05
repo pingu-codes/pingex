@@ -7,6 +7,7 @@ import { DESK_ACTION_STEPS } from "$lib/bindings";
 import type { CheckoutStep, CheckoutTarget, PrCheckout, PrLink, RepositorySettings, StepPlan } from "$lib/types";
 import type { PreviewCommands } from "./commands";
 import { DESK_VIEWER, deskInbox } from "./desk";
+import { previewPrs } from "./fixtures";
 
 const HOME = "/Users/ciaran/.codex";
 const RANK: Record<CheckoutStep, number> = { noCheckout: 0, reviewCheckout: 1, worktree: 2 };
@@ -171,7 +172,8 @@ export const previewCheckoutCommands: PreviewCommands = {
       state.links.delete(threadId);
       return;
     }
-    const pr = deskInbox(link.repoKey).prs.find((candidate) => candidate.number === number);
+    // The inbox's PRs, or the older picker's list that `reviewListPrs` serves.
+    const pr = [...deskInbox(link.repoKey).prs, ...previewPrs].find((candidate) => candidate.number === number);
     if (!pr) throw new Error(`#${number} is not an open pull request`);
     state.links.set(threadId, { ...link, prNumber: number, mine: pr.author === DESK_VIEWER, closedAt: null });
   },

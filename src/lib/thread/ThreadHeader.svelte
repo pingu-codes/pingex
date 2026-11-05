@@ -3,6 +3,8 @@
   import { Menu, Portal } from "@skeletonlabs/skeleton-svelte";
   import { projects } from "$lib/app/appData.svelte";
   import { openDialog } from "$lib/app/dialogs.svelte";
+  import { prLinks } from "$lib/review/prLinks.svelte";
+  import ThreadBranchChip from "$lib/review/ThreadBranchChip.svelte";
   import { forkThread } from "$lib/services/api";
   import { commands } from "$lib/services/homeRouting";
   import HandoffConfirmDialog from "$lib/thread/HandoffConfirmDialog.svelte";
@@ -145,6 +147,9 @@
       </span>
     {/if}
   </nav>
+  {#if threadId && prLinks.byThread[threadId]}
+    <ThreadBranchChip link={prLinks.byThread[threadId]} />
+  {/if}
 
   <!-- The menu claims Escape while open, so the composer never reads it as
        "interrupt the running turn". -->
