@@ -20,7 +20,7 @@ use tauri::AppHandle;
 
 use crate::codex::compat::Feature;
 use crate::codex::requests;
-use crate::storage::{self, Store, StoredWorkspace, StoredWorkspaceMember};
+use crate::storage::{self, StoredProject, StoredWorkspace, StoredWorkspaceMember};
 use crate::util::json::{arr_or_empty, str_at};
 use crate::HomeContext;
 
@@ -41,16 +41,17 @@ pub(crate) struct LocalProject {
 
 /// The sidebar's folders and workspaces as [`LocalProject`]s, with each
 /// top-level thread claimed by the entry whose key is the longest prefix of
-/// its cwd (workspace membership wins outright).
+/// its cwd (workspace membership wins outright). `entries` is the sidebar's
+/// folder list — stored and discovered alike (`bootstrap::sidebar_entries`) —
+/// so a repository listed only through its worktrees is mirrored too.
 pub(crate) fn local_projects(
-    store: &Store,
+    entries: &[StoredProject],
     workspaces: &[StoredWorkspace],
     members: &[StoredWorkspaceMember],
     workspace_threads: &HashMap<String, String>,
     threads: &[(String, String)],
 ) -> Vec<LocalProject> {
-    let mut locals: Vec<LocalProject> = store
-        .projects
+    let mut locals: Vec<LocalProject> = entries
         .iter()
         .filter(|project| !project.archived)
         .map(|project| LocalProject {
@@ -103,6 +104,28 @@ pub(crate) fn key_for_cwd<'a>(keys: impl Iterator<Item = &'a str>, cwd: &str) ->
     keys.filter(|key| Path::new(cwd).starts_with(Path::new(key)))
         .max_by_key(|key| key.len())
         .map(str::to_string)
+}
+
+/// The server project a thread started in `cwd` belongs to: the nearest
+/// sidebar entry containing it, when that entry is mirrored. Candidates are
+/// stored projects plus every mirrored key, which covers repositories the
+/// sidebar only discovers (they are mirrored but never stored). A nearer
+/// entry that is not mirrored yields `None` rather than its parent's id, so
+/// the cwd rules file the thread instead.
+pub(crate) fn project_id_for_cwd(
+    stored: &[StoredProject],
+    mapping: &HashMap<String, String>,
+    cwd: &str,
+) -> Option<String> {
+    let candidates = stored
+        .iter()
+        .map(|project| project.path.as_str())
+        .chain(mapping.values().map(String::as_str));
+    let key = key_for_cwd(candidates, cwd)?;
+    mapping
+        .iter()
+        .find(|(_, local)| **local == key)
+        .map(|(id, _)| id.clone())
 }
 
 fn folder_name(path: &str) -> String {
@@ -311,7 +334,7 @@ pub(crate) fn assigned_key<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::StoredProject;
+    use crate::storage::Store;
 
     fn project(path: &str) -> StoredProject {
         StoredProject {
@@ -331,7 +354,7 @@ mod tests {
             hidden_threads: Vec::new(),
         };
         let locals = local_projects(
-            &store,
+            &store.projects,
             &[],
             &[],
             &HashMap::new(),
@@ -369,7 +392,7 @@ mod tests {
             ordinal: 0,
         };
         let locals = local_projects(
-            &store,
+            &store.projects,
             &[workspace],
             &[member],
             &HashMap::from([("ws-thread".to_string(), "ws".to_string())]),
@@ -399,5 +422,31 @@ mod tests {
         assert_eq!(assigned_key(Some("srv-gone"), &mapping, &known), None);
         assert_eq!(assigned_key(Some("unknown"), &mapping, &known), None);
         assert_eq!(assigned_key(None, &mapping, &known), None);
+    }
+
+    #[test]
+    fn a_new_thread_goes_to_the_nearest_mirrored_entry_even_if_only_discovered() {
+        // `/repo/child` is listed by discovery, not stored, but was mirrored.
+        let stored = vec![project("/repo")];
+        let mapping = HashMap::from([
+            ("srv-parent".to_string(), "/repo".to_string()),
+            ("srv-child".to_string(), "/repo/child".to_string()),
+        ]);
+        assert_eq!(
+            project_id_for_cwd(&stored, &mapping, "/repo/child/src").as_deref(),
+            Some("srv-child")
+        );
+        assert_eq!(
+            project_id_for_cwd(&stored, &mapping, "/repo/other").as_deref(),
+            Some("srv-parent")
+        );
+        assert_eq!(project_id_for_cwd(&stored, &mapping, "/elsewhere"), None);
+    }
+
+    #[test]
+    fn a_nearer_unmirrored_project_keeps_the_thread_off_its_parent() {
+        let stored = vec![project("/repo"), project("/repo/child")];
+        let mapping = HashMap::from([("srv-parent".to_string(), "/repo".to_string())]);
+        assert_eq!(project_id_for_cwd(&stored, &mapping, "/repo/child"), None);
     }
 }

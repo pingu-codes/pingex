@@ -87,20 +87,14 @@ async fn fetch_start_inputs(
     let project_instructions = storage::read_instructions_for_cwd(&ctx.database(), &cwd)
         .await?
         .unwrap_or_default();
-    let project_key = match &workspace {
+    let project_id = match &workspace {
         // A workspace's cwd is its hub, which is also its local key.
-        Some(workspace) => Some(workspace.cwd.clone()),
+        Some(workspace) => crate::projects::server::project_id_for(ctx, &workspace.cwd).await?,
         None => {
             let store = storage::read_store(&ctx.database()).await?;
-            crate::projects::server::key_for_cwd(
-                store.projects.iter().map(|project| project.path.as_str()),
-                &cwd,
-            )
+            let mapping = storage::read_server_projects(&ctx.database()).await?;
+            crate::projects::server::project_id_for_cwd(&store.projects, &mapping, &cwd)
         }
-    };
-    let project_id = match project_key.as_deref() {
-        Some(key) => crate::projects::server::project_id_for(ctx, key).await?,
-        None => None,
     };
     Ok(StartInputs {
         cwd,

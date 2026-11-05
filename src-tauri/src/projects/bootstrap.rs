@@ -149,8 +149,14 @@ pub(crate) async fn bootstrap_inner(
         .filter(|thread| thread.parent_thread_id.is_none())
         .map(|thread| (thread.id.clone(), thread.cwd.clone()))
         .collect();
+    let entries = sidebar_entries(
+        &ctx.runtime(),
+        &store.projects,
+        &extras.temp_worktree_parents,
+        &isolated_member_paths(&extras.workspace_members),
+    );
     let locals = super::server::local_projects(
-        &store,
+        &entries,
         &extras.workspaces,
         &extras.workspace_members,
         &extras.workspace_threads,
@@ -308,6 +314,67 @@ async fn read_bootstrap_extras(ctx: &HomeContext) -> Result<BootstrapExtras, Str
     })
 }
 
+/// An isolated member's worktree belongs to its workspace, not to the sidebar
+/// as a project of its own.
+pub(crate) fn isolated_member_paths<'a>(
+    members: impl IntoIterator<Item = &'a StoredWorkspaceMember>,
+) -> Vec<String> {
+    members
+        .into_iter()
+        .filter(|member| member.isolated)
+        .map(|member| member.effective_path.clone())
+        .collect()
+}
+
+/// The sidebar's folder list: stored projects, plus every repository and
+/// permanent worktree discovery finds, plus the repositories temporary
+/// worktrees were cut from. Bootstrap lists exactly these and the server
+/// mirror imports exactly these, so a repository the sidebar shows only
+/// because of its worktrees still gets its own Codex project — without one, a
+/// thread in it would be filed under whichever stored project contains it.
+pub(crate) fn sidebar_entries(
+    runtime: &RuntimeConfig,
+    stored: &[StoredProject],
+    temp_worktree_parents: &[(String, String)],
+    isolated_member_paths: &[String],
+) -> Vec<StoredProject> {
+    let mut entries = stored.to_vec();
+    // A temporary worktree is never a project of its own — it is scaffolding
+    // for one thread, and both it and its threads belong to the repository it
+    // was cut from.
+    entries.retain(|entry| !is_temp_worktree_path(runtime, &entry.path));
+    let mut known: HashSet<String> = entries.iter().map(|entry| entry.path.clone()).collect();
+    let listed = |path: String| StoredProject {
+        path,
+        name: None,
+        pinned: false,
+        archived: false,
+        worktree: false,
+    };
+    for path in discover_worktrees(runtime) {
+        if let Some(parent) = worktree_parent_project_on(&runtime.host, &path) {
+            if known.insert(parent.clone()) {
+                entries.push(listed(parent));
+            }
+        }
+        if is_temp_worktree_path(runtime, &path) {
+            continue;
+        }
+        if known.insert(path.clone()) {
+            entries.push(listed(path));
+        }
+    }
+    // Every repository a temporary worktree points at must be listed, even when
+    // the worktree itself is gone, or its threads would have nowhere to live.
+    for (_, parent) in temp_worktree_parents {
+        if runtime.host.is_dir(parent) && known.insert(parent.clone()) {
+            entries.push(listed(parent.clone()));
+        }
+    }
+    entries.retain(|entry| !isolated_member_paths.contains(&entry.path));
+    entries
+}
+
 fn build_bootstrap(
     runtime: &RuntimeConfig,
     store: Store,
@@ -390,60 +457,8 @@ fn build_bootstrap(
             .or_default()
             .push(member);
     }
-    // An isolated member's worktree belongs to its workspace, not to the
-    // sidebar as a project of its own.
-    let workspace_effective_paths: HashSet<String> = members_by_workspace
-        .values()
-        .flatten()
-        .filter(|member| member.isolated)
-        .map(|member| member.effective_path.clone())
-        .collect();
-
-    let mut entries = store.projects.clone();
-    // A temporary worktree is never a project of its own — it is scaffolding
-    // for one thread, and both it and its threads belong to the repository it
-    // was cut from.
-    entries.retain(|entry| !is_temp_worktree_path(runtime, &entry.path));
-    let mut known: HashSet<String> = entries.iter().map(|entry| entry.path.clone()).collect();
-    for path in discover_worktrees(runtime) {
-        if let Some(parent) = worktree_parent_project_on(&runtime.host, &path) {
-            if known.insert(parent.clone()) {
-                entries.push(StoredProject {
-                    path: parent,
-                    name: None,
-                    pinned: false,
-                    archived: false,
-                    worktree: false,
-                });
-            }
-        }
-        if is_temp_worktree_path(runtime, &path) {
-            continue;
-        }
-        if known.insert(path.clone()) {
-            entries.push(StoredProject {
-                path,
-                name: None,
-                pinned: false,
-                archived: false,
-                worktree: false,
-            });
-        }
-    }
-    // Every repository a temporary worktree points at must be listed, even when
-    // the worktree itself is gone, or its threads would have nowhere to live.
-    for (_, parent) in &temp_worktree_parents {
-        if runtime.host.is_dir(parent) && known.insert(parent.clone()) {
-            entries.push(StoredProject {
-                path: parent.clone(),
-                name: None,
-                pinned: false,
-                archived: false,
-                worktree: false,
-            });
-        }
-    }
-    entries.retain(|entry| !workspace_effective_paths.contains(&entry.path));
+    let isolated = isolated_member_paths(members_by_workspace.values().flatten());
+    let mut entries = sidebar_entries(runtime, &store.projects, &temp_worktree_parents, &isolated);
     entries.sort_by_key(|entry| !entry.pinned);
 
     // A thread Codex has filed under a mirrored project goes there and nowhere
@@ -1330,5 +1345,52 @@ mod tests {
         let threads = &data.projects[0].threads;
         assert_eq!(threads.len(), 1);
         assert_eq!(threads[0].id, "main-thread");
+    }
+
+    #[test]
+    fn a_discovered_repository_inside_a_project_is_mirrored_and_keeps_its_threads() {
+        let directory = tempfile::tempdir().unwrap();
+        let parent = directory.path().join("parent");
+        let child = parent.join("child");
+        std::fs::create_dir_all(&child).unwrap();
+        let parent_path = parent.display().to_string();
+        let child_path = child.display().to_string();
+        let runtime = RuntimeConfig {
+            codex_home: directory.path().join("codex-home"),
+            codex_binary: PathBuf::from("codex"),
+            host: crate::util::host::Host::Native,
+        };
+        // Only the parent is stored; the child is listed because a temporary
+        // worktree was cut from it.
+        let stored = vec![StoredProject {
+            path: parent_path.clone(),
+            name: None,
+            pinned: false,
+            archived: false,
+            worktree: false,
+        }];
+        let temp_parents = vec![("/gone/worktree".to_string(), child_path.clone())];
+        let entries = sidebar_entries(&runtime, &stored, &temp_parents, &[]);
+        let paths: Vec<_> = entries.iter().map(|entry| entry.path.as_str()).collect();
+        assert_eq!(paths, [parent_path.as_str(), child_path.as_str()]);
+
+        let locals = super::super::server::local_projects(
+            &entries,
+            &[],
+            &[],
+            &HashMap::new(),
+            &[("in-child".into(), child_path.clone())],
+        );
+        let claimed: Vec<_> = locals
+            .iter()
+            .map(|local| (local.key.as_str(), local.threads.clone()))
+            .collect();
+        assert_eq!(
+            claimed,
+            [
+                (parent_path.as_str(), Vec::<String>::new()),
+                (child_path.as_str(), vec!["in-child".to_string()]),
+            ]
+        );
     }
 }
