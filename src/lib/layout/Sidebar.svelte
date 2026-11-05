@@ -758,11 +758,11 @@
         <button
           type="button"
           class="status-badge preset-tonal-warning ml-1 shrink-0 group-hover/project:hidden"
-          title="Open {project.name}'s pull requests"
+          aria-label="{needsYou[project.path]} need you"
+          title="{needsYou[project.path]} pull requests need you in {project.name}"
           onclick={() => onOpenPullRequests?.(project.path)}
         >
           {needsYou[project.path]}
-          need you
         </button>
       {/if}
       {#if onOpenWorktrees && project.kind !== "multiProject"}

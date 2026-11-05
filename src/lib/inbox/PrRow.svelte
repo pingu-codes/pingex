@@ -118,7 +118,7 @@
       {/if}
       <span class="font-mono text-[11px] text-surface-500">#{pr.number}</span>
       <span
-        class="min-w-0 flex-[1_1_220px] truncate {unseen ? "font-semibold" : "font-medium"} {pr.isDraft
+        class="min-w-0 flex-[1_1_140px] truncate {unseen ? "font-semibold" : "font-medium"} {pr.isDraft
           ? "text-surface-600-400"
           : ""}"
         >{pr.title}</span

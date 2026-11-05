@@ -196,7 +196,11 @@
                 {#if thread?.parentThreadId}
                   Subagent · {thread.agentNickname ?? thread.agentRole ?? thread.title}
                 {:else}
-                  {view.memories ? "Memories" : (thread?.title ?? project?.name ?? "Home")}
+                  {view.memories
+                    ? "Memories"
+                    : view.pullRequests
+                      ? "Pull requests"
+                      : (thread?.title ?? project?.name ?? "Home")}
                 {/if}
               </div>
               {#if project}
