@@ -79,6 +79,7 @@ import {
   previewSetMemoryToggle,
   previewWriteMemory,
 } from "./memories";
+import { previewCheckoutCommands } from "./checkouts";
 import { previewCompact, previewInterrupt, previewStreamTurn } from "./stream";
 
 type Commands = typeof commands;
@@ -777,6 +778,7 @@ export const previewCommands: PreviewCommands = {
   reviewDeleteDraft(provider, repo, prNumber) {
     reviewDrafts.delete(reviewDraftKey(provider, repo, prNumber));
   },
+  ...previewCheckoutCommands,
 
   // --- Remote connections ---
   listConnections: () => previewConnections.map((connection) => ({ ...connection })),

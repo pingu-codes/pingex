@@ -12,8 +12,10 @@
     X,
   } from "@lucide/svelte";
   import { onMount } from "svelte";
+  import { newThreadInDir } from "$lib/app/navigation.svelte";
   import DiffBlock from "$lib/components/DiffBlock.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
+  import CheckoutActions from "$lib/review/CheckoutActions.svelte";
   import ReviewPanel from "$lib/review/ReviewPanel.svelte";
   import {
     addableLines,
@@ -293,6 +295,20 @@
         {/if}
       </div>
     </div>
+    {#if mode === "pr" && detail}
+      <CheckoutActions
+        {repoDir}
+        {repoName}
+        target={{
+          number: detail.summary.number,
+          headRef: detail.summary.headRef,
+          headSha: detail.headSha,
+          mine: false,
+          stack: null,
+        }}
+        onRunLocally={newThreadInDir}
+      />
+    {/if}
     {#if mode === "pr"}
       <button onclick={checkFresh} class="btn btn-sm preset-tonal" title="Check for remote changes">
         Check freshness

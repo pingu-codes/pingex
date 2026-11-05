@@ -24,6 +24,11 @@
           <Toast.Description>{toast.description}</Toast.Description>
         {/if}
       </Toast.Message>
+      {#if toast.action}
+        <Toast.ActionTrigger class="btn btn-sm preset-tonal shrink-0 px-2 py-0.5 text-xs font-medium"
+          >{toast.action.label}</Toast.ActionTrigger
+        >
+      {/if}
       <Toast.CloseTrigger class="opacity-60 hover:opacity-100" aria-label="Dismiss">✕</Toast.CloseTrigger>
     </Toast>
   {/snippet}

@@ -195,13 +195,12 @@ pub(crate) async fn review_pr_links(
 pub(crate) async fn review_move_thread_to_pr(
     thread_id: String,
     number: Option<i64>,
-    mine: bool,
     window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     thread_desk(&window, &state, &thread_id)
         .await?
-        .move_thread_to_pr(thread_id, number, mine)
+        .move_thread_to_pr(thread_id, number)
         .await
 }
 

@@ -125,6 +125,10 @@ pub(crate) enum Capability {
     Review,
     /// Asking aside without disturbing the thread (`/btw`).
     SideQuestions,
+    /// A turn sent with the read-only sandbox (`sandboxMode: "read-only"`)
+    /// cannot change files without asking: Codex's sandbox, Claude's Default
+    /// mode. Agents in No checkout and review checkouts need it.
+    ReadOnlySandbox,
 }
 
 impl HarnessKind {
@@ -139,8 +143,15 @@ impl HarnessKind {
                 Fork,
                 Review,
                 SideQuestions,
+                ReadOnlySandbox,
             ],
-            HarnessKind::Claude => &[PermissionModes, LiveToolResults, Compact, SideQuestions],
+            HarnessKind::Claude => &[
+                PermissionModes,
+                LiveToolResults,
+                Compact,
+                SideQuestions,
+                ReadOnlySandbox,
+            ],
             HarnessKind::Maki => &[PermissionModes, LiveToolResults],
         }
     }

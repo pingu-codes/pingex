@@ -38,25 +38,29 @@ impl ReviewDesk {
         Ok(link)
     }
 
-    /// File `thread_id` under PR `number` instead, or under no PR.
+    /// File `thread_id` under open PR `number` instead, or under no PR.
+    /// Whether the new PR is mine comes from GitHub.
     pub(crate) async fn move_thread_to_pr(
         &self,
         thread_id: String,
         number: Option<i64>,
-        mine: bool,
     ) -> Result<(), String> {
-        match number {
-            Some(number) => {
-                if storage::read_pr_link(&self.database, &thread_id)
-                    .await?
-                    .is_none()
-                {
-                    return Err("This thread is not filed under a pull request".to_string());
-                }
-                storage::move_pr_link(&self.database, &thread_id, number, mine).await
-            }
-            None => storage::delete_pr_link(&self.database, &thread_id).await,
-        }
+        let Some(number) = number else {
+            return storage::delete_pr_link(&self.database, &thread_id).await;
+        };
+        self.link(&thread_id).await?;
+        let mine = self
+            .blocking("Reading the pull request failed", move |desk| {
+                let inbox = desk.github.inbox()?;
+                let pr = inbox
+                    .prs
+                    .iter()
+                    .find(|pr| pr.number == number)
+                    .ok_or_else(|| format!("#{number} is not an open pull request"))?;
+                Ok(pr.author == inbox.viewer)
+            })
+            .await?;
+        storage::move_pr_link(&self.database, &thread_id, number, mine).await
     }
 
     async fn link(&self, thread_id: &str) -> Result<PrLink, String> {
@@ -198,6 +202,9 @@ mod tests {
             return;
         };
         let pr = fixture.open_pr(32, "feature", "src/lib.rs");
+        let mut my_pr = fixture.open_pr(40, "mine", "src/mine.rs");
+        my_pr.author = super::super::test_support::VIEWER.to_string();
+        fixture.github.put_pr(my_pr);
         let before = fixture
             .desk
             .link_thread("t".into(), target(&pr))
@@ -206,7 +213,7 @@ mod tests {
 
         fixture
             .desk
-            .move_thread_to_pr("t".into(), Some(40), true)
+            .move_thread_to_pr("t".into(), Some(40))
             .await
             .unwrap();
 
@@ -231,9 +238,14 @@ mod tests {
             )
         );
 
+        assert!(fixture
+            .desk
+            .move_thread_to_pr("t".into(), Some(77))
+            .await
+            .is_err());
         fixture
             .desk
-            .move_thread_to_pr("t".into(), None, false)
+            .move_thread_to_pr("t".into(), None)
             .await
             .unwrap();
         assert!(crate::storage::read_pr_links(&fixture.desk.database)
