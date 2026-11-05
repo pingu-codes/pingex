@@ -364,6 +364,48 @@ CREATE TABLE IF NOT EXISTS review_inbox_snapshots (
  CREATE TABLE IF NOT EXISTS review_prs_only_repos (
      slug TEXT PRIMARY KEY,
      added_at INTEGER NOT NULL
+ );
+ CREATE TABLE IF NOT EXISTS review_agent_reviews (
+     id TEXT PRIMARY KEY,
+     provider TEXT NOT NULL,
+     repo TEXT NOT NULL,
+     repo_key TEXT NOT NULL,
+     pr_number INTEGER NOT NULL,
+     request TEXT NOT NULL,
+     status TEXT NOT NULL,
+     thread_id TEXT,
+     head_sha TEXT NOT NULL,
+     since_sha TEXT,
+     findings INTEGER NOT NULL DEFAULT 0,
+     parse_error TEXT,
+     error TEXT,
+     created_at INTEGER NOT NULL,
+     started_at INTEGER,
+     finished_at INTEGER
+ );
+ CREATE INDEX IF NOT EXISTS review_agent_reviews_by_pr
+     ON review_agent_reviews(provider, repo, pr_number);
+ CREATE TABLE IF NOT EXISTS review_findings (
+     id TEXT PRIMARY KEY,
+     agent_review_id TEXT NOT NULL,
+     provider TEXT NOT NULL,
+     repo TEXT NOT NULL,
+     pr_number INTEGER NOT NULL,
+     ordinal INTEGER NOT NULL,
+     payload TEXT NOT NULL,
+     state TEXT NOT NULL DEFAULT 'draft',
+     dismiss_reason TEXT,
+     dismiss_note TEXT,
+     updated_at INTEGER NOT NULL
+ );
+ CREATE INDEX IF NOT EXISTS review_findings_by_pr
+     ON review_findings(provider, repo, pr_number);
+ CREATE TABLE IF NOT EXISTS review_rules (
+     id TEXT PRIMARY KEY,
+     provider TEXT NOT NULL,
+     repo TEXT NOT NULL,
+     rule TEXT NOT NULL,
+     created_at INTEGER NOT NULL
  );";
 
 /// Columns added after their table shipped. Re-running these on an up-to-date

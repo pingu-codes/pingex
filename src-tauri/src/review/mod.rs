@@ -10,8 +10,12 @@
 //! hunks with anchors in `diff`; `feed` derives "since you last looked" from
 //! two inbox snapshots; `requirements` is the table of the checkout step each
 //! desk action needs; `pending` is the typed pending review and how it
-//! becomes one GitHub review.
+//! becomes one GitHub review; `findings` is the contract an agent review's
+//! final message follows, and its parser.
 
+pub(crate) mod agent_commands;
+pub(crate) mod agent_prompt;
+pub(crate) mod agent_review;
 pub(crate) mod checkout_commands;
 pub(crate) mod checkout_types;
 pub(crate) mod commands;
@@ -20,6 +24,7 @@ pub(crate) mod diff;
 #[cfg(test)]
 pub(crate) mod fake;
 mod feed;
+pub(crate) mod findings;
 pub(crate) mod github;
 pub(crate) mod pending;
 pub(crate) mod provider;
