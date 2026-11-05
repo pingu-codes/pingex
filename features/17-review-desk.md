@@ -39,6 +39,17 @@ button names the step it would create.
 | Review checkout | A detached checkout Pingex owns | Run tests, the app or a build; agent reviews that run code | next slice |
 | Worktree | A named worktree in the sidebar | Edit, commit, push, restack, agents fixing review comments | existing worktree service, plus next slice |
 
+## Where the code goes
+
+| Piece | Where | Extend it by |
+| --- | --- | --- |
+| GitHub provider port | `src-tauri/src/review/provider.rs` (`GitHubProvider`) | Adding the operation to the trait, to `github::GhCli`, and to `fake::FakeGitHub` (with a `Sent` variant for a write). Only `review/github/` names `gh`. |
+| Review desk service | `src-tauri/src/review/desk/` (`ReviewDesk`), one file per area | Adding an `impl ReviewDesk` block in the area's file, or a new file for a new area. Tests use `desk/test_support.rs`: a `TestRepo` whose `origin` reads as GitHub, plus `FakeGitHub`. |
+| Commands | `src-tauri/src/review/commands.rs` | A thin wrapper that builds the desk with `desk(...)` and forwards. |
+| What each action needs | `src-tauri/src/review/requirements.rs`, exported as `DESK_ACTION_STEPS`; labels and tooltips in `src/lib/review/actions.ts` | A `DeskAction` variant, then `bun run typegen` and its label. |
+| Context menus | `src/lib/components/ActionMenu.svelte`, entries in `actionMenu.ts` | Passing entries (items, separators, submenus) with accelerator shortcuts. |
+| Preview data | `src/lib/services/preview/desk.ts` | Extending its repositories and PRs rather than adding parallel fixtures. |
+
 ## Read commands (`src-tauri/src/review/commands.rs`)
 
 | Command | Reads |
@@ -50,6 +61,12 @@ button names the step it would create.
 | `review_file(repoDir, sha, path)` | One file at one commit. |
 | `review_changes_since(repoDir, number, baseSha, headSha)` | What changed since the Seen head, with a range diff after a rewrite. |
 | `review_mark_seen(repoDir, number, sha)` / `review_forget_pr` | Pins or drops the Seen head, or drops all of a closed PR's refs. |
+
+The writes that need no checkout are commands too: `review_merge`,
+`review_close`, `review_retarget`, `review_mark_ready`, `review_check_logs`,
+`review_rerun_failed_checks`, `review_create_pr`, `review_edit_comment` and
+`review_delete_comment`. `review_my_repositories` and
+`review_repositories_requesting_review` answer for the signed-in account.
 
 Repositories added as "PRs only" have no clone. They keep using the GitHub
 file listing (`review_pr_detail`) until something has to run.

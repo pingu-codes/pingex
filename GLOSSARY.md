@@ -127,7 +127,9 @@ _Avoid_: revision, edit (the act, not the result), history
 The thread a Version lives in. Editing forks the thread strictly before the
 edited message's turn and sends the new text on the fork; Pingex records the
 fork in `thread_branches` and keeps it out of the sidebar. Turn ids survive a
-fork, so the original turn's id names the whole group of Versions.
+fork, so the original turn's id names the whole group of Versions. Wherever
+git's branches could be meant (the Review desk is full of them), say
+"git branch" for those and keep "Branch" for this.
 _Avoid_: fork (the operation that makes one), child thread, side question (a different hidden thread)
 
 **Root thread**:
@@ -201,8 +203,46 @@ it, as GitHub records it. Pingex reads a Stack and never infers one from
 branch names.
 _Avoid_: chain, train, dependent PRs
 
+**Checkout step**:
+Where a pull request's code lives on disk, one of three, lowest first:
+**No checkout** (the PR's commits fetched into `refs/pingex/pr/<n>/`, the
+working tree untouched), **Review checkout**, and **Worktree** (a named
+worktree on the PR's git branch, listed in the sidebar). A PR moves up only
+when an action needs it, and only as far as that action needs; the table of
+what each action needs is `review/requirements.rs`.
+_Avoid_: checkout mode, level, stage
+
 **Review checkout**:
 A detached checkout at a pull request's head that Pingex owns and creates
 only when something has to run there. It never appears in the worktree list
 and is read-only to agents; making it a worktree keeps its path.
 _Avoid_: temp worktree, PR worktree
+
+**Agent review**:
+A review of a pull request by an agent, run as its own thread on any
+harness and filed under the PR. Its results come back as Findings.
+_Avoid_: AI review, bot review, "Ask Codex" (the older composer pre-fill)
+
+**Diff review**:
+An Agent review at No checkout: the agent reads the patch, the conversation
+and files at the PR head, and runs nothing.
+_Avoid_: quick review, read-only review
+
+**Finding**:
+One issue an Agent review reports, at a file and line, with a severity. Only
+the reviewer sees it until they add it to their Pending review; they can also
+dismiss it with a reason.
+_Avoid_: suggestion (GitHub's word for a proposed code change), comment
+
+**Pending review**:
+The reviewer's unsubmitted review of one pull request: drafted comments,
+replies, suggestions and accepted Findings, a summary and a verdict, posted
+to GitHub in one submission. It survives reloads and restarts.
+_Avoid_: draft (alone), batch
+
+**PR link**:
+What a thread records about the pull request it is about: the repository and
+PR number, plus the Checkout step, checkout path, git branch and commit it
+started on. The PR decides where the thread is grouped; the checkout decides
+where it runs.
+_Avoid_: PR association, thread tag
