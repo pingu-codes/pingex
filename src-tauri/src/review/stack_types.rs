@@ -176,3 +176,15 @@ pub(crate) struct PushReport {
     /// The git branches pushed; the rest were already up to date.
     pub(crate) pushed: Vec<String>,
 }
+
+/// Where to split a PR, and the new PR below it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SplitRequest {
+    /// The last commit that moves to the new PR.
+    pub(crate) at: String,
+    /// The new git branch.
+    pub(crate) name: String,
+    /// The new PR's title.
+    pub(crate) title: String,
+}

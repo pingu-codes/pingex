@@ -20,6 +20,7 @@
   import { RING_CLASS, TONE_CLASS } from "$lib/inbox/badges";
   import { ciBadge, reviewBadge, stateTone } from "$lib/inbox/inbox";
   import { inboxes, syncInbox } from "$lib/inbox/inboxStore.svelte";
+  import { startStackReview } from "$lib/review/agentReviews.svelte";
   import { stepUpFor } from "$lib/review/checkoutSteps";
   import { ensurePrLinks, prLinks, rememberPrLink } from "$lib/review/prLinks.svelte";
   import ReviewView from "$lib/review/ReviewView.svelte";
@@ -42,7 +43,6 @@
   import { toastError, toaster } from "$lib/toaster";
   import type {
     CheckoutTarget,
-    InboxPr,
     RestackPlan,
     RestackProgress,
     StackInput,
@@ -58,7 +58,6 @@
     repoName,
     stackNumber,
     onBack,
-    onReviewStack,
     onAskCodex,
     restackOnOpen = false,
   }: {
@@ -67,8 +66,6 @@
     stackNumber: number;
     /** Back to the Pull requests inbox. */
     onBack: () => void;
-    /** Review the whole stack with an agent; without it the button is off. */
-    onReviewStack?: (repoDir: string, prs: InboxPr[]) => void;
     onAskCodex: (cwd: string, prompt: string) => void;
     /** Start a restack once the stack has loaded (the inbox's Restack). */
     restackOnOpen?: boolean;
@@ -141,6 +138,21 @@
     const loading = inboxes[repoDir]?.inbox ? loadOverview() : refresh();
     if (restackOnOpen) void loading.then(() => (progress ? undefined : restack()));
   });
+
+  /** One agent review over the stack's open PRs, bottom first. */
+  async function reviewWholeStack() {
+    const prs = openPrs.flatMap((pr) => prByNumber.get(pr.number) ?? []);
+    if (prs.length === 0) return;
+    try {
+      await startStackReview(repoDir, prs, { viewer: inbox?.viewer ?? null });
+      toaster.success({
+        title: "Stack review queued",
+        description: `One agent review over ${prs.map((pr) => `#${pr.number}`).join(", ")}, filed under #${prs.at(-1)?.number}.`,
+      });
+    } catch (cause) {
+      fail(cause);
+    }
+  }
 
   /** Run one stack operation with the page busy, then refresh. */
   async function work(label: string, task: () => Promise<unknown>): Promise<boolean> {
@@ -359,14 +371,7 @@
         });
         if (!choice) return;
         await work("split", async () => {
-          const created = await commands.reviewSplitBranch(
-            repoDir,
-            stackInput,
-            pr.number,
-            choice.at,
-            choice.name,
-            choice.title,
-          );
+          const created = await commands.reviewSplitBranch(repoDir, stackInput, pr.number, choice);
           toaster.success({ title: `Opened #${created} below #${pr.number}` });
         });
         return;
@@ -581,13 +586,8 @@
     <button
       type="button"
       class="btn btn-sm text-xs hover:preset-tonal"
-      disabled={!onReviewStack || openPrs.length === 0}
-      title={onReviewStack ? undefined : "Not available yet"}
-      onclick={() =>
-        onReviewStack?.(
-          repoDir,
-          openPrs.flatMap((pr) => prByNumber.get(pr.number) ?? []),
-        )}
+      disabled={openPrs.length === 0 || busy !== null}
+      onclick={() => void reviewWholeStack()}
     >
       <Sparkles size={14} aria-hidden="true" />Review whole stack
     </button>

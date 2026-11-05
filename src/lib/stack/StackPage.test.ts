@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DialogHost from "$lib/components/DialogHost.svelte";
 import { inboxes } from "$lib/inbox/inboxStore.svelte";
+import { startStackReview } from "$lib/review/agentReviews.svelte";
 import { resetPrLinks } from "$lib/review/prLinks.svelte";
 import { commands } from "$lib/services/homeRouting";
 import { deskLiveRepo, resetDeskActivity } from "$lib/services/preview/desk";
@@ -24,9 +25,14 @@ vi.mock("$lib/services/homeRouting", async (importOriginal) => {
   };
 });
 
+vi.mock("$lib/review/agentReviews.svelte", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/review/agentReviews.svelte")>();
+  return { ...actual, startStackReview: vi.fn(async () => ({})) };
+});
+
 const MAIN = "/Users/ciaran/Projects/codex-custom";
 
-function setup(props: { onReviewStack?: (repoDir: string, prs: { number: number }[]) => void } = {}) {
+function setup() {
   render(DialogHost);
   render(StackPage, {
     repoDir: MAIN,
@@ -34,7 +40,6 @@ function setup(props: { onReviewStack?: (repoDir: string, prs: { number: number 
     stackNumber: 7,
     onBack: vi.fn(),
     onAskCodex: vi.fn(),
-    ...props,
   });
   return userEvent.setup();
 }
@@ -150,24 +155,23 @@ describe("Stack page", () => {
     expect(commands.reviewReorderStack).toHaveBeenCalledWith(MAIN, expect.anything(), [412, 418, 415]);
   });
 
-  it("leaves Review whole stack off until it is wired, then hands it the open PRs", async () => {
-    setup();
-    await loaded();
-    expect(screen.getByRole("button", { name: /Review whole stack/ })).toBeDisabled();
-  });
-
-  it("hands the open PRs to Review whole stack", async () => {
-    const onReviewStack = vi.fn();
-    const user = setup({ onReviewStack });
+  it("queues one agent review over the stack's open PRs", async () => {
+    const user = setup();
     await loaded();
 
     await user.click(screen.getByRole("button", { name: /Review whole stack/ }));
 
-    expect(onReviewStack).toHaveBeenCalledWith(MAIN, [
-      expect.objectContaining({ number: 412 }),
-      expect.objectContaining({ number: 415 }),
-      expect.objectContaining({ number: 418 }),
-    ]);
+    await waitFor(() =>
+      expect(startStackReview).toHaveBeenCalledWith(
+        MAIN,
+        [
+          expect.objectContaining({ number: 412 }),
+          expect.objectContaining({ number: 415 }),
+          expect.objectContaining({ number: 418 }),
+        ],
+        { viewer: "ciaran" },
+      ),
+    );
   });
 
   it("after a PR merges, offers to restack the rest and delete its git branch, until Later", async () => {

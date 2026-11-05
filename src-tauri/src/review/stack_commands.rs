@@ -9,7 +9,7 @@ use tauri::State;
 use super::desk::ReviewDesk;
 use super::github::GhCli;
 use super::stack_types::{
-    PushReport, RestackPlan, RestackProgress, StackBehind, StackInput, StackOverview,
+    PushReport, RestackPlan, RestackProgress, SplitRequest, StackBehind, StackInput, StackOverview,
 };
 use crate::AppState;
 
@@ -156,14 +156,12 @@ pub(crate) async fn review_split_branch(
     repo_dir: String,
     input: StackInput,
     number: i64,
-    at: String,
-    name: String,
-    title: String,
+    split: SplitRequest,
     window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<i64, String> {
     desk(&window, &state, repo_dir)
-        .split_branch(input, number, at, name, title)
+        .split_branch(input, number, split)
         .await
 }
 

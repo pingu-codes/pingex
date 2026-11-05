@@ -14,7 +14,9 @@ use std::path::Path;
 use super::restack::{Parent, Run, Step};
 use super::ReviewDesk;
 use crate::git::stack::{self as git, LeasedPush};
-use crate::review::stack_types::{PushReport, RestackStatus, StackInput, StackInputPr};
+use crate::review::stack_types::{
+    PushReport, RestackStatus, SplitRequest, StackInput, StackInputPr,
+};
 use crate::review::types::NewPr;
 
 impl ReviewDesk {
@@ -330,10 +332,9 @@ impl ReviewDesk {
         &self,
         input: StackInput,
         number: i64,
-        at: String,
-        name: String,
-        title: String,
+        split: SplitRequest,
     ) -> Result<i64, String> {
+        let SplitRequest { at, name, title } = split;
         let branch = name.clone();
         let base = self
             .blocking("Splitting failed", move |desk| {
@@ -493,6 +494,7 @@ impl ReviewDesk {
 mod tests {
     use super::super::stack_support::StackFixture;
     use crate::review::fake::Sent;
+    use crate::review::stack_types::SplitRequest;
 
     fn retargets(sent: &[Sent]) -> Vec<(i64, String)> {
         sent.iter()
@@ -689,9 +691,11 @@ mod tests {
             .split_branch(
                 stack.input(),
                 415,
-                first.clone(),
-                "feat/claude-base".into(),
-                "Claude base".into(),
+                SplitRequest {
+                    at: first.clone(),
+                    name: "feat/claude-base".into(),
+                    title: "Claude base".into(),
+                },
             )
             .await
             .unwrap();
