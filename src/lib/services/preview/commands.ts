@@ -22,6 +22,7 @@ import type {
 } from "$lib/types";
 import { basename } from "$lib/utils/path";
 import { previewStageBytes, previewStageFromPath } from "./attachments";
+import { DESK_REPOS, DESK_VIEWER, deskInbox, deskPrDetail, deskStacks } from "./desk";
 import { worktreeEntry } from "./factories";
 import {
   nextPreviewId,
@@ -41,7 +42,6 @@ import {
   previewGitRepoInfo,
   previewGitStatus,
   previewHomeOverview,
-  previewInbox,
   previewIntegrations,
   previewLaunchState,
   previewListSources,
@@ -714,25 +714,19 @@ export const previewCommands: PreviewCommands = {
   // --- Pull-request review ---
   reviewProviderStatus: () => ({ ...previewProviderStatus }),
   reviewListPrs: () => structuredClone(previewPrs),
-  reviewPrDetail(_repoDir, number) {
-    const detail = structuredClone(previewPrDetail);
-    const match = previewPrs.find((pr) => pr.number === number);
-    if (match) detail.summary = structuredClone(match);
-    return detail;
-  },
+  reviewPrDetail: (repoDir, number) => deskPrDetail(repoDir, number),
   reviewCheckFresh: (_repoDir, _number, knownHead, knownUpdatedAt) => ({
     stale: false,
     remoteHead: knownHead,
     remoteUpdatedAt: knownUpdatedAt,
   }),
   reviewLocalDiff: () => structuredClone(previewPrDetail.files),
-  reviewInbox: () => structuredClone(previewInbox),
-  reviewStacks: () => ({ supported: true, stacks: [] }),
-  reviewFetchPrs: (_repoDir, numbers) =>
-    numbers.map((number) => ({
-      number,
-      headSha: previewInbox.prs.find((pr) => pr.number === number)?.headSha ?? null,
-    })),
+  reviewInbox: (repoDir) => deskInbox(repoDir),
+  reviewStacks: (repoDir) => deskStacks(repoDir),
+  reviewFetchPrs: (repoDir, numbers) => {
+    const prs = deskInbox(repoDir).prs;
+    return numbers.map((number) => ({ number, headSha: prs.find((pr) => pr.number === number)?.headSha ?? null }));
+  },
   reviewDiff: () => ({ files: structuredClone(previewPrDetail.files), truncated: false }),
   reviewFile: () => ({ text: "export const VERSION = 1;\n", size: 26, truncated: false }),
   reviewChangesSince: (_repoDir, _number, _baseSha, headSha) => ({
@@ -745,6 +739,33 @@ export const previewCommands: PreviewCommands = {
   }),
   reviewMarkSeen: () => {},
   reviewForgetPr: () => {},
+  reviewEditComment: () => {},
+  reviewDeleteComment: () => {},
+  reviewMerge: () => {},
+  reviewClose: () => {},
+  reviewRetarget: () => {},
+  reviewMarkReady: () => {},
+  reviewCheckLogs: () => [],
+  reviewRerunFailedChecks: () => {},
+  reviewCreatePr: () => nextPreviewId(),
+  reviewMyRepositories: () =>
+    DESK_REPOS.filter((repo) => repo.slug.startsWith(`${DESK_VIEWER}/`)).map((repo) => ({
+      slug: repo.slug,
+      private: false,
+      fork: false,
+      parent: null,
+      defaultBranch: "main",
+      cloneUrl: `https://github.com/${repo.slug}.git`,
+      sshUrl: `git@github.com:${repo.slug}.git`,
+    })),
+  reviewRepositoriesRequestingReview: () =>
+    DESK_REPOS.filter((repo) => repo.slug)
+      .map((repo) => ({
+        slug: repo.slug,
+        count: deskInbox(repo.slug).prs.filter((pr) => pr.reviewRequests.includes(DESK_VIEWER)).length,
+      }))
+      .filter((repo) => repo.count > 0)
+      .sort((a, b) => b.count - a.count),
   reviewSaveDraft(provider, repo, prNumber, headSha, payload) {
     reviewDrafts.set(reviewDraftKey(provider, repo, prNumber), {
       headSha,
