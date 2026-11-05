@@ -23,6 +23,9 @@
 //! | `steps` | Review checkouts, worktrees, promotion and the step plan |
 //! | `links` | The PR link on threads |
 //! | `repositories` | The account's repositories, for Add repository |
+//! | `stack` | A stack on disk: its git branches, the base's lead, its worktree, the restack plan |
+//! | `stack_edits` | Push, reorder, fold, remove, split, rename and add git branches; merged clean-up |
+//! | `restack` | Restacking, with snapshot and abort, and the steps stack edits share |
 //! | `cleanup` | Dropping what a closed PR left behind |
 //!
 //! A new area (agent reviews, stack operations) gets its own file with its
@@ -38,8 +41,13 @@ mod links;
 mod pending;
 mod pr;
 mod repositories;
+mod restack;
 mod review;
 mod seen;
+mod stack;
+mod stack_edits;
+#[cfg(test)]
+mod stack_support;
 mod steps;
 mod sync;
 #[cfg(test)]

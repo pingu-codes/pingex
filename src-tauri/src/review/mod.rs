@@ -25,4 +25,6 @@ pub(crate) mod pending;
 pub(crate) mod provider;
 pub(crate) mod repository;
 pub(crate) mod requirements;
+pub(crate) mod stack_commands;
+pub(crate) mod stack_types;
 pub(crate) mod types;

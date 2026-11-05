@@ -19,6 +19,7 @@ mod commits;
 pub(crate) mod objects;
 pub(crate) mod remotes;
 pub(crate) mod run;
+pub(crate) mod stack;
 
 /// Exposed so the review service's local-diff mode reuses the same runner
 /// rather than shelling out to `git` a second way.

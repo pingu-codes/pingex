@@ -364,6 +364,13 @@ CREATE TABLE IF NOT EXISTS review_inbox_snapshots (
  CREATE TABLE IF NOT EXISTS review_prs_only_repos (
      slug TEXT PRIMARY KEY,
      added_at INTEGER NOT NULL
+ );
+ CREATE TABLE IF NOT EXISTS review_restacks (
+     repo_key TEXT NOT NULL,
+     stack_number INTEGER NOT NULL,
+     payload TEXT NOT NULL,
+     updated_at INTEGER NOT NULL,
+     PRIMARY KEY (repo_key, stack_number)
  );";
 
 /// Columns added after their table shipped. Re-running these on an up-to-date

@@ -30,6 +30,7 @@ mod repository_settings;
 mod review;
 mod review_checkouts;
 mod review_repositories;
+mod review_restacks;
 mod review_seen;
 mod review_viewed;
 mod schema;
@@ -88,6 +89,7 @@ pub(crate) use review_checkouts::{
 pub(crate) use review_repositories::{
     add_prs_only_repository, prs_only_repositories, remove_prs_only_repository,
 };
+pub(crate) use review_restacks::{delete_restack, read_restack, write_restack};
 pub(crate) use review_seen::{
     append_feed, mark_prs_seen, mute_pr, read_feed, read_seen_prs, SeenPr,
 };
