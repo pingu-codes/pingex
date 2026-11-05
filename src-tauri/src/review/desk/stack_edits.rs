@@ -6,8 +6,10 @@
 //! driven atomically in the stack's worktree, then one atomic, leased push of
 //! what moved, then the retargets GitHub needs so each PR's base is the git
 //! branch below it again. A conflict or a refused push puts every git branch
-//! back where it was. Pushing leases against the head GitHub has, so a
-//! git branch someone else pushed to is never overwritten.
+//! back where it was. Pushing leases against the head GitHub has, and
+//! nothing replays or pushes a local git branch that lacks GitHub's head
+//! (`catch_up_branches`), so a git branch someone else pushed to is never
+//! overwritten.
 
 use std::path::Path;
 
@@ -50,8 +52,13 @@ impl ReviewDesk {
                 .into_iter()
                 .filter(|pr| only.is_none_or(|number| pr.number == number))
                 .collect();
-            let pushes = desk.pushes_for(&chosen)?;
-            git::push_leased(&desk.host, desk.dir(), &desk.remote()?, &pushes)?;
+            desk.ensure_heads(&chosen)?;
+            let pushes = git::locked(&desk.host, desk.dir(), || {
+                desk.catch_up_branches(&chosen)?;
+                let pushes = desk.pushes_for(&chosen)?;
+                git::push_leased(&desk.host, desk.dir(), &desk.remote()?, &pushes)?;
+                Ok(pushes)
+            })?;
             Ok(PushReport {
                 pushed: pushes.into_iter().map(|push| push.branch).collect(),
             })
@@ -87,6 +94,7 @@ impl ReviewDesk {
     ) -> Result<(String, Run, Vec<super::stack::Layer>), String> {
         self.ensure_heads(&input.open_prs())?;
         let onto = self.ensure_base(&input.base_ref, &input.base_sha)?;
+        self.catch_up_branches(&input.open_prs())?;
         let (worktree, return_branch) = self.edit_worktree(input)?;
         let snapshot = self.snapshot(input)?;
         let layers = self.layers(input, &onto, None)?;
@@ -119,6 +127,11 @@ impl ReviewDesk {
 
     /// Put the open PRs in `order` (bottom first): rebase each onto the one
     /// now below it, push, and retarget the PRs whose base changed.
+    ///
+    /// GitHub merges a PR as soon as its head is in its base, and a PR that
+    /// moves down would be in that state while the push lands (its old base
+    /// is rewritten on top of it). So every PR that moves goes onto the
+    /// stack's base before the push, and onto its new parent after it.
     pub(crate) async fn reorder_stack(
         &self,
         input: StackInput,
@@ -140,6 +153,21 @@ impl ReviewDesk {
                 let reordered: Vec<&StackInputPr> = order
                     .iter()
                     .filter_map(|number| open.iter().find(|pr| pr.number == *number).copied())
+                    .collect();
+                // (PR, new base, old base) for each PR whose base changes.
+                let moves: Vec<(i64, String, String)> = reordered
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, pr)| {
+                        let old = open
+                            .iter()
+                            .position(|candidate| candidate.number == pr.number)?;
+                        let (now, before) = (
+                            Self::base_at(&input, &reordered, index),
+                            Self::base_at(&input, &open, old),
+                        );
+                        (now != before).then_some((pr.number, now, before))
+                    })
                     .collect();
                 git::locked(&desk.host, desk.dir(), || {
                     let (_, mut run, layers) = desk.begin_edit(&input)?;
@@ -169,21 +197,28 @@ impl ReviewDesk {
                             }
                         })
                         .collect();
-                    desk.edit_and_push(&input, &mut run, |_| Ok(()))
+                    let parked = std::cell::RefCell::new(Vec::new());
+                    let outcome = desk.edit_and_push(&input, &mut run, |desk| {
+                        for (number, _, before) in &moves {
+                            if *before != input.base_ref {
+                                desk.github.retarget(*number, &input.base_ref)?;
+                                parked.borrow_mut().push((*number, before.clone()));
+                            }
+                        }
+                        Ok(())
+                    });
+                    if outcome.is_err() {
+                        // Nothing moved: the parked PRs go back where they were.
+                        for (number, before) in parked.into_inner() {
+                            let _ = desk.github.retarget(number, &before);
+                        }
+                    }
+                    outcome
                 })?;
-                Ok(reordered
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(index, pr)| {
-                        let old = open
-                            .iter()
-                            .position(|candidate| candidate.number == pr.number)?;
-                        let (now, before) = (
-                            Self::base_at(&input, &reordered, index),
-                            Self::base_at(&input, &open, old),
-                        );
-                        (now != before).then_some((pr.number, now))
-                    })
+                Ok(moves
+                    .into_iter()
+                    .filter(|(_, now, _)| *now != input.base_ref)
+                    .map(|(number, now, _)| (number, now))
                     .collect::<Vec<_>>())
             })
             .await?;
@@ -405,7 +440,10 @@ impl ReviewDesk {
                 return Ok(());
             }
             git::locked(&desk.host, desk.dir(), || {
-                git::rename_branch(&desk.host, desk.dir(), &from, &to)
+                git::rename_branch(&desk.host, desk.dir(), &from, &to)?;
+                // `branch -m` keeps the upstream's old name, which GitHub no
+                // longer has.
+                git::follow_renamed_upstream(&desk.host, desk.dir(), &from, &to)
             })
         })
         .await
@@ -457,7 +495,9 @@ impl ReviewDesk {
     }
 
     /// Delete the local git branches of the stack's merged PRs. A worktree
-    /// on one moves to the bottom open git branch first. Returns the git
+    /// on one moves to the bottom open git branch first, or, when another
+    /// worktree already has that (git checks a git branch out in one place
+    /// only) or the switch fails, is detached where it is. Returns the git
     /// branches deleted.
     pub(crate) async fn delete_merged_branches(
         &self,
@@ -465,20 +505,33 @@ impl ReviewDesk {
     ) -> Result<Vec<String>, String> {
         self.blocking("Deleting merged git branches failed", move |desk| {
             let bottom = input.open_prs().first().map(|pr| pr.head_ref.clone());
-            let checked_out = crate::git::worktrees::worktree_branches(&desk.host, desk.dir())?;
+            let mut checked_out = crate::git::worktrees::worktree_branches(&desk.host, desk.dir())?;
             git::locked(&desk.host, desk.dir(), || {
                 let mut deleted = Vec::new();
                 for pr in input.prs.iter().filter(|pr| pr.merged) {
                     if git::branch_tip(&desk.host, desk.dir(), &pr.head_ref)?.is_none() {
                         continue;
                     }
-                    for (path, branch) in &checked_out {
-                        if branch.as_deref() == Some(pr.head_ref.as_str()) {
-                            match &bottom {
-                                Some(bottom) => git::switch(&desk.host, Path::new(path), bottom)?,
-                                None => git::detach(&desk.host, Path::new(path))?,
-                            }
+                    for index in 0..checked_out.len() {
+                        if checked_out[index].1.as_deref() != Some(pr.head_ref.as_str()) {
+                            continue;
                         }
+                        let dir = Path::new(&checked_out[index].0).to_path_buf();
+                        let free = bottom.as_ref().filter(|bottom| {
+                            !checked_out
+                                .iter()
+                                .any(|(_, branch)| branch.as_deref() == Some(bottom.as_str()))
+                        });
+                        let moved = match free {
+                            Some(bottom) => git::switch(&desk.host, &dir, bottom)
+                                .is_ok()
+                                .then(|| bottom.clone()),
+                            None => None,
+                        };
+                        if moved.is_none() {
+                            git::detach(&desk.host, &dir)?;
+                        }
+                        checked_out[index].1 = moved;
                     }
                     git::delete_branch(&desk.host, desk.dir(), &pr.head_ref)?;
                     deleted.push(pr.head_ref.clone());
@@ -556,17 +609,92 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_local_git_branch_behind_github_moves_up_to_its_head_and_is_never_pushed_over_it() {
+        let Some(stack) = StackFixture::new().await else {
+            return;
+        };
+        // A teammate pushes to feat/maki; the local git branch stays behind.
+        let theirs = stack.teammate_pushes(418, "feat/maki");
+
+        let report = stack.desk().push_stack(stack.input(), None).await.unwrap();
+
+        assert!(report.pushed.is_empty(), "{:?}", report.pushed);
+        assert_eq!(stack.remote_tip("feat/maki"), theirs);
+        assert_eq!(stack.tip("feat/maki"), theirs);
+    }
+
+    #[tokio::test]
+    async fn a_checked_out_git_branch_behind_github_is_refused_until_pulled() {
+        let Some(stack) = StackFixture::new().await else {
+            return;
+        };
+        let worktree = stack.worktree_on("feat/maki");
+        let mine = stack.tip("feat/maki");
+        let theirs = stack.teammate_pushes(418, "feat/maki");
+
+        let error = stack
+            .desk()
+            .push_stack(stack.input(), None)
+            .await
+            .unwrap_err();
+
+        assert!(error.contains("Pull"), "{error}");
+        assert_eq!(stack.remote_tip("feat/maki"), theirs);
+        assert_eq!(stack.tip("feat/maki"), mine);
+
+        // Diverged: a local commit on top of the old head as well.
+        stack.git_in(&worktree, &["commit", "-q", "--allow-empty", "-m", "mine"]);
+        let error = stack
+            .desk()
+            .push_stack(stack.input(), None)
+            .await
+            .unwrap_err();
+        assert!(error.contains("not here"), "{error}");
+        assert_eq!(stack.remote_tip("feat/maki"), theirs);
+    }
+
+    #[tokio::test]
+    async fn a_restacked_git_branch_pushes_but_not_over_commits_pushed_since() {
+        let Some(stack) = StackFixture::new().await else {
+            return;
+        };
+        stack.advance_main("main.rs", "the base moved");
+        stack.worktree_on("feat/claude");
+        stack.desk().restack(stack.input(), None).await.unwrap();
+        let theirs = stack.teammate_pushes(418, "feat/maki");
+
+        let error = stack
+            .desk()
+            .push_stack(stack.input(), None)
+            .await
+            .unwrap_err();
+
+        assert!(error.contains("feat/maki"), "{error}");
+        assert_eq!(stack.remote_tip("feat/maki"), theirs);
+        // The rewritten git branches below it still push.
+        let report = stack
+            .desk()
+            .push_stack(stack.input(), Some(415))
+            .await
+            .unwrap();
+        assert_eq!(report.pushed, vec!["feat/claude"]);
+    }
+
+    #[tokio::test]
     async fn reordering_rebases_each_git_branch_onto_its_new_parent_and_retargets() {
         let Some(stack) = StackFixture::new().await else {
             return;
         };
         stack.worktree_on("feat/maki");
+        stack.inner.github.merge_on_push(&stack.inner.repo.remote);
 
         stack
             .desk()
             .reorder_stack(stack.input(), vec![412, 418, 415])
             .await
             .unwrap();
+
+        assert_eq!(stack.inner.github.merged_by_push(), Vec::<i64>::new());
 
         assert_eq!(
             stack.subjects("feat/driver", "feat/maki"),
@@ -577,13 +705,36 @@ mod tests {
             vec!["add claude.rs"]
         );
         assert_eq!(stack.remote_tip("feat/claude"), stack.tip("feat/claude"));
+        // Onto the base before the push, so no PR's head ever lands in its
+        // base, then onto the new parents.
         assert_eq!(
             retargets(&stack.inner.github.sent()),
             vec![
+                (418, "main".to_string()),
+                (415, "main".to_string()),
                 (418, "feat/driver".to_string()),
                 (415, "feat/maki".to_string())
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn swapping_two_prs_never_lets_github_mark_one_merged() {
+        let Some(stack) = StackFixture::new().await else {
+            return;
+        };
+        stack.worktree_on("feat/maki");
+        stack.inner.github.merge_on_push(&stack.inner.repo.remote);
+
+        stack
+            .desk()
+            .reorder_stack(stack.input(), vec![415, 412, 418])
+            .await
+            .unwrap();
+
+        assert_eq!(stack.inner.github.merged_by_push(), Vec::<i64>::new());
+        assert_eq!(stack.subjects("main", "feat/claude"), vec!["add claude.rs"]);
+        assert_eq!(stack.remote_tip("feat/driver"), stack.tip("feat/driver"));
     }
 
     #[tokio::test]
@@ -763,6 +914,59 @@ mod tests {
         assert_eq!(
             retargets(&stack.inner.github.sent()),
             vec![(415, "feat/mid".to_string())]
+        );
+    }
+
+    #[tokio::test]
+    async fn renaming_points_the_local_git_branch_at_its_new_upstream() {
+        let Some(stack) = StackFixture::new().await else {
+            return;
+        };
+        stack.git(&[
+            "branch",
+            "--set-upstream-to=origin/feat/claude",
+            "feat/claude",
+        ]);
+
+        stack
+            .desk()
+            .rename_stack_branch(stack.input(), 415, "feat/claude-code".into())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            stack.git(&["config", "branch.feat/claude-code.merge"]),
+            "refs/heads/feat/claude-code"
+        );
+        assert_eq!(
+            stack.git(&["config", "branch.feat/claude-code.remote"]),
+            "origin"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_merged_git_branch_is_deleted_when_the_bottom_one_is_checked_out_elsewhere() {
+        let Some(stack) = StackFixture::new().await else {
+            return;
+        };
+        let stack_worktree = stack.worktree_on("feat/claude");
+        let merged = stack.worktree_on("feat/driver");
+        let at = stack.tip("feat/driver");
+        stack.mark_merged(412);
+
+        let deleted = stack
+            .desk()
+            .delete_merged_branches(stack.input())
+            .await
+            .unwrap();
+
+        assert_eq!(deleted, vec!["feat/driver"]);
+        assert!(stack.git(&["branch", "--list", "feat/driver"]).is_empty());
+        assert_eq!(stack.git_in(&merged, &["branch", "--show-current"]), "");
+        assert_eq!(stack.git_in(&merged, &["rev-parse", "HEAD"]), at);
+        assert_eq!(
+            stack.git_in(&stack_worktree, &["branch", "--show-current"]),
+            "feat/claude"
         );
     }
 

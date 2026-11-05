@@ -274,6 +274,7 @@ impl ReviewDesk {
                 desk.ensure_heads(&input.open_prs())?;
                 let onto = desk.ensure_base(&input.base_ref, &input.base_sha)?;
                 git::locked(&desk.host, desk.dir(), || {
+                    desk.catch_up_branches(&input.open_prs())?;
                     let (worktree, return_branch) = desk.edit_worktree(&input)?;
                     let snapshot = desk.snapshot(&input)?;
                     let layers = desk.layers(&input, &onto, from)?;
@@ -344,6 +345,24 @@ impl ReviewDesk {
                         desk.drive(&mut run)?;
                         return Ok(run);
                     };
+                    if !git::rebase_in_progress(&desk.host, &dir) {
+                        // Someone (an agent in the worktree, a terminal)
+                        // already continued or aborted the rebase.
+                        let parent = desk.parent_sha(&run, &run.steps[index].parent.clone())?;
+                        let head_ref = run.steps[index].head_ref.clone();
+                        let step = &mut run.steps[index];
+                        step.conflicts.clear();
+                        if git::contains(&desk.host, desk.dir(), &parent, &head_ref)? {
+                            step.status = RestackStatus::Replayed;
+                            step.commits =
+                                git::count_between(&desk.host, desk.dir(), &parent, &head_ref)?;
+                        } else {
+                            // Aborted: replay this git branch again.
+                            step.status = RestackStatus::Waiting;
+                        }
+                        desk.drive(&mut run)?;
+                        return Ok(run);
+                    }
                     match git::continue_replay(&desk.host, &dir)? {
                         Replay::Conflict(files) => {
                             run.steps[index].conflicts = files;
@@ -490,6 +509,105 @@ mod tests {
             stack.git_in(&worktree, &["branch", "--show-current"]),
             "feat/maki"
         );
+    }
+
+    #[tokio::test]
+    async fn a_rebase_continued_outside_pingex_carries_on_from_where_it_got_to() {
+        let Some(stack) = StackFixture::new().await else {
+            return;
+        };
+        stack.advance_main("claude.rs", "main's version\n");
+        let worktree = stack.worktree_on("feat/maki");
+        stack.desk().restack(stack.input(), None).await.unwrap();
+
+        // An agent in the worktree resolves it and continues the rebase itself.
+        std::fs::write(worktree.join("claude.rs"), "resolved\n").unwrap();
+        stack.git_in(&worktree, &["add", "claude.rs"]);
+        stack.git_in(
+            &worktree,
+            &["-c", "core.editor=true", "rebase", "--continue"],
+        );
+        let progress = stack.desk().continue_restack(7).await.unwrap();
+
+        assert!(progress.done, "{progress:?}");
+        assert_eq!(stack.git(&["show", "feat/claude:claude.rs"]), "resolved");
+        assert!(stack.has_ancestor("feat/maki", &stack.tip("feat/claude")));
+        assert_eq!(
+            stack.git_in(&worktree, &["branch", "--show-current"]),
+            "feat/maki"
+        );
+    }
+
+    #[tokio::test]
+    async fn continue_leaves_a_binary_conflict_for_the_user_to_stage() {
+        let Some(stack) = StackFixture::new().await else {
+            return;
+        };
+        // #412 and main both change a binary logo and a text file.
+        stack.git(&["switch", "-q", "feat/driver"]);
+        std::fs::write(stack.inner.repo.repo.join("logo.png"), b"\x00\x01driver").unwrap();
+        std::fs::write(stack.inner.repo.repo.join("notes.txt"), "driver's\n").unwrap();
+        stack.git(&["add", "logo.png", "notes.txt"]);
+        stack.git(&["commit", "-q", "-m", "driver logo"]);
+        stack.inner.repo.open_pr(412, "feat/driver");
+        stack.git(&["switch", "-q", "main"]);
+        std::fs::write(stack.inner.repo.repo.join("logo.png"), b"\x00\x02main").unwrap();
+        std::fs::write(stack.inner.repo.repo.join("notes.txt"), "main's\n").unwrap();
+        stack.git(&["add", "logo.png", "notes.txt"]);
+        stack.git(&["commit", "-q", "-m", "main logo"]);
+        stack.git(&["push", "-q", "origin", "main"]);
+        let worktree = stack.worktree_on("feat/maki");
+        let first = stack.desk().restack(stack.input(), None).await.unwrap();
+        assert_eq!(
+            first.conflict().unwrap().conflicts,
+            vec!["logo.png".to_string(), "notes.txt".to_string()]
+        );
+
+        std::fs::write(worktree.join("notes.txt"), "both\n").unwrap();
+        let progress = stack.desk().continue_restack(7).await.unwrap();
+
+        assert_eq!(
+            progress.conflict().unwrap().conflicts,
+            vec!["logo.png".to_string()]
+        );
+        assert!(stack
+            .git_in(&worktree, &["diff", "--name-only", "--diff-filter=U"])
+            .lines()
+            .any(|path| path == "logo.png"));
+
+        // The user picks the PR's logo and stages it.
+        std::fs::write(worktree.join("logo.png"), b"\x00\x01driver").unwrap();
+        stack.git_in(&worktree, &["add", "logo.png"]);
+        let progress = stack.desk().continue_restack(7).await.unwrap();
+        assert!(progress.done, "{progress:?}");
+        assert_eq!(
+            std::fs::read(worktree.join("logo.png")).unwrap(),
+            b"\x00\x01driver"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_restack_refuses_a_checked_out_git_branch_behind_github() {
+        let Some(stack) = StackFixture::new().await else {
+            return;
+        };
+        stack.advance_main("main.rs", "the base moved");
+        stack.worktree_on("feat/maki");
+        let theirs = stack.teammate_pushes(418, "feat/maki");
+        let before: Vec<String> = ["feat/driver", "feat/claude", "feat/maki"]
+            .iter()
+            .map(|branch| stack.tip(branch))
+            .collect();
+
+        let error = stack.desk().restack(stack.input(), None).await.unwrap_err();
+
+        assert!(error.contains("Pull"), "{error}");
+        let after: Vec<String> = ["feat/driver", "feat/claude", "feat/maki"]
+            .iter()
+            .map(|branch| stack.tip(branch))
+            .collect();
+        assert_eq!(after, before);
+        assert_eq!(stack.remote_tip("feat/maki"), theirs);
     }
 
     #[tokio::test]

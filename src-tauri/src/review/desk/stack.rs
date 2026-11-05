@@ -52,7 +52,8 @@ impl ReviewDesk {
             return Ok(sha.to_string());
         }
         let remote = self.remote()?;
-        let spec = format!("refs/heads/{base_ref}:refs/remotes/{remote}/{base_ref}");
+        // Forced: the base may have been force-pushed since the last fetch.
+        let spec = format!("+refs/heads/{base_ref}:refs/remotes/{remote}/{base_ref}");
         let output = crate::git::run::run_git_network(
             &self.host,
             self.dir(),
@@ -76,20 +77,68 @@ impl ReviewDesk {
         .ok_or_else(|| format!("Could not read {base_ref}"))
     }
 
-    /// Fetch the PR heads of `prs` that are not here and have no local git
-    /// branch.
+    /// Fetch the PR heads of `prs` that are not here, local git branch or
+    /// not: `catch_up_branches` compares a local tip with GitHub's head.
     pub(super) fn ensure_heads(&self, prs: &[&StackInputPr]) -> Result<(), String> {
         let mut missing = Vec::new();
         for pr in prs {
-            let local = git::branch_tip(&self.host, self.dir(), &pr.head_ref)?;
-            if local.is_none()
-                && !crate::git::checkouts::has_commit(&self.host, self.dir(), &pr.head_sha)?
-            {
+            if !crate::git::checkouts::has_commit(&self.host, self.dir(), &pr.head_sha)? {
                 missing.push(super::pr_number(pr.number)?);
             }
         }
         if !missing.is_empty() {
             objects::fetch_pr_heads(&self.host, self.dir(), &self.remote()?, &missing)?;
+        }
+        Ok(())
+    }
+
+    /// Make sure no local git branch of `prs` is missing commits GitHub has,
+    /// before anything replays or pushes it: pushing a stale tip, even
+    /// leased, would overwrite them. A git branch has GitHub's head when its
+    /// tip, or a tip it had before a rewrite such as a restack, contains it
+    /// (`integrates`). Otherwise, one behind GitHub that no worktree has
+    /// checked out moves up to GitHub's head; one checked out, or one with
+    /// commits of its own as well, is refused until pulled. Call after
+    /// `ensure_heads`, holding the repository's lock.
+    pub(super) fn catch_up_branches(&self, prs: &[&StackInputPr]) -> Result<(), String> {
+        let mut checked_out: Option<Vec<(String, Option<String>)>> = None;
+        for pr in prs {
+            let Some(tip) = git::branch_tip(&self.host, self.dir(), &pr.head_ref)? else {
+                continue;
+            };
+            if tip == pr.head_sha {
+                continue;
+            }
+            if !crate::git::checkouts::has_commit(&self.host, self.dir(), &pr.head_sha)? {
+                return Err(format!(
+                    "Could not fetch GitHub's head of {}. Sync, then try again",
+                    pr.head_ref
+                ));
+            }
+            if git::integrates(&self.host, self.dir(), &pr.head_ref, &pr.head_sha)? {
+                // Ahead of GitHub, or rewritten from it: commits to push.
+                continue;
+            }
+            if !git::contains(&self.host, self.dir(), &tip, &pr.head_sha)? {
+                return Err(format!(
+                    "GitHub has commits on {} that are not here, and it has commits of its own. Pull them into it, then try again",
+                    pr.head_ref
+                ));
+            }
+            let worktrees = match &mut checked_out {
+                Some(worktrees) => worktrees,
+                None => checked_out.insert(worktrees::worktree_branches(&self.host, self.dir())?),
+            };
+            if let Some((path, _)) = worktrees
+                .iter()
+                .find(|(_, branch)| branch.as_deref() == Some(pr.head_ref.as_str()))
+            {
+                return Err(format!(
+                    "{} is behind GitHub. Pull it in {path}, then try again",
+                    pr.head_ref
+                ));
+            }
+            git::fast_forward(&self.host, self.dir(), &pr.head_ref, &tip, &pr.head_sha)?;
         }
         Ok(())
     }
@@ -489,6 +538,24 @@ mod tests {
         assert_eq!(plan.steps[1].conflicts, vec!["claude.rs".to_string()]);
         assert!(plan.steps[0].conflicts.is_empty());
         assert_eq!(plan.rewrites_pushed, vec![412, 415, 418]);
+    }
+
+    #[tokio::test]
+    async fn the_stack_reads_after_its_base_was_force_pushed() {
+        let Some(stack) = StackFixture::new().await else {
+            return;
+        };
+        stack.advance_main("main.rs", "the base moved");
+        stack.git(&["fetch", "-q", "origin"]);
+        // Someone rewrites main's last commit and force-pushes it.
+        stack.as_teammate(|clone| {
+            stack.git_in(clone, &["commit", "-q", "--amend", "-m", "rewritten"]);
+            stack.git_in(clone, &["push", "-q", "--force", "origin", "main"]);
+        });
+
+        let overview = stack.desk().stack_overview(stack.input()).await.unwrap();
+
+        assert_eq!(overview.base_commits[0].subject, "rewritten");
     }
 
     #[tokio::test]

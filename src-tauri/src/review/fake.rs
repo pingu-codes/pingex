@@ -6,6 +6,7 @@
 //! PR GitHub does not have would.
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use super::provider::GitHubProvider;
@@ -61,6 +62,10 @@ struct State {
     review_requests: Vec<ReviewRequests>,
     sent: Vec<Sent>,
     next_pr: i64,
+    /// The bare remote GitHub's git branches live in, once
+    /// `merge_on_push` turned the rule on.
+    remote: Option<PathBuf>,
+    merged_by_push: Vec<i64>,
 }
 
 /// GitHub for one repository, `slug`.
@@ -122,12 +127,55 @@ impl FakeGitHub {
         self.state().sent.clone()
     }
 
+    /// Apply GitHub's rule that an open PR whose head is reachable from its
+    /// base is merged, reading git branches from the bare `remote`: from now
+    /// on, before every write and in `merged_by_push`, such a PR leaves the
+    /// inbox. It is what a push landing before a retarget does.
+    pub(crate) fn merge_on_push(&self, remote: &Path) {
+        self.state().remote = Some(remote.to_path_buf());
+    }
+
+    /// The PRs GitHub merged because a push put their head in their base.
+    pub(crate) fn merged_by_push(&self) -> Vec<i64> {
+        self.settle_pushes();
+        self.state().merged_by_push.clone()
+    }
+
+    fn settle_pushes(&self) {
+        let mut state = self.state();
+        let Some(remote) = state.remote.clone() else {
+            return;
+        };
+        let reached: Vec<i64> = state
+            .prs
+            .iter()
+            .filter(|pr| {
+                !pr.head_ref.is_empty()
+                    && !pr.base_ref.is_empty()
+                    && crate::git::test_repo::git_ok(
+                        &remote,
+                        &[
+                            "merge-base",
+                            "--is-ancestor",
+                            &format!("refs/heads/{}", pr.head_ref),
+                            &format!("refs/heads/{}", pr.base_ref),
+                        ],
+                    )
+            })
+            .map(|pr| pr.number)
+            .collect();
+        state.prs.retain(|pr| !reached.contains(&pr.number));
+        state.merged_by_push.extend(reached);
+    }
+
     fn record(&self, sent: Sent) -> Result<(), String> {
+        self.settle_pushes();
         self.state().sent.push(sent);
         Ok(())
     }
 
     fn require_pr(&self, number: i64) -> Result<(), String> {
+        self.settle_pushes();
         if self.state().prs.iter().any(|pr| pr.number == number) {
             Ok(())
         } else {

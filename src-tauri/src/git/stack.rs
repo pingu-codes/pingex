@@ -113,6 +113,46 @@ pub(crate) fn contains(
     }
 }
 
+/// How far back `integrates` looks in a git branch's reflog.
+const REFLOG_ENTRIES_CHECKED: usize = 50;
+
+/// Whether local git branch `branch` has had commit `sha`: it is in the
+/// tip's history, or in the history of a tip the git branch had before (its
+/// reflog), as when a restack rewrote it on purpose. The same test as
+/// `push --force-if-includes`, which an explicit lease turns off.
+pub(crate) fn integrates(
+    host: &Host,
+    repo: &Path,
+    branch: &str,
+    sha: &str,
+) -> Result<bool, String> {
+    let reference = format!("refs/heads/{branch}");
+    if contains(host, repo, sha, &reference)? {
+        return Ok(true);
+    }
+    let output = run_git(
+        host,
+        repo,
+        &["reflog", "show", "--format=%H", &reference],
+        READ_TIMEOUT,
+    )?;
+    if !output.ok {
+        return Ok(false);
+    }
+    let mut seen = std::collections::HashSet::new();
+    for entry in output
+        .stdout
+        .lines()
+        .filter(|entry| seen.insert(*entry))
+        .take(REFLOG_ENTRIES_CHECKED)
+    {
+        if entry == sha || contains(host, repo, sha, entry).unwrap_or(false) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Files `from..to` changes.
 pub(crate) fn changed_files(
     host: &Host,
@@ -240,25 +280,26 @@ pub(crate) fn replay_onto(
 
 /// Continue a rebase stopped at a conflict the user has resolved.
 pub(crate) fn continue_replay(host: &Host, dir: &Path) -> Result<Replay, String> {
-    // A conflicted file counts as resolved once it has no conflict markers
-    // left; staging it is done here, so an editor's save is enough.
-    let unmerged = conflicted_files(host, dir)?;
+    // A text conflict both sides changed counts as resolved once it has no
+    // conflict markers left; staging it is done here, so an editor's save is
+    // enough. Any other conflict (a binary file, a deletion on one side) has
+    // no markers to look for, and git has left one side in place: it stays
+    // conflicted until the user stages their choice.
+    let unmerged = unmerged_paths(host, dir)?;
     let base = host.path_string(dir);
     let still: Vec<String> = unmerged
         .iter()
-        .filter(|path| {
-            std::fs::read_to_string(host.to_local(&host.join_str(&base, path)))
-                .map(|text| text.lines().any(|line| line.starts_with("<<<<<<< ")))
-                .unwrap_or(false)
+        .filter(|(path, both_sides)| {
+            !(*both_sides && edited_clean(&host.to_local(&host.join_str(&base, path))))
         })
-        .cloned()
+        .map(|(path, _)| path.clone())
         .collect();
     if !still.is_empty() {
         return Ok(Replay::Conflict(still));
     }
     if !unmerged.is_empty() {
         let mut args = vec!["add", "--"];
-        args.extend(unmerged.iter().map(String::as_str));
+        args.extend(unmerged.iter().map(|(path, _)| path.as_str()));
         git_ok(host, dir, &args, "Staging the resolution failed")?;
     }
     let output = run_git(
@@ -268,6 +309,52 @@ pub(crate) fn continue_replay(host: &Host, dir: &Path) -> Result<Replay, String>
         WRITE_TIMEOUT,
     )?;
     replay_outcome(host, dir, &output, "Continuing the restack failed")
+}
+
+/// The unmerged paths in `dir`, sorted, each with whether both sides
+/// changed it (index stages 2 and 3 are both there).
+fn unmerged_paths(host: &Host, dir: &Path) -> Result<Vec<(String, bool)>, String> {
+    let output = run_git(host, dir, &["ls-files", "-u", "-z"], READ_TIMEOUT)?;
+    if !output.ok {
+        return Err("Could not read the conflicted files".to_string());
+    }
+    let mut paths: Vec<(String, [bool; 2])> = Vec::new();
+    for entry in output.stdout.split('\0').filter(|entry| !entry.is_empty()) {
+        // `<mode> <sha> <stage>\t<path>`
+        let Some((meta, path)) = entry.split_once('\t') else {
+            continue;
+        };
+        let stage = meta.rsplit(' ').next().unwrap_or("");
+        let index = match paths.iter().position(|(known, _)| known == path) {
+            Some(index) => index,
+            None => {
+                paths.push((path.to_string(), [false; 2]));
+                paths.len() - 1
+            }
+        };
+        match stage {
+            "2" => paths[index].1[0] = true,
+            "3" => paths[index].1[1] = true,
+            _ => {}
+        }
+    }
+    paths.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(paths
+        .into_iter()
+        .map(|(path, [ours, theirs])| (path, ours && theirs))
+        .collect())
+}
+
+/// Whether the file at `local` is text with no conflict markers left.
+fn edited_clean(local: &Path) -> bool {
+    let Ok(bytes) = std::fs::read(local) else {
+        return false;
+    };
+    if bytes.contains(&0) {
+        return false;
+    }
+    std::str::from_utf8(&bytes)
+        .is_ok_and(|text| !text.lines().any(|line| line.starts_with("<<<<<<< ")))
 }
 
 pub(crate) fn rebase_in_progress(host: &Host, dir: &Path) -> bool {
@@ -360,6 +447,25 @@ pub(crate) fn reset_hard(host: &Host, dir: &Path) -> Result<(), String> {
     .map(drop)
 }
 
+/// Move local git branch `name` from `from` up to `to`, only if it is still
+/// at `from`. No worktree may have it checked out.
+pub(crate) fn fast_forward(
+    host: &Host,
+    repo: &Path,
+    name: &str,
+    from: &str,
+    to: &str,
+) -> Result<(), String> {
+    let reference = format!("refs/heads/{name}");
+    git_ok(
+        host,
+        repo,
+        &["update-ref", &reference, to, from],
+        &format!("Moving {name} up to GitHub's head failed"),
+    )
+    .map(drop)
+}
+
 pub(crate) fn create_branch(host: &Host, repo: &Path, name: &str, at: &str) -> Result<(), String> {
     git_ok(
         host,
@@ -386,6 +492,28 @@ pub(crate) fn rename_branch(host: &Host, repo: &Path, from: &str, to: &str) -> R
         repo,
         &["branch", "-m", from, to],
         &format!("Renaming {from} failed"),
+    )
+    .map(drop)
+}
+
+/// After local git branch `from` was renamed to `to` on the remote as well:
+/// point `to`'s upstream at the new name, if it tracked the old one.
+pub(crate) fn follow_renamed_upstream(
+    host: &Host,
+    repo: &Path,
+    from: &str,
+    to: &str,
+) -> Result<(), String> {
+    let key = format!("branch.{to}.merge");
+    let output = run_git(host, repo, &["config", "--get", &key], READ_TIMEOUT)?;
+    if !output.ok || output.stdout.trim() != format!("refs/heads/{from}") {
+        return Ok(());
+    }
+    git_ok(
+        host,
+        repo,
+        &["config", &key, &format!("refs/heads/{to}")],
+        &format!("Pointing {to} at its new upstream failed"),
     )
     .map(drop)
 }

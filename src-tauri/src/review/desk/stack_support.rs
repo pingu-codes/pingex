@@ -101,6 +101,36 @@ impl StackFixture {
         path
     }
 
+    /// Run `work` in a fresh clone of the remote, as a teammate on another
+    /// machine: nothing it does reaches this repository until it fetches.
+    pub(super) fn as_teammate(&self, work: impl FnOnce(&Path)) {
+        let temp = tempfile::tempdir().unwrap();
+        let clone = temp.path().join("teammate");
+        let remote = self.inner.repo.remote.to_str().unwrap().to_string();
+        self.git(&["clone", "-q", &remote, clone.to_str().unwrap()]);
+        work(&clone);
+    }
+
+    /// A teammate pushes one commit on top of PR `number`'s git branch, and
+    /// GitHub moves the PR head with it. Returns the new head.
+    pub(super) fn teammate_pushes(&self, number: i64, branch: &str) -> String {
+        let mut head = String::new();
+        self.as_teammate(|clone| {
+            self.git_in(clone, &["switch", "-q", branch]);
+            self.git_in(
+                clone,
+                &["commit", "-q", "--allow-empty", "-m", "teammate's commit"],
+            );
+            self.git_in(clone, &["push", "-q", "origin", branch]);
+            head = self.git_in(clone, &["rev-parse", "HEAD"]);
+        });
+        self.git_in(
+            &self.inner.repo.remote,
+            &["update-ref", &format!("refs/pull/{number}/head"), &head],
+        );
+        head
+    }
+
     /// Mark PR `number` merged, as GitHub's stack listing then shows it.
     pub(super) fn mark_merged(&self, number: i64) {
         self.merged.lock().unwrap().push(number);
