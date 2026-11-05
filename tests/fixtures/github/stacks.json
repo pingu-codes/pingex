@@ -8,9 +8,27 @@
     "open": true,
     "created_at": "2026-10-28T09:00:00Z",
     "pull_requests": [
-      { "number": 412, "state": "closed", "draft": false, "merged_at": "2026-11-04T18:00:00Z", "head": { "ref": "feat/driver-trait", "sha": "9f04b21c3d5e6f708192a3b4c5d6e7f809a1b2c3" } },
-      { "number": 415, "state": "open", "draft": false, "merged_at": null, "head": { "ref": "feat/claude-driver", "sha": "3c1e9a2b7d4f60118e2c9a5b0d3e7f4a6b8c9d01" } },
-      { "number": 418, "state": "open", "draft": true, "merged_at": null, "head": { "ref": "feat/maki-acp", "sha": "5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f80" } }
+      {
+        "number": 412,
+        "state": "closed",
+        "draft": false,
+        "merged_at": "2026-11-04T18:00:00Z",
+        "head": { "ref": "feat/driver-trait", "sha": "9f04b21c3d5e6f708192a3b4c5d6e7f809a1b2c3" }
+      },
+      {
+        "number": 415,
+        "state": "open",
+        "draft": false,
+        "merged_at": null,
+        "head": { "ref": "feat/claude-driver", "sha": "3c1e9a2b7d4f60118e2c9a5b0d3e7f4a6b8c9d01" }
+      },
+      {
+        "number": 418,
+        "state": "open",
+        "draft": true,
+        "merged_at": null,
+        "head": { "ref": "feat/maki-acp", "sha": "5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f80" }
+      }
     ]
   },
   {

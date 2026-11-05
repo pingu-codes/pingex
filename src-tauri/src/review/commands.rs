@@ -131,6 +131,7 @@ pub(crate) async fn review_local_diff(
 /// pushes before submit.
 #[tauri::command]
 #[specta::specta]
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn review_submit(
     repo_dir: String,
     number: i64,
