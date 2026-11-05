@@ -28,6 +28,12 @@ export type View = {
   detailTab: DetailTab | null;
   /** The Memories page is open. */
   memories: boolean;
+  /** The Pull requests destination is open, on `inboxPath`'s inbox. */
+  pullRequests: boolean;
+  /** The repository whose inbox is showing; `null` picks the first. */
+  inboxPath: string | null;
+  /** The PR the review view opens on, when it was opened for one. */
+  reviewPr: number | null;
 };
 
 const EMPTY: View = {
@@ -38,6 +44,9 @@ const EMPTY: View = {
   detailPath: null,
   detailTab: null,
   memories: false,
+  pullRequests: false,
+  inboxPath: null,
+  reviewPr: null,
 };
 
 export const view = $state<View & { epoch: number }>({
@@ -150,8 +159,19 @@ export function openGit(project: Project): void {
   openProjectDetail(project, "git");
 }
 
-export function openReview(project: Project): void {
-  setView({ projectPath: project.path, reviewPath: project.path });
+export function openReview(project: Project, prNumber: number | null = null): void {
+  setView({ projectPath: project.path, reviewPath: project.path, reviewPr: prNumber });
+}
+
+/** The inbox the Pull requests destination last showed. */
+let lastInboxPath: string | null = null;
+
+/** The Pull requests destination: `path`'s inbox, else the one shown last,
+ *  else the current project's. */
+export function openPullRequests(path: string | null = null): void {
+  const inboxPath = path ?? lastInboxPath ?? view.projectPath;
+  lastInboxPath = inboxPath;
+  setView({ projectPath: view.projectPath, pullRequests: true, inboxPath });
 }
 
 /** The Memories page, keeping the current project in the sidebar. */

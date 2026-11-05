@@ -110,6 +110,9 @@
     unfiledThreads = [],
     onNewThreadInDir,
     onAddWorktreeProject,
+    onOpenPullRequests,
+    pullRequestsOpen = false,
+    needsYou = {},
   }: {
     projects: Project[];
     account: Account | null;
@@ -156,6 +159,11 @@
     unfiledThreads?: ThreadSummary[];
     /** Start a draft in an exact directory (an unadded worktree). */
     onNewThreadInDir?: (cwd: string) => void;
+    /** The Pull requests destination, or one repository's inbox; hidden without it. */
+    onOpenPullRequests?: (path?: string) => void;
+    pullRequestsOpen?: boolean;
+    /** PRs that need me, by repository folder, from the last inbox sync. */
+    needsYou?: Record<string, number>;
     /** Add an unadded worktree to the sidebar as a project. */
     onAddWorktreeProject?: (path: string) => void;
   } = $props();
@@ -761,6 +769,17 @@
       >
         <Ellipsis size={14} />
       </button>
+      {#if onOpenPullRequests && (needsYou[project.path] ?? 0) > 0}
+        <button
+          type="button"
+          class="status-badge preset-tonal-warning ml-1 shrink-0 group-hover/project:hidden"
+          aria-label="{needsYou[project.path]} need you"
+          title="{needsYou[project.path]} pull requests need you in {project.name}"
+          onclick={() => onOpenPullRequests?.(project.path)}
+        >
+          {needsYou[project.path]}
+        </button>
+      {/if}
       {#if onOpenWorktrees && project.kind !== "multiProject"}
         <div class="ml-1 shrink-0 group-hover/project:hidden">
           <BranchChip path={project.path} onOpen={() => onOpenWorktrees?.(project)} maxWidthClass="max-w-[6rem]" />
@@ -912,6 +931,27 @@
       </TooltipButton>
     </div>
   </div>
+
+  {#if onOpenPullRequests}
+    {@const needsYouTotal = Object.values(needsYou).reduce((sum, count) => sum + count, 0)}
+    <div class="px-2 pt-1">
+      <button
+        type="button"
+        onclick={() => onOpenPullRequests()}
+        data-testid="sidebar-pull-requests"
+        aria-current={pullRequestsOpen ? "page" : undefined}
+        class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition {pullRequestsOpen
+          ? "preset-tonal-primary"
+          : "text-surface-600-400 hover:preset-tonal"}"
+      >
+        <GitPullRequest size={14} />
+        <span class="grow">Pull requests</span>
+        {#if needsYouTotal > 0}
+          <span class="status-badge preset-tonal-warning">{needsYouTotal}</span>
+        {/if}
+      </button>
+    </div>
+  {/if}
 
   {#if searching}
     <SidebarSearch

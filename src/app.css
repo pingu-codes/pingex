@@ -90,12 +90,6 @@ button {
   @apply inline-grid h-4 min-w-4 place-items-center rounded border border-surface-300-700 px-1 font-mono text-[10px] leading-[14px] text-surface-500;
 }
 
-/* Compact status pill (a PR count, "Link clone"); pair it with a
-   `preset-tonal-*` for its colour. Skeleton's `badge` is larger. */
-@utility status-badge {
-  @apply inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] leading-[14px] font-medium whitespace-nowrap;
-}
-
 /* Icon button on a sidebar row, hidden until it takes focus. The caller adds
    its size and the row's reveal, e.g. `group-hover/thread:opacity-100`. */
 @utility row-action {
@@ -119,6 +113,25 @@ button {
    is larger (16px, ring edge, 0.5rem radius), so this keeps the compact look. */
 @utility field {
   @apply rounded-md border border-surface-300-700 bg-surface-50-950 px-2.5 py-1.5 outline-none focus:border-primary-500;
+}
+
+/* Compact status pill on inbox rows and stack cards ("Approved", "CI
+   failing"). Pair it with a `preset-tonal-*`; as a button it opens the
+   state's actions. */
+@utility status-badge {
+  @apply inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] leading-[14px] font-medium whitespace-nowrap;
+}
+
+/* A pull request row in the inbox. Its `row-action`s and shortcut hints
+   reveal with `group-hover/pr:` and `group-focus/pr:`; `data-selected`
+   marks a multi-selected row. */
+@utility pr-row {
+  @apply flex flex-wrap items-center gap-2.5 px-3 py-2.5 text-xs outline-none hover:bg-surface-500/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-500 data-[selected=true]:bg-primary-500/10;
+}
+
+/* The accent dot for activity not yet seen. */
+@utility unseen-dot {
+  @apply size-1.5 shrink-0 rounded-full bg-primary-500;
 }
 
 /* Copy button injected into markdown code blocks by renderMarkdown. */

@@ -22,7 +22,7 @@ import type {
 } from "$lib/types";
 import { basename } from "$lib/utils/path";
 import { previewStageBytes, previewStageFromPath } from "./attachments";
-import { deskInbox, deskPrDetail, deskStacks } from "./desk";
+import { deskInbox, deskMarkActivitySeen, deskMutePr, deskPrDetail, deskStacks } from "./desk";
 import { worktreeEntry } from "./factories";
 import {
   nextPreviewId,
@@ -723,6 +723,8 @@ export const previewCommands: PreviewCommands = {
   }),
   reviewLocalDiff: () => structuredClone(previewPrDetail.files),
   reviewInbox: (repoDir) => deskInbox(repoDir),
+  reviewMarkActivitySeen: (repoDir, numbers) => deskMarkActivitySeen(repoDir, numbers),
+  reviewMutePr: (repoDir, number, headSha) => deskMutePr(repoDir, number, headSha),
   reviewStacks: (repoDir) => deskStacks(repoDir),
   reviewFetchPrs: (repoDir, numbers) => {
     const prs = deskInbox(repoDir).prs;

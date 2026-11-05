@@ -198,6 +198,9 @@ pub(crate) struct InboxReview {
     pub(crate) author: String,
     /// `APPROVED`, `CHANGES_REQUESTED`, `COMMENTED`, `DISMISSED`.
     pub(crate) state: String,
+    /// The head commit the review was written against, when known.
+    #[serde(default)]
+    pub(crate) commit: Option<String>,
 }
 
 /// What the last query cost against GitHub's GraphQL rate limit.
@@ -242,6 +245,77 @@ pub(crate) struct Inbox {
     pub(crate) complete: bool,
     /// Unix milliseconds.
     pub(crate) synced_at: i64,
+    /// How each PR in `prs` stands for the viewer, in the same order.
+    pub(crate) triage: Vec<PrTriage>,
+    /// The filter counts, from `triage`.
+    pub(crate) counts: InboxCounts,
+    /// "Since you last looked": activity on these PRs that the viewer has
+    /// not marked seen, newest first. Unlike `events`, it builds up across
+    /// syncs until marked seen.
+    pub(crate) feed: Vec<FeedEntry>,
+}
+
+/// Why a PR needs the viewer: the first reason that holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum NeedsMe {
+    /// My review is requested and I have not reviewed its current head.
+    ReviewRequested,
+    /// Mine, and a reviewer requested changes.
+    ChangesRequested,
+    /// Mine, and its checks fail.
+    ChecksFailing,
+    /// Mine, with unresolved review threads.
+    Unresolved,
+    /// Mine, approved, out of draft and green.
+    ReadyToMerge,
+}
+
+/// How one inbox PR stands for the viewer. The inbox filters, the sidebar's
+/// "N need you" badge and the row's primary action all read this.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PrTriage {
+    pub(crate) number: i64,
+    /// The viewer wrote it.
+    pub(crate) mine: bool,
+    /// The viewer's review is asked for: requested now, or reviewed before
+    /// and pushed to since.
+    pub(crate) review_requested: bool,
+    /// `None` when it does not need the viewer (or is muted).
+    pub(crate) needs_me: Option<NeedsMe>,
+    /// The viewer's latest approving or change-requesting review state.
+    pub(crate) my_review: Option<String>,
+    /// Commits on the head since the viewer's latest review, when that
+    /// review's commit is known and both commits are in the clone.
+    pub(crate) commits_since_my_review: Option<i64>,
+    /// Feed entries on this PR not yet marked seen: the row's "N new".
+    pub(crate) new_activity: i64,
+    /// Muted until new commits land: left out of Needs me.
+    pub(crate) muted: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InboxCounts {
+    pub(crate) needs_me: i64,
+    pub(crate) mine: i64,
+    pub(crate) review_requested: i64,
+    pub(crate) everyone: i64,
+}
+
+/// One "since you last looked" entry: an `InboxEvent` kept until seen.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FeedEntry {
+    pub(crate) id: String,
+    pub(crate) number: i64,
+    /// As `InboxEvent::kind`.
+    pub(crate) kind: String,
+    pub(crate) actor: Option<String>,
+    pub(crate) state: Option<String>,
+    /// When the sync that noticed it ran, Unix milliseconds.
+    pub(crate) at: i64,
 }
 
 /// A stack of pull requests as GitHub records it (native stacked PRs), bottom

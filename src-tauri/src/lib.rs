@@ -711,6 +711,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             review::commands::review_reply,
             review::commands::review_resolve_thread,
             review::commands::review_inbox,
+            review::commands::review_mark_activity_seen,
+            review::commands::review_mute_pr,
             review::commands::review_stacks,
             review::commands::review_fetch_prs,
             review::commands::review_diff,

@@ -34,11 +34,14 @@
     repoName,
     onBack,
     onAskCodex,
+    initialPr = null,
   }: {
     repoDir: string;
     repoName: string;
     onBack: () => void;
     onAskCodex: (cwd: string, prompt: string) => void;
+    /** Open straight on this PR, as when the inbox opens one. */
+    initialPr?: number | null;
   } = $props();
 
   const PROVIDER = "github";
@@ -86,7 +89,10 @@
     }
   }
 
-  onMount(loadProvider);
+  onMount(async () => {
+    await loadProvider();
+    if (initialPr !== null) void openPr(initialPr);
+  });
 
   // Bumped by every open. A slow response for a PR the user has already left
   // must not land: its draft comments would be applied to, saved into and

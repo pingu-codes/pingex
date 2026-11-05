@@ -29,6 +29,7 @@ mod questions;
 mod repository_settings;
 mod review;
 mod review_repositories;
+mod review_seen;
 mod schema;
 mod search;
 mod sections;
@@ -78,6 +79,9 @@ pub(crate) use review::{
 };
 pub(crate) use review_repositories::{
     add_prs_only_repository, prs_only_repositories, remove_prs_only_repository,
+};
+pub(crate) use review_seen::{
+    append_feed, mark_prs_seen, mute_pr, read_feed, read_seen_prs, SeenPr,
 };
 pub(crate) use search::{
     delete_thread_search, rename_thread_search, search_thread_index, set_thread_search_archived,
