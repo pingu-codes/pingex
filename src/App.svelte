@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ArrowLeft, RefreshCw, X } from "@lucide/svelte";
   import {
+    addWorktreeProject,
     askCodexReview,
     focusSession,
     menuAction,
@@ -128,6 +129,9 @@
         onOpenWorktrees={openWorktrees}
         currentProject={project}
         onOpenSearchResult={(item) => openThreadInCwd(item.id, item.cwd)}
+        unfiledThreads={appData.data?.unfiledThreads ?? []}
+        onNewThreadInDir={newThreadInDir}
+        onAddWorktreeProject={addWorktreeProject}
       />
       <div
         role="separator"

@@ -9,6 +9,7 @@
     FolderGit2,
     FolderOpen,
     FolderPlus,
+    FolderTree,
     GitBranch,
     Layers3,
     ListRestart,
@@ -70,6 +71,8 @@
   import { basename } from "$lib/utils/path";
   import BranchChip from "$lib/worktrees/BranchChip.svelte";
   import { ensureGitStatus, gitStatusCache } from "$lib/worktrees/gitStatus.svelte";
+  import { ensureWorktrees, worktreeMap } from "$lib/worktrees/worktreeMap.svelte";
+  import { nestProjects, type WorktreeChild } from "$lib/worktrees/worktreeTree";
 
   let {
     projects,
@@ -98,6 +101,9 @@
     onOpenSearchResult,
     onSessionFocus,
     onResetOrder,
+    unfiledThreads = [],
+    onNewThreadInDir,
+    onAddWorktreeProject,
   }: {
     projects: Project[];
     account: Account | null;
@@ -138,32 +144,83 @@
     onSessionFocus?: () => void;
     /** Forget drag ordering in `scope` (`ROOT_SCOPE` for projects). */
     onResetOrder?: (scope: string) => void;
+    /** Threads no project claims; nested mode files them under unadded worktrees. */
+    unfiledThreads?: ThreadSummary[];
+    /** Start a draft in an exact directory (an unadded worktree). */
+    onNewThreadInDir?: (cwd: string) => void;
+    /** Add an unadded worktree to the sidebar as a project. */
+    onAddWorktreeProject?: (path: string) => void;
   } = $props();
 
   const visibleProjects = $derived(projects.filter((project) => !project.archived));
+
+  // --- Worktree nesting --------------------------------------------------------
+  // With nesting on, each repository row carries its worktrees: adopted
+  // worktree projects move under it, and worktrees nobody added appear as
+  // child rows holding the threads whose cwd is inside them.
+  const nesting = $derived(sidebarPrefs.nestWorktrees);
+  const repoPaths = $derived(
+    visibleProjects.filter((project) => project.kind === "folder").map((project) => project.path),
+  );
+  $effect(() => {
+    if (nesting) ensureWorktrees(repoPaths);
+  });
+  const nested = $derived(nesting ? nestProjects(visibleProjects, worktreeMap.byRepo, unfiledThreads) : null);
+  $effect(() => {
+    worktreeMap.unaddedParents = nested?.unaddedParents ?? {};
+  });
+  /** Projects drawn at the top level. */
+  const rootProjects = $derived(nested?.roots ?? visibleProjects);
+  /** Every project drawn with a row of its own, nested or not. */
+  const rowProjects = $derived(
+    nested
+      ? [
+          ...nested.roots,
+          ...Object.values(nested.children)
+            .flat()
+            .flatMap((child) => (child.adopted ? [child.adopted] : [])),
+        ]
+      : visibleProjects,
+  );
+  const worktreeChildren = (project: Project): WorktreeChild[] => nested?.children[project.path] ?? [];
+  /** Unadded worktree rows the user opened or closed, by path. */
+  let unaddedOpen = $state<Record<string, boolean>>({});
+  /** Drag scopes no tree answers to, so nested rows stay where nesting puts them. */
+  const nestedScope = (path: string) => `nested:${path}`;
 
   interface HeaderAction {
     label: string;
     icon: typeof Plus;
     onclick: () => void;
     testId?: string;
+    /** A toggle that is on: drawn pressed and kept visible. */
+    active?: boolean;
   }
 
   // The Projects heading's hover-revealed buttons; optional ones show only when
   // the parent wires them.
   const headerActions = $derived(
-    [
-      onSessionFocus && {
-        label: "Focus: hide threads not opened this session or favorited",
-        icon: Zap,
-        onclick: onSessionFocus,
-        testId: "session-focus",
-      },
-      onResetOrder && { label: "Reset project order", icon: ListRestart, onclick: () => onResetOrder(ROOT_SCOPE) },
-      onAddWorkspace && { label: "Create multi-project workspace", icon: Layers3, onclick: onAddWorkspace },
-      onNewFolder && { label: "New folder", icon: FolderPlus, onclick: onNewFolder },
-      { label: "Add project folder", icon: Plus, onclick: onAddProject },
-    ].filter((action): action is HeaderAction => Boolean(action)),
+    (
+      [
+        onSessionFocus && {
+          label: "Focus: hide threads not opened this session or favorited",
+          icon: Zap,
+          onclick: onSessionFocus,
+          testId: "session-focus",
+        },
+        onResetOrder && { label: "Reset project order", icon: ListRestart, onclick: () => onResetOrder(ROOT_SCOPE) },
+        onAddWorkspace && { label: "Create multi-project workspace", icon: Layers3, onclick: onAddWorkspace },
+        onNewFolder && { label: "New folder", icon: FolderPlus, onclick: onNewFolder },
+        {
+          label: nesting ? "Show worktrees as separate projects" : "Nest worktrees under their repository",
+          icon: FolderTree,
+          onclick: () => sidebarPrefs.setNestWorktrees(!nesting),
+          testId: "nest-worktrees",
+          active: nesting,
+        },
+        { label: "Add project folder", icon: Plus, onclick: onAddProject },
+      ] as (HeaderAction | false | undefined)[]
+    ).filter((action): action is HeaderAction => Boolean(action)),
   );
 
   // One busy project shouldn't push every other project off-screen, so expanded
@@ -236,7 +293,7 @@
   };
   const threadAdapter = { key: (thread: ThreadSummary) => thread.id, pinned: (thread: ThreadSummary) => thread.pinned };
 
-  const rootTree = $derived(buildTree(sidebarLayout, ROOT_SCOPE, visibleProjects, rootAdapter));
+  const rootTree = $derived(buildTree(sidebarLayout, ROOT_SCOPE, rootProjects, rootAdapter));
   const projectTree = (project: Project) =>
     buildTree(sidebarLayout, project.path, visibleThreads(project), threadAdapter);
 
@@ -254,7 +311,7 @@
 
   function treeFor(scope: string): TreeNode<Project>[] | TreeNode<ThreadSummary>[] | null {
     if (scope === ROOT_SCOPE) return rootTree;
-    const project = visibleProjects.find((candidate) => candidate.path === scope);
+    const project = rowProjects.find((candidate) => candidate.path === scope);
     return project ? projectTree(project) : null;
   }
 
@@ -425,6 +482,9 @@
 
   function persistProjectExpansion(project: Project, expanded: boolean) {
     project.expanded = expanded;
+    // Nesting may hand the row a copy; the listed project is what persists.
+    const listed = projects.find((candidate) => candidate.path === project.path);
+    if (listed) listed.expanded = expanded;
     void commands.setProjectExpanded(project.path, expanded).catch((cause) => {
       toastError(`Could not save project expansion: ${errorMessage(cause)}`);
     });
@@ -446,14 +506,14 @@
 
 <svelte:window onkeydown={onWindowKeydown} onkeyup={trackModifier} onblur={() => (modifierHeld = false)} />
 
-{#snippet threadRow(project: Project, thread: ThreadSummary)}
+{#snippet threadRow(project: Project, thread: ThreadSummary, scope: string = project.path)}
   <div
     class="group/thread relative rounded-md {dropClass({ kind: "item", id: thread.id })} {thread.hidden
       ? "opacity-50"
       : ""}"
     role="presentation"
     {...contextMenuTrigger(threadTarget(project, thread))}
-    use:draggable={dragSource(project.path, { kind: "item", id: thread.id }, thread.title)}
+    use:draggable={dragSource(scope, { kind: "item", id: thread.id }, thread.title)}
   >
     <button
       onclick={() => onSelectThread(project, thread.id)}
@@ -625,7 +685,7 @@
   {/each}
 {/snippet}
 
-{#snippet projectRow(project: Project)}
+{#snippet projectRow(project: Project, scope: string = ROOT_SCOPE)}
   <Collapsible
     class="min-w-0 items-stretch"
     open={project.expanded}
@@ -635,7 +695,7 @@
       class="group/project relative flex items-center rounded-md {dropClass({ kind: "item", id: project.path })}"
       role="presentation"
       {...contextMenuTrigger(projectTarget(project))}
-      use:draggable={dragSource(ROOT_SCOPE, { kind: "item", id: project.path }, project.name)}
+      use:draggable={dragSource(scope, { kind: "item", id: project.path }, project.name)}
     >
       <Collapsible.Trigger
         class="group flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 pl-2 pr-14 text-left text-[13px] font-medium group-hover/project:preset-tonal"
@@ -692,8 +752,17 @@
       {/if}
     </div>
     <Collapsible.Content class="ml-[27px] border-l border-surface-200-800 pl-1.5">
+      {#each worktreeChildren(project) as child (child.path)}
+        {#if child.adopted}
+          {@render projectRow(child.adopted, nestedScope(project.path))}
+        {:else}
+          {@render unaddedRow(project, child)}
+        {/if}
+      {/each}
       {#if project.threads.length === 0}
-        <p class="px-2 py-2 text-xs text-surface-500">No Codex threads yet</p>
+        {#if worktreeChildren(project).length === 0}
+          <p class="px-2 py-2 text-xs text-surface-500">No Codex threads yet</p>
+        {/if}
       {:else}
         {@const hidden = splitThreads(project).hidden}
         {@const shownExtra = Math.min(hidden, revealed[project.path] ?? 0)}
@@ -718,6 +787,72 @@
             Show less
           </button>
         {/if}
+      {/if}
+    </Collapsible.Content>
+  </Collapsible>
+{/snippet}
+
+{#snippet unaddedRow(repo: Project, child: WorktreeChild)}
+  <Collapsible
+    class="min-w-0 items-stretch"
+    open={unaddedOpen[child.path] ?? false}
+    onOpenChange={({ open }) => (unaddedOpen[child.path] = open)}
+  >
+    <div class="group/unadded relative flex items-center rounded-md" data-testid="unadded-worktree">
+      <Collapsible.Trigger
+        class="group flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 pl-2 pr-14 text-left text-[13px] text-surface-600-400 group-hover/unadded:preset-tonal"
+      >
+        <ChevronDown class="text-surface-500 transition group-data-[state=closed]:-rotate-90" size={14} />
+        <TooltipAnchor label="Worktree not added to the sidebar" class="grid place-items-center">
+          <FolderGit2 class="text-surface-500" size={15} strokeWidth={1.7} />
+        </TooltipAnchor>
+        <TooltipAnchor
+          label={`${child.path}\n⎇ ${child.branch}`}
+          multiline={true}
+          role="presentation"
+          aria-label={child.path}
+          class="min-w-0 flex-1 truncate italic"
+          >{child.name}</TooltipAnchor
+        >
+        <span class="max-w-[6rem] shrink-0 truncate text-[10px] text-surface-500 group-hover/unadded:opacity-0"
+          >{child.branch}</span
+        >
+        <span class="text-[10px] font-normal text-surface-500 group-hover/unadded:opacity-0"
+          >{child.threads.length}</span
+        >
+      </Collapsible.Trigger>
+      {#if onNewThreadInDir}
+        <TooltipButton
+          label={`New thread in ${child.name}`}
+          onclick={(event) => {
+            event.stopPropagation();
+            onNewThreadInDir(child.path);
+          }}
+          class="absolute right-7 top-1/2 size-6 -translate-y-1/2 row-action group-hover/unadded:opacity-100"
+        >
+          <SquarePen size={13} />
+        </TooltipButton>
+      {/if}
+      {#if onAddWorktreeProject}
+        <TooltipButton
+          label="Add to sidebar"
+          onclick={(event) => {
+            event.stopPropagation();
+            onAddWorktreeProject(child.path);
+          }}
+          class="absolute right-1 top-1/2 size-6 -translate-y-1/2 row-action group-hover/unadded:opacity-100"
+        >
+          <Plus size={14} />
+        </TooltipButton>
+      {/if}
+    </div>
+    <Collapsible.Content class="ml-[27px] border-l border-surface-200-800 pl-1.5">
+      {#if child.threads.length === 0}
+        <p class="px-2 py-2 text-xs text-surface-500">No threads yet</p>
+      {:else}
+        {#each child.threads as thread (thread.id)}
+          {@render threadRow(repo, thread, nestedScope(child.path))}
+        {/each}
       {/if}
     </Collapsible.Content>
   </Collapsible>
@@ -780,7 +915,10 @@
               label={action.label}
               onclick={action.onclick}
               data-testid={action.testId}
-              class="btn-icon btn-icon-sm hover:preset-tonal text-surface-600-400 opacity-0 transition focus:opacity-100 group-hover/projects:opacity-100"
+              aria-pressed={action.active}
+              class="btn-icon btn-icon-sm transition focus:opacity-100 group-hover/projects:opacity-100 {action.active
+                ? "preset-tonal-primary opacity-100"
+                : "hover:preset-tonal text-surface-600-400 opacity-0"}"
             >
               <action.icon size={15} />
             </TooltipButton>

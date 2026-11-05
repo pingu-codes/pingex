@@ -196,6 +196,15 @@ export async function newFolder(scope: string, parentId: string | null): Promise
   }
 }
 
+/** Add a worktree the sidebar lists under its repository as a project of its own. */
+export async function addWorktreeProject(path: string): Promise<void> {
+  try {
+    await applyFresh(commands.addWorktreeProject(path));
+  } catch (cause) {
+    fail(cause);
+  }
+}
+
 /** A drag-and-drop landed: store the new parent and sibling order. */
 export async function moveSidebarItem(
   scope: string,

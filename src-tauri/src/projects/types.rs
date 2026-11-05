@@ -100,6 +100,9 @@ pub(crate) struct BootstrapData {
     /// Every message-version branch, hidden from the project listings.
     pub(crate) thread_branches: Vec<ThreadBranch>,
     pub(crate) subagents: Vec<ThreadSummary>,
+    /// Top-level threads whose cwd is under no project or workspace and that
+    /// Codex filed nowhere — typically threads in an unadded worktree.
+    pub(crate) unfiled_threads: Vec<ThreadSummary>,
     /// The app-server's thread sections, in its order; threads reference them
     /// by `section_id`. Empty — and `sections_supported` false — on a Codex
     /// without `threadSection/*`, in which case the sidebar offers none.

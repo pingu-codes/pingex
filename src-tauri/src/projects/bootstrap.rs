@@ -490,6 +490,19 @@ fn build_bootstrap(
             .map(|key| (thread.id.as_str(), key))
         })
         .collect();
+    // Threads no project, workspace or server assignment claims: usually ones
+    // started in a worktree the user never added to the sidebar. The sidebar
+    // files them under that worktree when it nests worktrees under their repo.
+    let unfiled_threads: Vec<ThreadSummary> = visible_threads
+        .iter()
+        .filter(|thread| thread.parent_thread_id.is_none())
+        .filter(|thread| {
+            assigned_key(thread).is_none()
+                && !workspace_threads.contains_key(&thread.id)
+                && !nearest_key.contains_key(thread.id.as_str())
+        })
+        .cloned()
+        .collect();
 
     let entries: Vec<_> = entries
         .into_iter()
@@ -609,6 +622,7 @@ fn build_bootstrap(
         side_questions,
         thread_branches,
         subagents,
+        unfiled_threads,
         sections,
         sections_supported,
         sidebar_layout,
@@ -1212,6 +1226,66 @@ mod tests {
             ids("API"),
             vec!["orphaned".to_string(), "plain".to_string()]
         );
+    }
+
+    #[test]
+    fn a_thread_outside_every_project_is_listed_as_unfiled() {
+        let directory = tempfile::tempdir().unwrap();
+        let repo = directory.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let repo_path = repo.display().to_string();
+        let elsewhere = directory.path().join("repo-wt").display().to_string();
+        let store = Store {
+            projects: vec![StoredProject {
+                path: repo_path.clone(),
+                name: Some("Repo".into()),
+                pinned: false,
+                archived: false,
+                worktree: false,
+            }],
+            pinned_threads: Vec::new(),
+            hidden_threads: Vec::new(),
+        };
+        let mut child = thread("child", &elsewhere, 1);
+        child.parent_thread_id = Some("stray".into());
+
+        let data = build_bootstrap(
+            &RuntimeConfig {
+                codex_home: directory.path().join("codex-home"),
+                codex_binary: PathBuf::from("codex"),
+                host: crate::util::host::Host::Native,
+            },
+            store,
+            vec![
+                thread("filed", &repo_path, 3),
+                thread("stray", &elsewhere, 2),
+                child,
+            ],
+            None,
+            Vec::new(),
+            Vec::new(),
+            BootstrapExtras {
+                instructions: HashMap::new(),
+                sources_by_project: HashMap::new(),
+                project_expansion: HashMap::new(),
+                workspaces: Vec::new(),
+                workspace_members: Vec::new(),
+                workspace_threads: HashMap::new(),
+                legacy_agent_threads: Vec::new(),
+                temp_worktree_parents: Vec::new(),
+                server_projects: HashMap::new(),
+                sections: Vec::new(),
+                project_recency: HashMap::new(),
+                sections_supported: false,
+                sidebar_layout: Default::default(),
+            },
+        )
+        .unwrap();
+
+        let unfiled: Vec<_> = data.unfiled_threads.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(unfiled, ["stray"]);
+        let filed: Vec<_> = data.projects[0].threads.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(filed, ["filed"]);
     }
 
     #[test]

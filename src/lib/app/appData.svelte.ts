@@ -12,6 +12,7 @@ import { addProfileProject, commands } from "$lib/services/homeRouting";
 import { isTauri } from "$lib/services/tauri";
 import type { BootstrapData, Host, Project, SubagentDetail, ThreadSummary } from "$lib/types";
 import { errorMessage } from "$lib/utils/errors";
+import { unaddedWorktreeParent } from "$lib/worktrees/worktreeMap.svelte";
 
 export const appData = $state<{
   data: BootstrapData | null;
@@ -29,7 +30,11 @@ export function projects(): Project[] {
 
 /** Every thread the sidebar knows about, including subagent threads. */
 export function threads(): ThreadSummary[] {
-  return [...projects().flatMap((project) => project.threads), ...(appData.data?.subagents ?? [])];
+  return [
+    ...projects().flatMap((project) => project.threads),
+    ...(appData.data?.unfiledThreads ?? []),
+    ...(appData.data?.subagents ?? []),
+  ];
 }
 
 export function threadById(threadId: string | null): ThreadSummary | null {
@@ -75,7 +80,9 @@ export function projectForDirectory(candidates: Project[], cwd: string): Project
 }
 
 export function projectForCwd(cwd: string | null): Project | null {
-  return cwd ? projectForDirectory(projects(), cwd) : null;
+  if (!cwd) return null;
+  // An unadded worktree outside its repository belongs to that repository.
+  return projectForDirectory(projects(), cwd) ?? projectByPath(unaddedWorktreeParent(cwd));
 }
 
 export function fail(cause: unknown): void {
@@ -97,7 +104,14 @@ const optimisticSubagents = new Map<string, ThreadSummary>();
 
 function insertOptimisticThread(target: BootstrapData, summary: ThreadSummary) {
   const project = projectForDirectory(target.projects, summary.cwd);
-  if (!project || project.threads.some((thread) => thread.id === summary.id)) return;
+  if (!project) {
+    // Started in a directory no project covers (an unadded worktree): keep it
+    // with the unfiled threads, where the nested sidebar files it by cwd.
+    target.unfiledThreads ??= [];
+    if (!target.unfiledThreads.some((thread) => thread.id === summary.id)) target.unfiledThreads.unshift(summary);
+    return;
+  }
+  if (project.threads.some((thread) => thread.id === summary.id)) return;
   const index = project.threads.findIndex((thread) => !thread.pinned);
   project.threads.splice(index === -1 ? project.threads.length : index, 0, summary);
 }
@@ -140,7 +154,10 @@ export async function applyFresh(request: Promise<BootstrapData>): Promise<Boots
 
 export function applyData(next: BootstrapData): void {
   for (const [id, summary] of optimisticThreads) {
-    if (next.projects.some((project) => project.threads.some((thread) => thread.id === id))) {
+    const listed =
+      next.projects.some((project) => project.threads.some((thread) => thread.id === id)) ||
+      (next.unfiledThreads ?? []).some((thread) => thread.id === id);
+    if (listed) {
       optimisticThreads.delete(id);
     } else {
       insertOptimisticThread(next, summary);

@@ -179,6 +179,11 @@ export const commands = {
 	threadBranches: ThreadBranch[],
 	subagents: ThreadSummary[],
 	/**
+	 *  Top-level threads whose cwd is under no project or workspace and that
+	 *  Codex filed nowhere — typically threads in an unadded worktree.
+	 */
+	unfiledThreads: ThreadSummary[],
+	/**
 	 *  The app-server's thread sections, in its order; threads reference them
 	 *  by `section_id`. Empty — and `sections_supported` false — on a Codex
 	 *  without `threadSection/*`, in which case the sidebar offers none.
@@ -505,8 +510,12 @@ export const commands = {
 	listSkillsFor: (cwds: string[], window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("list_skills_for", { cwds, window }),
 	setIntegrationEnabled: (kind: IntegrationKind, id: string, enabled: boolean | null, projectPath: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<IntegrationsList>("set_integration_enabled", { kind, id, enabled, projectPath, window }),
 	/**
-	 *  Enable or disable a skill by name. `skills/config/write` requires exactly
-	 *  one of `name` or `path`; we always key by name.
+	 *  Enable or disable a skill. `skills/config/write` takes exactly one of
+	 *  `name` or `path`, and a disable may be stored under either: Codex's own
+	 *  app writes `name = "..."` entries, we write `path = "..."` ones. Enabling
+	 *  only removes the entry matching the selector it was given, so enabling by
+	 *  path alone leaves a name entry in place and the skill stays disabled.
+	 *  Enabling therefore clears both; disabling keys by path when we have one.
 	 */
 	setSkillEnabled: (name: string, enabled: boolean, path: string | null, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("set_skill_enabled", { name, enabled, path, window }),
 	readSkill: (path: string, window: HomeRoute | null = null) => __TAURI_INVOKE<string>("read_skill", { path, window }),
@@ -615,6 +624,11 @@ export type BootstrapData = {
 	/**  Every message-version branch, hidden from the project listings. */
 	threadBranches: ThreadBranch[],
 	subagents: ThreadSummary[],
+	/**
+	 *  Top-level threads whose cwd is under no project or workspace and that
+	 *  Codex filed nowhere — typically threads in an unadded worktree.
+	 */
+	unfiledThreads: ThreadSummary[],
 	/**
 	 *  The app-server's thread sections, in its order; threads reference them
 	 *  by `section_id`. Empty — and `sections_supported` false — on a Codex

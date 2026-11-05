@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { isStale, loadHideOldThreads, sidebarPrefs, THREAD_AGE_LIMIT_SECONDS } from "./sidebarPrefs.svelte";
+import {
+  isStale,
+  loadHideOldThreads,
+  loadNestWorktrees,
+  sidebarPrefs,
+  THREAD_AGE_LIMIT_SECONDS,
+} from "./sidebarPrefs.svelte";
 
 describe("sidebarPrefs", () => {
   beforeEach(() => {
@@ -16,6 +22,15 @@ describe("sidebarPrefs", () => {
     expect(loadHideOldThreads()).toBe(false);
     sidebarPrefs.setHideOldThreads(true);
     expect(loadHideOldThreads()).toBe(true);
+  });
+
+  it("keeps worktrees flat until nesting is switched on", () => {
+    expect(loadNestWorktrees()).toBe(false);
+    sidebarPrefs.setNestWorktrees(true);
+    expect(sidebarPrefs.nestWorktrees).toBe(true);
+    expect(loadNestWorktrees()).toBe(true);
+    sidebarPrefs.setNestWorktrees(false);
+    expect(loadNestWorktrees()).toBe(false);
   });
 
   it("treats threads over a day old as stale", () => {

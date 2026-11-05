@@ -22,6 +22,7 @@ function home(key: string, host: Host, harness: "codex" | "claude", cwd: string)
     sideQuestions: [],
     threadBranches: [],
     subagents: [],
+    unfiledThreads: [],
     sections: [],
     sectionsSupported: false,
     sidebarLayout: { folders: [], placements: [] },

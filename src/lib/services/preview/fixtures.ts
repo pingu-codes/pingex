@@ -138,6 +138,7 @@ export const previewData: BootstrapData = {
     { sideThreadId: "side-1", parentThreadId: "1", title: "Why trailing edge?", createdAt: Date.now() / 1000 - 600 },
   ],
   threadBranches: [],
+  unfiledThreads: [],
   subagents: [
     threadSummary({
       id: "agent-1",

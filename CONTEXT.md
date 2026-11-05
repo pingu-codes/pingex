@@ -136,6 +136,13 @@ highlights whichever Branch is on show. Opening it lands on the most recently
 active Branch.
 _Avoid_: parent (a Branch's parent may itself be a Branch), main thread
 
+**Unadded worktree**:
+A linked Git worktree of a sidebar repository that was never added to the
+sidebar as a project of its own. With worktree nesting on, it shows as a muted
+child row under its repository and holds the threads whose cwd is inside it;
+starting a thread there does not add it.
+_Avoid_: ghost project, unregistered project
+
 **Codex**:
 The upstream CLI (`codex`) whose `app-server` subcommand Pingex spawns and
 talks JSON-RPC to. One of the harnesses.

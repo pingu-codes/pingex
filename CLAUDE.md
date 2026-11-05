@@ -10,6 +10,17 @@ A mirror codex source code can be found at `../codex-mirror`
 We use "Skeleton" as our component / styling library. Before creating a new component ALWAYS check if it already exists in Skeleton.
 Skeleton's docs are vendored at `llms/skeleton.txt` Always use a subagent or attempt to find only the part you need to avoid bloating context.
 
+### Design prototyping
+
+The "Pingex" design system artifact (https://claude.ai/artifact/5yibz7n9w5i84J1PJXQjp2)
+holds the app's tokens (Cerberus + Readable, light/dark), fonts and static
+renditions of the `src/app.css` recipes. Prototype screens as a Design
+artifact built on it, using the same class names the Svelte code uses
+(`btn btn-sm preset-filled-primary-500`, `panel-card`, `pill`, `field`), so
+markup ports back unchanged. Read its `project/README.md` before designing.
+When `src/app.css` or `src/themes/*.css` change, update the system's
+`tokens.json` and `components/bundle.css` to match.
+
 ## Supported Codex versions
 
 We support three tiers of Codex at once — unstable (mirror `main`), stable

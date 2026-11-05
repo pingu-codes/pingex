@@ -55,6 +55,7 @@ const data: BootstrapData = {
   sideQuestions: [],
   threadBranches: [],
   subagents: [],
+  unfiledThreads: [],
   sections: [],
   sectionsSupported: false,
   sidebarLayout: { folders: [], placements: [] },

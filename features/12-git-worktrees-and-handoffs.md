@@ -21,6 +21,19 @@ Provide a repository-level **Worktrees** view and lightweight worktree informati
 
 Worktree identity must use canonical path plus Git common directory, not the display name or the assumption that all worktrees live below `CODEX_HOME/worktrees`. Keep the existing importer as a source of discovered projects, but do not classify arbitrary linked worktrees as disposable Codex worktrees.
 
+## Sidebar nesting
+
+A toggle in the Projects header ("Nest worktrees under their repository") switches the sidebar between two layouts. The choice is a per-device preference (`sidebarPrefs.nestWorktrees`, in localStorage).
+
+- **Flat (default):** unchanged. Each adopted or discovered worktree is a top-level project next to its repository.
+- **Nested:** each folder project lists its linked worktrees (from `git worktree list`, fetched lazily per repository and skipping the main, temporary, missing and stale entries) as child rows above its threads.
+  - An adopted worktree project moves under its repository and keeps every project affordance.
+  - An **unadded worktree** is drawn as a muted child row. Its threads are the ones whose cwd is inside it, taken from bootstrap's `unfiledThreads` (cwds under no project) and from the repository's own threads (for worktrees inside the checkout, such as `.claude/worktrees/*`).
+  - The row offers "New thread" (with the worktree as the exact `cwd`) and "Add to sidebar" (`add_worktree_project`). Starting a thread there does not adopt the worktree.
+  - Its threads open under the repository project.
+
+The nesting is derived on the frontend (`src/lib/worktrees/worktreeTree.ts`). The backend only stops discarding threads no project claims.
+
 ## CLI and desktop handoff
 
 Treat handoff as opening the same thread in the same state root, not merely opening a matching folder. A handoff payload needs the thread ID, working directory, resolved `CODEX_HOME`, and an optional source label. The receiving app must first select that home, then load the thread and validate that the thread's `cwd` belongs to the requested worktree.
