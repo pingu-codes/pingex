@@ -27,6 +27,7 @@
     primary,
     primaryDisabled = false,
     agentReview = null,
+    agentFindings = 0,
     selected = false,
     selecting = false,
     menu,
@@ -41,6 +42,8 @@
     /** The primary action's handler is not wired yet. */
     primaryDisabled?: boolean;
     agentReview?: AgentReviewState | null;
+    /** Draft Findings of a finished agent review. */
+    agentFindings?: number;
     selected?: boolean;
     /** Some row is selected: rows show their checkboxes. */
     selecting?: boolean;
@@ -152,7 +155,12 @@
           since your {triage.myReview === "APPROVED" ? "approval" : "review"}</span
         >
       {/if}
-      {#if agentReview}
+      {#if agentReview === "ready"}
+        <span class="status-badge {TONE_CLASS.primary}">
+          <Sparkles size={10} aria-hidden="true" />Agent review ready · {agentFindings}
+          finding{agentFindings === 1 ? "" : "s"}
+        </span>
+      {:else if agentReview}
         <span class="status-badge {agentReview === "running" ? TONE_CLASS.primary : TONE_CLASS.surface}">
           <Sparkles size={10} aria-hidden="true" />Agent review {agentReview}
         </span>

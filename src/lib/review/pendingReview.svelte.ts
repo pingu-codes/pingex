@@ -31,6 +31,9 @@ export class PendingReviewStore {
    *  since: its line anchors may be off. */
   writtenAt = $state<string | null>(null);
   loaded = $state(false);
+  /** Called when the reviewer takes an accepted Finding back out of the
+   *  review (removed, or the review discarded), not when it is submitted. */
+  onRemoveFinding: ((findingId: string) => void) | null = null;
 
   #saving: Promise<unknown> = Promise.resolve();
 
@@ -76,8 +79,10 @@ export class PendingReviewStore {
   }
 
   remove(id: string): void {
+    const removed = this.entries.find((entry) => entry.id === id);
     this.entries = this.entries.filter((entry) => entry.id !== id);
     void this.save();
+    if (removed?.kind === "acceptedFinding") this.onRemoveFinding?.(removed.findingId);
   }
 
   /** Change the summary; call `save` when the reviewer leaves the box. */
@@ -118,7 +123,9 @@ export class PendingReviewStore {
   }
 
   async discard(): Promise<void> {
+    const findings = this.entries.flatMap((entry) => (entry.kind === "acceptedFinding" ? [entry.findingId] : []));
     this.clear();
+    for (const findingId of findings) this.onRemoveFinding?.(findingId);
     await this.#saving.catch(() => {});
     await commands.reviewDiscardPendingReview(this.repoDir, this.number);
   }

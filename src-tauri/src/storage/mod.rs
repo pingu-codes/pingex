@@ -28,6 +28,7 @@ pub(crate) mod native_side_questions;
 mod questions;
 mod repository_settings;
 mod review;
+mod review_agent;
 mod review_checkouts;
 mod review_repositories;
 mod review_restacks;
@@ -80,6 +81,12 @@ pub(crate) use repository_settings::{
 pub(crate) use review::{
     delete_review_draft, read_inbox_snapshot, read_review_draft, write_inbox_snapshot,
     write_review_draft, ReviewDraft,
+};
+pub(crate) use review_agent::{
+    active_agent_reviews, claim_agent_reviews, delete_agent_review, delete_review_rule,
+    finish_agent_review, insert_agent_review, insert_review_rule, list_agent_reviews,
+    read_agent_review, read_finding, read_findings, read_review_rules, read_run_findings,
+    set_agent_review_thread, set_finding_state, update_review_rule, write_findings,
 };
 pub(crate) use review_checkouts::{
     delete_checkout, delete_pr_link, mark_checkout_closed, mark_checkout_setup_done,

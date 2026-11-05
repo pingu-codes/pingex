@@ -71,6 +71,7 @@
   import MemoriesView from "$lib/memories/MemoriesView.svelte";
   import ProjectDetail from "$lib/panels/ProjectDetail.svelte";
   import EmptyInbox from "$lib/repositories/EmptyInbox.svelte";
+  import { agentReviewHandlers } from "$lib/review/inboxAgentReviews";
   import { checkoutHandlers } from "$lib/review/inboxCheckouts";
   import ReviewView from "$lib/review/ReviewView.svelte";
   import { commands } from "$lib/services/homeRouting";
@@ -289,6 +290,13 @@
                   ...checkoutHandlers((repoDir) => projectForCwd(repoDir)?.name ?? repoDir),
                   openStack: (repoDir, group) => openStackPage(repoDir, group.stack.number),
                   restack: (repoDir, group) => openStackPage(repoDir, group.stack.number, { restack: true }),
+                  ...agentReviewHandlers(
+                    (repoDir) => projectForCwd(repoDir)?.name ?? repoDir,
+                    (repoDir, pr) => {
+                      const target = projectForCwd(repoDir);
+                      if (target) openReview(target, pr.number);
+                    },
+                  ),
                 }}
               />
             {/key}

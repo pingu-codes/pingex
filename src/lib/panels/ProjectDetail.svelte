@@ -25,6 +25,7 @@
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import GitTab from "$lib/git/GitTab.svelte";
   import IntegrationsSection from "$lib/integrations/IntegrationsSection.svelte";
+  import ReviewRules from "$lib/review/ReviewRules.svelte";
   import { commands } from "$lib/services/homeRouting";
   import { isTauri } from "$lib/services/tauri";
   import type { GitContext, Project, ProjectSource, WorkspaceSearchResults } from "$lib/types";
@@ -370,6 +371,10 @@
               {/if}
             </div>
           </section>
+        {/if}
+
+        {#if hasGit}
+          <ReviewRules repoDir={project.path} />
         {/if}
 
         {#if isMultiProject}

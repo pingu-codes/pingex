@@ -28,8 +28,8 @@ import { previewInbox, previewPrDetail } from "./fixtures";
 
 export const DESK_VIEWER = "ciaran";
 
-/** An agent review in flight. Stands in until agent reviews have a backend
- *  record. */
+/** A seeded agent review run: what the agent review fakes
+ *  (`preview/agentReviews.ts`) start from. */
 export type PreviewAgentReview = {
   id: string;
   repo: string;
@@ -37,9 +37,12 @@ export type PreviewAgentReview = {
   harness: HarnessKind;
   /** Where it runs: a diff review at No checkout, or with tests. */
   step: CheckoutStep;
-  status: "queued" | "running";
+  status: "queued" | "running" | "done";
   /** Unix milliseconds; `null` while queued. */
   startedAt: number | null;
+  threadId?: string;
+  /** How many Findings a finished run reported. */
+  findings?: number;
 };
 
 /** A clone at `path` fed by its `origin`, `slug`. */
@@ -457,11 +460,23 @@ export const previewAgentReviews: PreviewAgentReview[] = [
     number: THREADED_PR,
     harness: "claude",
     step: "noCheckout",
-    status: "running",
-    startedAt: Date.parse("2026-11-05T09:58:00Z"),
+    status: "done",
+    startedAt: Date.parse("2026-11-05T09:35:00Z"),
+    threadId: "preview-agent-409",
+    findings: 3,
   },
   {
     id: "agent-review-2",
+    repo: "ciaran/codex-custom",
+    number: 401,
+    harness: "claude",
+    step: "noCheckout",
+    status: "running",
+    startedAt: Date.parse("2026-11-05T09:58:00Z"),
+    threadId: "preview-agent-401",
+  },
+  {
+    id: "agent-review-3",
     repo: "ciaran/codex-custom",
     number: 403,
     harness: "codex",

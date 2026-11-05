@@ -21,6 +21,7 @@ import type {
   UserInputPart,
 } from "$lib/types";
 import { basename } from "$lib/utils/path";
+import { previewAgentReviewCommands } from "./agentReviews";
 import { previewStageBytes, previewStageFromPath } from "./attachments";
 import { previewCheckoutCommands } from "./checkouts";
 import {
@@ -785,6 +786,7 @@ export const previewCommands: PreviewCommands = {
   },
   ...previewCheckoutCommands,
   ...previewStackCommands,
+  ...previewAgentReviewCommands,
 
   // --- Remote connections ---
   listConnections: () => previewConnections.map((connection) => ({ ...connection })),

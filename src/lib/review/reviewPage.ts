@@ -234,9 +234,9 @@ export function reviewKey(event: KeyboardEvent): ReviewKeyCommand | null {
 
 // --- Ask agent ---------------------------------------------------------------
 
-/** What "Ask agent" hands over: lines, a whole file, or one comment. Agent
- *  reviews answer it in a thread filed under the PR; until then the caller
- *  pre-fills a composer with `askAgentPrompt`. */
+/** What "Ask agent" hands over: lines, a whole file, or one comment. It is
+ *  answered in a thread filed under the PR, new or existing; the message is
+ *  `askAgentPrompt`. */
 export type AskAgentRequest = {
   number: number;
   title: string;
@@ -248,6 +248,8 @@ export type AskAgentRequest = {
   text: string;
   /** "Ask only, no edits". */
   askOnly: boolean;
+  /** Send it to this thread on the PR rather than a new one. */
+  threadId?: string | null;
 };
 
 export function askAgentPrompt(request: AskAgentRequest): string {

@@ -27,14 +27,16 @@
 //! | `stack_edits` | Push, reorder, fold, remove, split, rename and add git branches; merged clean-up |
 //! | `restack` | Restacking, with snapshot and abort, and the steps stack edits share |
 //! | `cleanup` | Dropping what a closed PR left behind |
+//! | `agent_reviews` | Agent reviews: the queue, the prompt, Findings and review rules |
 //!
-//! A new area (agent reviews, stack operations) gets its own file with its
+//! A new area (stack operations) gets its own file with its
 //! own `impl ReviewDesk` block and tests.
 //!
 //! Every operation is async and does its git and `gh` work on a blocking
 //! task, so callers never block the runtime.
 
 mod activity;
+mod agent_reviews;
 mod checkouts;
 mod cleanup;
 mod links;
@@ -53,6 +55,8 @@ mod sync;
 #[cfg(test)]
 mod test_support;
 mod viewed;
+
+pub(crate) use agent_reviews::{active_agent_reviews, claim_agent_reviews};
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

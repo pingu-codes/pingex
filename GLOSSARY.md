@@ -234,6 +234,12 @@ the reviewer sees it until they add it to their Pending review; they can also
 dismiss it with a reason.
 _Avoid_: suggestion (GitHub's word for a proposed code change), comment
 
+**Review rule**:
+A kind of Finding the reviewer asked agents to skip in one repository
+("Skip this kind of finding in <repository>"). Pingex stores it, never the
+repository's files, and every later Agent review's prompt carries it.
+_Avoid_: review instructions (those are the repository's own AGENTS.md or CLAUDE.md)
+
 **Pending review**:
 The reviewer's unsubmitted review of one pull request: drafted comments,
 replies, suggestions and accepted Findings, a summary and a verdict, posted

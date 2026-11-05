@@ -181,6 +181,21 @@ button {
   @apply flex items-center gap-1.5 text-[11px] text-primary-500 before:size-2 before:shrink-0 before:rounded-full before:bg-primary-500 before:content-[''] after:h-0.5 after:grow after:bg-primary-500 after:content-[''];
 }
 
+/* An agent Finding inline under its diff line, aligned with the code
+   column; `finding-head` is its tinted title row ("Agent finding · draft,
+   only you can see this", severity). */
+@utility finding-card {
+  @apply my-2 mr-3 ml-[104px] overflow-hidden rounded-container border border-surface-200-800 bg-surface-50-950 text-xs;
+}
+@utility finding-head {
+  @apply flex flex-wrap items-center gap-2 px-2.5 py-2 preset-tonal-primary;
+}
+
+/* Evidence under a Finding: where the agent saw the problem. */
+@utility finding-evidence {
+  @apply rounded-md bg-surface-100-900 px-2 py-1.5 font-mono text-[11px] leading-[18px] text-surface-700-300;
+}
+
 /* Copy button injected into markdown code blocks by renderMarkdown. */
 .code-block {
   position: relative;

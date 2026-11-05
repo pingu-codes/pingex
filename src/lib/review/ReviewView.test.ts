@@ -2,6 +2,18 @@ import { render, screen, waitFor, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import ReviewView from "$lib/review/ReviewView.svelte";
+import { commands } from "$lib/services/homeRouting";
+
+vi.mock("$lib/services/homeRouting", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
+  return {
+    ...actual,
+    commands: {
+      ...actual.commands,
+      startTurn: vi.fn(async () => ({ id: "turn-1", items: [], status: "inProgress" })),
+    },
+  };
+});
 
 // In browser mode (isTauri() === false) the review API serves preview fixtures,
 // so the whole view renders without Tauri.
@@ -17,7 +29,7 @@ describe("ReviewView", () => {
     expect(screen.getByRole("complementary", { name: "Your review" })).toBeInTheDocument();
   });
 
-  it("asks an agent about selected lines with a prompt naming them", async () => {
+  it("asks an agent about selected lines in a thread filed under the PR", async () => {
     const user = userEvent.setup();
     const onAskCodex = vi.fn();
     render(ReviewView, { repoDir: "/repo", repoName: "repo", initialPr: 128, onBack: vi.fn(), onAskCodex });
@@ -28,11 +40,15 @@ describe("ReviewView", () => {
       within(screen.getByRole("toolbar", { name: "Line 4" })).getByRole("button", { name: "Ask agent" }),
     );
 
-    expect(onAskCodex).toHaveBeenCalledOnce();
-    const [cwd, prompt] = onAskCodex.mock.calls[0];
-    expect(cwd).toBe("/repo");
+    await waitFor(() => expect(commands.startTurn).toHaveBeenCalledOnce());
+    expect(onAskCodex).not.toHaveBeenCalled();
+    const [threadId, input, options] = vi.mocked(commands.startTurn).mock.calls[0];
+    const prompt = (input as { text: string }[])[0].text;
     expect(prompt).toContain("src/lib/loader.ts:4");
     expect(prompt).toContain("if (!path) {");
+    // Filed under the PR, and read-only at No checkout.
+    expect((await commands.reviewPrLinks()).find((link) => link.threadId === threadId)?.prNumber).toBe(128);
+    expect(options).toMatchObject({ sandboxMode: "read-only" });
   });
 
   it("goes back from a PR to the picker", async () => {

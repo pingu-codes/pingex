@@ -59,7 +59,10 @@ export async function stepUpFor(request: StepRequest): Promise<PrCheckout | null
   }
 }
 
-async function createReviewCheckout(repoDir: string, target: CheckoutTarget): Promise<PrCheckout> {
+/** Create a review checkout of `target` without asking, with the Undo toast
+ *  and setup in the background: for callers that already showed the path,
+ *  as Start review does. */
+export async function createReviewCheckout(repoDir: string, target: CheckoutTarget): Promise<PrCheckout> {
   const checkout = await commands.reviewEnsureReviewCheckout(repoDir, target);
   const name = basename(checkout.path ?? "");
   toastUndo(

@@ -5,10 +5,9 @@
   import DiffBlock from "$lib/components/DiffBlock.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import { inboxes } from "$lib/inbox/inboxStore.svelte";
+  import AgentReviewPage from "$lib/review/AgentReviewPage.svelte";
   import { stepUpFor } from "$lib/review/checkoutSteps";
-  import ReviewPage from "$lib/review/ReviewPage.svelte";
   import { changeStat, fileChange, reviewPrompt } from "$lib/review/review";
-  import { type AskAgentRequest, askAgentPrompt } from "$lib/review/reviewPage";
   import { commands } from "$lib/services/homeRouting";
   import { toastError } from "$lib/toaster";
   import type { CheckoutStep, CheckoutTarget, PrDetail, PrFile, ProviderStatus, PrSummary } from "$lib/types";
@@ -111,12 +110,6 @@
     }
   }
 
-  /** Until agent reviews answer in their own thread, Ask agent pre-fills a
-   *  new thread's composer in the repository. */
-  function askAgent(request: AskAgentRequest) {
-    onAskCodex(repoDir, askAgentPrompt(request));
-  }
-
   function askAboutLocal() {
     onAskCodex(repoDir, reviewPrompt(`Local changes vs ${localBase}`, localBase, "working tree", localFiles));
   }
@@ -131,12 +124,13 @@
 
 {#if mode === "pr" && prNumber !== null}
   {#key prNumber}
-    <ReviewPage
+    <AgentReviewPage
       {repoDir}
       number={prNumber}
       onBack={backToPicker}
       onOpenPr={openPr}
-      onAskAgent={askAgent}
+      viewer={inboxes[repoDir]?.inbox?.viewer ?? null}
+      inbox={inboxes[repoDir]?.inbox ?? null}
       step={checkoutStep}
       onDetail={readStep}
       onRunLocally={runLocally}
@@ -284,7 +278,7 @@
     <aside class="flex w-80 shrink-0 flex-col border-l border-surface-200-800">
       <div class="flex items-center justify-between border-b border-surface-200-800 px-4 py-3">
         <h2 class="text-sm font-semibold">Review</h2>
-        <button onclick={askAboutLocal} class="btn btn-sm preset-tonal-primary"><Bot size={14} /> Ask Codex</button>
+        <button onclick={askAboutLocal} class="btn btn-sm preset-tonal-primary"><Bot size={14} /> Ask agent</button>
       </div>
       <p class="p-4 text-xs leading-5 text-surface-500">
         This is a local diff with no pull request yet. Push a branch and open a PR to publish review comments, or ask

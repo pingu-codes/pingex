@@ -23,7 +23,7 @@
   import FileDiff, { type Composer, type LineSlot } from "$lib/review/FileDiff.svelte";
   import { PendingReviewStore } from "$lib/review/pendingReview.svelte";
   import RetargetDialog from "$lib/review/RetargetDialog.svelte";
-  import ReviewThread from "$lib/review/ReviewThread.svelte";
+  import ReviewThread, { type HandTarget } from "$lib/review/ReviewThread.svelte";
   import { checksFailing, checksLabel, commentThreads, conversationComments } from "$lib/review/review";
   import {
     type AskAgentRequest,
@@ -76,6 +76,8 @@
     findingCounts,
     lineAnnotations,
     agentReview,
+    pending: pendingReview,
+    prThreads = [],
   }: {
     repoDir: string;
     number: number;
@@ -96,6 +98,11 @@
     findingCounts?: Record<string, number>;
     lineAnnotations?: Snippet<[LineSlot]>;
     agentReview?: Snippet;
+    /** The pending review, when the caller adds to it too (agent
+     *  Findings); else the page keeps its own. */
+    pending?: PendingReviewStore;
+    /** Threads already on this PR: "Hand to agent" offers them. */
+    prThreads?: HandTarget[];
   } = $props();
 
   type Tab = "conversation" | "files" | "checks" | "threads";
@@ -123,7 +130,7 @@
   let lastUnresolved = -1;
 
   // svelte-ignore state_referenced_locally -- the page is keyed by PR.
-  const pending = new PendingReviewStore(repoDir, number);
+  const pending = pendingReview ?? new PendingReviewStore(repoDir, number);
   const action = submitState();
 
   const viewer = $derived(inbox?.viewer ?? "");
@@ -314,7 +321,10 @@
   }
 
   function pendingIn(path: string): PendingEntry[] {
-    return pending.entries.filter((entry) => entryLocation(entry).path === path);
+    // With finding cards in the diff, an added Finding shows on its card.
+    return pending.entries.filter(
+      (entry) => entryLocation(entry).path === path && !(lineAnnotations && entry.kind === "acceptedFinding"),
+    );
   }
 
   async function submit() {
@@ -733,8 +743,10 @@
                   onResolve={() => resolve(found.key)}
                   onEdit={editComment}
                   onDelete={deleteComment}
-                  onHandToAgent={(comment, askOnly) =>
+                  agentThreads={prThreads}
+                  onHandToAgent={(comment, askOnly, threadId) =>
                     askAgent({
+                      threadId,
                       path: found.path,
                       side: (found.side as DiffSide | null) ?? "RIGHT",
                       startLine: null,

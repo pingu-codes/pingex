@@ -16,7 +16,7 @@
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import Segmented from "$lib/components/Segmented.svelte";
   import AgentReviewsPanel from "$lib/inbox/AgentReviewsPanel.svelte";
-  import { type AgentReviewRow, loadAgentReviews } from "$lib/inbox/agentReviews";
+  import { inFlight, latestPerPr, loadAgentReviews, repoAgentReviews } from "$lib/inbox/agentReviews";
   import CheckLogDialog from "$lib/inbox/CheckLogDialog.svelte";
   import type { InboxHandlers } from "$lib/inbox/handlers";
   import {
@@ -37,6 +37,7 @@
   import PrRow from "$lib/inbox/PrRow.svelte";
   import SinceYouLooked from "$lib/inbox/SinceYouLooked.svelte";
   import StackCard from "$lib/inbox/StackCard.svelte";
+  import { rerunOnNewCommits, reviewTarget } from "$lib/review/agentReviews.svelte";
   import CompareCommitsDialog from "$lib/review/CompareCommitsDialog.svelte";
   import { commands } from "$lib/services/homeRouting";
   import { stackInputFor } from "$lib/stack/stack";
@@ -74,7 +75,6 @@
   let groupByStack = $state(loadGroupByStack());
   let selected = $state<Set<number>>(new Set());
   let anchor = $state<number | null>(null);
-  let agentReviews = $state<AgentReviewRow[]>([]);
   let now = $state(Date.now());
 
   const repoState = $derived(inboxes[repoPath]);
@@ -85,7 +85,18 @@
   const sections = $derived(inbox ? inboxSections(inbox, stacks, rows, groupByStack) : []);
   const order = $derived(sectionOrder(sections));
   const worktrees = $derived(worktreeMap.byRepo[repoPath] ?? []);
-  const agentByNumber = $derived(new Map(agentReviews.map((review) => [review.number, review.status])));
+  const agentRuns = $derived(repoAgentReviews(repoPath));
+  const agentByNumber = $derived(
+    new Map(
+      latestPerPr(agentRuns)
+        .filter((review) => review.status !== "failed")
+        .map((review) => [review.number, review]),
+    ),
+  );
+  const agentState = (number: number) => {
+    const status = agentByNumber.get(number)?.status;
+    return status === "failed" ? null : (status ?? null);
+  };
   const filterOptions = $derived(
     (Object.keys(FILTER_LABELS) as InboxFilter[]).map((value) => ({
       value,
@@ -135,17 +146,19 @@
   async function sync() {
     await syncInbox(repoPath);
     now = Date.now();
-    const slug = inboxes[repoPath]?.inbox?.repo;
-    if (slug) agentReviews = await loadAgentReviews(slug);
+    await loadAgentReviews(repoPath);
+    const synced = inboxes[repoPath]?.inbox;
+    if (synced)
+      void rerunOnNewCommits(
+        repoPath,
+        synced.prs.map((pr) => reviewTarget(pr, synced.viewer)),
+      );
   }
 
   onMount(() => {
     ensureWorktrees([repoPath]);
     if (!inboxes[repoPath]?.inbox) void sync();
-    else {
-      const slug = inboxes[repoPath]?.inbox?.repo;
-      if (slug) void loadAgentReviews(slug).then((rows) => (agentReviews = rows));
-    }
+    else void loadAgentReviews(repoPath);
   });
 
   function setGroupByStack(on: boolean) {
@@ -299,14 +312,15 @@
 {#snippet prRow(row: InboxRow, depth: number, group: StackGroup | null)}
   {@const action = primaryAction(row, {
     stackAbove: group !== null && depth > 0 && !row.triage.mine,
-    agentReview: agentByNumber.get(row.pr.number) ?? null,
+    agentReview: agentState(row.pr.number),
   })}
   <PrRow
     {row}
     depth={group ? depth : 0}
     primary={action}
     primaryDisabled={unwired(action.id)}
-    agentReview={agentByNumber.get(row.pr.number) ?? null}
+    agentReview={agentState(row.pr.number)}
+    agentFindings={agentByNumber.get(row.pr.number)?.findings ?? 0}
     selected={selected.has(row.pr.number)}
     selecting={selected.size > 0}
     menu={prMenu(row.pr, {
@@ -528,7 +542,7 @@
         onMarkAllSeen={() =>
           void markActivitySeen(repoPath, [...new Set(inbox.feed.map((entry) => entry.number))]).catch(fail)}
       />
-      <AgentReviewsPanel reviews={agentReviews} />
+      <AgentReviewsPanel reviews={inFlight(agentRuns)} />
     {/if}
   </aside>
 </div>
