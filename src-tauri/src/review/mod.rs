@@ -11,6 +11,8 @@
 //! two inbox snapshots; `requirements` is the table of the checkout step each
 //! desk action needs.
 
+pub(crate) mod checkout_commands;
+pub(crate) mod checkout_types;
 pub(crate) mod commands;
 pub(crate) mod desk;
 pub(crate) mod diff;

@@ -82,13 +82,14 @@ describe("nestProjects", () => {
     expect(nested.children).toEqual({});
   });
 
-  it("skips temporary, missing and stale worktrees", () => {
+  it("skips temporary, review-checkout, missing and stale worktrees", () => {
     const nested = nestProjects(
       [project("/repo")],
       {
         "/repo": [
           main,
           worktreeEntry({ path: "/tmp/a", isTemp: true }),
+          worktreeEntry({ path: "/home/.codex/review-checkouts/repo/pr-9", isReviewCheckout: true }),
           worktreeEntry({ path: "/gone", missingDir: true }),
           worktreeEntry({ path: "/stale", prunable: true }),
         ],

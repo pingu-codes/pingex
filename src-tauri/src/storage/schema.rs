@@ -197,6 +197,39 @@ const DDL: &str = "CREATE TABLE IF NOT EXISTS metadata (
      updated_at INTEGER NOT NULL,
      PRIMARY KEY (provider, repo)
  );
+ CREATE TABLE IF NOT EXISTS repository_settings (
+     repo_key TEXT PRIMARY KEY,
+     setup_command TEXT,
+     review_checkout_policy TEXT NOT NULL DEFAULT 'ask',
+     skip_checkout_confirm INTEGER NOT NULL DEFAULT 0,
+     worktree_dir TEXT,
+     pr_source TEXT NOT NULL DEFAULT 'origin',
+     updated_at INTEGER NOT NULL
+ );
+ CREATE TABLE IF NOT EXISTS review_checkouts (
+     repo_key TEXT NOT NULL,
+     pr_number INTEGER NOT NULL,
+     step TEXT NOT NULL,
+     path TEXT NOT NULL,
+     head_sha TEXT,
+     git_branch TEXT,
+     setup_done INTEGER NOT NULL DEFAULT 0,
+     closed_at INTEGER,
+     updated_at INTEGER NOT NULL,
+     PRIMARY KEY (repo_key, pr_number)
+ );
+ CREATE TABLE IF NOT EXISTS review_pr_links (
+     thread_id TEXT PRIMARY KEY,
+     repo_key TEXT NOT NULL,
+     pr_number INTEGER NOT NULL,
+     mine INTEGER NOT NULL DEFAULT 0,
+     step TEXT NOT NULL,
+     checkout_path TEXT,
+     git_branch TEXT,
+     start_sha TEXT,
+     created_at INTEGER NOT NULL,
+     closed_at INTEGER
+ );
  CREATE TABLE IF NOT EXISTS project_instructions (
      project_path TEXT PRIMARY KEY,
      instructions TEXT NOT NULL,

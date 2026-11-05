@@ -13,6 +13,7 @@
 mod actions;
 mod branches;
 mod changes;
+pub(crate) mod checkouts;
 pub(crate) mod commands;
 mod commits;
 pub(crate) mod objects;
@@ -26,4 +27,4 @@ mod status;
 #[cfg(test)]
 pub(crate) mod test_repo;
 mod types;
-mod worktrees;
+pub(crate) mod worktrees;

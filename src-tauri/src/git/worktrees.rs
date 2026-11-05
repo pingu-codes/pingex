@@ -95,6 +95,27 @@ fn codex_worktree_root(host: &Host, path: &str, codex_home: &Path) -> Option<&'s
     })
 }
 
+/// Every worktree's path and checked-out git branch, without the status
+/// reads `read_worktrees` adds.
+pub(crate) fn worktree_branches(
+    host: &Host,
+    repo_dir: &Path,
+) -> Result<Vec<(String, Option<String>)>, String> {
+    let output = run_git(
+        host,
+        repo_dir,
+        &["worktree", "list", "--porcelain", "-z"],
+        READ_TIMEOUT,
+    )?;
+    if !output.ok {
+        return Err("Could not list worktrees for this repository".to_string());
+    }
+    Ok(parse_worktree_list(&output.stdout)
+        .into_iter()
+        .map(|item| (item.path, item.branch))
+        .collect())
+}
+
 pub(crate) fn read_worktrees(
     host: &Host,
     repo_dir: &Path,
@@ -127,6 +148,8 @@ pub(crate) fn read_worktrees(
             .as_deref()
             .is_some_and(|branch| branch_counts.get(branch).copied().unwrap_or(0) > 1);
         let root = codex_worktree_root(host, &item.path, codex_home);
+        let is_review_checkout =
+            item.lock_reason.as_deref() == Some(super::checkouts::REVIEW_CHECKOUT_LOCK);
 
         // A worktree that cannot be inspected still gets a row, tagged with why.
         let mut state = None;
@@ -166,6 +189,7 @@ pub(crate) fn read_worktrees(
             is_main: index == 0,
             is_codex_managed: root.is_some(),
             is_temp: root == Some("worktrees-tmp"),
+            is_review_checkout,
             missing_dir,
             branch_checked_out_elsewhere,
             upstream,

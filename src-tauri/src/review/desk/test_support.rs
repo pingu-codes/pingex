@@ -26,7 +26,9 @@ pub(super) async fn fixture() -> Option<Fixture> {
     let github = Arc::new(FakeGitHub::new(SLUG, VIEWER));
     let storage = tempfile::tempdir().unwrap();
     let database = crate::storage::open(storage.path()).await.unwrap();
-    let desk = ReviewDesk::new(Host::Native, repo.repo.clone(), github.clone(), database);
+    let home = storage.path().join("home").display().to_string();
+    let desk = ReviewDesk::new(Host::Native, repo.repo.clone(), github.clone(), database)
+        .with_home_dir(home);
     Some(Fixture {
         repo,
         github,

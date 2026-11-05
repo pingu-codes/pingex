@@ -26,7 +26,9 @@ mod projects;
 pub(crate) use profile_import::{open_profile_root, open_profile_root_at, profile_root_path_in};
 pub(crate) mod native_side_questions;
 mod questions;
+mod repository_settings;
 mod review;
+mod review_checkouts;
 mod schema;
 mod search;
 mod sections;
@@ -67,9 +69,17 @@ pub(crate) use questions::{
 pub use questions::{
     add_side_question, delete_side_question, read_side_questions, SideQuestion, SideQuestionKind,
 };
+pub(crate) use repository_settings::{
+    read_repository_settings, write_repository_settings, RepositorySettings, ReviewCheckoutPolicy,
+};
 pub(crate) use review::{
     delete_review_draft, read_inbox_snapshot, read_review_draft, write_inbox_snapshot,
     write_review_draft, ReviewDraft,
+};
+pub(crate) use review_checkouts::{
+    delete_checkout, delete_pr_link, mark_checkout_closed, mark_checkout_setup_done,
+    mark_pr_links_closed, move_pr_link, read_checkout, read_checkouts, read_pr_link, read_pr_links,
+    write_checkout, write_pr_link, PrLink, StoredCheckout,
 };
 pub(crate) use search::{
     delete_thread_search, rename_thread_search, search_thread_index, set_thread_search_archived,

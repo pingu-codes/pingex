@@ -16,7 +16,9 @@
 //! | `seen` | Seen head and "changes since" |
 //! | `review` | One PR under review: detail, freshness, the review and comments written on it |
 //! | `pr` | Changes to the PR itself: merge, close, retarget, mark ready, checks, new PRs |
-//! | `checkouts` | Checkout steps; today the No checkout step: PR refs, diffs and files by SHA |
+//! | `checkouts` | No checkout: PR refs, diffs and files by SHA |
+//! | `steps` | Review checkouts, worktrees, promotion and the step plan |
+//! | `links` | The PR link on threads |
 //! | `repositories` | The account's repositories, for Add repository |
 //! | `cleanup` | Dropping what a closed PR left behind |
 //!
@@ -28,10 +30,12 @@
 
 mod checkouts;
 mod cleanup;
+mod links;
 mod pr;
 mod repositories;
 mod review;
 mod seen;
+mod steps;
 mod sync;
 #[cfg(test)]
 mod test_support;
@@ -53,6 +57,8 @@ pub(crate) struct ReviewDesk {
     repo_dir: PathBuf,
     github: Arc<dyn GitHubProvider>,
     database: Database,
+    /// The Home's Pingex-owned directory on `host`; see `with_home_dir`.
+    home_dir: Option<String>,
 }
 
 impl ReviewDesk {
@@ -67,7 +73,23 @@ impl ReviewDesk {
             repo_dir,
             github,
             database,
+            home_dir: None,
         }
+    }
+
+    /// The Home's Pingex-owned directory on the repository's Host (its Codex
+    /// home): review checkouts go under `review-checkouts/`, new worktrees
+    /// under `worktrees/` unless the repository says otherwise. Without one,
+    /// creating either fails.
+    pub(crate) fn with_home_dir(mut self, home: String) -> Self {
+        self.home_dir = Some(home);
+        self
+    }
+
+    /// The key per-repository rows are stored under: the clone's path, as
+    /// projects store it.
+    fn repo_key(&self) -> String {
+        self.host.path_string(&self.repo_dir)
     }
 
     fn dir(&self) -> &Path {

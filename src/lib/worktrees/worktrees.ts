@@ -81,7 +81,12 @@ export function adoptableWorktrees(entries: WorktreeEntry[], projects: Project[]
   const listed = new Set(projects.map((project) => trimSlash(project.path)));
   return entries.filter(
     (entry) =>
-      !entry.isMain && !entry.missingDir && !entry.prunable && !entry.isTemp && !listed.has(trimSlash(entry.path)),
+      !entry.isMain &&
+      !entry.missingDir &&
+      !entry.prunable &&
+      !entry.isTemp &&
+      !entry.isReviewCheckout &&
+      !listed.has(trimSlash(entry.path)),
   );
 }
 
@@ -91,16 +96,19 @@ export function branchLabel(entry: WorktreeEntry): string {
   return entry.branch ?? "(no branch)";
 }
 
-/** Map backend worktree entries to render-ready card models. Pure and tested. */
+/** Map backend worktree entries to render-ready card models. Pure and tested.
+ *  Review checkouts are Pingex's, not the user's, so they get no card. */
 export function worktreeCards(entries: WorktreeEntry[], projects: Project[]): WorktreeCard[] {
-  return entries.map((entry) => ({
-    entry,
-    displayName: basename(entry.path),
-    branchLabel: branchLabel(entry),
-    threadCount: threadCountForPath(projects, entry.path),
-    dirty: isDirty(entry.status),
-    statusLabel: statusSummary(entry.status),
-    aheadBehind: aheadBehindLabel(entry.ahead, entry.behind),
-    problem: worktreeProblem(entry),
-  }));
+  return entries
+    .filter((entry) => !entry.isReviewCheckout)
+    .map((entry) => ({
+      entry,
+      displayName: basename(entry.path),
+      branchLabel: branchLabel(entry),
+      threadCount: threadCountForPath(projects, entry.path),
+      dirty: isDirty(entry.status),
+      statusLabel: statusSummary(entry.status),
+      aheadBehind: aheadBehindLabel(entry.ahead, entry.behind),
+      problem: worktreeProblem(entry),
+    }));
 }

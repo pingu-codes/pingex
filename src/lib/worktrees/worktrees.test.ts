@@ -125,6 +125,18 @@ describe("worktree helpers", () => {
     expect(cards[1].branchLabel).toBe("detached @ abcdef1");
   });
 
+  it("leaves review checkouts out of the Worktrees list until they are promoted", () => {
+    const cards = worktreeCards(
+      [
+        worktreeEntry({ path: "/repo", isMain: true }),
+        worktreeEntry({ path: "/home/.codex/review-checkouts/repo/pr-9", isReviewCheckout: true, detached: true }),
+        worktreeEntry({ path: "/home/.codex/review-checkouts/repo/pr-8", branch: "jo-r/focus-rings" }),
+      ],
+      [],
+    );
+    expect(cards.map((card) => card.entry.path)).toEqual(["/repo", "/home/.codex/review-checkouts/repo/pr-8"]);
+  });
+
   it("offers only linked, present, permanent worktrees not yet in the sidebar", () => {
     const listed = { path: "/repo/listed/" } as Project;
     const entries = [
@@ -132,6 +144,7 @@ describe("worktree helpers", () => {
       worktreeEntry({ path: "/repo/gone", missingDir: true }),
       worktreeEntry({ path: "/repo/stale", prunable: true }),
       worktreeEntry({ path: "/home/.codex/worktrees-tmp/repo/tmp", isTemp: true }),
+      worktreeEntry({ path: "/home/.codex/review-checkouts/repo/pr-9", isReviewCheckout: true }),
       worktreeEntry({ path: "/repo/listed" }),
       worktreeEntry({ path: "/repo/feature" }),
     ];
