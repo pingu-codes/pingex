@@ -53,6 +53,10 @@ impl ReviewDesk {
 
         for checkout in storage::read_checkouts(&self.database, &key).await? {
             if open.contains(&checkout.pr_number) {
+                if checkout.closed_at.is_some() {
+                    // Reopened: its seven days start again if it closes again.
+                    storage::mark_checkout_open(&self.database, &key, checkout.pr_number).await?;
+                }
                 continue;
             }
             match checkout.closed_at {
@@ -155,6 +159,89 @@ mod tests {
         let state = fixture.desk.checkout_state(target).await.unwrap();
         assert_eq!(state.step, CheckoutStep::NoCheckout);
         let _ = still_open;
+    }
+
+    #[tokio::test]
+    async fn a_reopened_pr_starts_its_seven_days_again_when_it_closes_again() {
+        let Some(fixture) = fixture().await else {
+            return;
+        };
+        let pr = fixture.open_pr(21, "feature", "src/lib.rs");
+        let target = CheckoutTarget {
+            number: 21,
+            head_ref: pr.head_ref.clone(),
+            head_sha: pr.head_sha.clone(),
+            ..CheckoutTarget::default()
+        };
+        let path = fixture
+            .desk
+            .ensure_review_checkout(target)
+            .await
+            .unwrap()
+            .path
+            .unwrap();
+        let day = 24 * 60 * 60;
+        fixture.github.close_pr(21);
+        fixture.desk.prune_closed_at(0).await.unwrap();
+        fixture.github.put_pr(pr.clone());
+        fixture.desk.prune_closed_at(day).await.unwrap();
+        fixture.github.close_pr(21);
+
+        let closed_again = fixture.desk.prune_closed_at(8 * day).await.unwrap();
+
+        assert_eq!(closed_again.closed, [21]);
+        assert!(closed_again.removed_checkouts.is_empty());
+        assert!(std::path::Path::new(&path).exists());
+        let later = fixture.desk.prune_closed_at(14 * day).await.unwrap();
+        assert!(later.removed_checkouts.is_empty());
+        let week = fixture.desk.prune_closed_at(15 * day).await.unwrap();
+        assert_eq!(week.removed_checkouts, [21]);
+    }
+
+    #[tokio::test]
+    async fn pruning_never_removes_a_promoted_stack_checkout() {
+        let Some(fixture) = fixture().await else {
+            return;
+        };
+        let first = fixture.open_pr(1, "one", "src/one.rs");
+        let second = fixture.open_pr(2, "two", "src/two.rs");
+        let in_stack = |pr: &crate::review::types::InboxPr| CheckoutTarget {
+            number: pr.number,
+            head_ref: pr.head_ref.clone(),
+            head_sha: pr.head_sha.clone(),
+            stack: Some("foo".into()),
+            ..CheckoutTarget::default()
+        };
+        fixture
+            .desk
+            .ensure_review_checkout(in_stack(&first))
+            .await
+            .unwrap();
+        fixture
+            .desk
+            .ensure_review_checkout(in_stack(&second))
+            .await
+            .unwrap();
+        let path = fixture
+            .desk
+            .promote_review_checkout(in_stack(&first))
+            .await
+            .unwrap()
+            .path
+            .unwrap();
+        std::fs::write(std::path::Path::new(&path).join("work.txt"), "mine").unwrap();
+        fixture.github.close_pr(1);
+        fixture.github.close_pr(2);
+
+        fixture.desk.prune_closed_at(0).await.unwrap();
+        let week = fixture
+            .desk
+            .prune_closed_at(KEEP_CLOSED_CHECKOUT_SECS)
+            .await
+            .unwrap();
+
+        assert!(week.removed_checkouts.is_empty(), "{week:?}");
+        assert!(std::path::Path::new(&path).join("work.txt").exists());
     }
 
     #[tokio::test]

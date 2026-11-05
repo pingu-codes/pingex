@@ -2863,7 +2863,16 @@ export type StepPlan = {
 	current: PrCheckout,
 	/**  The step to move up to, or `None` when the PR already has enough. */
 	stepUp: CheckoutStep | null,
+	/**
+	 *  What to confirm first: the step up, or, with no step up, the push
+	 *  to someone else's git branch.
+	 */
 	confirm: StepConfirm | null,
+	/**
+	 *  The action pushes to someone else's git branch, which is confirmed
+	 *  every time: after the step up when `confirm` was for that.
+	 */
+	confirmPush: boolean,
 	/**  Why the action cannot go ahead (the repository says Never). */
 	refused: string | null,
 	/**  Where a new review checkout would go, for the confirmation. */

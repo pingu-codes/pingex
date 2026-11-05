@@ -7,7 +7,9 @@
 //! Worktree step, and a stored checkout whose directory is gone is not one.
 //!
 //! A review checkout lives under `<home>/review-checkouts/<repository>/`, as
-//! `pr-<n>` or, for a stack, `stack-<name>` shared by its PRs. The
+//! `pr-<n>` or, for a stack, `stack-<name>` shared by its PRs. Promoting a
+//! shared one makes it a worktree for every PR of the stack: a directory on
+//! a git branch is never moved off it or removed as a review checkout. The
 //! repository's setup command runs once per checkout directory. A checkout
 //! follows a new PR head only while it is clean. `plan_step` applies the
 //! repository's review checkout policy and says what to confirm; callers
@@ -100,6 +102,7 @@ impl ReviewDesk {
         let key = self.repo_key();
         if let Some(stored) = storage::read_checkout(&self.database, &key, target.number).await? {
             if self.host.is_dir(&stored.path) {
+                let stored = self.promoted_meanwhile(stored).await?;
                 return self.describe(&target, stored).await;
             }
             storage::delete_checkout(&self.database, &key, target.number).await?;
@@ -131,6 +134,33 @@ impl ReviewDesk {
         };
         storage::write_checkout(&self.database, &key, &stored).await?;
         self.describe(&target, stored).await
+    }
+
+    /// `stored`, at the Worktree step if its directory is on a git branch: a
+    /// stack's shared review checkout another of its PRs promoted. A review
+    /// checkout is always detached.
+    async fn promoted_meanwhile(&self, stored: StoredCheckout) -> Result<StoredCheckout, String> {
+        if stored.step != REVIEW_CHECKOUT {
+            return Ok(stored);
+        }
+        let path = stored.path.clone();
+        let Some(branch) = self
+            .blocking("Reading the checkout failed", move |desk| {
+                git::branch_of(&desk.host, Path::new(&path))
+            })
+            .await?
+        else {
+            return Ok(stored);
+        };
+        let promoted = StoredCheckout {
+            step: WORKTREE.to_string(),
+            head_sha: None,
+            git_branch: Some(branch),
+            setup_done: true,
+            ..stored
+        };
+        storage::write_checkout(&self.database, &self.repo_key(), &promoted).await?;
+        Ok(promoted)
     }
 
     /// A stored checkout as the caller sees it, with what is on disk now.
@@ -224,11 +254,17 @@ impl ReviewDesk {
             .await?
             .setup_command;
         let (moving_path, moving_target) = (path.clone(), target.clone());
-        let created = self
+        // (created, the git branch a promoted stack checkout is on)
+        let (created, promoted) = self
             .blocking("Creating the review checkout failed", move |desk| {
                 if desk.host.is_dir(&moving_path) {
+                    // Another PR of the stack promoted the shared checkout:
+                    // it is a worktree now, never moved off its git branch.
+                    if let Some(branch) = git::branch_of(&desk.host, Path::new(&moving_path))? {
+                        return Ok((false, Some(branch)));
+                    }
                     desk.follow_head(&moving_path, &moving_target)?;
-                    Ok(false)
+                    Ok((false, None))
                 } else {
                     desk.ensure_commit(&moving_target)?;
                     git::add_review_checkout(
@@ -237,10 +273,23 @@ impl ReviewDesk {
                         &moving_path,
                         &moving_target.head_sha,
                     )?;
-                    Ok(true)
+                    Ok((true, None))
                 }
             })
             .await?;
+        if let Some(branch) = promoted {
+            let stored = StoredCheckout {
+                pr_number: target.number,
+                step: WORKTREE.to_string(),
+                path,
+                head_sha: None,
+                git_branch: Some(branch),
+                setup_done: true,
+                closed_at: None,
+            };
+            storage::write_checkout(&self.database, &key, &stored).await?;
+            return self.describe(&target, stored).await;
+        }
         let setup_done = if created {
             setup_command.is_none()
         } else {
@@ -313,6 +362,19 @@ impl ReviewDesk {
             )
         })
         .await?;
+        // A stack's PRs share the checkout: it is a worktree for all of them.
+        for sibling in storage::read_checkouts(&self.database, &key).await? {
+            if sibling.pr_number != target.number && sibling.path == path {
+                let promoted = StoredCheckout {
+                    step: WORKTREE.to_string(),
+                    head_sha: None,
+                    git_branch: Some(target.head_ref.clone()),
+                    setup_done: true,
+                    ..sibling
+                };
+                storage::write_checkout(&self.database, &key, &promoted).await?;
+            }
+        }
         let stored = StoredCheckout {
             pr_number: target.number,
             step: WORKTREE.to_string(),
@@ -384,6 +446,13 @@ impl ReviewDesk {
         if !shared {
             let path = stored.path.clone();
             self.blocking("Removing the review checkout failed", move |desk| {
+                // On a git branch, it was promoted: a worktree is the
+                // user's and only its record goes.
+                if desk.host.is_dir(&path)
+                    && git::branch_of(&desk.host, Path::new(&path))?.is_some()
+                {
+                    return Ok(());
+                }
                 git::remove_review_checkout(&desk.host, desk.dir(), &path)
             })
             .await?;
@@ -426,11 +495,14 @@ impl ReviewDesk {
             }
             _ => {}
         }
+        // Asked every time, after any step up's own confirmation.
+        let confirm_push = action == DeskAction::Push && !target.mine;
         Ok(StepPlan {
             review_checkout_path: self.review_checkout_path(&target)?,
             current,
             step_up,
             confirm,
+            confirm_push,
             refused,
         })
     }
@@ -650,6 +722,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn promoting_a_shared_stack_checkout_promotes_it_for_every_pr_in_the_stack() {
+        let Some(fixture) = fixture().await else {
+            return;
+        };
+        let first = fixture.open_pr(1, "one", "src/one.rs");
+        let second = fixture.open_pr(2, "two", "src/two.rs");
+        let third = fixture.open_pr(3, "three", "src/three.rs");
+        let in_stack = |pr: &InboxPr| CheckoutTarget {
+            stack: Some("Driver Trait".into()),
+            ..target(pr, false)
+        };
+        fixture
+            .desk
+            .ensure_review_checkout(in_stack(&first))
+            .await
+            .unwrap();
+        fixture
+            .desk
+            .ensure_review_checkout(in_stack(&second))
+            .await
+            .unwrap();
+        let promoted = fixture
+            .desk
+            .promote_review_checkout(in_stack(&first))
+            .await
+            .unwrap();
+        let path = promoted.path.unwrap();
+
+        // #2 shared the directory; #3 never had a row but resolves to it.
+        for sibling in [&second, &third] {
+            let state = fixture
+                .desk
+                .ensure_review_checkout(in_stack(sibling))
+                .await
+                .unwrap();
+            assert_eq!(state.step, CheckoutStep::Worktree, "#{}", sibling.number);
+            assert_eq!(state.path.as_deref(), Some(path.as_str()));
+            assert_eq!(
+                git_in(&fixture, &path, &["branch", "--show-current"]),
+                "one"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn promotion_keeps_the_path_checks_out_the_git_branch_and_lists_the_worktree() {
         let Some(fixture) = fixture().await else {
             return;
@@ -799,6 +916,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pushing_to_their_branch_asks_even_when_a_worktree_has_to_be_made_first() {
+        let Some(fixture) = fixture().await else {
+            return;
+        };
+        let pr = fixture.open_pr(15, "feature", "src/lib.rs");
+
+        let theirs = fixture
+            .desk
+            .plan_step(target(&pr, false), DeskAction::Push)
+            .await
+            .unwrap();
+        assert_eq!(theirs.step_up, Some(CheckoutStep::Worktree));
+        assert_eq!(theirs.confirm, Some(StepConfirm::CreateWorktree));
+        assert!(theirs.confirm_push);
+
+        let mine = fixture
+            .desk
+            .plan_step(target(&pr, true), DeskAction::Push)
+            .await
+            .unwrap();
+        assert!(!mine.confirm_push);
+        let read = fixture
+            .desk
+            .plan_step(target(&pr, false), DeskAction::FixCi)
+            .await
+            .unwrap();
+        assert!(!read.confirm_push);
+    }
+
+    #[tokio::test]
     async fn a_pr_with_a_review_checkout_offers_promotion_and_their_branch_asks_on_every_push() {
         let Some(fixture) = fixture().await else {
             return;
@@ -830,6 +977,7 @@ mod tests {
                 .unwrap();
             assert_eq!(push.step_up, None);
             assert_eq!(push.confirm, Some(StepConfirm::PushToTheirBranch));
+            assert!(push.confirm_push);
         }
         let mine = fixture
             .desk

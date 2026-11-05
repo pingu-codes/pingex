@@ -72,7 +72,12 @@ pub(crate) struct StepPlan {
     pub(crate) current: PrCheckout,
     /// The step to move up to, or `None` when the PR already has enough.
     pub(crate) step_up: Option<CheckoutStep>,
+    /// What to confirm first: the step up, or, with no step up, the push
+    /// to someone else's git branch.
     pub(crate) confirm: Option<StepConfirm>,
+    /// The action pushes to someone else's git branch, which is confirmed
+    /// every time: after the step up when `confirm` was for that.
+    pub(crate) confirm_push: bool,
     /// Why the action cannot go ahead (the repository says Never).
     pub(crate) refused: Option<String>,
     /// Where a new review checkout would go, for the confirmation.

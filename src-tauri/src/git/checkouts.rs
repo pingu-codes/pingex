@@ -54,6 +54,21 @@ pub(crate) fn head_of(host: &Host, dir: &Path) -> Result<Option<String>, String>
     Ok(output.ok.then(|| output.stdout.trim().to_string()))
 }
 
+/// The git branch checked out in `dir`, or `None` when it is detached (as
+/// a review checkout always is) or unreadable.
+pub(crate) fn branch_of(host: &Host, dir: &Path) -> Result<Option<String>, String> {
+    let output = run_git(
+        host,
+        dir,
+        &["symbolic-ref", "--quiet", "--short", "HEAD"],
+        READ_TIMEOUT,
+    )?;
+    Ok(output
+        .ok
+        .then(|| output.stdout.trim().to_string())
+        .filter(|branch| !branch.is_empty()))
+}
+
 /// Whether `dir` has no local changes, untracked files included.
 pub(crate) fn is_clean(host: &Host, dir: &Path) -> Result<bool, String> {
     let output = run_git(host, dir, &["status", "--porcelain"], READ_TIMEOUT)?;

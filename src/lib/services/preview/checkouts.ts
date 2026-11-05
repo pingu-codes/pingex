@@ -81,6 +81,7 @@ export const previewCheckoutCommands: PreviewCommands = {
       current: { ...current },
       stepUp,
       confirm: null,
+      confirmPush: action === "push" && !target.mine,
       refused: null,
       reviewCheckoutPath: reviewCheckoutPath(repoDir, target),
     };

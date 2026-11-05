@@ -156,6 +156,21 @@ pub(crate) async fn mark_checkout_closed(
     .await
 }
 
+/// Clear a reopened PR's `closed_at`.
+pub(crate) async fn mark_checkout_open(
+    database: &Database,
+    repo_key: &str,
+    pr_number: i64,
+) -> Result<(), String> {
+    let connection = db::conn(database)?;
+    db::exec(
+        &connection,
+        "UPDATE review_checkouts SET closed_at = NULL WHERE repo_key = ? AND pr_number = ?",
+        params![repo_key, pr_number],
+    )
+    .await
+}
+
 pub(crate) async fn delete_checkout(
     database: &Database,
     repo_key: &str,

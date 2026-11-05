@@ -34,18 +34,23 @@ export async function stepUpFor(request: StepRequest): Promise<PrCheckout | null
       return null;
     }
     let way: "reviewCheckout" | "promote" | "worktree" | "proceed" | null = null;
-    if (plan.confirm) {
-      const choice = await openDialog(CheckoutStepDialog, {
-        confirm: plan.confirm,
+    const ask = (confirm: NonNullable<typeof plan.confirm>) =>
+      openDialog(CheckoutStepDialog, {
+        confirm,
         action,
         target,
         repoName,
         reviewCheckoutPath: plan.current.path ?? plan.reviewCheckoutPath,
       });
+    if (plan.confirm) {
+      const choice = await ask(plan.confirm);
       if (!choice) return null;
       way = choice.way;
       if (choice.dontAskAgain) await commands.reviewSetCheckoutPolicy(repoDir, "ask", true);
     }
+    // Pushing to someone else's git branch is asked every time, also when
+    // the first question was about the step up; before anything is created.
+    if (plan.confirmPush && plan.confirm !== "pushToTheirBranch" && !(await ask("pushToTheirBranch"))) return null;
     if (plan.stepUp === "reviewCheckout") return await createReviewCheckout(repoDir, target);
     if (plan.stepUp === "worktree") {
       return way === "promote"
