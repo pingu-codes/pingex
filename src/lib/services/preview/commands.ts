@@ -22,15 +22,7 @@ import type {
 } from "$lib/types";
 import { basename } from "$lib/utils/path";
 import { previewStageBytes, previewStageFromPath } from "./attachments";
-import {
-  DESK_REPOS,
-  DESK_VIEWER,
-  deskInbox,
-  deskMarkActivitySeen,
-  deskMutePr,
-  deskPrDetail,
-  deskStacks,
-} from "./desk";
+import { DESK_REPOS, DESK_VIEWER, deskInbox, deskMarkActivitySeen, deskMutePr, deskPrDetail, deskStacks } from "./desk";
 import { worktreeEntry } from "./factories";
 import {
   nextPreviewId,
