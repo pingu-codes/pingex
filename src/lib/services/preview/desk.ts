@@ -8,22 +8,20 @@
 // `ciaran` throughout. Extend these records rather than adding parallel ones,
 // so every desk screen shows the same repositories and PRs.
 
-import type { CheckoutStep, HarnessKind, Inbox, InboxPr, PrComment, PrDetail, StackListing } from "$lib/types";
+import type {
+  CheckoutStep,
+  HarnessKind,
+  Inbox,
+  InboxPr,
+  PrComment,
+  PrDetail,
+  Repository,
+  StackListing,
+} from "$lib/types";
 import { inboxPr } from "./factories";
 import { previewInbox, previewPrDetail } from "./fixtures";
 
 export const DESK_VIEWER = "ciaran";
-
-/** A repository as the desk shows it. Stands in until Add repository gives
- *  the backend a repository record. */
-export type PreviewRepository = {
-  /** `owner/name`; empty with no GitHub remote. */
-  slug: string;
-  name: string;
-  /** The clone's folder; `null` for a PRs-only repository. */
-  path: string | null;
-  state: "cloned" | "prsOnly" | "noRemote";
-};
 
 /** An agent review in flight. Stands in until agent reviews have a backend
  *  record. */
@@ -39,16 +37,37 @@ export type PreviewAgentReview = {
   startedAt: number | null;
 };
 
-export const DESK_REPOS: PreviewRepository[] = [
-  { slug: "ciaran/codex-custom", name: "codex-custom", path: "/Users/ciaran/Projects/codex-custom", state: "cloned" },
-  {
-    slug: "ciaran/arctic-explorer",
-    name: "arctic-explorer",
-    path: "/Users/ciaran/Projects/arctic-explorer",
+/** A clone at `path` fed by its `origin`, `slug`. */
+function cloned(slug: string, path: string): Repository {
+  return {
+    key: path,
+    name: path.split("/").at(-1) ?? path,
+    slug,
+    path,
     state: "cloned",
+    feeds: [{ remote: "origin", slug, onlyMine: false }],
+  };
+}
+
+export const DESK_REPOS: Repository[] = [
+  cloned("ciaran/codex-custom", "/Users/ciaran/Projects/codex-custom"),
+  cloned("ciaran/arctic-explorer", "/Users/ciaran/Projects/arctic-explorer"),
+  {
+    key: "openai/codex",
+    name: "codex",
+    slug: "openai/codex",
+    path: null,
+    state: "prsOnly",
+    feeds: [{ remote: "", slug: "openai/codex", onlyMine: false }],
   },
-  { slug: "openai/codex", name: "codex", path: null, state: "prsOnly" },
-  { slug: "", name: "notes", path: "/Users/ciaran/Projects/notes", state: "noRemote" },
+  {
+    key: "/Users/ciaran/Projects/notes",
+    name: "notes",
+    slug: "",
+    path: "/Users/ciaran/Projects/notes",
+    state: "noRemote",
+    feeds: [],
+  },
 ];
 
 const url = (slug: string, number: number) => `https://github.com/${slug}/pull/${number}`;
@@ -277,7 +296,7 @@ const DATA = new Map<string, RepoData>([
 /** The desk repository a review command's `repoDir` names: its folder, or
  *  its slug for a PRs-only repository. Unknown folders are the main one, so
  *  older preview screens keep working. */
-export function deskRepo(repoDir: string): PreviewRepository {
+export function deskRepo(repoDir: string): Repository {
   return DESK_REPOS.find((repo) => repo.path === repoDir || (repo.slug && repo.slug === repoDir)) ?? DESK_REPOS[0];
 }
 
