@@ -5,6 +5,7 @@
     ArrowDownToLine,
     ArrowUp,
     Bookmark,
+    Copy,
     Eye,
     EyeOff,
     FolderGit2,
@@ -19,6 +20,7 @@
     Pin,
     PinOff,
     Settings2,
+    SquarePen,
     Star,
     StarOff,
     Trash2,
@@ -121,8 +123,26 @@
     }
     const hiddenCount = project.threads.filter((thread) => thread.hidden).length;
     const reorderable = project.kind !== "worktree" && !multi;
+    const worktree = project.kind === "worktree";
+    // The worktree menu (Context menus board, story 115).
+    const worktreeEntries: Entry[] = [
+      { action: "newThreadHere", icon: SquarePen, label: "New thread here", show: worktree },
+      {
+        action: "switchToPr",
+        icon: GitPullRequest,
+        label: "Switch to PR…",
+        title: "Check out another PR of this worktree's stack; waits for running threads",
+        show: worktree,
+      },
+      { action: "pullLatest", icon: ArrowDownToLine, label: "Pull latest", show: worktree },
+      { action: "copyPath", icon: Copy, label: "Copy path", show: worktree },
+      { action: "archiveThreads", icon: Archive, label: "Archive its threads", show: worktree },
+      { action: "removeWorktree", icon: Trash2, label: "Remove worktree…", danger: true, show: worktree },
+    ];
     return [
+      ...worktreeEntries.slice(0, 1),
       ...shared,
+      ...worktreeEntries.slice(1, 4),
       { action: "newFolder", icon: FolderPlus, label: "New thread folder" },
       { action: "openDetails", icon: Settings2, label: multi ? "Workspace details" : "Project details" },
       { action: "openGit", icon: GitBranch, label: "Git", show: !multi },
@@ -156,6 +176,7 @@
       { action: "moveUp", icon: ArrowUp, label: "Move up", show: reorderable },
       { action: "moveDown", icon: ArrowDown, label: "Move down", show: reorderable },
       { action: "remove", icon: X, label: "Remove project", danger: true, show: reorderable },
+      ...worktreeEntries.slice(4),
     ];
   }
 

@@ -47,6 +47,7 @@ import MoveToPrDialog from "$lib/review/MoveToPrDialog.svelte";
 import { moveThreadToPr, prLinks } from "$lib/review/prLinks.svelte";
 import { forkThread, gitWorktreeAdd, updateWorkspace } from "$lib/services/api";
 import { commands } from "$lib/services/homeRouting";
+import { worktreeAction } from "$lib/stack/worktreeActions";
 import type {
   CreateWorkspaceInput,
   MenuAction,
@@ -319,6 +320,14 @@ export async function menuAction(action: MenuAction, target: MenuTarget): Promis
     // Each action names the target kinds it applies to; on any other target it
     // does nothing.
     switch (action) {
+      case "newThreadHere":
+      case "switchToPr":
+      case "pullLatest":
+      case "copyPath":
+      case "archiveThreads":
+      case "removeWorktree":
+        if (target.kind === "project") await worktreeAction(action, target.project);
+        return;
       case "rename":
         await rename(target);
         return;

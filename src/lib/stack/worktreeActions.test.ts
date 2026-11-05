@@ -1,0 +1,57 @@
+import { render, screen, waitFor, within } from "@testing-library/svelte";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import DialogHost from "$lib/components/DialogHost.svelte";
+import { inboxes, syncInbox } from "$lib/inbox/inboxStore.svelte";
+import { commands } from "$lib/services/homeRouting";
+import { worktreeEntry } from "$lib/services/preview/factories";
+import { worktreeAction } from "$lib/stack/worktreeActions";
+import type { Project } from "$lib/types";
+import { worktreeMap } from "$lib/worktrees/worktreeMap.svelte";
+
+vi.mock("$lib/services/homeRouting", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
+  return {
+    ...actual,
+    commands: {
+      ...actual.commands,
+      gitCheckoutBranch: vi.fn(async () => null),
+      threadsWithActiveTurns: vi.fn(async () => []),
+      copyText: vi.fn(async () => null),
+    },
+  };
+});
+
+const MAIN = "/Users/ciaran/Projects/codex-custom";
+const PATH = "/Users/ciaran/worktrees/codex-custom/harness-stack";
+const project = { path: PATH, name: "harness-stack", kind: "worktree", threads: [] } as unknown as Project;
+
+beforeEach(async () => {
+  vi.clearAllMocks();
+  for (const key of Object.keys(inboxes)) delete inboxes[key];
+  await syncInbox(MAIN);
+  worktreeMap.byRepo = { [MAIN]: [worktreeEntry({ path: PATH, branch: "feat/claude-driver" })] };
+});
+
+describe("the sidebar worktree menu", () => {
+  it("switches a stack's worktree to another of its PRs", async () => {
+    render(DialogHost);
+    const user = userEvent.setup();
+
+    const done = worktreeAction("switchToPr", project);
+    const dialog = await screen.findByRole("dialog");
+    const choices = within(dialog).getByRole("radiogroup", { name: "Switch to PR" });
+    expect(within(choices).getAllByRole("radio")).toHaveLength(3);
+    expect(within(choices).getByRole("radio", { name: /#415 feat\/claude-driver/ })).toBeChecked();
+    await user.click(within(choices).getByRole("radio", { name: /#418 feat\/maki-acp/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Switch" }));
+    await done;
+
+    await waitFor(() => expect(commands.gitCheckoutBranch).toHaveBeenCalledWith(PATH, "feat/maki-acp", false));
+  });
+
+  it("copies the worktree's path", async () => {
+    await worktreeAction("copyPath", project);
+    expect(commands.copyText).toHaveBeenCalledWith(PATH);
+  });
+});

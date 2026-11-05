@@ -56,7 +56,14 @@ export type MenuAction =
   | "deleteFolder"
   | "fork"
   | "createWorktree"
-  | "openDetails";
+  | "openDetails"
+  // The worktree menu (story 115); `$lib/stack/worktreeActions` runs them.
+  | "newThreadHere"
+  | "switchToPr"
+  | "pullLatest"
+  | "copyPath"
+  | "archiveThreads"
+  | "removeWorktree";
 
 /**
  * One item of a `turn/start` input as the app-server defines it

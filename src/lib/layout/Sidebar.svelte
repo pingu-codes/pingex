@@ -57,6 +57,7 @@
   import { activeTurns, approvals, unansweredQuestions, userInputRequests } from "$lib/services/codexEvents.svelte";
   import { remoteConnections } from "$lib/services/connections.svelte";
   import { commands, projectHostLabel } from "$lib/services/homeRouting";
+  import FollowUpDot from "$lib/stack/FollowUpDot.svelte";
   import { toastError } from "$lib/toaster";
   import type {
     Account,
@@ -780,6 +781,9 @@
           onmouseenter={() => ensureGitStatus(project.path)}
           >{project.name}</TooltipAnchor
         >
+        {#if project.kind === "worktree"}
+          <FollowUpDot path={project.path} />
+        {/if}
         <span class="shrink-0 text-[10px] text-surface-500">{projectHostLabel(project.path)}</span>
         {#if onAddRepository}
           <RepositoryMark path={project.path} />
@@ -897,6 +901,7 @@
           class="min-w-0 flex-1 truncate italic"
           >{child.name}</TooltipAnchor
         >
+        <FollowUpDot path={child.path} />
         <span class="max-w-[6rem] shrink-0 truncate text-[10px] text-surface-500 group-hover/unadded:opacity-0"
           >{child.branch}</span
         >
