@@ -1103,6 +1103,7 @@ export const previewPrDetail: PrDetail = {
   summary: previewPrs[0],
   body: "This adds a three-pane review view: PR summary and files on the left, diff in the center, and review/comments on the right.\n\nCloses #99.",
   headSha: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+  baseSha: "0f0e0d0c0b0a09080706050403020100ffeeddcc",
   commits: [
     { oid: "a1b2c3d4e5f6", shortOid: "a1b2c3d", headline: "Add review service and adapter", author: "ciaran" },
     { oid: "b2c3d4e5f6a7", shortOid: "b2c3d4e", headline: "Wire the three-pane view", author: "ciaran" },
@@ -1116,6 +1117,7 @@ export const previewPrDetail: PrDetail = {
       deletions: 2,
       patch: previewReviewPatch,
       patchTruncated: false,
+      blobSha: "b10b0000000000000000000000000000000000a1",
       hunks: [
         {
           header: "@@ -1,6 +1,9 @@",
@@ -1146,6 +1148,7 @@ export const previewPrDetail: PrDetail = {
       deletions: 0,
       patch: "@@ -0,0 +1,3 @@\n+# Review\n+\n+How to review a pull request.",
       patchTruncated: false,
+      blobSha: "b10b0000000000000000000000000000000000b2",
       hunks: [
         {
           header: "@@ -0,0 +1,3 @@",

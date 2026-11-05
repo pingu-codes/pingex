@@ -115,6 +115,41 @@ button {
   @apply rounded-md border border-surface-300-700 bg-surface-50-950 px-2.5 py-1.5 outline-none focus:border-primary-500;
 }
 
+/* Review desk: a compact state pill, paired with a `preset-tonal-*` tone
+   (Skeleton's `badge` is larger). */
+@utility status-badge {
+  @apply inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] leading-[14px] font-medium whitespace-nowrap;
+}
+
+/* Initials avatar, on Skeleton's `Avatar` root. */
+@utility avatar {
+  @apply inline-grid size-[18px] shrink-0 place-items-center overflow-hidden rounded-full bg-surface-200-800 text-[9px] font-semibold text-surface-600-400;
+}
+
+/* One diff line on the review page: old number, new number, marker, code.
+   `ln-add` / `ln-del` tint added and removed lines; `ln-sel` marks a
+   selected range. */
+@utility ln {
+  @apply grid grid-cols-[44px_44px_16px_minmax(0,1fr)] font-mono text-xs leading-5 whitespace-pre;
+  & > :nth-child(-n + 2) {
+    @apply pr-2 text-right text-surface-500 select-none;
+  }
+}
+@utility ln-add {
+  @apply bg-success-500/12;
+}
+@utility ln-del {
+  @apply bg-error-500/12;
+}
+@utility ln-sel {
+  @apply bg-primary-500/22;
+}
+
+/* A changed file's header row on the review page. */
+@utility file-head {
+  @apply flex flex-wrap items-center gap-2 bg-surface-100-900 py-1.5 pr-2 pl-1;
+}
+
 /* Copy button injected into markdown code blocks by renderMarkdown. */
 .code-block {
   position: relative;

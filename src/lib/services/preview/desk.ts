@@ -8,7 +8,17 @@
 // `ciaran` throughout. Extend these records rather than adding parallel ones,
 // so every desk screen shows the same repositories and PRs.
 
-import type { CheckoutStep, HarnessKind, Inbox, InboxPr, PrComment, PrDetail, StackListing } from "$lib/types";
+import type {
+  CheckoutStep,
+  FileBlob,
+  HarnessKind,
+  Inbox,
+  InboxPr,
+  PendingReview,
+  PrComment,
+  PrDetail,
+  StackListing,
+} from "$lib/types";
 import { inboxPr } from "./factories";
 import { previewInbox, previewPrDetail } from "./fixtures";
 
@@ -184,6 +194,7 @@ const threadedDetail: PrDetail = {
   },
   body: "The app-server sometimes answers `initialize` late on a cold start. Retry the handshake three times with backoff.",
   headSha: sha(THREADED_PR),
+  baseSha: sha(1),
   comments: [
     ...thread("THREAD_1", "src/lib/loader.ts", 4, false, [
       ["tomasz", "Three retries feels arbitrary. Can this come from the config?"],
@@ -317,6 +328,7 @@ export function deskPrDetail(repoDir: string, number: number): PrDetail {
       url: pr.url,
     };
     detail.headSha = pr.headSha;
+    detail.baseSha = pr.baseSha;
   }
   return detail;
 }
@@ -341,3 +353,53 @@ export const previewAgentReviews: PreviewAgentReview[] = [
     startedAt: null,
   },
 ];
+
+// --- the pending review and viewed files ------------------------------------
+
+/** Pending reviews and viewed marks, per repository and PR, as the profile
+ *  database keeps them: they outlive a remount of the review page. */
+const pendingReviews = new Map<string, PendingReview>();
+const viewedMarks = new Map<string, Map<string, string>>();
+const prKey = (repoDir: string, number: number) => `${deskRepo(repoDir).slug}#${number}`;
+
+export function deskPendingReview(repoDir: string, number: number): PendingReview | null {
+  const review = pendingReviews.get(prKey(repoDir, number));
+  return review ? structuredClone(review) : null;
+}
+
+export function deskSavePendingReview(repoDir: string, number: number, review: PendingReview) {
+  const key = prKey(repoDir, number);
+  if (review.entries.length === 0 && !review.summary.trim()) pendingReviews.delete(key);
+  else pendingReviews.set(key, { ...structuredClone(review), updatedAt: Math.floor(Date.now() / 1000) });
+}
+
+export function deskDiscardPendingReview(repoDir: string, number: number) {
+  pendingReviews.delete(prKey(repoDir, number));
+}
+
+export function deskSubmitPendingReview(repoDir: string, number: number) {
+  const key = prKey(repoDir, number);
+  if (!pendingReviews.has(key)) throw new Error("There is no pending review to submit");
+  pendingReviews.delete(key);
+}
+
+export function deskViewedFiles(repoDir: string, number: number, files: FileBlob[]): string[] {
+  const marks = viewedMarks.get(prKey(repoDir, number));
+  return files.filter((file) => marks?.get(file.path) === file.blobSha).map((file) => file.path);
+}
+
+export function deskSetViewed(repoDir: string, number: number, files: FileBlob[], viewed: boolean) {
+  const key = prKey(repoDir, number);
+  const marks = viewedMarks.get(key) ?? new Map<string, string>();
+  for (const file of files) {
+    if (viewed) marks.set(file.path, file.blobSha);
+    else marks.delete(file.path);
+  }
+  viewedMarks.set(key, marks);
+}
+
+/** Forget every pending review and viewed mark: a fresh profile, for tests. */
+export function resetDeskReviewState() {
+  pendingReviews.clear();
+  viewedMarks.clear();
+}

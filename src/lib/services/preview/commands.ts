@@ -22,7 +22,19 @@ import type {
 } from "$lib/types";
 import { basename } from "$lib/utils/path";
 import { previewStageBytes, previewStageFromPath } from "./attachments";
-import { DESK_REPOS, DESK_VIEWER, deskInbox, deskPrDetail, deskStacks } from "./desk";
+import {
+  DESK_REPOS,
+  DESK_VIEWER,
+  deskDiscardPendingReview,
+  deskInbox,
+  deskPendingReview,
+  deskPrDetail,
+  deskSavePendingReview,
+  deskSetViewed,
+  deskStacks,
+  deskSubmitPendingReview,
+  deskViewedFiles,
+} from "./desk";
 import { worktreeEntry } from "./factories";
 import {
   nextPreviewId,
@@ -766,6 +778,12 @@ export const previewCommands: PreviewCommands = {
       }))
       .filter((repo) => repo.count > 0)
       .sort((a, b) => b.count - a.count),
+  reviewPendingReview: (repoDir, number) => deskPendingReview(repoDir, number),
+  reviewSavePendingReview: (repoDir, number, review) => deskSavePendingReview(repoDir, number, review),
+  reviewDiscardPendingReview: (repoDir, number) => deskDiscardPendingReview(repoDir, number),
+  reviewSubmitPendingReview: (repoDir, number) => deskSubmitPendingReview(repoDir, number),
+  reviewViewedFiles: (repoDir, number, files) => deskViewedFiles(repoDir, number, files),
+  reviewSetViewed: (repoDir, number, files, viewed) => deskSetViewed(repoDir, number, files, viewed),
   reviewSaveDraft(provider, repo, prNumber, headSha, payload) {
     reviewDrafts.set(reviewDraftKey(provider, repo, prNumber), {
       headSha,
