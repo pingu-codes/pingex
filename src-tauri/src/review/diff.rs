@@ -143,6 +143,7 @@ pub(crate) fn parse_git_diff(diff: &str) -> Vec<PrFile> {
                 hunks,
                 patch,
                 patch_truncated: false,
+                blob_sha: None,
             });
         }
     };

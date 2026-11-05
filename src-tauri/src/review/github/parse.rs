@@ -205,6 +205,11 @@ pub(crate) fn parse_files(json: &Value) -> (Vec<PrFile>, bool) {
                 hunks: parse_patch(&patch),
                 patch,
                 patch_truncated,
+                blob_sha: file
+                    .get("sha")
+                    .and_then(Value::as_str)
+                    .filter(|sha| !sha.is_empty())
+                    .map(str::to_string),
             }
         })
         .collect();

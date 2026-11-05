@@ -27,6 +27,7 @@ pub(crate) use profile_import::{open_profile_root, open_profile_root_at, profile
 pub(crate) mod native_side_questions;
 mod questions;
 mod review;
+mod review_viewed;
 mod schema;
 mod search;
 mod sections;
@@ -71,6 +72,7 @@ pub(crate) use review::{
     delete_review_draft, read_inbox_snapshot, read_review_draft, write_inbox_snapshot,
     write_review_draft, ReviewDraft,
 };
+pub(crate) use review_viewed::{mark_viewed_files, read_viewed_files, unmark_viewed_files};
 pub(crate) use search::{
     delete_thread_search, rename_thread_search, search_thread_index, set_thread_search_archived,
     thread_ids_with_message_match, upsert_thread_search, MessageScope, StoredThreadSearch,
