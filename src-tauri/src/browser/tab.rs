@@ -228,10 +228,8 @@ impl Tab {
                     Log::push(&mut log.network, seq, line);
                 }
             }
-            "Page.frameNavigated" => {
-                if params["frame"].get("parentId").is_none() {
-                    log.navigated = true;
-                }
+            "Page.frameNavigated" if params["frame"].get("parentId").is_none() => {
+                log.navigated = true;
             }
             _ => {}
         }
