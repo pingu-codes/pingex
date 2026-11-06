@@ -18,6 +18,7 @@
     "test:e2e:install": "bun --bun playwright install chromium webkit",
     "test:e2e": "bun --bun playwright test",
     "test:e2e:quick": "bun --bun playwright test --project=desktop-1180x760",
+    "test:perf": "bun --bun playwright test diff-scroll --project=webkit --workers=1",
     "demo": "bun run demo:capture && bun run demo:index",
     "demo:capture": "bun --bun playwright test --config playwright.demo.config.ts",
     "demo:index": "bun demo/index.ts",

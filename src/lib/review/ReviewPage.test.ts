@@ -84,6 +84,23 @@ describe("ReviewPage", () => {
     expect(within(yourReview()).getByRole("button", { name: "Submit review with 1 comment" })).toBeInTheDocument();
   });
 
+  it("hovering a line offers + to comment on it, and a drag down the numbers selects a range", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await opened();
+
+    const loader = within(screen.getByRole("region", { name: "src/lib/loader.ts" }));
+    await user.hover(loader.getByRole("button", { name: "Select line 4" }));
+    await user.click(loader.getByRole("button", { name: "Comment on line 4" }));
+    expect(screen.getByRole("group", { name: "New comment on line 4" })).toBeInTheDocument();
+
+    await fireEvent.pointerDown(loader.getByRole("button", { name: "Select line 3" }), { button: 0 });
+    await fireEvent.pointerOver(loader.getByRole("button", { name: "Select line 5" }));
+    await fireEvent.pointerUp(window);
+    await fireEvent.pointerOver(loader.getByRole("button", { name: "Select line 7" }));
+    expect(screen.getByRole("toolbar", { name: "Lines 3–5" })).toBeInTheDocument();
+  });
+
   it("suggests a change prefilled with the selected lines", async () => {
     const user = userEvent.setup();
     renderPage();

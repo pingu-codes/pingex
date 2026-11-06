@@ -2,7 +2,7 @@
 // dozen. Each starts from a plain, idle record and takes the fields that
 // matter to the caller.
 
-import type { InboxPr, ThreadSummary, WorktreeEntry } from "$lib/types";
+import type { DiffLine, InboxPr, PrFile, ThreadSummary, WorktreeEntry } from "$lib/types";
 
 /** A clean linked worktree on branch `feature`. */
 export function worktreeEntry(overrides: Partial<WorktreeEntry> = {}): WorktreeEntry {
@@ -75,4 +75,53 @@ export function inboxPr(overrides: Partial<InboxPr> & Pick<InboxPr, "number" | "
     changedFiles: 3,
     ...overrides,
   };
+}
+
+/** Changed files for a large diff: `files` files of `lines` diff lines each,
+ *  one hunk per 50 lines, mixing context, added and removed lines, with
+ *  every 7th line long enough to scroll sideways. */
+export function largeDiffFiles(files: number, lines: number): PrFile[] {
+  return Array.from({ length: files }, (_, fileIndex) => {
+    const hunks = [];
+    let oldLine = 1;
+    let newLine = 1;
+    for (let start = 0; start < lines; start += 50) {
+      const hunkLines: DiffLine[] = [];
+      const oldStart = oldLine;
+      const newStart = newLine;
+      for (let index = start; index < Math.min(start + 50, lines); index++) {
+        const kind = index % 5 === 3 ? "add" : index % 5 === 4 ? "del" : "context";
+        const content = `  const value${index} = compute(${index}, "${fileIndex}");${index % 7 === 0 ? " // long".padEnd(240, "-") : ""}`;
+        hunkLines.push({
+          kind,
+          content,
+          oldLine: kind === "add" ? null : oldLine++,
+          newLine: kind === "del" ? null : newLine++,
+        });
+      }
+      hunks.push({
+        header: `@@ -${oldStart},${oldLine - oldStart} +${newStart},${newLine - newStart} @@`,
+        oldStart,
+        oldLines: oldLine - oldStart,
+        newStart,
+        newLines: newLine - newStart,
+        lines: hunkLines,
+      });
+      // A gap between hunks, as in a real diff.
+      oldLine += 10;
+      newLine += 10;
+    }
+    const all = hunks.flatMap((hunk) => hunk.lines);
+    return {
+      path: `src/large/file-${String(fileIndex).padStart(2, "0")}.ts`,
+      oldPath: null,
+      status: "modified",
+      additions: all.filter((line) => line.kind === "add").length,
+      deletions: all.filter((line) => line.kind === "del").length,
+      patch: "",
+      hunks,
+      patchTruncated: false,
+      blobSha: null,
+    };
+  });
 }

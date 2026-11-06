@@ -25,6 +25,7 @@
     entryLabel,
     entryLocation,
     type FileCounts,
+    groupBy,
     inRange,
     type LineRange,
     rangeLabel,
@@ -83,22 +84,21 @@
 
   const rows = $derived(diffRows(file));
   const lineKeys = $derived(new Set(rows.flatMap((row) => (row.kind === "line" ? [`${row.side}:${row.number}`] : []))));
-  const threadsAt = (side: DiffSide, line: number) =>
-    threads.filter((candidate) => (candidate.side ?? "RIGHT") === side && candidate.line === line);
-  const outside = $derived(
-    threads.filter((candidate) => !lineKeys.has(`${candidate.side ?? "RIGHT"}:${candidate.line}`)),
-  );
-  const pendingAt = (side: DiffSide, line: number) =>
-    pending.filter((entry) => {
+  const threadKey = (candidate: CommentThread) => `${candidate.side ?? "RIGHT"}:${candidate.line}`;
+  const threadsByLine = $derived(groupBy(threads, threadKey));
+  const pendingByLine = $derived(
+    groupBy(pending, (entry) => {
       const at = entryLocation(entry);
-      return at.side === side && at.line === line;
-    });
+      return `${at.side}:${at.line}`;
+    }),
+  );
+  const outside = $derived(threads.filter((candidate) => !lineKeys.has(threadKey(candidate))));
   const mine = $derived(selection?.path === file.path ? selection : null);
   const composing = $derived(composer?.range.path === file.path ? composer : null);
   const toggleLabel = $derived(`Toggle ${file.path}`);
 
   // A drag down the line numbers extends the selection row by row.
-  let dragging = $state(false);
+  let dragging = false;
   function startDrag(event: PointerEvent, side: DiffSide, line: number) {
     if (event.button !== 0 || !canComment) return;
     event.preventDefault();
@@ -106,9 +106,21 @@
     onSelectLine(side, line, event.shiftKey);
     window.addEventListener("pointerup", () => (dragging = false), { once: true });
   }
-  function dragOver(side: DiffSide, line: number) {
+
+  // One listener for the whole diff, not one per line: it tracks the row
+  // under the pointer for the hover + and extends a drag.
+  type Hovered = { side: DiffSide; line: number; top: number };
+  let hovered = $state<Hovered | null>(null);
+  function pointerOver(event: PointerEvent) {
+    const row = (event.target as Element).closest<HTMLElement>(".ln[data-line]");
+    if (!row) return;
+    const side = row.dataset.side as DiffSide;
+    const line = Number(row.dataset.line);
+    if (hovered?.side === side && hovered.line === line) return;
+    hovered = { side, line, top: row.offsetTop };
     if (dragging) onSelectLine(side, line, true);
   }
+  const lineLabel = (side: DiffSide, line: number) => (side === "LEFT" ? `removed line ${line}` : `line ${line}`);
   function keySelect(event: MouseEvent, side: DiffSide, line: number) {
     // Pointer clicks already selected on pointerdown; this is Enter or Space.
     if (event.detail === 0) onSelectLine(side, line, event.shiftKey);
@@ -163,7 +175,31 @@
   </ActionMenu>
 
   {#if open}
-    <div class="overflow-x-auto border-t border-surface-200-800">
+    <!-- Off screen, the diff skips layout and paint and holds its estimated
+         height (`.ln` rows are 20px), so long PRs scroll smoothly. -->
+    <div
+      class="relative overflow-x-auto border-t border-surface-200-800 [content-visibility:auto]"
+      style:contain-intrinsic-block-size="auto {rows.length * 20}px"
+      role="presentation"
+      onpointerover={pointerOver}
+      onpointerleave={() => (hovered = null)}
+    >
+      {#if canComment && hovered}
+        {@const at = hovered}
+        <button
+          type="button"
+          tabindex="-1"
+          class="absolute left-1 z-[1] grid size-4 place-items-center rounded bg-primary-500 text-white"
+          style:top="{at.top + 2}px"
+          aria-label="Comment on {lineLabel(at.side, at.line)}"
+          onclick={() => {
+            onSelectLine(at.side, at.line, false);
+            onCompose("comment");
+          }}
+        >
+          <Plus size={11} aria-hidden="true" />
+        </button>
+      {/if}
       {#if file.patchTruncated}
         <div class="p-4 text-center text-xs text-surface-500">No text diff for this file (binary, or too large).</div>
       {/if}
@@ -174,9 +210,10 @@
           </div>
         {:else}
           {@const selected = inRange(mine, file.path, row.side, row.number)}
-          {@const label = row.side === "LEFT" ? `removed line ${row.number}` : `line ${row.number}`}
           <div
-            class="group/line ln relative {selected
+            data-side={row.side}
+            data-line={row.number}
+            class="ln {selected
               ? "ln-sel"
               : row.line.kind === "add"
                 ? "ln-add"
@@ -189,11 +226,10 @@
                 <button
                   type="button"
                   class="text-right {selected ? "font-semibold text-surface-900-100" : ""}"
-                  aria-label="Select {label}"
+                  aria-label="Select {lineLabel(row.side, row.number)}"
                   aria-pressed={selected}
                   disabled={!canComment}
                   onpointerdown={(event) => startDrag(event, row.side, row.number)}
-                  onpointerenter={() => dragOver(row.side, row.number)}
                   onclick={(event) => keySelect(event, row.side, row.number)}
                 >
                   {number}
@@ -204,19 +240,6 @@
             {/each}
             <span>{row.line.kind === "add" ? "+" : row.line.kind === "del" ? "−" : ""}</span>
             <span>{row.line.content}</span>
-            {#if canComment}
-              <button
-                type="button"
-                class="absolute top-0.5 left-1 grid size-4 place-items-center rounded bg-primary-500 text-white opacity-0 group-hover/line:opacity-100 focus:opacity-100"
-                aria-label="Comment on {label}"
-                onclick={() => {
-                  onSelectLine(row.side, row.number, false);
-                  onCompose("comment");
-                }}
-              >
-                <Plus size={11} aria-hidden="true" />
-              </button>
-            {/if}
           </div>
 
           {#if mine && !composing && mine.side === row.side && mine.end === row.number}
@@ -251,10 +274,10 @@
             </div>
           {/if}
 
-          {#each threadsAt(row.side, row.number) as found (found.key)}
+          {#each threadsByLine.get(`${row.side}:${row.number}`) ?? [] as found (found.key)}
             {@render thread(found)}
           {/each}
-          {#each pendingAt(row.side, row.number) as entry (entry.id)}
+          {#each pendingByLine.get(`${row.side}:${row.number}`) ?? [] as entry (entry.id)}
             {@render pendingCard(entry)}
           {/each}
           {#if composing && composing.range.side === row.side && composing.range.end === row.number}

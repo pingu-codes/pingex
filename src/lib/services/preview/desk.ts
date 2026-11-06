@@ -23,7 +23,7 @@ import type {
   Repository,
   StackListing,
 } from "$lib/types";
-import { inboxPr } from "./factories";
+import { inboxPr, largeDiffFiles } from "./factories";
 import { previewInbox, previewPrDetail } from "./fixtures";
 
 export const DESK_VIEWER = "ciaran";
@@ -430,6 +430,22 @@ export function deskStacks(repoDir: string): StackListing {
 /** A PR's detail: its own when the fixtures have one, else the shared
  *  sample detail under the PR's summary. */
 export function deskPrDetail(repoDir: string, number: number): PrDetail {
+  const detail = basePrDetail(repoDir, number);
+  const large = largeDiffShape();
+  if (large) detail.files = largeDiffFiles(large.files, large.lines);
+  return detail;
+}
+
+/** `?largeDiff=<files>x<lines>` in the preview's URL replaces every PR's
+ *  files with a generated large diff: the diff scroll benchmark opens
+ *  `?largeDiff=40x150`, and it reproduces a slow diff by hand. */
+function largeDiffShape(): { files: number; lines: number } | null {
+  if (typeof location === "undefined") return null;
+  const match = /^(\d+)x(\d+)$/.exec(new URLSearchParams(location.search).get("largeDiff") ?? "");
+  return match ? { files: Number(match[1]), lines: Number(match[2]) } : null;
+}
+
+function basePrDetail(repoDir: string, number: number): PrDetail {
   const data = repoData(repoDir);
   const own = data.details.get(number);
   if (own) return structuredClone(own);

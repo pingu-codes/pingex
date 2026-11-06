@@ -28,6 +28,19 @@ export function diffRows(file: PrFile): DiffRow[] {
   return rows;
 }
 
+/** Group items by key, keeping their order within each group: what sits
+ *  under each diff line, looked up once per row. */
+export function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const at = key(item);
+    const group = groups.get(at);
+    if (group) group.push(item);
+    else groups.set(at, [item]);
+  }
+  return groups;
+}
+
 /** Selected lines: `anchor` is where the selection started, `start..=end`
  *  the range, all on one side of one file. */
 export type LineRange = { path: string; side: DiffSide; anchor: number; start: number; end: number };
