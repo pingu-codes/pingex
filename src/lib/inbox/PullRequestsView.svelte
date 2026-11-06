@@ -31,6 +31,7 @@
     rangeSelection,
     type StackGroup,
     sectionOrder,
+    stackPosition,
     visibleRows,
   } from "$lib/inbox/inbox";
   import { inboxes, markActivitySeen, mutePr, syncInbox } from "$lib/inbox/inboxStore.svelte";
@@ -328,6 +329,9 @@
       canStartAgentReview: !!handlers.startAgentReviews,
     })}
     ciEntries={ciMenu({ canFixCi: !!handlers.fixCi })}
+    stack={group
+      ? { ...stackPosition(group, row.pr.number), first: depth === 0, last: depth === group.rows.length - 1 }
+      : null}
     onAction={(id) => run(id, row, group)}
     onPick={(mode) => pick(row.pr.number, mode)}
   />

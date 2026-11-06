@@ -123,6 +123,15 @@ function stackGroups(inbox: Inbox, listing: StackListing, rows: InboxRow[]): Sta
 }
 
 /**
+ * Where a PR sits in its stack: 1 is the PR on the base, counted among the
+ * stack's open PRs. A PR keeps its number when a filter hides the PRs below it.
+ */
+export function stackPosition(group: StackGroup, number: number): { position: number; total: number } {
+  const open = group.stack.prs.filter((entry) => entry.state === "open");
+  return { position: open.findIndex((entry) => entry.number === number) + 1, total: open.length };
+}
+
+/**
  * The inbox's sections, in order: my stacks as cards, my other PRs, review
  * requests (grouped by the author's stack), then everyone else. Empty
  * sections are left out. With `groupByStack` off, or no native stacks, every

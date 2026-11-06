@@ -560,7 +560,10 @@
       <div
         class="stack-ring {inboxPr ? RING_CLASS[stateTone(inboxPr)] : RING_CLASS.surface}"
         class:border-dashed={inboxPr?.isDraft}
-      ></div>
+        title="{openPrs.length - index} of {openPrs.length} in the stack"
+      >
+        {openPrs.length - index}
+      </div>
     </div>
     <div class="mb-2.5 flex min-w-0 grow flex-col">
       {#if dropTarget === pr.number && dropHint}

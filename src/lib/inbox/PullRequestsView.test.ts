@@ -110,14 +110,18 @@ describe("Pull requests inbox", () => {
         .getAllByRole("listitem")
         .map((item) => item.getAttribute("aria-label")?.split(" ")[0]),
     ).toEqual(["#412", "#415", "#418"]);
+    expect(within(row(412)).getByTitle("1 of 3 in the stack")).toHaveTextContent("1");
+    expect(within(row(418)).getByTitle("3 of 3 in the stack")).toHaveTextContent("3");
     const theirs = screen.getByRole("region", { name: "Stack focus-rings" });
     expect(within(theirs).getByText("jo-r · 2 PRs")).toBeInTheDocument();
     expect(within(row(403)).getByRole("button", { name: "Review stack" })).toBeInTheDocument();
     expect(within(row(401)).getByText("2 commits since your approval")).toBeInTheDocument();
+    expect(within(row(403)).getByTitle("2 of 2 in the stack")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Group by stack", pressed: true }));
     expect(screen.queryByRole("region", { name: /^Stack / })).toBeNull();
     expect(row(415)).toBeInTheDocument();
+    expect(within(row(415)).queryByTitle(/in the stack$/)).toBeNull();
   });
 
   it("gives each row the primary action its state calls for", async () => {

@@ -2,7 +2,9 @@
   One pull request in the inbox: state ring, number and title, review and CI
   badges, unresolved threads, reviewers and one primary action. Row actions
   and shortcut hints (↵ R T) fade in on hover and focus; unseen activity is
-  bold with a dot and "N new". A click opens the PR; ⌘-click or X toggles the
+  bold with a dot and "N new". In a stack the ring holds the PR's position
+  and a rail joins it to the rows above and below. The primary action sits in
+  a fixed-width slot, so the badges line up whatever it says. A click opens the PR; ⌘-click or X toggles the
   row's selection and ⇧-click selects a range. The badges sit under the
   title until the inbox is wide enough for one line. Every action goes to
   `onAction` by id.
@@ -33,6 +35,7 @@
     selecting = false,
     menu,
     ciEntries,
+    stack = null,
     onAction,
     onPick,
   }: {
@@ -48,6 +51,8 @@
     selecting?: boolean;
     menu: MenuEntry[];
     ciEntries: MenuEntry[];
+    /** The row's place in its stack card; `first` and `last` are among the card's visible rows. */
+    stack?: { position: number; total: number; first: boolean; last: boolean } | null;
     onAction: (id: string) => void;
     onPick: (mode: "toggle" | "range") => void;
   } = $props();
@@ -107,7 +112,27 @@
           onchange={() => onPick("toggle")}
         >
       {/if}
-      {#if triage.mine}
+      {#if stack}
+        <!-- Stretched over the row's padding so the rail meets the rows above and below. -->
+        <span class="relative -my-2.5 flex items-center self-stretch">
+          {#if !stack.first}
+            <span
+              class="absolute -top-px bottom-[calc(50%+9px)] left-1/2 w-0.5 -translate-x-1/2 bg-surface-300-700"
+              aria-hidden="true"
+            ></span>
+          {/if}
+          {#if !stack.last}
+            <span
+              class="absolute top-[calc(50%+9px)] bottom-0 left-1/2 w-0.5 -translate-x-1/2 bg-surface-300-700"
+              aria-hidden="true"
+            ></span>
+          {/if}
+          <span
+            class="stack-step {pr.isDraft ? "border-dashed" : ""} {RING_CLASS[stateTone(pr)]}"
+            title="{stack.position} of {stack.total} in the stack">{stack.position}</span
+          >
+        </span>
+      {:else if triage.mine}
         <span
           class="size-2.5 shrink-0 rounded-full border-2 {pr.isDraft ? "border-dashed" : ""} {RING_CLASS[
             stateTone(pr)
@@ -187,7 +212,7 @@
         </span>
       </div>
       <span class="flex shrink-0 items-center gap-2.5">
-        <span class="flex items-center gap-0.5">
+        <span class="flex w-[70px] items-center justify-end gap-0.5">
           <!-- Keyboard focus swaps the hover actions for their shortcuts, in about the same space. -->
           <span class="hidden items-center gap-1 pr-1 group-focus-visible/pr:inline-flex" aria-hidden="true">
             <kbd class="kbd">↵</kbd><kbd class="kbd">R</kbd><kbd class="kbd">T</kbd>
@@ -219,17 +244,19 @@
             <Ellipsis size={13} />
           </button>
         </span>
-        <button
-          type="button"
-          class="btn btn-sm text-[11px] {primary.id === "open" || primary.id === "agentReview"
-            ? "hover:preset-tonal"
-            : "preset-tonal"}"
-          disabled={primaryDisabled}
-          title={primaryDisabled ? "Not available yet" : undefined}
-          onclick={() => onAction(`primary:${primary.id}`)}
-        >
-          {primary.label}
-        </button>
+        <span class="flex w-36 justify-end">
+          <button
+            type="button"
+            class="btn btn-sm max-w-full min-w-0 text-[11px] {primary.id === "open" || primary.id === "agentReview"
+              ? "hover:preset-tonal"
+              : "preset-tonal"}"
+            disabled={primaryDisabled}
+            title={primaryDisabled ? "Not available yet" : primary.label}
+            onclick={() => onAction(`primary:${primary.id}`)}
+          >
+            <span class="truncate">{primary.label}</span>
+          </button>
+        </span>
       </span>
     </div>
   {/snippet}
