@@ -6,7 +6,7 @@ import type { InboxHandlers } from "$lib/inbox/handlers";
 import { inboxes } from "$lib/inbox/inboxStore.svelte";
 import PullRequestsView from "$lib/inbox/PullRequestsView.svelte";
 import { resetDeskActivity } from "$lib/services/preview/desk";
-import { resetPreviewStacks } from "$lib/services/preview/stack";
+import { resetPreviewStacks, setPreviewStackDrift } from "$lib/services/preview/stack";
 
 const MAIN = "/Users/ciaran/Projects/codex-custom";
 
@@ -65,5 +65,28 @@ describe("my stack's card in the inbox", () => {
     );
 
     expect(await screen.findByText("What main gained since driver-trait forked")).toBeInTheDocument();
+  });
+});
+
+describe("my PRs that are behind their base", () => {
+  it("a single PR shows how far behind main it is", async () => {
+    setup();
+    const row = (await screen.findByText("Behind main by 2")).closest("[role=listitem]");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText("#128")).toBeInTheDocument();
+  });
+
+  it("a PR that no longer sits on the head of the one below names it, and the card keeps the stack's lead", async () => {
+    setup();
+    expect(await screen.findByText("Behind #415")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Behind main by 3" })).toBeInTheDocument();
+    expect(screen.queryByText("Behind #412")).not.toBeInTheDocument();
+  });
+
+  it("a drifted PR shows even when the stack's base has not moved", async () => {
+    setPreviewStackDrift(MAIN, 7, 0, [418]);
+    setup();
+    expect(await screen.findByText("Behind #415")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Behind main by/ })).not.toBeInTheDocument();
   });
 });

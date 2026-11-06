@@ -170,10 +170,17 @@ button {
   @apply flex min-w-0 grow flex-col gap-1.5 rounded-xl border border-surface-200-800 bg-surface-50-950 px-3 py-2.5 text-left text-xs outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-500 data-[selected=true]:border-primary-500 data-[dragging=true]:border-dashed data-[dragging=true]:opacity-35;
 }
 
-/* The ring on the stack tree's rail before a node, coloured like the PR's
-   state ring (`RING_CLASS`); dashed for a draft. */
+/* A PR's numbered place in its stack (1 is the PR on the base): a ring
+   coloured like the PR's state ring (`RING_CLASS`), dashed for a draft. Inbox
+   rows join theirs with a rail that stops short of the ring. */
+@utility stack-step {
+  @apply grid size-[18px] shrink-0 place-items-center rounded-full border-2 font-mono text-[10px] leading-none text-surface-600-400;
+}
+
+/* The `stack-step` on the stack tree's rail before a node; filled, because
+   the rail runs behind it. */
 @utility stack-ring {
-  @apply absolute top-3 left-[21px] size-3.5 rounded-full border-2 bg-surface-100-900;
+  @apply absolute top-3 left-[19px] bg-surface-100-900 stack-step;
 }
 
 /* Where a dragged git branch will land: an accent line with a dot. */
@@ -244,6 +251,72 @@ button {
 .code-dark .hljs {
   background: transparent;
   padding: 0;
+}
+
+/* Highlighted code in review diff rows (`.ln`). The rows sit on the theme's
+   surface, not `.code-dark`, so in light mode the tokens take highlight.js's
+   github (light) colours; in dark mode the global github-dark ones apply.
+   Each selector is github.css's own with `.ln` in front, one class more
+   specific than its github-dark counterpart. */
+@media (prefers-color-scheme: light) {
+  .ln .hljs-doctag,
+  .ln .hljs-keyword,
+  .ln .hljs-meta .hljs-keyword,
+  .ln .hljs-template-tag,
+  .ln .hljs-template-variable,
+  .ln .hljs-type,
+  .ln .hljs-variable.language_ {
+    color: #d73a49;
+  }
+  .ln .hljs-title,
+  .ln .hljs-title.class_,
+  .ln .hljs-title.class_.inherited__,
+  .ln .hljs-title.function_ {
+    color: #6f42c1;
+  }
+  .ln .hljs-attr,
+  .ln .hljs-attribute,
+  .ln .hljs-literal,
+  .ln .hljs-meta,
+  .ln .hljs-number,
+  .ln .hljs-operator,
+  .ln .hljs-variable,
+  .ln .hljs-selector-attr,
+  .ln .hljs-selector-class,
+  .ln .hljs-selector-id {
+    color: #005cc5;
+  }
+  .ln .hljs-regexp,
+  .ln .hljs-string,
+  .ln .hljs-meta .hljs-string {
+    color: #032f62;
+  }
+  .ln .hljs-built_in,
+  .ln .hljs-symbol {
+    color: #e36209;
+  }
+  .ln .hljs-comment,
+  .ln .hljs-code,
+  .ln .hljs-formula {
+    color: #6a737d;
+  }
+  .ln .hljs-name,
+  .ln .hljs-quote,
+  .ln .hljs-selector-tag,
+  .ln .hljs-selector-pseudo {
+    color: #22863a;
+  }
+  .ln .hljs-subst,
+  .ln .hljs-emphasis,
+  .ln .hljs-strong {
+    color: #24292e;
+  }
+  .ln .hljs-section {
+    color: #005cc5;
+  }
+  .ln .hljs-bullet {
+    color: #735c0f;
+  }
 }
 
 /* Rendered markdown (renderMarkdown output). `.prose-md-compact` is the

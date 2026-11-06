@@ -13,12 +13,13 @@
 //! Expected conflicts come from one trial merge of the whole stack onto the
 //! base, each file blamed on the lowest git branch that changes it.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use super::ReviewDesk;
 use crate::git::{objects, stack as git, worktrees};
 use crate::review::stack_types::{
-    RestackPlan, RestackPlanStep, StackBehind, StackBranch, StackInput, StackInputPr,
+    PrBaseInput, PrBehind, RestackPlan, RestackPlanStep, StackBranch, StackInput, StackInputPr,
     StackOverview, StackWorktree,
 };
 
@@ -80,10 +81,20 @@ impl ReviewDesk {
     /// Fetch the PR heads of `prs` that are not here, local git branch or
     /// not: `catch_up_branches` compares a local tip with GitHub's head.
     pub(super) fn ensure_heads(&self, prs: &[&StackInputPr]) -> Result<(), String> {
+        let heads: Vec<(i64, &str)> = prs
+            .iter()
+            .map(|pr| (pr.number, pr.head_sha.as_str()))
+            .collect();
+        self.ensure_head_shas(&heads)
+    }
+
+    /// Fetch, in one go, the PR heads of `(number, head_sha)` that are not
+    /// here.
+    fn ensure_head_shas(&self, heads: &[(i64, &str)]) -> Result<(), String> {
         let mut missing = Vec::new();
-        for pr in prs {
-            if !crate::git::checkouts::has_commit(&self.host, self.dir(), &pr.head_sha)? {
-                missing.push(super::pr_number(pr.number)?);
+        for (number, sha) in heads {
+            if !crate::git::checkouts::has_commit(&self.host, self.dir(), sha)? {
+                missing.push(super::pr_number(*number)?);
             }
         }
         if !missing.is_empty() {
@@ -322,31 +333,41 @@ impl ReviewDesk {
         Ok(overview)
     }
 
-    /// How far each stack is behind its base, for the inbox. A stack whose
-    /// commits cannot be read here counts as unknown, not as an error.
-    pub(crate) async fn stacks_behind(
+    /// How far each PR is behind its base, both as GitHub has them: the
+    /// commits on `base_sha` that `head_sha` lacks. For a PR in a stack the
+    /// base is the PR below's git branch, so this also catches a PR that no
+    /// longer sits on the head of the one below it. A PR whose commits
+    /// cannot be fetched here counts as unknown, not as an error.
+    pub(crate) async fn prs_behind(
         &self,
-        inputs: Vec<StackInput>,
-    ) -> Result<Vec<StackBehind>, String> {
-        self.blocking("Reading the stacks failed", move |desk| {
+        inputs: Vec<PrBaseInput>,
+    ) -> Result<Vec<PrBehind>, String> {
+        self.blocking("Reading the PRs failed", move |desk| {
+            let heads: Vec<(i64, &str)> = inputs
+                .iter()
+                .map(|input| (input.number, input.head_sha.as_str()))
+                .collect();
+            // One failed batch fetch leaves each PR to its own count below.
+            let _ = desk.ensure_head_shas(&heads);
+            let mut bases: HashMap<(&str, &str), Option<String>> = HashMap::new();
             Ok(inputs
                 .iter()
-                .map(|input| StackBehind {
-                    number: input.number,
-                    behind: desk.behind(input).ok(),
+                .map(|input| {
+                    let onto = bases
+                        .entry((input.base_ref.as_str(), input.base_sha.as_str()))
+                        .or_insert_with(|| desk.ensure_base(&input.base_ref, &input.base_sha).ok())
+                        .clone();
+                    let behind = onto.and_then(|onto| {
+                        git::count_between(&desk.host, desk.dir(), &input.head_sha, &onto).ok()
+                    });
+                    PrBehind {
+                        number: input.number,
+                        behind,
+                    }
                 })
                 .collect())
         })
         .await
-    }
-
-    fn behind(&self, input: &StackInput) -> Result<i64, String> {
-        let open = input.open_prs();
-        let bottom = open.first().ok_or("The stack has no open PRs")?;
-        self.ensure_heads(&[bottom])?;
-        let onto = self.ensure_base(&input.base_ref, &input.base_sha)?;
-        let (tip, _) = self.tip_of(bottom)?;
-        git::count_between(&self.host, self.dir(), &tip, &onto)
     }
 
     /// What restacking (from `from` up, or the whole stack) would do.
@@ -461,6 +482,7 @@ impl ReviewDesk {
 #[cfg(test)]
 mod tests {
     use super::super::stack_support::StackFixture;
+    use super::{PrBaseInput, PrBehind};
 
     #[tokio::test]
     async fn the_overview_counts_each_git_branch_the_base_lead_and_the_worktree_state() {
@@ -491,8 +513,21 @@ mod tests {
         assert!(!dirty.worktree.unwrap().clean);
     }
 
+    fn base_input(stack: &StackFixture, number: i64, branch: &str, base: &str) -> PrBaseInput {
+        PrBaseInput {
+            number,
+            head_sha: stack.remote_tip(branch),
+            base_ref: base.to_string(),
+            base_sha: stack.remote_tip(base),
+        }
+    }
+
+    fn counts(behind: &[PrBehind]) -> Vec<(i64, Option<i64>)> {
+        behind.iter().map(|pr| (pr.number, pr.behind)).collect()
+    }
+
     #[tokio::test]
-    async fn the_inbox_learns_how_far_behind_its_base_each_stack_is() {
+    async fn a_pr_counts_the_commits_its_base_has_moved_on_by() {
         let Some(stack) = StackFixture::new().await else {
             return;
         };
@@ -501,12 +536,83 @@ mod tests {
 
         let behind = stack
             .desk()
-            .stacks_behind(vec![stack.input()])
+            .prs_behind(vec![
+                base_input(&stack, 412, "feat/driver", "main"),
+                base_input(&stack, 415, "feat/claude", "feat/driver"),
+            ])
             .await
             .unwrap();
 
-        assert_eq!(behind[0].number, stack.input().number);
-        assert_eq!(behind[0].behind, Some(2));
+        assert_eq!(counts(&behind), vec![(412, Some(2)), (415, Some(0))]);
+    }
+
+    #[tokio::test]
+    async fn a_push_to_the_pr_below_puts_the_one_above_behind_it() {
+        let Some(stack) = StackFixture::new().await else {
+            return;
+        };
+        // Not fetched here: the count has to fetch the new base tip.
+        stack.teammate_pushes(415, "feat/claude");
+
+        let behind = stack
+            .desk()
+            .prs_behind(vec![
+                base_input(&stack, 412, "feat/driver", "main"),
+                base_input(&stack, 415, "feat/claude", "feat/driver"),
+                base_input(&stack, 418, "feat/maki", "feat/claude"),
+            ])
+            .await
+            .unwrap();
+
+        assert_eq!(
+            counts(&behind),
+            vec![(412, Some(0)), (415, Some(0)), (418, Some(1))]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_head_that_is_not_here_is_fetched_before_counting() {
+        let Some(stack) = StackFixture::new().await else {
+            return;
+        };
+        let head = stack.teammate_pushes(412, "feat/driver");
+        stack.advance_main("one.rs", "one");
+
+        let behind = stack
+            .desk()
+            .prs_behind(vec![PrBaseInput {
+                number: 412,
+                head_sha: head,
+                base_ref: "main".to_string(),
+                base_sha: stack.remote_tip("main"),
+            }])
+            .await
+            .unwrap();
+
+        assert_eq!(counts(&behind), vec![(412, Some(1))]);
+    }
+
+    #[tokio::test]
+    async fn a_pr_whose_commits_cannot_be_fetched_is_unknown_not_an_error() {
+        let Some(stack) = StackFixture::new().await else {
+            return;
+        };
+
+        let behind = stack
+            .desk()
+            .prs_behind(vec![
+                PrBaseInput {
+                    number: 999,
+                    head_sha: "0123456789abcdef0123456789abcdef01234567".to_string(),
+                    base_ref: "main".to_string(),
+                    base_sha: stack.remote_tip("main"),
+                },
+                base_input(&stack, 412, "feat/driver", "main"),
+            ])
+            .await
+            .unwrap();
+
+        assert_eq!(counts(&behind), vec![(999, None), (412, Some(0))]);
     }
 
     #[tokio::test]

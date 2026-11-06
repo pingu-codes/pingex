@@ -17,6 +17,7 @@
   import type { Snippet } from "svelte";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
   import type { MenuEntry } from "$lib/components/actionMenu";
+  import { highlightedRows } from "$lib/review/diffHighlight";
   import LineComposer from "$lib/review/LineComposer.svelte";
   import type { CommentThread } from "$lib/review/review";
   import {
@@ -83,6 +84,8 @@
   } = $props();
 
   const rows = $derived(diffRows(file));
+  // Only read while the file is open, so collapsed files are never highlighted.
+  const highlighted = $derived(highlightedRows(file));
   const lineKeys = $derived(new Set(rows.flatMap((row) => (row.kind === "line" ? [`${row.side}:${row.number}`] : []))));
   const threadKey = (candidate: CommentThread) => `${candidate.side ?? "RIGHT"}:${candidate.line}`;
   const threadsByLine = $derived(groupBy(threads, threadKey));
@@ -210,6 +213,7 @@
           </div>
         {:else}
           {@const selected = inRange(mine, file.path, row.side, row.number)}
+          {@const html = highlighted?.get(row.key)}
           <div
             data-side={row.side}
             data-line={row.number}
@@ -239,7 +243,13 @@
               {/if}
             {/each}
             <span>{row.line.kind === "add" ? "+" : row.line.kind === "del" ? "−" : ""}</span>
-            <span>{row.line.content}</span>
+            <span
+              >{#if html !== undefined}
+                {@html html}
+              {:else}
+                {row.line.content}
+              {/if}</span
+            >
           </div>
 
           {#if mine && !composing && mine.side === row.side && mine.end === row.number}

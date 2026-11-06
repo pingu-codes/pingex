@@ -755,7 +755,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             review::commands::review_delete_draft,
             // Review desk: checkout steps and PR links on threads
             review::stack_commands::review_stack_overview,
-            review::stack_commands::review_stacks_behind,
+            review::stack_commands::review_prs_behind,
             review::stack_commands::review_restack_plan,
             review::stack_commands::review_restack,
             review::stack_commands::review_continue_restack,

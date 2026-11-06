@@ -1,13 +1,15 @@
 // The Stack page's commands for the browser preview and the Stack page
 // tests: each stack's lead over its base, its worktree and a restack that
 // stops once at a conflict (in `driver.rs` on the second git branch) before
-// it can continue. Reorder, fold and remove edit the desk's live stack
+// it can continue. #418 has drifted off #415's head, and my single #128 is
+// behind main. Reorder, fold and remove edit the desk's live stack
 // listing, so a re-synced inbox shows the new shape. `resetPreviewStacks`
 // puts everything back.
 
 import type {
   CommitLine,
   InboxPr,
+  PrBaseInput,
   RestackPlan,
   RestackProgress,
   StackInput,
@@ -20,6 +22,8 @@ import { deskLiveRepo } from "./desk";
 
 type FakeStack = {
   behind: number;
+  /** Open PRs no longer on the head of the PR below them. */
+  drifted: number[];
   worktree: StackWorktree | null;
   /** The first restack stops at a conflict on the second git branch. */
   conflictAhead: boolean;
@@ -39,12 +43,16 @@ function initial(number: number): FakeStack {
   return number === 7
     ? {
         behind: 3,
+        drifted: [418],
         worktree: { path: STACK_WORKTREE, branch: "feat/claude-driver", clean: true },
         conflictAhead: true,
         run: null,
       }
-    : { behind: 1, worktree: null, conflictAhead: false, run: null };
+    : { behind: 1, drifted: [], worktree: null, conflictAhead: false, run: null };
 }
+
+/** PRs in no stack that are behind their base, by number. */
+const SINGLES_BEHIND: Record<number, number> = { 128: 2 };
 
 const stacks = new Map<string, FakeStack>();
 let saved: Map<string, { prs: InboxPr[]; stacks: StackListing }> | null = null;
@@ -125,7 +133,7 @@ function plan(repoDir: string, input: StackInput, from: number | null): RestackP
           0,
           prs.findIndex((pr) => pr.number === from),
         );
-  const moving = entry.behind > 0 || from !== null;
+  const moving = entry.behind > 0 || entry.drifted.length > 0 || from !== null;
   const steps = prs.slice(start).map((pr, offset) => {
     const index = start + offset;
     return {
@@ -146,6 +154,27 @@ function plan(repoDir: string, input: StackInput, from: number | null): RestackP
   };
 }
 
+/** A bottom PR is as far behind as its stack; one above is 1 behind the PR
+ *  below when it has drifted. */
+function prBehind(repoDir: string, pr: PrBaseInput): number {
+  const stack = deskLiveRepo(repoDir).stacks.stacks.find(
+    (candidate) =>
+      candidate.open &&
+      candidate.prs.some((entry) => entry.number === pr.number && entry.state === "open" && !entry.merged),
+  );
+  if (!stack) return SINGLES_BEHIND[pr.number] ?? 0;
+  const entry = fake(repoDir, stack.number);
+  if (pr.baseRef === stack.baseRef) return entry.behind;
+  return entry.drifted.includes(pr.number) ? 1 : 0;
+}
+
+/** For tests: set how far stack `number` is behind, and which PRs drifted. */
+export function setPreviewStackDrift(repoDir: string, number: number, behind: number, drifted: number[]) {
+  const entry = fake(repoDir, number);
+  entry.behind = behind;
+  entry.drifted = [...drifted];
+}
+
 function finish(entry: FakeStack, run: RestackProgress): RestackProgress {
   for (const branch of run.branches) {
     if (branch.status === "waiting" || branch.status === "conflict") {
@@ -156,14 +185,14 @@ function finish(entry: FakeStack, run: RestackProgress): RestackProgress {
   run.done = true;
   entry.run = null;
   entry.behind = 0;
+  entry.drifted = [];
   entry.conflictAhead = false;
   return run;
 }
 
 export const previewStackCommands: PreviewCommands = {
   reviewStackOverview: (repoDir, input) => overview(repoDir, input),
-  reviewStacksBehind: (repoDir, inputs) =>
-    inputs.map((input) => ({ number: input.number, behind: fake(repoDir, input.number).behind })),
+  reviewPrsBehind: (repoDir, prs) => prs.map((pr) => ({ number: pr.number, behind: prBehind(repoDir, pr) })),
   reviewRestackPlan: (repoDir, input, from) => plan(repoDir, input, from),
   reviewRestack(repoDir, input, from) {
     const entry = fake(repoDir, input.number);

@@ -7,7 +7,7 @@ import { startStackReview } from "$lib/review/agentReviews.svelte";
 import { resetPrLinks } from "$lib/review/prLinks.svelte";
 import { commands } from "$lib/services/homeRouting";
 import { deskLiveRepo, resetDeskActivity } from "$lib/services/preview/desk";
-import { resetPreviewStacks } from "$lib/services/preview/stack";
+import { resetPreviewStacks, setPreviewStackDrift } from "$lib/services/preview/stack";
 import { resetFollowUps } from "$lib/stack/followUps.svelte";
 import StackPage from "$lib/stack/StackPage.svelte";
 
@@ -239,5 +239,17 @@ describe("Stack page", () => {
     } finally {
       stack.prs = saved;
     }
+  });
+});
+
+describe("a PR that no longer sits on the head of the one below", () => {
+  it("says so on its git branch, and the restack preview loads though the base has not moved", async () => {
+    setPreviewStackDrift(MAIN, 7, 0, [418]);
+    setup();
+
+    expect(await screen.findByText("The stack is on its tip")).toBeInTheDocument();
+    await waitFor(() => expect(within(node(418)).getByText("Behind #415")).toBeInTheDocument());
+    expect(within(node(415)).queryByText(/^Behind /)).not.toBeInTheDocument();
+    expect(await screen.findByText(/Restack rebases all 3 git branches/)).toBeInTheDocument();
   });
 });

@@ -6,7 +6,7 @@
 // top first.
 
 import type { MenuEntry } from "$lib/components/actionMenu";
-import type { Inbox, PrStack, StackInput, StackListing, WorktreeEntry } from "$lib/types";
+import type { Inbox, InboxPr, PrBaseInput, PrStack, StackInput, StackListing, WorktreeEntry } from "$lib/types";
 
 /** A stack's name: its bottom PR's git branch without an `owner/` prefix. */
 export function stackName(stack: PrStack): string {
@@ -149,6 +149,42 @@ export function followUpWorktrees(stacks: StackListing, worktrees: WorktreeEntry
 export function behindLabel(baseRef: string, behind: number | null | undefined): string | null {
   if (!behind || behind <= 0) return null;
   return `Behind ${baseRef} by ${behind}`;
+}
+
+/** A PR as `reviewPrsBehind` counts it: GitHub's head against GitHub's base
+ *  tip from the last sync. */
+export function baseInput(pr: Pick<InboxPr, "number" | "headSha" | "baseRef" | "baseSha">): PrBaseInput {
+  return { number: pr.number, headSha: pr.headSha, baseRef: pr.baseRef, baseSha: pr.baseSha };
+}
+
+/** The viewer's open PRs, the ones the inbox checks against their base. */
+export function myBaseInputs(inbox: Inbox): PrBaseInput[] {
+  return inbox.prs.filter((pr) => pr.author === inbox.viewer).map(baseInput);
+}
+
+/** The open PR whose git branch `pr` is based on, if it is one in `inbox`. */
+export function prBelow(pr: Pick<InboxPr, "number" | "baseRef">, inbox: Inbox | null | undefined): InboxPr | null {
+  if (!inbox) return null;
+  return (
+    inbox.prs.find(
+      (other) =>
+        other.number !== pr.number &&
+        other.headRef === pr.baseRef &&
+        (other.headRepo === null || other.headRepo === inbox.repo),
+    ) ?? null
+  );
+}
+
+/** "Behind main by 3", or "Behind #12" when the base is open PR #12's git
+ *  branch: there a count misleads, since a rewritten #12 inflates it. */
+export function driftLabel(
+  pr: Pick<InboxPr, "number" | "baseRef">,
+  behind: number | null | undefined,
+  inbox: Inbox | null | undefined,
+): string | null {
+  if (!behind || behind <= 0) return null;
+  const below = prBelow(pr, inbox);
+  return below ? `Behind #${below.number}` : behindLabel(pr.baseRef, behind);
 }
 
 /** The first message of a "Resolve in a thread" thread. */

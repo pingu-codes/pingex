@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { inboxSections, primaryAction, rangeSelection, sectionOrder, syncDelay, visibleRows } from "$lib/inbox/inbox";
+import {
+  inboxSections,
+  primaryAction,
+  rangeSelection,
+  sectionOrder,
+  stackPosition,
+  syncDelay,
+  visibleRows,
+} from "$lib/inbox/inbox";
 import { commands } from "$lib/services/homeRouting";
 import { resetDeskActivity } from "$lib/services/preview/desk";
 import type { Inbox, StackListing } from "$lib/types";
@@ -62,6 +70,32 @@ describe("the inbox sections", () => {
       expect(sections.some((section) => section.items.some((item) => item.kind === "stack"))).toBe(false);
       expect(sectionOrder(sections)).toHaveLength(rows.length);
     }
+  });
+});
+
+describe("a PR's place in its stack", () => {
+  const myStack = (rows: ReturnType<typeof visibleRows>) => {
+    const card = inboxSections(inbox, stacks, rows, true)[0].items[0];
+    if (card.kind !== "stack") throw new Error("expected my stack");
+    return card.group;
+  };
+
+  it("counts from the PR on the base, among the open PRs", () => {
+    const group = myStack(visibleRows(inbox, "everyone", NO_CHIPS, ""));
+    expect(group.rows.map((row) => stackPosition(group, row.pr.number))).toEqual([
+      { position: 1, total: 3 },
+      { position: 2, total: 3 },
+      { position: 3, total: 3 },
+    ]);
+    const merged = { ...group.stack.prs[0], number: 400, state: "closed", merged: true };
+    const withMerged = { ...group, stack: { ...group.stack, prs: [merged, ...group.stack.prs] } };
+    expect(stackPosition(withMerged, 412)).toEqual({ position: 1, total: 3 });
+  });
+
+  it("keeps a PR's number when a filter hides the PRs below it", () => {
+    const group = myStack(visibleRows(inbox, "everyone", { ...NO_CHIPS, ciFailing: true }, ""));
+    expect(group.rows.map((row) => row.pr.number)).toEqual([418]);
+    expect(stackPosition(group, 418)).toEqual({ position: 3, total: 3 });
   });
 });
 

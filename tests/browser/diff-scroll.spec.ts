@@ -20,12 +20,14 @@ async function openLargeDiff(page: Page, shape: string): Promise<Locator> {
 test.describe("render budget", () => {
   test("a diff line costs a handful of DOM nodes and no SVG", async ({ page }) => {
     const diffs = await openLargeDiff(page, MANY_FILES);
-    const { lines, nodes, svgs } = await diffs.evaluate((section) => {
+    const { lines, nodes, tokens, svgs } = await diffs.evaluate((section) => {
       const body = section.querySelector("[data-file] .ln")!.parentElement!;
       const rows = body.querySelectorAll(".ln");
+      const tokens = body.querySelectorAll('.ln [class^="hljs-"]').length;
       return {
         lines: rows.length,
-        nodes: body.querySelectorAll("*").length,
+        nodes: body.querySelectorAll("*").length - tokens,
+        tokens,
         svgs: body.querySelectorAll(".ln svg").length,
       };
     });
@@ -33,6 +35,9 @@ test.describe("render budget", () => {
     expect(svgs).toBe(0);
     // A row, two line numbers, the marker and the code.
     expect(nodes / lines).toBeLessThanOrEqual(6);
+    // The fixture is TypeScript, so its code is highlighted: a span per token.
+    expect(tokens).toBeGreaterThan(0);
+    expect(tokens / lines).toBeLessThanOrEqual(10);
   });
 
   test("files out of view skip rendering but keep their height", async ({ page }) => {

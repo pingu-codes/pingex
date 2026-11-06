@@ -273,3 +273,21 @@ describe("ReviewPage", () => {
     expect(within(yourReview()).getByRole("radio", { name: "Request changes" })).toBeInTheDocument();
   });
 });
+
+describe("the header's behind-the-base badge", () => {
+  it("names the PR below when the PR no longer sits on its head", async () => {
+    renderPage({ number: 418, inbox: deskInbox(repoDir) });
+    expect(await screen.findByText("Behind #415")).toBeInTheDocument();
+  });
+
+  it("counts the commits on main a single PR lacks", async () => {
+    renderPage({ number: 128, inbox: deskInbox(repoDir) });
+    expect(await screen.findByText("Behind main by 2")).toBeInTheDocument();
+  });
+
+  it("is absent when the PR is on its base's tip", async () => {
+    renderPage({ inbox: deskInbox(repoDir) });
+    await opened();
+    expect(screen.queryByText(/^Behind /)).not.toBeInTheDocument();
+  });
+});

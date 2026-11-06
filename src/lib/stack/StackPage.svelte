@@ -34,8 +34,10 @@
   import RestackDialog from "$lib/stack/RestackDialog.svelte";
   import SplitDialog from "$lib/stack/SplitDialog.svelte";
   import {
+    baseInput,
     branchMenu,
     conflictPrompt,
+    driftLabel,
     dropped,
     followUpKey,
     mergeFollowUp,
@@ -46,6 +48,7 @@
   import { toastError, toaster } from "$lib/toaster";
   import type {
     CheckoutTarget,
+    PrBehind,
     RestackPlan,
     RestackProgress,
     StackInput,
@@ -95,6 +98,15 @@
   /** Top first, the way the tree draws them. */
   const topDown = $derived([...openPrs].reverse());
   const prByNumber = $derived(new Map((inbox?.prs ?? []).map((pr) => [pr.number, pr])));
+  /** Each open PR as GitHub has it, for how far behind its base it is. */
+  const behindInputs = $derived(
+    openPrs.flatMap((pr) => {
+      const found = prByNumber.get(pr.number);
+      return found ? [baseInput(found)] : [];
+    }),
+  );
+  /** Commits each open PR's base has that GitHub's head lacks. */
+  let behind = $state<Map<number, number | null>>(new Map());
   const branchByNumber = $derived(new Map((overview?.branches ?? []).map((branch) => [branch.number, branch])));
   const totalCommits = $derived((overview?.branches ?? []).reduce((sum, branch) => sum + branch.commits, 0));
   const worktree = $derived(overview?.worktree ?? null);
@@ -130,11 +142,15 @@
   async function loadOverview() {
     if (!input) return;
     try {
-      applyOverview(await readFresh("reviewStackOverview", repoDir, input));
-      preview =
-        overview && overview.baseAhead > 0
-          ? await readFresh("reviewRestackPlan", repoDir, input, null).catch(() => null)
-          : null;
+      const [next, counts] = await Promise.all([
+        readFresh("reviewStackOverview", repoDir, input),
+        readFresh("reviewPrsBehind", repoDir, behindInputs).catch(() => []),
+      ]);
+      applyOverview(next);
+      behind = countsByNumber(counts);
+      preview = needsRestack(next, behind)
+        ? await readFresh("reviewRestackPlan", repoDir, input, null).catch(() => null)
+        : null;
       prefetchAround(selected);
     } catch (cause) {
       overviewError = errorMessage(cause);
@@ -147,7 +163,17 @@
     const cached = peekQuery("reviewStackOverview", repoDir, input);
     if (!cached) return;
     applyOverview(cached);
-    preview = cached.baseAhead > 0 ? (peekQuery("reviewRestackPlan", repoDir, input, null) ?? null) : null;
+    behind = countsByNumber(peekQuery("reviewPrsBehind", repoDir, behindInputs) ?? []);
+    preview = needsRestack(cached, behind) ? (peekQuery("reviewRestackPlan", repoDir, input, null) ?? null) : null;
+  }
+
+  function countsByNumber(counts: PrBehind[]): Map<number, number | null> {
+    return new Map(counts.map((row) => [row.number, row.behind]));
+  }
+
+  /** The base moved, or a PR no longer sits on the head of the one below. */
+  function needsRestack(next: StackOverview, counts: Map<number, number | null>): boolean {
+    return next.baseAhead > 0 || [...counts.values()].some((count) => (count ?? 0) > 0);
   }
 
   /** Warm the PRs either side of the selected one, so a branch click shows
@@ -550,6 +576,9 @@
 {#snippet node(pr: StackInputPr, index: number)}
   {@const inboxPr = prByNumber.get(pr.number)}
   {@const branch = branchByNumber.get(pr.number)}
+  <!-- The bottom PR's lead is the base row's "N commits ahead". -->
+  {@const drift =
+    inboxPr && inboxPr.baseRef !== input?.baseRef ? driftLabel(inboxPr, behind.get(pr.number), inbox) : null}
   {@const review = inboxPr ? reviewBadge(inboxPr) : null}
   {@const ci = inboxPr ? ciBadge(inboxPr) : null}
   {@const threads = threadsOn(pr.number)}
@@ -560,7 +589,10 @@
       <div
         class="stack-ring {inboxPr ? RING_CLASS[stateTone(inboxPr)] : RING_CLASS.surface}"
         class:border-dashed={inboxPr?.isDraft}
-      ></div>
+        title="{openPrs.length - index} of {openPrs.length} in the stack"
+      >
+        {openPrs.length - index}
+      </div>
     </div>
     <div class="mb-2.5 flex min-w-0 grow flex-col">
       {#if dropTarget === pr.number && dropHint}
@@ -623,6 +655,9 @@
               {/if}
               {#if branch?.unpushed}
                 <span>·</span><span class="text-warning-600-400">Not pushed</span>
+              {/if}
+              {#if drift}
+                <span>·</span><span class="text-warning-600-400">{drift}</span>
               {/if}
             </div>
             {#if view === "commits" && branch}
@@ -873,7 +908,7 @@
                   <span class="text-surface-500">The stack is on its tip</span>
                 {/if}
               </div>
-              {#if overview && overview.baseCommits.length > 0}
+              {#if overview && (overview.baseCommits.length > 0 || preview)}
                 <div class="panel-card flex flex-col gap-1.5 bg-surface-50-950 px-3 py-2.5">
                   {#each overview.baseCommits as commit (commit.sha)}
                     <div class="flex gap-2">
