@@ -13,6 +13,7 @@ vi.mock("$lib/services/homeRouting", async (importOriginal) => {
       ...actual.commands,
       reviewReply: vi.fn(actual.commands.reviewReply),
       reviewSubmitPendingReview: vi.fn(actual.commands.reviewSubmitPendingReview),
+      reviewPrDetail: vi.fn(actual.commands.reviewPrDetail),
     },
   };
 });
@@ -34,9 +35,33 @@ beforeEach(() => {
   resetDeskReviewState();
   vi.mocked(commands.reviewReply).mockClear();
   vi.mocked(commands.reviewSubmitPendingReview).mockClear();
+  vi.mocked(commands.reviewPrDetail).mockClear();
 });
 
 describe("ReviewPage", () => {
+  it("a remount shows the PR from the cache at once, without reading it again", async () => {
+    const first = renderPage();
+    await opened();
+    first.unmount();
+
+    renderPage();
+    expect(screen.getByRole("heading", { name: "Retry the app-server handshake" })).toBeInTheDocument();
+    await screen.findByText(/Viewed \d of 2/);
+    expect(commands.reviewPrDetail).toHaveBeenCalledOnce();
+  });
+
+  it("re-reads the PR after a reply, through the write's invalidation", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await opened();
+    vi.mocked(commands.reviewPrDetail).mockClear();
+    const thread = screen.getByRole("group", { name: "Thread on src/lib/loader.ts:4" });
+    await user.type(within(thread).getByRole("textbox", { name: "Reply" }), "Thanks");
+    await user.click(within(thread).getByRole("button", { name: "Reply now" }));
+    await waitFor(() => expect(commands.reviewReply).toHaveBeenCalledOnce());
+    await waitFor(() => expect(commands.reviewPrDetail).toHaveBeenCalledOnce());
+  });
+
   it("collapses a viewed file and keeps it viewed across a remount", async () => {
     const user = userEvent.setup();
     const first = renderPage();

@@ -28,6 +28,7 @@
   import ReviewView from "$lib/review/ReviewView.svelte";
   import { startThreadWithTurn } from "$lib/services/api";
   import { commands } from "$lib/services/homeRouting";
+  import { peekQuery, prefetch, readFresh } from "$lib/services/queryCache.svelte";
   import BranchNameDialog from "$lib/stack/BranchNameDialog.svelte";
   import { followUps, putOffFollowUp } from "$lib/stack/followUps.svelte";
   import RestackDialog from "$lib/stack/RestackDialog.svelte";
@@ -115,20 +116,46 @@
     toastError(errorMessage(cause));
   }
 
+  function applyOverview(next: StackOverview) {
+    overview = next;
+    overviewError = null;
+    // A finished restack stays up, offering Push stack, until dismissed.
+    progress = next.restack ?? (progress?.done ? progress : null);
+    selected ??= openPrs.find((pr) => pr.headRef === next.worktree?.branch)?.number ?? openPrs.at(-1)?.number ?? null;
+  }
+
+  /** Read the overview (and the restack preview when the base moved). Both
+   *  are cached: a write through `commands` marks them stale, so after one
+   *  this waits for a new read. */
   async function loadOverview() {
     if (!input) return;
     try {
-      overview = await commands.reviewStackOverview(repoDir, input);
-      overviewError = null;
-      // A finished restack stays up, offering Push stack, until dismissed.
-      progress = overview.restack ?? (progress?.done ? progress : null);
-      selected ??=
-        openPrs.find((pr) => pr.headRef === overview?.worktree?.branch)?.number ?? openPrs.at(-1)?.number ?? null;
+      applyOverview(await readFresh("reviewStackOverview", repoDir, input));
       preview =
-        overview.baseAhead > 0 ? await commands.reviewRestackPlan(repoDir, input, null).catch(() => null) : null;
+        overview && overview.baseAhead > 0
+          ? await readFresh("reviewRestackPlan", repoDir, input, null).catch(() => null)
+          : null;
+      prefetchAround(selected);
     } catch (cause) {
       overviewError = errorMessage(cause);
     }
+  }
+
+  /** The cached overview, shown before the re-read lands. */
+  function showCached() {
+    if (!input) return;
+    const cached = peekQuery("reviewStackOverview", repoDir, input);
+    if (!cached) return;
+    applyOverview(cached);
+    preview = cached.baseAhead > 0 ? (peekQuery("reviewRestackPlan", repoDir, input, null) ?? null) : null;
+  }
+
+  /** Warm the PRs either side of the selected one, so a branch click shows
+   *  its review at once. */
+  function prefetchAround(number: number | null) {
+    const at = openPrs.findIndex((pr) => pr.number === number);
+    if (at === -1) return;
+    for (const pr of [openPrs[at - 1], openPrs[at + 1]]) if (pr) prefetch("reviewPrDetail", repoDir, pr.number);
   }
 
   /** Re-read GitHub's stack and the inbox, then what is on disk. */
@@ -139,6 +166,7 @@
 
   onMount(() => {
     void ensurePrLinks();
+    showCached();
     const loading = inboxes[repoDir]?.inbox ? loadOverview() : refresh();
     if (restackOnOpen) void loading.then(() => (progress ? undefined : restack()));
   });
@@ -557,7 +585,10 @@
             ondragover={(event) => onDragOver(event, pr.number)}
             ondrop={(event) => onDrop(event, pr.number)}
             ondragend={onDragEnd}
-            onclick={() => (selected = pr.number)}
+            onclick={() => {
+              selected = pr.number;
+              prefetchAround(pr.number);
+            }}
           >
             <div class="flex items-center gap-2">
               <span class="min-w-0 truncate font-mono text-[11px]" class:font-semibold={checkedOut} title={pr.headRef}

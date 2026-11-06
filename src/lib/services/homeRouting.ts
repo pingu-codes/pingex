@@ -2,6 +2,7 @@ import { SvelteMap } from "svelte/reactivity";
 import { hostKey, hostLabel, sameHost } from "$lib/app/host";
 import type { BootstrapData, HomeSnapshot, Host, ProfileBootstrap, UsageScope } from "$lib/bindings";
 import { commandArguments, commands as nativeCommands } from "$lib/bindings";
+import { emitCommandSettled } from "$lib/services/commandEvents";
 import { isTauri } from "$lib/services/tauri";
 
 const PREFIX = "pingex:";
@@ -673,15 +674,22 @@ export const commands: typeof nativeCommands = new Proxy(nativeCommands, {
   get(target, property: string) {
     const method = target[property as keyof typeof target];
     if (typeof method !== "function") return method;
-    if (!isTauri()) return (...args: unknown[]) => previewCommand(property, args);
     const names: readonly string[] = commandArguments[property as keyof typeof commandArguments] ?? [];
+    // Settled git and review commands are announced so the query cache can
+    // drop what a mutation made stale (`queryCache.svelte.ts`).
+    const announced = property.startsWith("git") || property.startsWith("review");
+    const announce = <T>(args: unknown[], result: T | Promise<T>): Promise<T> => {
+      const settled = Promise.resolve(result);
+      return announced ? settled.finally(() => emitCommandSettled({ name: property, args, names })) : settled;
+    };
+    if (!isTauri()) return (...args: unknown[]) => announce(args, previewCommand(property, args));
     if (!names.includes("window")) return method;
     return async (...args: unknown[]) => {
       const call: Call = { name: property, method: method as Call["method"], args, names };
       if (property === "bootstrap") return loadProfile(true);
       if (windowCommands.has(property)) return routeWindowCommand(call);
-      if (!profile) return invoke(call);
-      return (routers[property as CommandName] ?? routeToOwner)(call);
+      if (!profile) return announce(args, invoke(call));
+      return announce(args, (routers[property as CommandName] ?? routeToOwner)(call));
     };
   },
 });

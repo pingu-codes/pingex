@@ -2,7 +2,7 @@
   import { ArrowLeft, FileDiff } from "@lucide/svelte";
   import { untrack } from "svelte";
   import RefreshIcon from "$lib/components/RefreshIcon.svelte";
-  import { commands } from "$lib/services/homeRouting";
+  import { fetchQuery, invalidate } from "$lib/services/queryCache.svelte";
   import type { ChangedFile, ChangesSummary, FileDiff as FileDiffData } from "$lib/types";
   import { fileIconFor } from "$lib/utils/fileIcons";
   import { highlightDiff } from "$lib/utils/markdown";
@@ -36,19 +36,12 @@
   let selected = $state<string | null>(null);
   let visibleCount = $state(PAGE);
   let forceLarge = $state(false);
-  const cache = new Map<string, FileDiffData>();
   // Only the newest request lands, cached or not: a slow patch for a file the
-  // user has moved past never replaces the one on screen.
+  // user has moved past never replaces the one on screen. Patches come from
+  // the shared query cache, so reopening the panel does not read them again.
   const fileDiff = resource(
-    async (file: ChangedFile, base: string, maxBytes: number): Promise<FileDiffData | null> => {
-      const key = `${base}:${file.path}:${maxBytes}`;
-      const cached = cache.get(key);
-      if (cached) return cached;
-      const result = await commands.gitFileDiff(cwd, base, file.path, file.status === "untracked", maxBytes);
-      if (cache.size > 50) cache.delete(cache.keys().next().value as string);
-      cache.set(key, result);
-      return result;
-    },
+    (file: ChangedFile, base: string, maxBytes: number): Promise<FileDiffData | null> =>
+      fetchQuery("gitFileDiff", cwd, base, file.path, file.status === "untracked", maxBytes),
     { initial: null },
   );
   const diff = $derived(fileDiff.value);
@@ -66,10 +59,13 @@
     selected = focusPath ?? null;
   });
 
-  // New summary (refresh after a turn) invalidates cached patches.
+  // A new summary (a refresh, a finished turn) makes the patches stale; the
+  // first one this panel shows is as current as the patches cached with it.
+  let firstSummary = true;
   $effect(() => {
     summary;
-    cache.clear();
+    if (!firstSummary) untrack(() => invalidate({ names: ["gitFileDiff"], repo: cwd }));
+    firstSummary = false;
     const current = untrack(() => selected);
     if (current) void load(current, DEFAULT_BYTES);
   });

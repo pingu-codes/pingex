@@ -19,17 +19,15 @@
     Unlock,
   } from "@lucide/svelte";
   import { Menu, Portal } from "@skeletonlabs/skeleton-svelte";
-  import { onMount } from "svelte";
   import { openDialog } from "$lib/app/dialogs.svelte";
   import RefreshIcon from "$lib/components/RefreshIcon.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import { gitWorktreeAdd } from "$lib/services/api";
-  import { type CodexEvent, setThreadHandler } from "$lib/services/codexEvents.svelte";
   import { commands } from "$lib/services/homeRouting";
+  import { query } from "$lib/services/queryCache.svelte";
   import HandoffToLocalDialog from "$lib/thread/HandoffToLocalDialog.svelte";
   import type { GitRepoInfo, Project, WorktreeBranchRequest, WorktreeEntry } from "$lib/types";
   import { submitState } from "$lib/utils/actionState.svelte";
-  import { errorMessage } from "$lib/utils/errors";
   import CreateWorktreeDialog from "$lib/worktrees/CreateWorktreeDialog.svelte";
   import { refreshGitStatus } from "$lib/worktrees/gitStatus.svelte";
   import RemoveWorktreeDialog from "$lib/worktrees/RemoveWorktreeDialog.svelte";
@@ -62,10 +60,14 @@
     onRenameProject?: (path: string) => void;
   } = $props();
 
-  let entries = $state<WorktreeEntry[]>([]);
-  let repoInfo = $state<GitRepoInfo | null>(null);
-  let loading = $state(true);
-  let error = $state<string | null>(null);
+  // Cached: reopening the project shows its worktrees at once. A git
+  // mutation, window focus or a finished turn marks them stale.
+  const worktreesQuery = query("gitWorktrees", () => [repoDir]);
+  const infoQuery = query("gitRepoInfo", () => [repoDir]);
+  const entries = $derived<WorktreeEntry[]>(worktreesQuery.value ?? []);
+  const repoInfo = $derived<GitRepoInfo | null>(infoQuery.value ?? null);
+  const loading = $derived(worktreesQuery.loading || infoQuery.loading);
+  const error = $derived(worktreesQuery.error ?? infoQuery.error);
   /** Menu actions; they may overlap and share one error banner. */
   const actions = submitState({ exclusive: false });
 
@@ -74,27 +76,10 @@
   const linkedCards = $derived(cards.filter((card) => !card.entry.isMain));
   const hasStale = $derived(entries.some((entry) => entry.prunable || entry.missingDir));
 
+  /** Read both again, joining the reads an action's own mutation started. */
   async function load() {
-    loading = true;
-    error = null;
-    try {
-      const [worktrees, info] = await Promise.all([commands.gitWorktrees(repoDir), commands.gitRepoInfo(repoDir)]);
-      entries = worktrees;
-      repoInfo = info;
-    } catch (cause) {
-      error = errorMessage(cause);
-    } finally {
-      loading = false;
-    }
+    await Promise.all([worktreesQuery.reload(), infoQuery.reload()]);
   }
-
-  onMount(() => {
-    load();
-    // Refresh after a completed agent turn (bounded — no continuous polling).
-    return setThreadHandler((event: CodexEvent) => {
-      if (event.method === "turn/completed") load();
-    });
-  });
 
   async function runAction(fn: () => Promise<unknown>) {
     await actions.run(async () => {

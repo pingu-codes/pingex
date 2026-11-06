@@ -12,7 +12,7 @@
 <script lang="ts">
   import { Check, ChevronLeft, Ellipsis, Keyboard, PanelRight } from "@lucide/svelte";
   import { Avatar } from "@skeletonlabs/skeleton-svelte";
-  import { onMount, type Snippet } from "svelte";
+  import { type Snippet, untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { dialogStack, openDialog } from "$lib/app/dialogs.svelte";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
@@ -49,6 +49,7 @@
   import WholeFileDialog from "$lib/review/WholeFileDialog.svelte";
   import YourReview from "$lib/review/YourReview.svelte";
   import { commands } from "$lib/services/homeRouting";
+  import { prefetch, query } from "$lib/services/queryCache.svelte";
   import type {
     ChangesSince,
     CheckLog,
@@ -116,8 +117,12 @@
     worktree: "bg-success-500",
   };
 
-  let detail = $state<PrDetail | null>(null);
-  let error = $state<string | null>(null);
+  // Cached: a remount (j/k, back from a thread, a branch click on the Stack
+  // page) shows the PR at once and refreshes it behind. A write through
+  // `commands` marks it stale, which re-reads it.
+  const detailQuery = query("reviewPrDetail", () => [repoDir, number]);
+  const detail = $derived<PrDetail | null>(detailQuery.value ?? null);
+  const error = $derived(detail ? null : detailQuery.error);
   let tab = $state<Tab>("files");
   let filter = $state<ReviewFilter>("all");
   const collapsed = new SvelteSet<string>();
@@ -151,34 +156,47 @@
   const unresolvedCount = $derived(threads.filter((thread) => !thread.resolved).length);
   const stale = $derived(!!detail && !!pending.headSha && pending.headSha !== detail.headSha);
 
-  async function load() {
-    error = null;
-    try {
-      const next = await commands.reviewPrDetail(repoDir, number);
-      detail = next;
+  let reviewStateLoaded = false;
+
+  // Each time the detail lands (first read, a refresh, after a write).
+  $effect(() => {
+    const next = detail;
+    if (!next) return;
+    untrack(() => {
       onDetail?.(next);
       currentPath ??= next.files[0]?.path ?? null;
-      if (!pending.loaded) await pending.load(next.headSha);
-      const marked = await commands.reviewViewedFiles(repoDir, number, next.files.map(fileBlob)).catch(() => []);
-      viewed.clear();
-      for (const path of marked) {
-        viewed.add(path);
-        collapsed.add(path);
-      }
-    } catch (cause) {
-      error = errorMessage(cause);
+      if (reviewStateLoaded) return;
+      reviewStateLoaded = true;
+      void loadReviewState(next);
+      prefetchNext();
+    });
+  });
+
+  /** The stored pending review and the viewed marks, read side by side. */
+  async function loadReviewState(next: PrDetail) {
+    const [, marked] = await Promise.all([
+      pending.loaded ? Promise.resolve() : pending.load(next.headSha),
+      commands.reviewViewedFiles(repoDir, number, next.files.map(fileBlob)).catch(() => []),
+    ]);
+    viewed.clear();
+    for (const path of marked) {
+      viewed.add(path);
+      collapsed.add(path);
     }
   }
 
-  onMount(load);
+  /** Warm the next PR in the queue, so j/k opens it at once. Only one: each
+   *  read is several GitHub calls. */
+  function prefetchNext() {
+    const next = queueNeighbour(queue, number, 1);
+    if (next) prefetch("reviewPrDetail", repoDir, next.number);
+  }
 
-  /** Re-read the PR after a write, keeping what the reviewer had open. */
+  /** Re-read the PR after a write, keeping what the reviewer had open. The
+   *  write already marked it stale, so this joins that read. */
   async function reload() {
-    try {
-      detail = await commands.reviewPrDetail(repoDir, number);
-    } catch (cause) {
-      action.error = errorMessage(cause);
-    }
+    await detailQuery.reload();
+    if (detailQuery.error) action.error = detailQuery.error;
   }
 
   // --- files ---------------------------------------------------------------

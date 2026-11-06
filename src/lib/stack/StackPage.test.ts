@@ -21,6 +21,7 @@ vi.mock("$lib/services/homeRouting", async (importOriginal) => {
       reviewAbortRestack: vi.fn(actual.commands.reviewAbortRestack),
       reviewReorderStack: vi.fn(actual.commands.reviewReorderStack),
       reviewPushStack: vi.fn(actual.commands.reviewPushStack),
+      reviewPrDetail: vi.fn(actual.commands.reviewPrDetail),
     },
   };
 });
@@ -82,6 +83,18 @@ describe("Stack page", () => {
     expect(within(worktree).getByText("Clean")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "driver-trait" })).toBeInTheDocument();
     expect(screen.getByText(/3 PRs · 14 commits/)).toBeInTheDocument();
+  });
+
+  it("warms the PRs either side of the selected one, so a click shows its review from the cache", async () => {
+    const user = setup();
+    await loaded();
+    const readsOf = (number: number) =>
+      vi.mocked(commands.reviewPrDetail).mock.calls.filter(([, read]) => read === number).length;
+    await waitFor(() => expect(readsOf(418)).toBe(1));
+
+    await user.click(node(418));
+    await screen.findByRole("heading", { name: "maki over ACP" });
+    expect(readsOf(418)).toBe(1);
   });
 
   it("previews the restack, stops at the conflict, and Abort puts everything back", async () => {

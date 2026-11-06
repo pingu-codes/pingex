@@ -77,6 +77,14 @@ only for display. Tests build repositories with `git::test_repo::TestRepo`
 and parse recorded GitHub JSON from `tests/fixtures/github/`. Rationale and
 the write-side design: `docs/adr/0004-git-and-github-io.md`.
 
+Frontend git and GitHub reads that pages repeat go through
+`src/lib/services/queryCache.svelte.ts` (`query` in components,
+`fetchQuery`/`readFresh` elsewhere). A new cached read needs a row in
+`READS`. Mutations invalidate through the `commands` proxy, so a write that
+touches only the profile database belongs in `NARROW`. Backend caches use
+`util::ttl_cache::TtlCache` and always expire. They hold only SHA-keyed or
+run-stable answers, never mutable git state.
+
 ## Working efficiently
 
 Cost in this repo is context size times turn count, and the 1M-context model

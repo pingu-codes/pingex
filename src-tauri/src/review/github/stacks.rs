@@ -5,11 +5,11 @@
 //! Observed on a repository with stacks (Nov 2026): `pull_requests` runs
 //! bottom first; a merged PR stays in the list (`merged_at` set) and the PR
 //! above it is retargeted onto the stack's base. A repository without the
-//! feature answers 404, which is cached so it is asked once per run.
+//! feature answers 404, which is cached for an hour.
 
-use std::collections::HashSet;
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
+use std::sync::LazyLock;
+use std::time::Duration;
 
 use serde_json::Value;
 
@@ -18,24 +18,22 @@ use super::reads::merge_paginated_arrays;
 use super::run::{redact_gh_error, run_gh, READ_TIMEOUT};
 use crate::review::types::{PrStack, StackListing, StackPr};
 use crate::util::host::Host;
+use crate::util::ttl_cache::TtlCache;
 
-/// Repositories that answered 404 for stacks this run, by `owner/name`.
-fn unsupported() -> &'static Mutex<HashSet<String>> {
-    static UNSUPPORTED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-    UNSUPPORTED.get_or_init(Default::default)
-}
+/// Repositories that answered 404 for stacks in the last hour, by
+/// `owner/name`, so a repository that gains the feature is asked again.
+static UNSUPPORTED: LazyLock<TtlCache<String, ()>> =
+    LazyLock::new(|| TtlCache::new(Duration::from_secs(60 * 60), 256));
 
 pub(crate) fn list_stacks(host: &Host, dir: &Path, slug: &str) -> Result<StackListing, String> {
-    if unsupported().lock().is_ok_and(|repos| repos.contains(slug)) {
+    if UNSUPPORTED.get(&slug.to_string()).is_some() {
         return Ok(StackListing::default());
     }
     let endpoint = format!("repos/{slug}/stacks");
     let output = run_gh(host, dir, &["api", "--paginate", &endpoint], READ_TIMEOUT)?;
     if !output.ok {
         if output.stderr.contains("HTTP 404") {
-            if let Ok(mut repos) = unsupported().lock() {
-                repos.insert(slug.to_string());
-            }
+            UNSUPPORTED.insert(slug.to_string(), ());
             return Ok(StackListing::default());
         }
         return Err(redact_gh_error(

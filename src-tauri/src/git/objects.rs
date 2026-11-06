@@ -14,12 +14,15 @@
 //! repository's common-dir lock. Rationale: `docs/adr/0004-git-and-github-io.md`.
 
 use std::path::Path;
+use std::sync::LazyLock;
+use std::time::Duration;
 
 use super::run::{
     common_dir_of, lock_for_common_dir, run_git, run_git_capped, run_git_network,
     run_git_with_input, READ_TIMEOUT,
 };
 use crate::util::host::Host;
+use crate::util::ttl_cache::TtlCache;
 
 /// Where Pingex keeps a repository's PR refs. Outside `refs/heads` and
 /// `refs/remotes`, so they never show as branches, and never pushed.
@@ -232,7 +235,32 @@ pub(crate) struct Patch {
     pub(crate) truncated: bool,
 }
 
+/// How long an answer keyed only by SHAs is kept. It can never change, so the
+/// limit only bounds memory and keeps a long session from pinning old diffs.
+const SHA_CACHE_AGE: Duration = Duration::from_secs(30 * 60);
+
+type ShaKey = (Host, String, String);
+
+/// Patches by repository and git arguments. Every caller passes full SHAs
+/// only (`require_sha`), so the arguments name an answer that never changes.
+static PATCHES: LazyLock<TtlCache<ShaKey, Patch>> =
+    LazyLock::new(|| TtlCache::weighted(SHA_CACHE_AGE, 256, 24 * 1024 * 1024));
+
+/// Blobs by repository and `sha:path`.
+static BLOBS: LazyLock<TtlCache<ShaKey, Blob>> =
+    LazyLock::new(|| TtlCache::weighted(SHA_CACHE_AGE, 512, 16 * 1024 * 1024));
+
 fn read_patch(host: &Host, repo: &Path, args: &[&str]) -> Result<Patch, String> {
+    let key = (host.clone(), host.path_string(repo), args.join("\0"));
+    if let Some(patch) = PATCHES.get(&key) {
+        return Ok(patch);
+    }
+    let patch = read_patch_uncached(host, repo, args)?;
+    PATCHES.insert_weighted(key, patch.clone(), patch.text.len());
+    Ok(patch)
+}
+
+fn read_patch_uncached(host: &Host, repo: &Path, args: &[&str]) -> Result<Patch, String> {
     let output = run_git_capped(host, repo, args, MAX_READ_BYTES)?;
     if !output.ok && !output.truncated {
         return Err("Those commits are not in this repository yet".to_string());
@@ -324,12 +352,23 @@ pub(crate) fn read_blob(host: &Host, repo: &Path, sha: &str, path: &str) -> Resu
         return Err("Expected a path inside the repository".to_string());
     }
     let spec = format!("{sha}:{path}");
-    let size = run_git(host, repo, &["cat-file", "-s", &spec], READ_TIMEOUT)?;
+    let key = (host.clone(), host.path_string(repo), spec.clone());
+    if let Some(blob) = BLOBS.get(&key) {
+        return Ok(blob);
+    }
+    let blob = read_blob_uncached(host, repo, &spec)?;
+    let weight = blob.text.as_ref().map_or(0, String::len);
+    BLOBS.insert_weighted(key, blob.clone(), weight);
+    Ok(blob)
+}
+
+fn read_blob_uncached(host: &Host, repo: &Path, spec: &str) -> Result<Blob, String> {
+    let size = run_git(host, repo, &["cat-file", "-s", spec], READ_TIMEOUT)?;
     if !size.ok {
         return Err("That file is not in this commit".to_string());
     }
     let size: u64 = size.stdout.trim().parse().unwrap_or(0);
-    let output = run_git_capped(host, repo, &["cat-file", "blob", &spec], MAX_READ_BYTES)?;
+    let output = run_git_capped(host, repo, &["cat-file", "blob", spec], MAX_READ_BYTES)?;
     if !output.ok && !output.truncated {
         return Err("That file is not in this commit".to_string());
     }

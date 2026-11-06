@@ -12,26 +12,16 @@
   import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
   import CompareCommitsDialog from "$lib/review/CompareCommitsDialog.svelte";
   import { commands } from "$lib/services/homeRouting";
+  import { query } from "$lib/services/queryCache.svelte";
   import { toastError, toaster } from "$lib/toaster";
   import type { BranchProgress, PrLink } from "$lib/types";
   import { errorMessage } from "$lib/utils/errors";
 
   let { link }: { link: PrLink } = $props();
 
-  let progress = $state<BranchProgress | null>(null);
-
-  async function refresh() {
-    try {
-      progress = await commands.reviewBranchProgress(link.threadId);
-    } catch {
-      progress = null;
-    }
-  }
-
-  $effect(() => {
-    void link.threadId;
-    void refresh();
-  });
+  // Cached per thread; a git mutation, focus or a finished turn re-reads it.
+  const progressQuery = query("reviewBranchProgress", () => [link.threadId]);
+  const progress = $derived<BranchProgress | null>(progressQuery.error ? null : (progressQuery.value ?? null));
 
   const start = $derived(link.startSha ?? "");
   const short = (sha: string | null | undefined) => (sha ?? "").slice(0, 7);
@@ -66,7 +56,7 @@
       if (id === "start" || id === "tip") {
         await commands.reviewCheckOutThreadCommit(link.threadId, id === "start");
         toaster.success({ title: id === "start" ? `Checked out ${short(start)}` : `Checked out ${link.gitBranch}` });
-        await refresh();
+        await progressQuery.reload();
       } else if (id === "compare" && progress?.tipSha) {
         await openDialog(CompareCommitsDialog, { repoDir: link.repoKey, base: start, head: progress.tipSha });
       } else if (id === "copyBranch" && link.gitBranch) {

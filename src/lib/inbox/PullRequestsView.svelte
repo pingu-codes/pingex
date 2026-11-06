@@ -42,9 +42,10 @@
   import { rerunOnNewCommits, reviewTarget } from "$lib/review/agentReviews.svelte";
   import CompareCommitsDialog from "$lib/review/CompareCommitsDialog.svelte";
   import { commands } from "$lib/services/homeRouting";
+  import { query } from "$lib/services/queryCache.svelte";
   import { stackInputFor } from "$lib/stack/stack";
   import { toastError } from "$lib/toaster";
-  import type { InboxPr } from "$lib/types";
+  import type { InboxPr, StackInput } from "$lib/types";
   import { errorMessage } from "$lib/utils/errors";
   import { ensureWorktrees, worktreeMap } from "$lib/worktrees/worktreeMap.svelte";
   import { threadCountForPath } from "$lib/worktrees/worktrees";
@@ -106,25 +107,22 @@
     })),
   );
   // How far behind its base each of my stacks is ("Behind main by 3").
-  let behind = $state<Record<number, number | null>>({});
-  $effect(() => {
+  // Cached, so coming back to the inbox does not run the stack git work again.
+  const behindArgs = $derived.by((): [string, StackInput[]] | null => {
     const current = inbox;
     const listing = stacks;
-    if (!current || !listing.supported) return;
+    if (!current || !listing.supported) return null;
     const authorOf = new Map(current.prs.map((pr) => [pr.number, pr.author]));
     const mine = listing.stacks.filter(
       (stack) =>
         stack.open && stack.prs.some((pr) => pr.state === "open" && authorOf.get(pr.number) === current.viewer),
     );
-    if (mine.length === 0) return;
-    void commands
-      .reviewStacksBehind(
-        repoPath,
-        mine.map((stack) => stackInputFor(stack, current)),
-      )
-      .then((rows) => (behind = Object.fromEntries((rows ?? []).map((row) => [row.number, row.behind]))))
-      .catch(() => {});
+    return mine.length > 0 ? [repoPath, mine.map((stack) => stackInputFor(stack, current))] : null;
   });
+  const behindQuery = query("reviewStacksBehind", () => behindArgs);
+  const behind = $derived<Record<number, number | null>>(
+    Object.fromEntries((behindQuery.value ?? []).map((row) => [row.number, row.behind])),
+  );
 
   function compareBase(group: StackGroup) {
     if (!inbox) return;

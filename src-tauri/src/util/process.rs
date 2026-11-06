@@ -99,6 +99,35 @@ impl<'a> Run<'a> {
 }
 
 pub fn run(spec: Run<'_>) -> Result<CommandOutput, RunError> {
+    if !trace_io() {
+        return run_child(spec);
+    }
+    let started = Instant::now();
+    let (program, args) = (spec.program, spec.args);
+    let result = run_child(spec);
+    // What git and gh calls cost, for measuring the caches.
+    let shown: Vec<&str> = args
+        .iter()
+        .copied()
+        .filter(|arg| !arg.starts_with("-c") && !arg.contains('='))
+        .take(4)
+        .collect();
+    eprintln!(
+        "[io] {program} {} {}ms{}",
+        shown.join(" "),
+        started.elapsed().as_millis(),
+        if result.is_ok() { "" } else { " (failed)" }
+    );
+    result
+}
+
+/// `PINGEX_TRACE_IO=1` logs every child process with its duration to stderr.
+fn trace_io() -> bool {
+    static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *TRACE.get_or_init(|| std::env::var_os("PINGEX_TRACE_IO").is_some_and(|value| value == "1"))
+}
+
+fn run_child(spec: Run<'_>) -> Result<CommandOutput, RunError> {
     let mut command = spec
         .host
         .command(spec.program, spec.args, Some(spec.dir), spec.env, &[]);
@@ -134,7 +163,8 @@ pub fn run(spec: Run<'_>) -> Result<CommandOutput, RunError> {
         .take()
         .map(|pipe| drain(pipe, None, Arc::new(AtomicBool::new(false))));
 
-    let deadline = Instant::now() + spec.timeout;
+    let started = Instant::now();
+    let deadline = started + spec.timeout;
     let mut truncated = false;
     let status = loop {
         match child.try_wait() {
@@ -148,7 +178,14 @@ pub fn run(spec: Run<'_>) -> Result<CommandOutput, RunError> {
                 break None;
             }
             Ok(None) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(10));
+                // Most git reads finish in a few milliseconds: poll finely at
+                // first so each one does not pay a fixed 10 ms.
+                let pause = if started.elapsed() < Duration::from_millis(50) {
+                    1
+                } else {
+                    10
+                };
+                std::thread::sleep(Duration::from_millis(pause));
             }
             Ok(None) => {
                 // Best-effort kill so a runaway child does not linger. The

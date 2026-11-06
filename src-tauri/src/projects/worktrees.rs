@@ -8,8 +8,11 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
+use std::time::Duration;
 
 use crate::util::host::Host;
+use crate::util::ttl_cache::TtlCache;
 use crate::RuntimeConfig;
 
 /// Every worktree Codex has created under this home, permanent and temporary.
@@ -62,28 +65,35 @@ fn path_under(host: &Host, root: &str, path: &str) -> bool {
     }
 }
 
-/// `Host::canonical` remembered per path. On WSL each lookup is a `wsl.exe`
-/// spawn, and bootstrap classifies every project against two roots on every
-/// refresh. Where a project path or a Codex home resolves to does not change
-/// while the app runs (a moved symlink is picked up on restart).
+/// How long a resolved path or a worktree's main working tree is remembered.
+/// Neither normally changes while the app runs; the limit picks up a moved
+/// symlink or a re-created repository within the hour.
+const PATH_CACHE_AGE: Duration = Duration::from_secs(60 * 60);
+
+static CANONICAL: LazyLock<TtlCache<(Host, String), String>> =
+    LazyLock::new(|| TtlCache::new(PATH_CACHE_AGE, 2048));
+
+/// `Host::canonical`, remembered per path on WSL, where each lookup is a
+/// `wsl.exe` spawn and bootstrap classifies every project against two roots
+/// on every refresh. Native lookups are a local syscall and are not cached.
+pub(crate) fn canonical_cached(host: &Host, path: &str) -> String {
+    match host {
+        Host::Native => host.canonical(path),
+        Host::Wsl { .. } => wsl_canonical_cached(host, path),
+    }
+}
+
 fn wsl_canonical_cached(host: &Host, path: &str) -> String {
-    type Key = (Host, String);
-    static CANONICAL: std::sync::OnceLock<
-        std::sync::Mutex<std::collections::HashMap<Key, String>>,
-    > = std::sync::OnceLock::new();
-    let cache = CANONICAL.get_or_init(Default::default);
     let key = (host.clone(), path.to_string());
-    if let Some(hit) = cache.lock().ok().and_then(|map| map.get(&key).cloned()) {
+    if let Some(hit) = CANONICAL.get(&key) {
         return hit;
     }
     // Only a real answer is remembered: the lexical stand-in for a distro
-    // that did not respond would otherwise stick for the life of the app.
+    // that did not respond would otherwise stick.
     let Some(resolved) = host.wsl_resolve(path) else {
         return crate::util::host::normalise_posix(path);
     };
-    if let Ok(mut map) = cache.lock() {
-        map.insert(key, resolved.clone());
-    }
+    CANONICAL.insert(key, resolved.clone());
     resolved
 }
 
@@ -182,21 +192,16 @@ pub fn worktree_parent_project(worktree: &str) -> Option<String> {
 /// [`worktree_parent_project`] on `host`. A worktree's main working tree
 /// never changes, and bootstrap asks for every discovered worktree on every
 /// refresh (each a `git` spawn, through `wsl.exe` on WSL), so found answers
-/// are remembered for the life of the process.
+/// are remembered for an hour.
 pub(crate) fn worktree_parent_project_on(host: &Host, worktree: &str) -> Option<String> {
-    type Key = (Host, String);
-    static PARENTS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<Key, String>>> =
-        std::sync::OnceLock::new();
-    let parents = PARENTS.get_or_init(Default::default);
+    static PARENTS: LazyLock<TtlCache<(Host, String), String>> =
+        LazyLock::new(|| TtlCache::new(PATH_CACHE_AGE, 1024));
     let key = (host.clone(), worktree.to_string());
-    let cached = parents.lock().ok().and_then(|map| map.get(&key).cloned());
-    if let Some(parent) = cached.filter(|parent| host.is_dir(parent)) {
+    if let Some(parent) = PARENTS.get(&key).filter(|parent| host.is_dir(parent)) {
         return Some(parent);
     }
     let parent = read_worktree_parent(host, worktree)?;
-    if let Ok(mut map) = parents.lock() {
-        map.insert(key, parent.clone());
-    }
+    PARENTS.insert(key, parent.clone());
     Some(parent)
 }
 

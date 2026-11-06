@@ -10,6 +10,7 @@
   import { stepUpFor } from "$lib/review/checkoutSteps";
   import { changeStat, fileChange, reviewPrompt } from "$lib/review/review";
   import { commands } from "$lib/services/homeRouting";
+  import { fetchQuery, invalidate } from "$lib/services/queryCache.svelte";
   import { toastError } from "$lib/toaster";
   import type { CheckoutStep, CheckoutTarget, PrDetail, PrFile, ProviderStatus, PrSummary } from "$lib/types";
   import { errorMessage } from "$lib/utils/errors";
@@ -64,7 +65,7 @@
   }
 
   async function readStep(detail: PrDetail) {
-    const checkout = await commands.reviewCheckoutState(repoDir, targetOf(detail)).catch(() => null);
+    const checkout = await fetchQuery("reviewCheckoutState", repoDir, targetOf(detail)).catch(() => null);
     checkoutStep = checkout?.step ?? "noCheckout";
   }
 
@@ -78,13 +79,16 @@
     else await commands.openInZed(checkout.path).catch((cause) => toastError(errorMessage(cause)));
   }
 
-  async function loadProvider() {
+  /** The picker's data. Cached, so going back to the list is instant; the
+   *  Refresh and Try again buttons read again. */
+  async function loadProvider(refresh = false) {
     loading = true;
     error = null;
     try {
-      provider = await commands.reviewProviderStatus(repoDir);
+      if (refresh) invalidate({ names: ["reviewProviderStatus", "reviewListPrs"], repo: repoDir });
+      provider = await fetchQuery("reviewProviderStatus", repoDir);
       if (provider.installed && provider.authenticated) {
-        prs = await commands.reviewListPrs(repoDir);
+        prs = await fetchQuery("reviewListPrs", repoDir);
       }
     } catch (cause) {
       error = errorMessage(cause);
@@ -93,7 +97,12 @@
     }
   }
 
-  onMount(loadProvider);
+  // Opened straight onto a PR, the list is never shown: read it only when
+  // the reviewer goes back to it.
+  onMount(() => {
+    if (mode === "picker") void loadProvider();
+    else loading = false;
+  });
 
   function openPr(number: number) {
     prNumber = number;
@@ -123,6 +132,7 @@
     prNumber = null;
     localFiles = [];
     selectedPath = null;
+    if (!provider) void loadProvider();
   }
 </script>
 
@@ -157,7 +167,7 @@
       </div>
       <TooltipButton
         label="Refresh"
-        onclick={mode === "local" ? openLocal : loadProvider}
+        onclick={mode === "local" ? openLocal : () => loadProvider(true)}
         aria-label="Refresh"
         class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
       >
@@ -180,7 +190,7 @@
             {provider.installed ? "GitHub CLI not signed in" : "GitHub CLI not found"}
           </div>
           <p class="mt-1 text-xs leading-5 text-surface-500">{provider.message}</p>
-          <button onclick={loadProvider} class="btn btn-sm mt-3 preset-tonal-primary">Try again</button>
+          <button onclick={() => loadProvider(true)} class="btn btn-sm mt-3 preset-tonal-primary">Try again</button>
         </div>
       </div>
     {:else if mode === "picker"}

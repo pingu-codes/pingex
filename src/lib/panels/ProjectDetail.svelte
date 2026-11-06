@@ -27,6 +27,7 @@
   import IntegrationsSection from "$lib/integrations/IntegrationsSection.svelte";
   import ReviewRules from "$lib/review/ReviewRules.svelte";
   import { commands } from "$lib/services/homeRouting";
+  import { peekQuery, readFresh } from "$lib/services/queryCache.svelte";
   import { isTauri } from "$lib/services/tauri";
   import type { GitContext, Project, ProjectSource, WorkspaceSearchResults } from "$lib/types";
   import UsageSummary from "$lib/usage/UsageSummary.svelte";
@@ -83,13 +84,17 @@
   const repoDir = $derived(isLinked && context?.parentPath ? context.parentPath : project.path);
   const status = $derived(gitStatusCache.byPath[project.path] ?? null);
 
+  /** The Git and Worktrees tabs wait for this, so a cached one is shown at
+   *  once and refreshed behind. */
   async function loadContext() {
     if (isMultiProject) return;
+    const cached = peekQuery("gitContext", project.path);
+    if (cached) context = cached;
     try {
-      context = await commands.gitContext(project.path);
+      context = await readFresh("gitContext", project.path);
       contextError = null;
     } catch (cause) {
-      contextError = errorMessage(cause);
+      if (!cached) contextError = errorMessage(cause);
     }
   }
 

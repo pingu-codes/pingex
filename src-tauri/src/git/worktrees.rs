@@ -9,7 +9,8 @@ use std::path::Path;
 
 use super::run::{run_git, READ_TIMEOUT};
 use super::status::read_status;
-use super::types::WorktreeEntry;
+use super::types::{GitStatus, WorktreeEntry};
+use crate::projects::worktrees::canonical_cached;
 use crate::util::host::Host;
 
 /// One raw record from the porcelain listing, before enrichment.
@@ -82,18 +83,33 @@ fn parse_worktree_list(stdout: &str) -> Vec<RawWorktree> {
     entries
 }
 
-/// Canonical-path identity: which Codex-home worktree root a worktree lives
-/// under, `worktrees` (permanent) or `worktrees-tmp` (temporary), if either.
-/// Falls back to a lexical check when the path cannot be canonicalized (e.g.
-/// missing dir).
-fn codex_worktree_root(host: &Host, path: &str, codex_home: &Path) -> Option<&'static str> {
+/// The Codex home's two worktree roots, `worktrees` (permanent) and
+/// `worktrees-tmp` (temporary), canonicalized once per listing.
+fn codex_worktree_roots(host: &Host, codex_home: &Path) -> [(&'static str, String); 2] {
     let home = host.path_string(codex_home);
-    let path = host.canonical(path);
-    ["worktrees", "worktrees-tmp"].into_iter().find(|dir| {
-        let root = host.canonical(&host.join_str(&home, dir));
-        host.is_under(&root, &path)
-    })
+    ["worktrees", "worktrees-tmp"]
+        .map(|dir| (dir, canonical_cached(host, &host.join_str(&home, dir))))
 }
+
+/// Canonical-path identity: which Codex-home worktree root a worktree lives
+/// under, if either. Falls back to a lexical check when the path cannot be
+/// canonicalized (e.g. missing dir).
+fn codex_worktree_root(
+    host: &Host,
+    path: &str,
+    roots: &[(&'static str, String); 2],
+) -> Option<&'static str> {
+    let path = canonical_cached(host, path);
+    roots
+        .iter()
+        .find(|(_, root)| host.is_under(root, &path))
+        .map(|(dir, _)| *dir)
+}
+
+/// How many worktree statuses run at once. Each is a full untracked scan (a
+/// `wsl.exe` spawn on WSL), so a repository with many worktrees is read in
+/// parallel without starting them all together.
+const STATUS_PARALLELISM: usize = 4;
 
 /// Every worktree's path and checked-out git branch, without the status
 /// reads `read_worktrees` adds.
@@ -140,14 +156,43 @@ pub(crate) fn read_worktrees(
         }
     }
 
+    let roots = codex_worktree_roots(host, codex_home);
+    let missing: Vec<bool> = raw.iter().map(|item| !host.is_dir(&item.path)).collect();
+    let mut statuses: Vec<Option<Result<GitStatus, String>>> = Vec::with_capacity(raw.len());
+    for chunk in raw
+        .iter()
+        .zip(&missing)
+        .collect::<Vec<_>>()
+        .chunks(STATUS_PARALLELISM)
+    {
+        let read = std::thread::scope(|scope| {
+            let handles: Vec<_> = chunk
+                .iter()
+                .map(|(item, missing)| {
+                    let readable = !**missing && !item.prunable;
+                    scope.spawn(move || readable.then(|| read_status(host, Path::new(&item.path))))
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| {
+                    handle
+                        .join()
+                        .unwrap_or_else(|_| Some(Err("status panicked".to_string())))
+                })
+                .collect::<Vec<_>>()
+        });
+        statuses.extend(read);
+    }
+
     let mut entries = Vec::with_capacity(raw.len());
-    for (index, item) in raw.into_iter().enumerate() {
-        let missing_dir = !host.is_dir(&item.path);
+    for (index, (item, status_read)) in raw.into_iter().zip(statuses).enumerate() {
+        let missing_dir = missing[index];
         let branch_checked_out_elsewhere = item
             .branch
             .as_deref()
             .is_some_and(|branch| branch_counts.get(branch).copied().unwrap_or(0) > 1);
-        let root = codex_worktree_root(host, &item.path, codex_home);
+        let root = codex_worktree_root(host, &item.path, &roots);
         let is_review_checkout =
             item.lock_reason.as_deref() == Some(super::checkouts::REVIEW_CHECKOUT_LOCK);
 
@@ -161,7 +206,7 @@ pub(crate) fn read_worktrees(
             state = Some("missingDir".to_string());
         } else if item.prunable {
             state = Some("prunable".to_string());
-        } else if let Ok(snapshot) = read_status(host, Path::new(&item.path)) {
+        } else if let Some(Ok(snapshot)) = status_read {
             ahead = snapshot.ahead;
             behind = snapshot.behind;
             upstream = snapshot.upstream;
@@ -251,7 +296,8 @@ mod tests {
     fn codex_managed_identity_uses_worktrees_prefix_not_name() {
         let home = PathBuf::from("/home/.codex");
         let host = Host::Native;
-        let root = |path: &str| codex_worktree_root(&host, path, &home);
+        let roots = codex_worktree_roots(&host, &home);
+        let root = |path: &str| codex_worktree_root(&host, path, &roots);
         // A path literally under <home>/worktrees is managed and permanent.
         assert_eq!(
             root("/home/.codex/worktrees/0357/feature"),

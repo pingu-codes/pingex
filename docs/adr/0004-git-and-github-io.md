@@ -17,8 +17,10 @@ call. We decided four things.
    diff, file and "changes since" read after that names commits by SHA
    (`src-tauri/src/git/objects.rs`). Nothing is checked out and no branch is
    created. A SHA never changes what it points at, so a result can be cached
-   forever, and a force-push shows up as a new SHA rather than a silently
-   different answer. The Seen head is pinned at
+   for as long as memory allows, and a force-push shows up as a new SHA
+   rather than a silently different answer. Patches, blobs and inbox
+   commit counts are cached for 30 minutes (`util/ttl_cache.rs`); every
+   backend cache expires, even one whose answer cannot change. The Seen head is pinned at
    `refs/pingex/pr/<n>/seen/<sha>`, so its commits survive the force-push
    and `git gc`, and "changes since" can still compare against it. That
    comparison is a plain diff when the Seen head is an ancestor of the new
@@ -42,10 +44,10 @@ call. We decided four things.
    byte cap that kills the child (`run_git_capped`).
 
 3. **GitHub goes through `gh`, and reads are GraphQL pages Pingex walks
-   itself** (`gh_graphql` in `src-tauri/src/review/gh.rs`). gh stays the
+   itself** (`gh_graphql` in `src-tauri/src/review/github/run.rs`). gh stays the
    only holder of the token: a WSL Home uses the distribution's own gh and
    login, and Pingex never stores a credential.
-   - The inbox is one query per repository (`src-tauri/src/review/inbox.rs`),
+   - The inbox is one query per repository (`src-tauri/src/review/github/inbox.rs`),
      25 PRs a page and at most 8 pages, each page with its own timeout. We
      page ourselves rather than use `gh --paginate` so a huge repository
      cannot turn one sync into an unbounded read.
@@ -59,12 +61,12 @@ call. We decided four things.
    - Reviews are always posted with `commit_id`, the head the reviewer read.
 
 4. **Stacks are GitHub's native stacks** (`GET repos/{o}/{r}/stacks`,
-   `src-tauri/src/review/stacks.rs`), not inferred from base branches.
+   `src-tauri/src/review/github/stacks.rs`), not inferred from base branches.
    - The listing runs bottom first. A merged PR stays in it, and the PR
      above that one is retargeted onto the stack's base; this was observed
      on a real repository.
-   - A repository that answers 404 has no stacks, which is cached for the
-     run.
+   - A repository that answers 404 has no stacks, which is cached for an
+     hour.
    - Native stacks only cover stacks made with GitHub's tooling, and that
      was accepted. Inferring from base chains would also catch hand-made
      chains, but it guesses, and it cannot tell a stack from two unrelated

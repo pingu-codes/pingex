@@ -351,7 +351,7 @@ pub(crate) async fn git_changes_summary(
     let ctx = state.ctx(&window);
     let runtime = ctx.runtime();
     tauri::async_runtime::spawn_blocking(move || {
-        read_changes_summary(&runtime.host, Path::new(&dir), &runtime.codex_home)
+        read_changes_summary(&runtime.host, Path::new(&dir))
     })
     .await
     .map_err(|_| "Git inspection failed".to_string())?
@@ -399,7 +399,6 @@ pub(crate) async fn git_worktree_handoff_preflight(
             &runtime.host,
             Path::new(&worktree_path),
             Path::new(&target_dir),
-            &runtime.codex_home,
         )
     })
     .await
@@ -431,7 +430,6 @@ pub(crate) async fn git_worktree_handoff(
             &runtime.host,
             Path::new(&worktree_path),
             &target,
-            &runtime.codex_home,
             commit_uncommitted,
             branch_name.as_deref(),
         )

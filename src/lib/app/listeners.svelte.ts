@@ -14,6 +14,7 @@ import { messageLog } from "$lib/layout/messageLogPrefs.svelte";
 import { setThreadHandler, startCodexListeners } from "$lib/services/codexEvents.svelte";
 import { startConnectionsWatch } from "$lib/services/connections.svelte";
 import { belongsToProfile, identity, scopedId, setHomeSelection } from "$lib/services/homeRouting";
+import { invalidate } from "$lib/services/queryCache.svelte";
 import { isTauri } from "$lib/services/tauri";
 import { toastError } from "$lib/toaster";
 import type { HandoffOpen } from "$lib/types";
@@ -45,10 +46,15 @@ export function startApp(): void {
   // Advanced → message log preference.
   void messageLog.start();
   // Branches are usually switched in a terminal; refresh every cached repo's
-  // git status when the user comes back to this window.
-  window.addEventListener("focus", () => refreshAllGitStatus());
+  // git status, and whatever local git state is on screen, when the user
+  // comes back to this window.
+  const onReturn = () => {
+    refreshAllGitStatus();
+    invalidate({ kinds: ["local"] });
+  };
+  window.addEventListener("focus", onReturn);
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") refreshAllGitStatus();
+    if (document.visibilityState === "visible") onReturn();
   });
 
   // Threads can be created or renamed outside this window (e.g. from a paired
@@ -57,8 +63,10 @@ export function startApp(): void {
   setThreadHandler((event) => {
     // Refresh the active repo's branch chip after a completed agent turn — an
     // explicit, one-shot refresh rather than continuous polling.
-    if (event.method === "turn/completed" && view.projectPath) {
-      refreshGitStatus(view.projectPath);
+    // The agent may have edited, committed or switched branches anywhere.
+    if (event.method === "turn/completed") {
+      if (view.projectPath) refreshGitStatus(view.projectPath);
+      invalidate({ kinds: ["local"] });
     }
     // turn/completed also refreshes the sidebar: a brand-new thread only becomes
     // visible to thread/list once its rollout is persisted, which happens after

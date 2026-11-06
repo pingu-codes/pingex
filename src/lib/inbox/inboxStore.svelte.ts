@@ -6,6 +6,7 @@
 
 import { syncDelay } from "$lib/inbox/inbox";
 import { reloadPrLinks } from "$lib/review/prLinks.svelte";
+import { argNamed, onCommandSettled } from "$lib/services/commandEvents";
 import { commands } from "$lib/services/homeRouting";
 import type { Inbox, StackListing } from "$lib/types";
 import { errorMessage } from "$lib/utils/errors";
@@ -26,11 +27,16 @@ function entry(repoDir: string): RepoInbox {
   return inboxes[repoDir];
 }
 
+/** When each repository's latest sync started, so a sync after a write is
+ *  skipped when the writer already synced. */
+const syncStartedAt = new Map<string, number>();
+
 /** Sync one repository's inbox and its stacks. */
 export async function syncInbox(repoDir: string): Promise<void> {
   const state = entry(repoDir);
   if (state.syncing) return;
   state.syncing = true;
+  syncStartedAt.set(repoDir, Date.now());
   try {
     const [inbox, stacks] = await Promise.all([
       commands.reviewInbox(repoDir),
@@ -117,3 +123,48 @@ export function startInboxSync(repoDirs: () => string[]): () => void {
     window.removeEventListener("blur", onBlur);
   };
 }
+
+/** Writes that change what the inbox shows: a review, a merge, a retarget,
+ *  a stack edit. Pingex syncs after each so the inbox and the sidebar's
+ *  "need you" badges never lag behind what the user just did. */
+const GITHUB_WRITES = new Set<string>([
+  "reviewSubmit",
+  "reviewSubmitPendingReview",
+  "reviewMerge",
+  "reviewClose",
+  "reviewRetarget",
+  "reviewMarkReady",
+  "reviewReply",
+  "reviewResolveThread",
+  "reviewCreatePr",
+  "reviewPushStack",
+  "reviewReorderStack",
+  "reviewRemoveFromStack",
+  "reviewAddStackBranch",
+  "reviewRenameStackBranch",
+  "reviewFoldIntoParent",
+  "reviewSplitBranch",
+  "reviewDeleteMergedBranches",
+]);
+
+/** How long after a write to sync, so a burst of writes syncs once. */
+const SYNC_AFTER_WRITE_MS = 750;
+
+const pendingSyncs = new Map<string, ReturnType<typeof setTimeout>>();
+
+onCommandSettled((command) => {
+  if (!GITHUB_WRITES.has(command.name)) return;
+  const repoDir = argNamed(command, "repoDir");
+  if (typeof repoDir !== "string" || !inboxes[repoDir]) return;
+  const wroteAt = Date.now();
+  clearTimeout(pendingSyncs.get(repoDir));
+  pendingSyncs.set(
+    repoDir,
+    setTimeout(() => {
+      pendingSyncs.delete(repoDir);
+      // The page that wrote may have synced already (the Stack page does).
+      if ((syncStartedAt.get(repoDir) ?? 0) >= wroteAt) return;
+      void syncInbox(repoDir);
+    }, SYNC_AFTER_WRITE_MS),
+  );
+});

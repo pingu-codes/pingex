@@ -6,6 +6,7 @@
   import DialogShell from "$lib/components/DialogShell.svelte";
   import Segmented from "$lib/components/Segmented.svelte";
   import { commands } from "$lib/services/homeRouting";
+  import { fetchQuery, readFresh } from "$lib/services/queryCache.svelte";
   import type { GitBranch as Branch } from "$lib/types";
   import { submitState } from "$lib/utils/actionState.svelte";
   import { resource } from "$lib/utils/resource.svelte";
@@ -23,7 +24,7 @@
     close: DialogClose<string>;
   } = $props();
 
-  const listing = resource(() => commands.gitBranches(dir, null), {
+  const listing = resource(() => fetchQuery("gitBranches", dir, null), {
     describe: (cause) => parseGitError(cause).message,
   });
   const branches = $derived<Branch[]>(listing.value ?? []);
@@ -70,7 +71,7 @@
       const created = await action.run(() => commands.gitCreateBranch(dir, name, remoteName, false));
       if (!created) return;
       // A failed re-read keeps the list as it was.
-      listing.set(await commands.gitBranches(dir, null).catch(() => branches));
+      listing.set(await readFresh("gitBranches", dir, null).catch(() => branches));
     }
     await switchTo(name, false);
   }

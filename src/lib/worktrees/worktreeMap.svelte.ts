@@ -1,11 +1,15 @@
-import { commands } from "$lib/services/homeRouting";
+import { argNamed, onCommandSettled } from "$lib/services/commandEvents";
+import { fetchQuery, invalidate, touchesLocal } from "$lib/services/queryCache.svelte";
 import type { WorktreeEntry } from "$lib/types";
 import { trimSlash } from "$lib/utils/path";
+import { PATH_ARGUMENTS } from "$lib/worktrees/gitStatus.svelte";
 
 /**
  * `git worktree list` per repository, fetched only while the sidebar nests
  * worktrees. A non-git folder caches an empty list so it is asked once.
- * Nothing here polls: the sidebar asks again when its project list changes.
+ * Nothing here polls: the sidebar asks again when its project list changes,
+ * and a git or review mutation in one of a repository's worktrees re-reads
+ * that repository. Reads go through the query cache, so callers share one.
  */
 export const worktreeMap = $state<{
   byRepo: Record<string, WorktreeEntry[]>;
@@ -13,20 +17,26 @@ export const worktreeMap = $state<{
   unaddedParents: Record<string, string>;
 }>({ byRepo: {}, unaddedParents: {} });
 
-const loading = new Set<string>();
+const loading = new Map<string, Promise<void>>();
 const fetchedAt = new Map<string, number>();
 
-async function refresh(repo: string): Promise<void> {
-  if (loading.has(repo)) return;
-  loading.add(repo);
-  try {
-    worktreeMap.byRepo[repo] = await commands.gitWorktrees(repo);
-  } catch {
-    worktreeMap.byRepo[repo] = [];
-  } finally {
-    loading.delete(repo);
-    fetchedAt.set(repo, Date.now());
-  }
+/** Read `repo`'s listing, joining a read already running. The cache waits
+ *  out a read that a mutation made stale, so a joined read is current. */
+function refresh(repo: string): Promise<void> {
+  const running = loading.get(repo);
+  if (running) return running;
+  const next = (async () => {
+    try {
+      worktreeMap.byRepo[repo] = await fetchQuery("gitWorktrees", repo);
+    } catch {
+      worktreeMap.byRepo[repo] = [];
+    } finally {
+      loading.delete(repo);
+      fetchedAt.set(repo, Date.now());
+    }
+  })();
+  loading.set(repo, next);
+  return next;
 }
 
 /** Fetch every repository not seen within `maxAgeMs`. */
@@ -53,3 +63,24 @@ export function resetWorktreeMap(): void {
   worktreeMap.unaddedParents = {};
   fetchedAt.clear();
 }
+
+/** The listed repositories a mutation on `path` could have changed: the
+ *  repository itself, or the one listing `path` as a worktree. */
+function reposTouching(path: string): string[] {
+  return Object.entries(worktreeMap.byRepo).flatMap(([repo, entries]) =>
+    repo === path || entries.some((entry) => entry.path === path) ? [repo] : [],
+  );
+}
+
+onCommandSettled((command) => {
+  if (!touchesLocal(command.name)) return;
+  const repos = new Set<string>();
+  for (const name of PATH_ARGUMENTS) {
+    const path = argNamed(command, name);
+    if (typeof path === "string") for (const repo of reposTouching(path)) repos.add(repo);
+  }
+  for (const repo of repos) {
+    invalidate({ names: ["gitWorktrees"], repo });
+    void refresh(repo);
+  }
+});

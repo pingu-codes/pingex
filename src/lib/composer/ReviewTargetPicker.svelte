@@ -15,7 +15,7 @@
     type ReviewMode,
     type ReviewModeOption,
   } from "$lib/composer/reviewTargets";
-  import { commands } from "$lib/services/homeRouting";
+  import { fetchQuery } from "$lib/services/queryCache.svelte";
   import type { GitBranch, GitCommit, ReviewTarget } from "$lib/types";
   import { errorMessage } from "$lib/utils/errors";
 
@@ -59,8 +59,8 @@
 
   async function load(mode: ReviewMode) {
     try {
-      if (mode === "baseBranch") branches = await commands.gitBranches(cwd, null);
-      else commits = await commands.gitRecentCommits(cwd, 50);
+      if (mode === "baseBranch") branches = await fetchQuery("gitBranches", cwd, null);
+      else commits = await fetchQuery("gitRecentCommits", cwd, 50);
     } catch (cause) {
       loadError = errorMessage(cause);
     }

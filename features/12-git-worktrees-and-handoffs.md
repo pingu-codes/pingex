@@ -13,7 +13,7 @@ This is materially short of a desktop workflow: a user can see that a worktree e
 Provide a repository-level **Worktrees** view and lightweight worktree information on every project card:
 
 - List the main checkout and every linked worktree from `git worktree list --porcelain`, including path, branch or detached revision, HEAD, lock/prune state, and whether it is a Codex-managed permanent worktree.
-- Show ahead/behind counts, concise working-tree status, and the active thread count for each worktree. Refresh explicitly and after a completed agent turn; do not poll expensive repository commands continuously.
+- Show ahead/behind counts, concise working-tree status, and the active thread count for each worktree. Refresh explicitly and after a completed agent turn; do not poll expensive repository commands continuously. Reads go through the frontend query cache (`services/queryCache.svelte.ts`), so reopening a view shows the last answer at once while it re-reads; a git mutation, window focus or a finished turn marks local reads stale.
 - Create a worktree from an existing local branch, a new branch, or a selected base revision. The default location for agent-created worktrees is the current Codex-home worktree convention, while manually managed worktrees retain the user-selected location.
 - Open a worktree in the app, Finder, or configured IDE; create a new thread with that exact directory as its `cwd`.
 - Permit rename, lock, prune, and remove only after showing the affected branch, dirty state, and linked threads. Removal must never delete an uncommitted worktree without an explicit typed confirmation; offer `git worktree remove` and `git worktree prune` separately.

@@ -6,6 +6,8 @@
 //! base and head git branches.
 
 use std::collections::HashMap;
+use std::sync::LazyLock;
+use std::time::Duration;
 
 use super::{ReviewDesk, PROVIDER};
 use crate::git::{objects, run::READ_TIMEOUT, run_git};
@@ -14,6 +16,14 @@ use crate::review::types::{
     Inbox, InboxCounts, InboxEvent, InboxPr, NeedsMe, PrTriage, StackListing,
 };
 use crate::storage::{self, SeenPr};
+use crate::util::host::Host;
+use crate::util::ttl_cache::TtlCache;
+
+/// `rev-list --count since..head` by repository and range. Both ends are full
+/// SHAs, so the count never changes; each inbox sync would otherwise run one
+/// `git` per PR the viewer has reviewed.
+static COMMIT_COUNTS: LazyLock<TtlCache<(Host, String, String), i64>> =
+    LazyLock::new(|| TtlCache::new(Duration::from_secs(30 * 60), 1024));
 
 /// Why `pr` needs `viewer`, if it does. `my_review_head` is the commit of
 /// the viewer's latest review, when known.
@@ -58,6 +68,14 @@ impl ReviewDesk {
             objects::require_sha(head).ok()?,
         );
         let range = format!("{since}..{head}");
+        let key = (
+            self.host.clone(),
+            self.host.path_string(self.dir()),
+            range.clone(),
+        );
+        if let Some(count) = COMMIT_COUNTS.get(&key) {
+            return Some(count);
+        }
         let output = run_git(
             &self.host,
             self.dir(),
@@ -68,7 +86,9 @@ impl ReviewDesk {
         if !output.ok {
             return None;
         }
-        output.stdout.trim().parse().ok()
+        let count = output.stdout.trim().parse().ok()?;
+        COMMIT_COUNTS.insert(key, count);
+        Some(count)
     }
 
     /// Classify every PR for `viewer`. Runs git, so call it on a blocking

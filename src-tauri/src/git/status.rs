@@ -158,6 +158,27 @@ pub(crate) fn read_status(host: &Host, dir: &Path) -> Result<GitStatus, String> 
     })
 }
 
+/// The branch headers alone. Skipping the untracked scan is what makes this
+/// cheaper than `read_status`, which walks every untracked file.
+fn read_branch(host: &Host, dir: &Path) -> Result<BranchInfo, String> {
+    let output = run_git(
+        host,
+        dir,
+        &[
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "--untracked-files=no",
+            "-z",
+        ],
+        READ_TIMEOUT,
+    )?;
+    if !output.ok {
+        return Err("Could not read Git status for this directory".to_string());
+    }
+    Ok(parse_branch_headers(&output.stdout))
+}
+
 pub(crate) fn read_repo_info(host: &Host, dir: &Path) -> GitRepoInfo {
     let dir_str = host.path_string(dir);
     let mut info = GitRepoInfo {
@@ -204,12 +225,12 @@ pub(crate) fn read_repo_info(host: &Host, dir: &Path) -> GitRepoInfo {
     let common_dir = lines.next().map(str::to_string).filter(|s| !s.is_empty());
     info.common_dir = common_dir.clone();
 
-    if let Ok(status) = read_status(host, dir) {
-        info.branch = status.branch;
-        info.detached = status.detached;
-        info.upstream = status.upstream;
-        info.ahead = status.ahead;
-        info.behind = status.behind;
+    if let Ok(branch) = read_branch(host, dir) {
+        info.branch = branch.branch;
+        info.detached = branch.detached;
+        info.upstream = branch.upstream;
+        info.ahead = branch.ahead;
+        info.behind = branch.behind;
     }
     if let Some(common) = common_dir {
         info.in_progress = detect_in_progress(&host.to_local(&common));

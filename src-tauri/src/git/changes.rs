@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use super::run::{redact_git_error, run_git, run_git_capped, READ_TIMEOUT, WRITE_TIMEOUT};
 use super::status::read_status;
-use super::worktrees::read_worktrees;
+use super::worktrees::worktree_branches;
 use crate::util::host::Host;
 
 pub(crate) const MAX_CHANGED_FILES: usize = 2000;
@@ -65,17 +65,21 @@ fn same_dir(host: &Host, a: &Path, b: &str) -> bool {
 
 /// Resolve what to diff against: for a linked worktree, the merge-base with
 /// the main worktree's branch; otherwise `HEAD`.
-pub(crate) fn resolve_base(host: &Host, dir: &Path, codex_home: &Path) -> (String, Option<String>) {
+/// Reads only `git worktree list` (the main worktree is its first entry), not
+/// every worktree's status.
+pub(crate) fn resolve_base(host: &Host, dir: &Path) -> (String, Option<String>) {
     let head = || ("HEAD".to_string(), None);
-    let Ok(entries) = read_worktrees(host, dir, codex_home) else {
+    let Ok(entries) = worktree_branches(host, dir) else {
         return head();
     };
-    let main = entries.iter().find(|entry| entry.is_main);
-    let is_main = main.map(|m| same_dir(host, dir, &m.path)).unwrap_or(true);
+    let main = entries.first();
+    let is_main = main
+        .map(|(path, _)| same_dir(host, dir, path))
+        .unwrap_or(true);
     if is_main {
         return head();
     }
-    let Some(parent) = main.and_then(|entry| entry.branch.clone()) else {
+    let Some(parent) = main.and_then(|(_, branch)| branch.clone()) else {
         return head();
     };
     match run_git(host, dir, &["merge-base", "HEAD", &parent], READ_TIMEOUT) {
@@ -169,12 +173,8 @@ fn read_untracked(host: &Host, dir: &Path) -> Vec<String> {
         .collect()
 }
 
-pub(crate) fn read_changes_summary(
-    host: &Host,
-    dir: &Path,
-    codex_home: &Path,
-) -> Result<ChangesSummary, String> {
-    let (base, base_branch) = resolve_base(host, dir, codex_home);
+pub(crate) fn read_changes_summary(host: &Host, dir: &Path) -> Result<ChangesSummary, String> {
+    let (base, base_branch) = resolve_base(host, dir);
     let output = run_git(
         host,
         dir,
@@ -320,13 +320,16 @@ pub(crate) fn handoff_preflight(
     host: &Host,
     worktree: &Path,
     target: &Path,
-    codex_home: &Path,
 ) -> Result<HandoffPreflight, String> {
-    let entries = read_worktrees(host, worktree, codex_home)?;
-    let entry = entries
-        .iter()
-        .find(|entry| same_dir(host, worktree, &entry.path));
-    let branch = entry.and_then(|entry| entry.branch.clone());
+    // The first entry of `git worktree list` is the main working tree.
+    let entries = worktree_branches(host, worktree)?;
+    let position = |dir: &Path| {
+        entries
+            .iter()
+            .position(|(path, _)| same_dir(host, dir, path))
+    };
+    let index = position(worktree);
+    let branch = index.and_then(|index| entries[index].1.clone());
     let worktree_dirty = read_status(host, worktree)
         .map(|status| status.counts.is_dirty())
         .unwrap_or(false);
@@ -335,14 +338,12 @@ pub(crate) fn handoff_preflight(
         .as_ref()
         .map(|status| status.counts.is_dirty())
         .unwrap_or(true);
-    let target_entry = entries
-        .iter()
-        .find(|entry| same_dir(host, target, &entry.path));
-    let same_repo = target_entry.is_some();
-    let target_is_worktree = target_entry.map(|e| !e.is_main).unwrap_or(false);
+    let target_index = position(target);
+    let same_repo = target_index.is_some();
+    let target_is_worktree = target_index.is_some_and(|index| index != 0);
     let blocker = if branch.is_none() {
         Some("This worktree is not on a branch".to_string())
-    } else if entry.map(|e| e.is_main).unwrap_or(false) {
+    } else if index == Some(0) {
         Some("This is the main working tree".to_string())
     } else if target_status.is_err() {
         Some("The local workspace is not a Git repository".to_string())
@@ -370,11 +371,10 @@ pub(crate) fn handoff(
     host: &Host,
     worktree: &Path,
     target: &Path,
-    codex_home: &Path,
     commit_uncommitted: bool,
     new_name: Option<&str>,
 ) -> Result<String, String> {
-    let preflight = handoff_preflight(host, worktree, target, codex_home)?;
+    let preflight = handoff_preflight(host, worktree, target)?;
     if let Some(blocker) = preflight.blocker {
         return Err(blocker);
     }
@@ -477,6 +477,67 @@ pub(crate) fn handoff(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::git::test_repo::TestRepo;
+
+    /// A linked worktree diffs against its merge-base with the main working
+    /// tree's branch, the main tree against `HEAD`, and the handoff
+    /// preflight tells the two apart, all from `git worktree list` alone.
+    #[test]
+    fn base_and_preflight_read_the_worktree_list() {
+        let Some(fixture) = TestRepo::new() else {
+            return;
+        };
+        let host = Host::Native;
+        let fork = fixture.head();
+        let linked = fixture.repo.parent().unwrap().join("linked");
+        fixture.git(&[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "feature",
+            linked.to_str().unwrap(),
+        ]);
+        fixture.commit("main.txt", "later\n", "main moves on");
+        fixture.git_in(
+            &linked,
+            &["commit", "-q", "--allow-empty", "-m", "feature work"],
+        );
+
+        assert_eq!(
+            resolve_base(&host, &fixture.repo),
+            ("HEAD".to_string(), None)
+        );
+        assert_eq!(
+            resolve_base(&host, &linked),
+            (fork, Some("main".to_string()))
+        );
+
+        let from_linked = handoff_preflight(&host, &linked, &fixture.repo).unwrap();
+        assert_eq!(from_linked.branch.as_deref(), Some("feature"));
+        assert_eq!(from_linked.blocker, None);
+        let from_main = handoff_preflight(&host, &fixture.repo, &linked).unwrap();
+        assert_eq!(
+            from_main.blocker.as_deref(),
+            Some("This is the main working tree")
+        );
+    }
+
+    /// `read_repo_info` skips the untracked scan but still reports the
+    /// branch and how far it is from its upstream.
+    #[test]
+    fn repo_info_reports_branch_and_upstream_distance() {
+        let Some(fixture) = TestRepo::new() else {
+            return;
+        };
+        fixture.git(&["branch", "-q", "--set-upstream-to=origin/main"]);
+        fixture.commit("ahead.txt", "1\n", "ahead");
+        std::fs::write(fixture.repo.join("untracked.txt"), "x").unwrap();
+        let info = crate::git::status::read_repo_info(&Host::Native, &fixture.repo);
+        assert_eq!(info.branch.as_deref(), Some("main"));
+        assert_eq!(info.upstream.as_deref(), Some("origin/main"));
+        assert_eq!((info.ahead, info.behind), (1, 0));
+    }
 
     #[test]
     fn numstat_parses_plain_and_renamed_entries() {

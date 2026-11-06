@@ -15,6 +15,7 @@
   import { approvals, elicitations, turnPlans, userInputRequests } from "$lib/services/codexEvents.svelte";
   import { commands } from "$lib/services/homeRouting";
   import { processes } from "$lib/services/processes.svelte";
+  import { invalidate, query } from "$lib/services/queryCache.svelte";
   import ApprovalCard from "$lib/thread/ApprovalCard.svelte";
   import { requestAutoName } from "$lib/thread/autoName";
   import { contextStats as deriveContextStats } from "$lib/thread/contextUsage";
@@ -470,46 +471,31 @@
    * summary is fetched here (numstat, no diff bodies); it refreshes when a turn
    * finishes, never on a timer, and each file's patch loads on demand.
    */
-  let gitChanges = $state<ChangesSummary | null>(null);
-  let gitChangesLoading = $state(false);
-  let gitChangesError = $state<string | null>(null);
-  let gitChangesTimer: ReturnType<typeof setTimeout> | null = null;
-  let gitChangesRequest = 0;
   /** Where the thread works: a workspace's hub, else the thread's own directory. */
   const workDir = $derived(workspaceId ? cwd : thread?.cwd || cwd);
+  // Cached per directory, so reopening the thread shows its changes at once.
+  // A finished turn and window focus mark it stale (`app/listeners.svelte.ts`).
+  const gitChangesQuery = query("gitChangesSummary", () => (workDir ? [workDir] : null));
+  const gitChanges = $derived<ChangesSummary | null>(gitChangesQuery.value ?? null);
+  const gitChangesLoading = $derived(gitChangesQuery.refreshing);
+  const gitChangesError = $derived(gitChangesQuery.error);
+  let gitChangesTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /** Read again, after a short pause unless `immediate` (a turn's last
+   *  writes can land just after it ends). */
   function refreshGitChanges(immediate = false) {
     if (gitChangesTimer) clearTimeout(gitChangesTimer);
     gitChangesTimer = setTimeout(
-      async () => {
+      () => {
         gitChangesTimer = null;
-        const dir = workDir;
-        if (!dir) return;
-        const id = ++gitChangesRequest;
-        gitChangesLoading = true;
-        try {
-          const summary = await commands.gitChangesSummary(dir);
-          if (id !== gitChangesRequest) return;
-          gitChanges = summary;
-          gitChangesError = null;
-        } catch (cause) {
-          if (id !== gitChangesRequest) return;
-          gitChanges = null;
-          gitChangesError = errorMessage(cause);
-        } finally {
-          if (id === gitChangesRequest) gitChangesLoading = false;
-        }
+        if (!workDir) return;
+        invalidate({ names: ["gitChangesSummary"], repo: workDir });
       },
       immediate ? 0 : 500,
     );
   }
 
-  // Load once per directory, then again each time a turn ends.
-  $effect(() => {
-    workDir;
-    gitChanges = null;
-    refreshGitChanges(true);
-  });
+  // Again each time a turn ends, whichever harness ran it.
   let hadActiveTurn = false;
   $effect(() => {
     const running = activeTurn !== null;

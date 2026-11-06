@@ -4,9 +4,9 @@
 //! The parse is a pure function over JSON, tested against a recorded
 //! fixture; only `fetch_inbox` touches the network.
 
-use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
+use std::sync::LazyLock;
+use std::time::Duration;
 
 use serde_json::Value;
 
@@ -14,6 +14,7 @@ use super::parse::str_field;
 use super::run::{gh_graphql, repo_name_with_owner, GqlVar};
 use crate::review::types::{InboxPr, InboxRead, InboxReview, RateLimit};
 use crate::util::host::Host;
+use crate::util::ttl_cache::TtlCache;
 
 /// Paginated on `pullRequests` (see `gh_graphql`). The inner connections are
 /// capped rather than paginated: 20 reviewers and requests, and 100 threads
@@ -48,27 +49,15 @@ pub(crate) const INBOX_QUERY: &str = "query($owner:String!,$repo:String!,$endCur
 const MAX_INBOX_PAGES: usize = 8;
 
 /// `owner/name` per repository folder, since `gh repo view` is itself a
-/// network call and a folder's GitHub repository does not change while the
-/// app runs.
-fn slug_cache() -> &'static Mutex<HashMap<String, (String, String)>> {
-    static CACHE: OnceLock<Mutex<HashMap<String, (String, String)>>> = OnceLock::new();
-    CACHE.get_or_init(Default::default)
-}
+/// network call. A folder's GitHub repository rarely changes, but a renamed
+/// remote should show up within the hour rather than never.
+static SLUGS: LazyLock<TtlCache<(Host, String), (String, String)>> =
+    LazyLock::new(|| TtlCache::new(Duration::from_secs(60 * 60), 256));
 
 pub(crate) fn repo_slug(host: &Host, dir: &Path) -> Result<(String, String), String> {
-    let key = format!("{host:?}:{}", host.path_string(dir));
-    if let Some(slug) = slug_cache()
-        .lock()
-        .ok()
-        .and_then(|cache| cache.get(&key).cloned())
-    {
-        return Ok(slug);
-    }
-    let slug = repo_name_with_owner(host, dir)?;
-    if let Ok(mut cache) = slug_cache().lock() {
-        cache.insert(key, slug.clone());
-    }
-    Ok(slug)
+    SLUGS.get_or_try((host.clone(), host.path_string(dir)), || {
+        repo_name_with_owner(host, dir)
+    })
 }
 
 pub(crate) fn fetch_inbox(host: &Host, dir: &Path) -> Result<InboxRead, String> {

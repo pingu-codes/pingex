@@ -8,7 +8,7 @@ use crate::review::types::{PrComment, PrDetail, PrHead, PrSummary};
 use crate::util::host::Host;
 
 use super::parse::{parse_files, parse_pr_list, parse_pr_view, parse_review_threads, str_field};
-use super::run::{gh_graphql, redact_gh_error, repo_name_with_owner, run_gh, GqlVar, READ_TIMEOUT};
+use super::run::{gh_graphql, redact_gh_error, run_gh, GqlVar, READ_TIMEOUT};
 
 /// How many open PRs the picker lists.
 const PR_LIST_LIMIT: &str = "50";
@@ -111,7 +111,7 @@ pub(crate) fn fetch_pr_detail(host: &Host, dir: &Path, number: i64) -> Result<Pr
 /// Inline review threads, which the `pr view` JSON does not carry. Best-effort:
 /// a failure just omits resolved state rather than failing the whole PR read.
 fn fetch_review_threads(host: &Host, dir: &Path, number: i64) -> Vec<PrComment> {
-    let Ok((owner, name)) = repo_name_with_owner(host, dir) else {
+    let Ok((owner, name)) = super::inbox::repo_slug(host, dir) else {
         return Vec::new();
     };
     let vars = [

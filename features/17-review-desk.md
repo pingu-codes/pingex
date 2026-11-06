@@ -87,3 +87,34 @@ While focused, it also re-syncs on a slow timer: at most every two minutes,
 and backing off when `rateLimit.remaining` runs low. Nothing polls git. Local
 state is re-read where the worktree service already re-reads it: on focus
 and after a turn completes.
+
+"After Pingex's own mutations" is not left to each page: the `commands`
+proxy announces every settled git and review command
+(`services/commandEvents.ts`), and the inbox syncs after the GitHub writes
+in `GITHUB_WRITES` (`inbox/inboxStore.svelte.ts`).
+
+### Query cache
+
+A PR's detail, a stack's overview and restack preview, "behind the base",
+the PR list and provider status are kept in the frontend query cache
+(`services/queryCache.svelte.ts`). Opening a page again shows the last
+answer at once and re-reads it in the background. Each read has a policy in
+`READS`:
+
+| Read | Shown without re-reading | Dropped after |
+|---|---|---|
+| GitHub reads (`reviewPrDetail`, `reviewStackOverview`, …) | 30 s | 10 min |
+| Local git reads (`gitStatus`, `gitChangesSummary`, …) | 2 s | 10 min |
+| `reviewProviderStatus` | 5 min | 1 h |
+| SHA-keyed reads (`reviewDiff`, `reviewFile`, `reviewChangesSince`) | 30 min | 30 min |
+
+A read can also go stale before its time is up:
+- A review mutation marks every read of its repository.
+- A git mutation, window focus or a finished turn marks local git reads.
+- Writes that touch only the profile database (viewed marks, the pending
+  review, Findings) mark nothing; `NARROW` lists them.
+
+A stale read that a mounted page is showing is re-read at once. Any other
+stale read is re-read the next time something asks for it. The review page
+warms the next PR in Up next, and the Stack page warms the PRs on either
+side of the selected one, so j/k and branch clicks open from the cache.

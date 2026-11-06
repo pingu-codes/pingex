@@ -11,6 +11,8 @@ vi.mock("$lib/services/homeRouting", async (importOriginal) => {
     commands: {
       ...actual.commands,
       startTurn: vi.fn(async () => ({ id: "turn-1", items: [], status: "inProgress" })),
+      reviewListPrs: vi.fn(actual.commands.reviewListPrs),
+      reviewProviderStatus: vi.fn(actual.commands.reviewProviderStatus),
     },
   };
 });
@@ -18,6 +20,16 @@ vi.mock("$lib/services/homeRouting", async (importOriginal) => {
 // In browser mode (isTauri() === false) the review API serves preview fixtures,
 // so the whole view renders without Tauri.
 describe("ReviewView", () => {
+  it("opened onto a PR, does not read the PR list it never shows", async () => {
+    vi.mocked(commands.reviewListPrs).mockClear();
+    vi.mocked(commands.reviewProviderStatus).mockClear();
+    render(ReviewView, { repoDir: "/repo", repoName: "repo", initialPr: 128, onBack: vi.fn(), onAskCodex: vi.fn() });
+
+    await screen.findByRole("heading", { name: "Add pull-request review view" });
+    expect(commands.reviewListPrs).not.toHaveBeenCalled();
+    expect(commands.reviewProviderStatus).not.toHaveBeenCalled();
+  });
+
   it("lists open PRs and opens one onto the review page", async () => {
     const user = userEvent.setup();
     render(ReviewView, { repoDir: "/repo", repoName: "repo", onBack: vi.fn(), onAskCodex: vi.fn() });
