@@ -46,13 +46,19 @@ export async function syncInbox(repoDir: string): Promise<void> {
     state.stacks = stacks;
     state.error = null;
     // What closed PRs left behind: refs now, review checkouts after 7 days,
-    // and their threads leave the Reviews group.
-    void commands
-      .reviewPruneClosed(repoDir)
-      .then((report) => {
-        if (report.closed.length > 0) void reloadPrLinks();
-      })
-      .catch(() => {});
+    // and their threads leave the Reviews group. It works from this sync's
+    // PR list, and a partial read cannot say which PRs closed.
+    if (inbox.complete) {
+      void commands
+        .reviewPruneClosed(
+          repoDir,
+          inbox.prs.map((pr) => pr.number),
+        )
+        .then((report) => {
+          if (report.closed.length > 0) void reloadPrLinks();
+        })
+        .catch(() => {});
+    }
   } catch (cause) {
     state.error = errorMessage(cause);
   } finally {

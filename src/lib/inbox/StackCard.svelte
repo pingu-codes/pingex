@@ -1,9 +1,9 @@
 <!--
   A stack as one card: its name, base and PRs bottom first, flush left; the
   order alone shows which PR builds on which. My stacks show their worktree and
-  thread count, with Restack and Open stack when the Stack page is wired;
-  another author's stack shows who wrote it, and sits in its section's list
-  without a card of its own.
+  thread count, with Restack, and a click on the header opens the Stack page
+  when it is wired; another author's stack shows who wrote it, and sits in its
+  section's list without a card of its own.
 -->
 <script lang="ts">
   import { Folder, GitBranch } from "@lucide/svelte";
@@ -41,10 +41,39 @@
   const count = $derived(group.stack.prs.filter((entry) => entry.state === "open").length);
   const worktreeName = $derived(worktree?.path.split("/").pop() ?? "");
   const behindText = $derived(behindLabel(group.stack.baseRef, behind));
+  const opens = $derived(mine && !!onOpenStack);
+
+  function isControl(target: EventTarget | null): boolean {
+    return target instanceof Element && target.closest("button, a, input, [role=menuitem]") !== null;
+  }
+
+  function onclick(event: MouseEvent) {
+    if (opens && !isControl(event.target)) onOpenStack?.();
+  }
+
+  function onkeydown(event: KeyboardEvent) {
+    if (!opens || event.target !== event.currentTarget) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onOpenStack?.();
+  }
 </script>
 
 <section class={mine ? "panel-card overflow-hidden" : ""} aria-label="Stack {group.name}">
-  <div class="flex flex-wrap items-center gap-2 border-b border-surface-200-800 px-3 py-2.5 text-xs">
+  <!-- The role is dynamic, so the a11y checks cannot see it is a button. -->
+  <!-- svelte-ignore a11y_no_static_element_interactions, a11y_no_noninteractive_tabindex -->
+  <div
+    class={[
+      "flex flex-wrap items-center gap-2 border-b border-surface-200-800 px-3 py-2.5 text-xs",
+      opens &&
+        "cursor-pointer outline-none hover:bg-surface-500/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-500",
+    ]}
+    role={opens ? "button" : undefined}
+    tabindex={opens ? 0 : undefined}
+    aria-label={opens ? `Open stack ${group.name}` : undefined}
+    {onclick}
+    {onkeydown}
+  >
     <GitBranch size={mine ? 14 : 12} class="text-surface-500" aria-hidden="true" />
     <span class="font-semibold">{group.name}</span>
     {#if mine}
@@ -79,9 +108,6 @@
       {/if}
       {#if onRestack}
         <button type="button" class="btn btn-sm text-xs hover:preset-tonal" onclick={onRestack}>Restack</button>
-      {/if}
-      {#if onOpenStack}
-        <button type="button" class="btn btn-sm text-xs preset-tonal" onclick={onOpenStack}>Open stack</button>
       {/if}
     {:else}
       <span class="text-surface-500">{group.author} · {count} PR{count === 1 ? "" : "s"}</span>

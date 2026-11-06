@@ -14,27 +14,39 @@ use crate::util::time::unix_secs;
 const KEEP_CLOSED_CHECKOUT_SECS: i64 = 7 * 24 * 60 * 60;
 
 impl ReviewDesk {
-    /// Compare what Pingex keeps for this repository with its open PRs, and
-    /// drop what closed PRs left behind. Call after a sync.
-    pub(crate) async fn prune_closed(&self) -> Result<PruneReport, String> {
-        self.prune_closed_at(unix_secs()).await
+    /// Compare what Pingex keeps for this repository with `open`, the PRs a
+    /// complete inbox sync just listed, and drop what closed PRs left behind.
+    /// The caller passes the sync's own answer: fetching the inbox again here
+    /// doubled every sync's GitHub reads (seconds per page on a busy repo).
+    pub(crate) async fn prune_closed(&self, open: HashSet<i64>) -> Result<PruneReport, String> {
+        self.prune_closed_with(open, unix_secs()).await
     }
 
+    /// `prune_closed` against a fresh inbox read, for tests that close PRs
+    /// on the fake GitHub.
+    #[cfg(test)]
     pub(super) async fn prune_closed_at(&self, now: i64) -> Result<PruneReport, String> {
-        let (open, kept) = self
-            .blocking("Cleaning up failed", |desk| {
-                let inbox = desk.github.inbox()?;
-                let kept = git::kept_pr_numbers(&desk.host, desk.dir())?;
-                let open: Option<HashSet<i64>> = inbox
-                    .complete
-                    .then(|| inbox.prs.iter().map(|pr| pr.number).collect());
-                Ok((open, kept))
-            })
+        let inbox = self
+            .blocking("Cleaning up failed", |desk| desk.github.inbox())
             .await?;
         // A partial read cannot say which PRs closed.
-        let Some(open) = open else {
+        if !inbox.complete {
             return Ok(PruneReport::default());
-        };
+        }
+        let open = inbox.prs.iter().map(|pr| pr.number).collect();
+        self.prune_closed_with(open, now).await
+    }
+
+    pub(super) async fn prune_closed_with(
+        &self,
+        open: HashSet<i64>,
+        now: i64,
+    ) -> Result<PruneReport, String> {
+        let kept = self
+            .blocking("Cleaning up failed", |desk| {
+                git::kept_pr_numbers(&desk.host, desk.dir())
+            })
+            .await?;
         let key = self.repo_key();
         let mut report = PruneReport::default();
 
@@ -196,6 +208,41 @@ mod tests {
         assert!(later.removed_checkouts.is_empty());
         let week = fixture.desk.prune_closed_at(15 * day).await.unwrap();
         assert_eq!(week.removed_checkouts, [21]);
+    }
+
+    #[tokio::test]
+    async fn pruning_trusts_the_open_prs_it_is_given_rather_than_reading_github_again() {
+        let Some(fixture) = fixture().await else {
+            return;
+        };
+        let pr = fixture.open_pr(21, "feature", "src/lib.rs");
+        fixture.desk.fetch_prs(vec![21]).await.unwrap();
+        fixture
+            .desk
+            .ensure_review_checkout(CheckoutTarget {
+                number: 21,
+                head_ref: pr.head_ref.clone(),
+                head_sha: pr.head_sha.clone(),
+                ..CheckoutTarget::default()
+            })
+            .await
+            .unwrap();
+
+        // GitHub still lists #21 as open; the sync that ran just before said
+        // otherwise, and that answer is the one pruning acts on.
+        let report = fixture
+            .desk
+            .prune_closed_with(std::collections::HashSet::new(), 0)
+            .await
+            .unwrap();
+
+        assert_eq!(report.closed, [21]);
+        assert_eq!(
+            fixture
+                .repo
+                .git(&["for-each-ref", "--format=%(refname)", "refs/pingex/"]),
+            ""
+        );
     }
 
     #[tokio::test]

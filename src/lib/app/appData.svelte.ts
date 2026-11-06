@@ -247,11 +247,50 @@ export function trackSubagent(agent: SubagentDetail): void {
   appData.data.subagents.push(summary);
 }
 
+/**
+ * The live read (`commands.bootstrap()`) lists every thread from the
+ * app-server, so two at once compete for it and both run slower. Only one runs
+ * at a time. A read asked for while one is running waits for it, then runs
+ * once for every caller that asked in the meantime, because whatever prompted
+ * them (a thread event, an `account/updated`) may postdate what the running
+ * read saw. Each read takes its ticket when it starts, so the reads land in
+ * order.
+ */
+let liveRead: Promise<TicketedData> | null = null;
+let queuedRead: Promise<TicketedData> | null = null;
+
+type TicketedData = { data: BootstrapData; ticket: number };
+
+function startLiveRead(): Promise<TicketedData> {
+  const ticket = dataTicket();
+  const read = commands.bootstrap().then((data) => ({ data, ticket }));
+  liveRead = read;
+  const settle = () => {
+    if (liveRead === read) liveRead = null;
+  };
+  read.then(settle, settle);
+  return read;
+}
+
+/** Exported for tests. */
+export function liveBootstrap(): Promise<TicketedData> {
+  const running = liveRead;
+  if (!running) return startLiveRead();
+  queuedRead ??= running
+    .catch(() => undefined)
+    .then(() => {
+      queuedRead = null;
+      return startLiveRead();
+    });
+  return queuedRead;
+}
+
 export async function refresh(): Promise<void> {
   appData.loading = true;
   appData.error = null;
   try {
-    await applyFresh(commands.bootstrap());
+    const { data, ticket } = await liveBootstrap();
+    applyTicketed(data, ticket);
     // Questions the app never got to answer only exist in the database, so the
     // sidebar has to be told about them explicitly.
     commands
@@ -276,10 +315,10 @@ export async function refresh(): Promise<void> {
 
 /** Refresh without the spinner; used after background changes. */
 export async function quietRefresh(): Promise<void> {
-  const ticket = dataTicket();
   try {
+    const { data, ticket } = await liveBootstrap();
     // A stale refresh needs no follow-up: a newer read already landed.
-    applyTicketed(await commands.bootstrap(), ticket, false);
+    applyTicketed(data, ticket, false);
   } catch {
     // Sidebar refresh after thread creation is best-effort.
   }

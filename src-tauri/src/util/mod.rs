@@ -12,5 +12,6 @@ pub(crate) mod migration;
 pub(crate) mod process;
 pub(crate) mod stdio;
 pub(crate) mod time;
+pub(crate) mod timing;
 pub(crate) mod ttl_cache;
 pub(crate) mod walk;

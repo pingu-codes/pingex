@@ -71,7 +71,10 @@ where
     let mut tries = 0;
     loop {
         match attempt(params.clone()).await {
-            Ok(value) => return Ok(value),
+            Ok(value) => {
+                crate::util::timing::lock_wait(tries, started.elapsed());
+                return Ok(value);
+            }
             Err(error) if is_contention(&error) && started.elapsed() < BUSY_TIMEOUT => {
                 tokio::time::sleep(backoff(tries)).await;
                 tries += 1;

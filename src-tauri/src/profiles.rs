@@ -160,9 +160,18 @@ async fn snapshot(
     refresh: bool,
 ) -> Result<ProfileBootstrap, String> {
     let mut snapshots = Vec::new();
+    let t = crate::util::timing::phase("legacy_homes");
     let homes = legacy_homes(profile).await?;
+    drop(t);
     for home in &homes {
+        let _home_timer = crate::util::timing::phase(format!(
+            "home {} ({})",
+            home.harness.as_str(),
+            home.config_dir
+        ));
+        let t = crate::util::timing::phase("context_for");
         let context = context_for(state, profile, home).await?;
+        drop(t);
         // A Home with its own database lists a thread only under a project in
         // that database, so a Home registered without a copy of the project
         // list (legacy_homes never made one) would drop all its threads.
@@ -179,6 +188,7 @@ async fn snapshot(
                 _ => (home.host == profile.host()).then(|| profile.database()),
             };
             if let Some(source) = source {
+                let _t = crate::util::timing::phase("seed_projects");
                 seed_projects(&context.database(), &source).await?;
             }
         }
@@ -228,7 +238,12 @@ pub(crate) async fn bootstrap_profile(
     state: State<'_, AppState>,
 ) -> Result<ProfileBootstrap, String> {
     let profile = state.ctx(&window);
-    snapshot(&app, &state, &profile, refresh).await
+    let t = crate::util::timing::phase(format!("bootstrap_profile(refresh={refresh})"));
+    let result = snapshot(&app, &state, &profile, refresh).await;
+    drop(t);
+    crate::util::timing::report_lock_waits("bootstrap_profile");
+    crate::util::timing::mark("bootstrap_profile done");
+    result
 }
 
 #[tauri::command]

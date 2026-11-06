@@ -43,6 +43,19 @@ describe("my stack's card in the inbox", () => {
     await waitFor(() => expect(restack).toHaveBeenCalledWith(MAIN, expect.objectContaining({ name: "driver-trait" })));
   });
 
+  it("a click on the header opens the stack, but its buttons keep their own actions", async () => {
+    const openStack = vi.fn();
+    const restack = vi.fn();
+    const { user } = setup({ restack, openStack });
+
+    await user.click(await screen.findByRole("button", { name: "Restack" }));
+    expect(restack).toHaveBeenCalledTimes(1);
+    expect(openStack).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Open stack driver-trait" }));
+    expect(openStack).toHaveBeenCalledWith(MAIN, expect.objectContaining({ name: "driver-trait" }));
+  });
+
   it("Compare shows what the base gained since the stack forked", async () => {
     const { user } = setup({ restack: vi.fn() });
 

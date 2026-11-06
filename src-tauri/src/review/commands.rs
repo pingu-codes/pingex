@@ -162,6 +162,7 @@ pub(crate) async fn review_inbox(
     window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Inbox, String> {
+    let _t = crate::util::timing::phase(format!("review_inbox {repo_dir}"));
     desk(&window, &state, repo_dir).sync_inbox().await
 }
 
@@ -204,6 +205,7 @@ pub(crate) async fn review_stacks(
     window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<StackListing, String> {
+    let _t = crate::util::timing::phase(format!("review_stacks {repo_dir}"));
     desk(&window, &state, repo_dir).stacks().await
 }
 

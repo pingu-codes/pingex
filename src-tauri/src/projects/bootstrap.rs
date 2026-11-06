@@ -22,13 +22,13 @@ use crate::storage::{
     self, SideQuestion, Store, StoredProject, StoredProjectSource, StoredThreadSummary,
     StoredWorkspaceMember, ThreadBranch,
 };
-use crate::util::json::{arr_or_empty, str_at};
+use crate::util::json::str_at;
 use crate::{HomeContext, RuntimeConfig};
 
 /// How many threads a single bootstrap will page through before stopping.
 const MAX_THREADS: usize = 1000;
-/// Page size for `thread/list`.
-const THREAD_PAGE: usize = 200;
+/// Page size for `thread/list`; the app-server clamps `limit` to 100.
+const THREAD_PAGE: usize = 100;
 
 pub(crate) fn account_from(value: &Value) -> Option<Account> {
     let account = value.get("account")?.as_object()?;
@@ -62,75 +62,136 @@ pub(crate) async fn bootstrap_inner(
     if !ctx.runs_codex() {
         return bootstrap_cached(ctx).await;
     }
+    let t = crate::util::timing::phase("codex.read_store");
     let store = storage::read_store(&ctx.database()).await?;
-    let account_value = ctx
-        .session
-        .request(app, "account/read", json!({"refreshToken": false}))
-        .await?;
-    let pinned_threads: HashSet<&str> = store.pinned_threads.iter().map(String::as_str).collect();
+    drop(t);
+    // `account/read` is the slowest request here (0.6-2.3 s; Codex checks the
+    // account remotely before it answers) and nothing else needs its answer,
+    // so the listing and the project and section mirrors run while it is out.
+    let account_read = async {
+        let _t = crate::util::timing::phase("codex.account/read (incl. spawn)");
+        ctx.session
+            .request(app, "account/read", json!({"refreshToken": false}))
+            .await
+    };
+    let listing = async {
+        let pinned_threads: HashSet<&str> =
+            store.pinned_threads.iter().map(String::as_str).collect();
 
-    let mut all_threads = Vec::new();
-    let mut search_rows = Vec::new();
-    let mut cursor: Option<String> = None;
-    loop {
-        let mut params = json!({
-            "limit": THREAD_PAGE,
-            "sortKey": "updated_at",
-            "sortDirection": "desc",
-            "archived": false
-        });
-        if let Some(cursor) = &cursor {
-            params["cursor"] = json!(cursor);
+        let list_timer = crate::util::timing::phase("codex.thread/list (all pages)");
+        let listed = match list_threads(app, ctx, true).await {
+            Ok(listed) => listed,
+            Err(error) => {
+                eprintln!("thread/list from the state database failed, scanning instead: {error}");
+                list_threads(app, ctx, false).await?
+            }
+        };
+        drop(list_timer);
+        let search_rows: Vec<_> = listed
+            .iter()
+            .filter_map(|thread| thread_search_row(thread, false))
+            .collect();
+        let mut all_threads: Vec<_> = listed
+            .iter()
+            .filter_map(|thread| thread_summary_from(thread, &pinned_threads))
+            .collect();
+
+        // Threads on other harnesses exist only locally; Codex's listing never
+        // has them.
+        for thread in storage::read_harness_threads(&ctx.database(), false).await? {
+            all_threads.push(ThreadSummary {
+                pinned: pinned_threads.contains(thread.thread_id.as_str()),
+                id: thread.thread_id,
+                cwd: thread.cwd,
+                title: thread.title,
+                updated_at: thread.updated_at,
+                status: "idle".into(),
+                parent_thread_id: None,
+                agent_nickname: None,
+                agent_role: None,
+                project_id: None,
+                section_id: None,
+                subagent_count: 0,
+                hidden: false,
+                harness: Some(thread.harness),
+                in_temp_worktree: false,
+            });
         }
-        let list_value = ctx.session.request(app, "thread/list", params).await?;
-        let threads = arr_or_empty(&list_value, "data");
-        search_rows.extend(
-            threads
-                .iter()
-                .filter_map(|thread| thread_search_row(thread, false)),
-        );
-        all_threads.extend(
-            threads
-                .iter()
-                .filter_map(|thread| thread_summary_from(thread, &pinned_threads)),
-        );
-        cursor = str_at(&list_value, "nextCursor").map(str::to_string);
-        if cursor.is_none() || all_threads.len() >= MAX_THREADS {
-            break;
+        let hidden_threads: HashSet<&str> =
+            store.hidden_threads.iter().map(String::as_str).collect();
+        for thread in &mut all_threads {
+            thread.hidden = hidden_threads.contains(thread.id.as_str());
         }
-    }
+        all_threads.sort_by_key(|thread| std::cmp::Reverse(thread.updated_at));
+        let stored_summaries: Vec<_> = all_threads.iter().map(StoredThreadSummary::from).collect();
+        let t = crate::util::timing::phase(format!(
+            "codex.replace_thread_summaries ({} rows)",
+            stored_summaries.len()
+        ));
+        storage::replace_thread_summaries(&ctx.database(), &stored_summaries).await?;
+        drop(t);
+        // Keep the local search index in step with the active thread listing.
+        let t = crate::util::timing::phase(format!(
+            "codex.upsert_thread_search ({} rows)",
+            search_rows.len()
+        ));
+        storage::upsert_thread_search(&ctx.database(), &search_rows).await?;
+        drop(t);
 
-    // Threads on other harnesses exist only locally; Codex's listing never
-    // has them.
-    for thread in storage::read_harness_threads(&ctx.database(), false).await? {
-        all_threads.push(ThreadSummary {
-            pinned: pinned_threads.contains(thread.thread_id.as_str()),
-            id: thread.thread_id,
-            cwd: thread.cwd,
-            title: thread.title,
-            updated_at: thread.updated_at,
-            status: "idle".into(),
-            parent_thread_id: None,
-            agent_nickname: None,
-            agent_role: None,
-            project_id: None,
-            section_id: None,
-            subagent_count: 0,
-            hidden: false,
-            harness: Some(thread.harness),
-            in_temp_worktree: false,
-        });
-    }
-    let hidden_threads: HashSet<&str> = store.hidden_threads.iter().map(String::as_str).collect();
-    for thread in &mut all_threads {
-        thread.hidden = hidden_threads.contains(thread.id.as_str());
-    }
-    all_threads.sort_by_key(|thread| std::cmp::Reverse(thread.updated_at));
-    let stored_summaries: Vec<_> = all_threads.iter().map(StoredThreadSummary::from).collect();
-    storage::replace_thread_summaries(&ctx.database(), &stored_summaries).await?;
-    // Keep the local search index in step with the active thread listing.
-    storage::upsert_thread_search(&ctx.database(), &search_rows).await?;
-
+        let side_questions = storage::read_side_questions(&ctx.database()).await?;
+        let thread_branches = storage::read_thread_branches(&ctx.database()).await?;
+        let t = crate::util::timing::phase("codex.read_bootstrap_extras");
+        let mut extras = read_bootstrap_extras(ctx).await?;
+        drop(t);
+        let t = crate::util::timing::phase("codex.sidebar_entries");
+        // Mirror the sidebar to app-server projects (Codex ≥0.149) so threads carry
+        // a durable assignment; on an older Codex this is a no-op and the cwd
+        // rules in `build_bootstrap` do all the work.
+        let thread_cwds: Vec<(String, String)> = all_threads
+            .iter()
+            .filter(|thread| thread.parent_thread_id.is_none())
+            .map(|thread| (thread.id.clone(), thread.cwd.clone()))
+            .collect();
+        let entries = sidebar_entries(
+            &ctx.runtime(),
+            &store.projects,
+            &extras.temp_worktree_parents,
+            &isolated_member_paths(&extras.workspace_members),
+        );
+        drop(t);
+        let locals = super::server::local_projects(
+            &entries,
+            &extras.workspaces,
+            &extras.workspace_members,
+            &extras.workspace_threads,
+            &thread_cwds,
+        );
+        let t = crate::util::timing::phase("codex.server::sync");
+        let synced = super::server::sync(app, ctx, &locals).await;
+        drop(t);
+        match synced {
+            Ok(synced) => {
+                extras.server_projects = synced.mapping;
+                extras.project_recency = synced.recency;
+            }
+            // Never let the mirror take the sidebar down with it.
+            Err(error) => eprintln!("could not sync Codex projects: {error}"),
+        }
+        let t = crate::util::timing::phase("codex.sections::sync");
+        let sections = crate::threads::sections::sync(app, ctx).await;
+        drop(t);
+        match sections {
+            Ok((supported, sections)) => {
+                extras.sections_supported = supported;
+                extras.sections = sections;
+            }
+            Err(error) => eprintln!("could not sync Codex thread sections: {error}"),
+        }
+        Ok::<_, String>((all_threads, side_questions, thread_branches, extras))
+    };
+    let (account_value, listing) = tokio::join!(account_read, listing);
+    let account_value = account_value?;
+    let (all_threads, side_questions, thread_branches, extras) = listing?;
     let account = account_from(&account_value);
     let account_json = account
         .as_ref()
@@ -138,45 +199,7 @@ pub(crate) async fn bootstrap_inner(
         .transpose()
         .map_err(|error| error.to_string())?;
     storage::write_account_cache(&ctx.database(), account_json.as_deref()).await?;
-    let side_questions = storage::read_side_questions(&ctx.database()).await?;
-    let thread_branches = storage::read_thread_branches(&ctx.database()).await?;
-    let mut extras = read_bootstrap_extras(ctx).await?;
-    // Mirror the sidebar to app-server projects (Codex ≥0.149) so threads carry
-    // a durable assignment; on an older Codex this is a no-op and the cwd
-    // rules in `build_bootstrap` do all the work.
-    let thread_cwds: Vec<(String, String)> = all_threads
-        .iter()
-        .filter(|thread| thread.parent_thread_id.is_none())
-        .map(|thread| (thread.id.clone(), thread.cwd.clone()))
-        .collect();
-    let entries = sidebar_entries(
-        &ctx.runtime(),
-        &store.projects,
-        &extras.temp_worktree_parents,
-        &isolated_member_paths(&extras.workspace_members),
-    );
-    let locals = super::server::local_projects(
-        &entries,
-        &extras.workspaces,
-        &extras.workspace_members,
-        &extras.workspace_threads,
-        &thread_cwds,
-    );
-    match super::server::sync(app, ctx, &locals).await {
-        Ok(synced) => {
-            extras.server_projects = synced.mapping;
-            extras.project_recency = synced.recency;
-        }
-        // Never let the mirror take the sidebar down with it.
-        Err(error) => eprintln!("could not sync Codex projects: {error}"),
-    }
-    match crate::threads::sections::sync(app, ctx).await {
-        Ok((supported, sections)) => {
-            extras.sections_supported = supported;
-            extras.sections = sections;
-        }
-        Err(error) => eprintln!("could not sync Codex thread sections: {error}"),
-    }
+    let _t = crate::util::timing::phase("codex.build_bootstrap");
     build_bootstrap(
         &ctx.runtime(),
         store,
@@ -188,9 +211,50 @@ pub(crate) async fn bootstrap_inner(
     )
 }
 
+/// Page through `thread/list`, newest first, up to `MAX_THREADS`.
+///
+/// `state_db_only` lists from Codex's SQLite thread index. Without it, every
+/// page walks and stats the whole `sessions/` tree and re-reads up to 200
+/// rollout heads, because the cursor is only a timestamp: ten pages over a
+/// 1.4 GB Home took 1.6 s, against 44 ms from the index. The index also
+/// keeps threads the scan drops (CLI sessions whose first record is large),
+/// and is what `codex exec` lists from. The scan is the fallback for a Home
+/// whose index cannot be read.
+async fn list_threads(
+    app: &AppHandle,
+    ctx: &HomeContext,
+    state_db_only: bool,
+) -> Result<Vec<Value>, String> {
+    let mut threads = Vec::new();
+    let mut cursor: Option<String> = None;
+    loop {
+        let mut params = json!({
+            "limit": THREAD_PAGE,
+            "sortKey": "updated_at",
+            "sortDirection": "desc",
+            "archived": false
+        });
+        if state_db_only {
+            params["useStateDbOnly"] = json!(true);
+        }
+        if let Some(cursor) = &cursor {
+            params["cursor"] = json!(cursor);
+        }
+        let mut list_value = ctx.session.request(app, "thread/list", params).await?;
+        cursor = str_at(&list_value, "nextCursor").map(str::to_string);
+        if let Some(Value::Array(page)) = list_value.get_mut("data").map(Value::take) {
+            threads.extend(page);
+        }
+        if cursor.is_none() || threads.len() >= MAX_THREADS {
+            return Ok(threads);
+        }
+    }
+}
+
 /// Rebuild the payload from local caches only. Used after any mutation that
 /// changed Pingex's own state rather than Codex's.
 pub(crate) async fn bootstrap_cached(ctx: &HomeContext) -> Result<BootstrapData, String> {
+    let _t = crate::util::timing::phase("bootstrap_cached");
     let store = storage::read_store(&ctx.database()).await?;
     let pinned_threads: HashSet<String> = store.pinned_threads.iter().cloned().collect();
     let hidden_threads: HashSet<String> = store.hidden_threads.iter().cloned().collect();
@@ -295,8 +359,13 @@ async fn temp_worktree_parents(
 }
 
 async fn read_bootstrap_extras(ctx: &HomeContext) -> Result<BootstrapExtras, String> {
+    let t = crate::util::timing::phase("extras.read_project_extras");
     let (instructions, sources_by_project) = read_project_extras(ctx).await?;
+    drop(t);
+    let t = crate::util::timing::phase("extras.temp_worktree_parents");
     let temp_worktree_parents = temp_worktree_parents(ctx, &ctx.runtime()).await?;
+    drop(t);
+    let _t = crate::util::timing::phase("extras.db reads");
     Ok(BootstrapExtras {
         temp_worktree_parents,
         instructions,

@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 struct Entry<V> {
@@ -24,6 +24,9 @@ pub(crate) struct TtlCache<K, V> {
     /// Upper bound on the summed `weight` of all entries; `usize::MAX` when the
     /// cache is bounded by count alone.
     max_weight: usize,
+    /// One lock per key `get_or_try` is computing, so callers that miss at
+    /// the same moment run `compute` once rather than each shelling out.
+    computing: Mutex<HashMap<K, Arc<Mutex<()>>>>,
 }
 
 impl<K: Eq + Hash + Clone, V: Clone> TtlCache<K, V> {
@@ -39,6 +42,7 @@ impl<K: Eq + Hash + Clone, V: Clone> TtlCache<K, V> {
             max_age,
             max_entries,
             max_weight,
+            computing: Mutex::new(HashMap::new()),
         }
     }
 
@@ -57,6 +61,11 @@ impl<K: Eq + Hash + Clone, V: Clone> TtlCache<K, V> {
 
     /// The cached value, or `compute`'s answer, which is kept only when it is
     /// `Ok`, so a failure is retried on the next call.
+    ///
+    /// Concurrent callers for one key wait for whichever got there first and
+    /// take its answer: two commands a page fires together (the inbox and the
+    /// stacks both need the repository's slug) cost one `gh` call, not two.
+    /// It blocks, so callers run it on blocking threads, as for `compute`.
     pub(crate) fn get_or_try<E>(
         &self,
         key: K,
@@ -65,6 +74,39 @@ impl<K: Eq + Hash + Clone, V: Clone> TtlCache<K, V> {
         if let Some(value) = self.get(&key) {
             return Ok(value);
         }
+        let Some(slot) = self
+            .computing
+            .lock()
+            .ok()
+            .map(|mut computing| computing.entry(key.clone()).or_default().clone())
+        else {
+            return self.compute_and_insert(key, compute);
+        };
+        let guard = slot.lock();
+        // Whoever held the slot may have just filled the cache.
+        let result = match self.get(&key) {
+            Some(value) => Ok(value),
+            None => self.compute_and_insert(key.clone(), compute),
+        };
+        drop(guard);
+        if let Ok(mut computing) = self.computing.lock() {
+            // Two strong references: the map's and this caller's; nobody else
+            // is waiting on the slot, so it can go.
+            if computing
+                .get(&key)
+                .is_some_and(|held| Arc::strong_count(held) <= 2)
+            {
+                computing.remove(&key);
+            }
+        }
+        result
+    }
+
+    fn compute_and_insert<E>(
+        &self,
+        key: K,
+        compute: impl FnOnce() -> Result<V, E>,
+    ) -> Result<V, E> {
         let value = compute()?;
         self.insert(key, value.clone());
         Ok(value)
@@ -197,5 +239,30 @@ mod tests {
         assert_eq!(cache.get_or_try("a", || Err::<i32, ()>(())), Err(()));
         assert_eq!(cache.get_or_try("a", || Ok::<_, ()>(5)), Ok(5));
         assert_eq!(cache.get_or_try("a", || Ok::<_, ()>(6)), Ok(5));
+    }
+
+    #[test]
+    fn concurrent_misses_compute_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let cache: Arc<TtlCache<&str, i32>> = Arc::new(TtlCache::new(MINUTE, 10));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let threads: Vec<_> = (0..4)
+            .map(|_| {
+                let (cache, calls) = (cache.clone(), calls.clone());
+                std::thread::spawn(move || {
+                    cache.get_or_try("slug", || {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        // Long enough that every thread misses before it ends.
+                        std::thread::sleep(Duration::from_millis(100));
+                        Ok::<_, ()>(7)
+                    })
+                })
+            })
+            .collect();
+        for thread in threads {
+            assert_eq!(thread.join().unwrap(), Ok(7));
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(cache.computing.lock().unwrap().is_empty());
     }
 }

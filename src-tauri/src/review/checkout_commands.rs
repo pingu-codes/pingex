@@ -127,14 +127,20 @@ pub(crate) async fn review_remove_review_checkout(
         .await
 }
 
+/// Drop what closed PRs left behind, given `open_numbers`: every open PR
+/// from a complete inbox sync of `repo_dir`.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn review_prune_closed(
     repo_dir: String,
+    open_numbers: Vec<i64>,
     window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<PruneReport, String> {
-    desk(&window, &state, repo_dir).prune_closed().await
+    let _t = crate::util::timing::phase(format!("review_prune_closed {repo_dir}"));
+    desk(&window, &state, repo_dir)
+        .prune_closed(open_numbers.into_iter().collect())
+        .await
 }
 
 /// Set the review checkout policy and "Don't ask again for <repository>",

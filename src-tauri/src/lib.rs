@@ -918,6 +918,8 @@ fn write_bindings() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    util::timing::start();
+    let startup_timer = util::timing::phase("pre-builder (settings + profile db)");
     let (runtime, launch_explicit) = settings::runtime::parse_runtime();
     let database = tauri::async_runtime::block_on(storage::open_profile_root(
         &runtime.host,
@@ -937,6 +939,7 @@ pub fn run() {
         );
     }
     let context = HomeContext::new(runtime, database);
+    drop(startup_timer);
     let specta = specta_builder();
     // Regenerate the frontend bindings on every debug launch; the file is
     // committed so `bun run check` works without a Rust toolchain.
@@ -978,6 +981,20 @@ pub fn run() {
             // Quick-chat and global hotkeys: register the persisted (or
             // default) shortcut that toggles the floating composer.
             composer::quick::register_saved_shortcut(app.handle());
+            // An explicit launch already knows its Home, and the first thing the
+            // window will do is bootstrap it, which waits on a cold app-server
+            // (orphan sweep, spawn, `initialize`: 0.4-1.2 s). Start the child
+            // now so that overlaps the webview loading instead of following it.
+            // A picker launch waits for the user's choice.
+            if launch_explicit {
+                let handle = app.handle().clone();
+                let context = app.state::<AppState>().default_context();
+                tauri::async_runtime::spawn(async move {
+                    let _t = util::timing::phase("prewarm app-server");
+                    let _ = context.session.server_info(&handle).await;
+                });
+            }
+            util::timing::mark("setup done");
             Ok(())
         })
         .manage(AppState::new(context, launch_explicit))

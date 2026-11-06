@@ -104,6 +104,7 @@ impl MainSessionSink {
 
 impl ChildSink for MainSessionSink {
     fn on_notification(&self, method: &str, params: &Value) {
+        crate::util::timing::mark(&format!("notification {method}"));
         self.journal.observe(method, params);
         if method == "thread/settings/updated" {
             self.cache_thread_settings(params);
@@ -180,13 +181,17 @@ async fn spawn_session(
     // a blocking thread rather than stall an async worker.
     let (host, binary) = (runtime.host.clone(), runtime.codex_binary_str());
     let program = tauri::async_runtime::spawn_blocking(move || {
+        let t = crate::util::timing::phase("spawn.kill_orphaned_app_servers");
         crate::codex::child::kill_orphaned_app_servers(std::slice::from_ref(&host));
+        drop(t);
+        let _t = crate::util::timing::phase("spawn.resolve_binary");
         host.resolve_binary(&binary)
             .ok_or_else(|| crate::codex::binary::missing_message_on(&host, &binary))
     })
     .await
     .map_err(|error| format!("Could not start Codex: {error}"))??;
     let sink = Arc::new(MainSessionSink::new(app.clone(), home_key));
+    let _t = crate::util::timing::phase("spawn.child + initialize");
     let child = spawn_child(
         &runtime.host,
         &program,

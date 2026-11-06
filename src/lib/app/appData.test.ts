@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   appData,
   applyData,
@@ -7,10 +7,18 @@ import {
   forgetOptimisticThread,
   nameNewThread,
   projectForCwd,
+  quietRefresh,
+  refresh,
   trackNewThread,
   UNTITLED_THREAD,
 } from "$lib/app/appData.svelte";
+import { commands } from "$lib/services/homeRouting";
 import type { BootstrapData, Project } from "$lib/types";
+
+vi.mock("$lib/services/homeRouting", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
+  return { ...actual, commands: { ...actual.commands, bootstrap: vi.fn(actual.commands.bootstrap) } };
+});
 
 const api: Project = {
   name: "API",
@@ -176,5 +184,35 @@ describe("sidebar data from overlapping requests", () => {
     expect(applyTicketed(titled("first"), first)).toBe(true);
     expect(applyTicketed(titled("second"), second)).toBe(true);
     expect(appData.data?.projects[0].name).toBe("second");
+  });
+});
+
+describe("live sidebar reads", () => {
+  const titled = (title: string): BootstrapData => {
+    const next = structuredClone(data);
+    next.projects[0].name = title;
+    return next;
+  };
+
+  it("never overlap, and requests made during one share a single read after it", async () => {
+    const pending: Array<(value: BootstrapData) => void> = [];
+    const bootstrap = vi.mocked(commands.bootstrap);
+    bootstrap.mockReset();
+    bootstrap.mockImplementation(() => new Promise((resolve) => pending.push(resolve)));
+
+    // Opening a Home: the initial refresh, then the `account/updated` the
+    // app-server sends in reply to it, and a thread event, while it runs.
+    const opening = refresh();
+    const accountUpdated = quietRefresh();
+    const threadStarted = quietRefresh();
+    expect(bootstrap).toHaveBeenCalledTimes(1);
+
+    pending[0](titled("first read"));
+    await vi.waitFor(() => expect(bootstrap).toHaveBeenCalledTimes(2));
+    pending[1](titled("read after the events"));
+    await Promise.all([opening, accountUpdated, threadStarted]);
+
+    expect(bootstrap).toHaveBeenCalledTimes(2);
+    expect(appData.data?.projects[0].name).toBe("read after the events");
   });
 });
