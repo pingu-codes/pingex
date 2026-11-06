@@ -36,6 +36,7 @@
     menu,
     ciEntries,
     stack = null,
+    drift = null,
     onAction,
     onPick,
   }: {
@@ -53,6 +54,8 @@
     ciEntries: MenuEntry[];
     /** The row's place in its stack card; `first` and `last` are among the card's visible rows. */
     stack?: { position: number; total: number; first: boolean; last: boolean } | null;
+    /** "Behind main by 3" or "Behind #12": the base has commits GitHub's head lacks. */
+    drift?: string | null;
     onAction: (id: string) => void;
     onPick: (mode: "toggle" | "range") => void;
   } = $props();
@@ -129,7 +132,8 @@
           {/if}
           <span
             class="stack-step {pr.isDraft ? "border-dashed" : ""} {RING_CLASS[stateTone(pr)]}"
-            title="{stack.position} of {stack.total} in the stack">{stack.position}</span
+            title="{stack.position} of {stack.total} in the stack"
+            >{stack.position}</span
           >
         </span>
       {:else if triage.mine}
@@ -160,6 +164,9 @@
           {/if}
         </span>
         <span class="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 @5xl/inbox:ml-auto @5xl/inbox:justify-end">
+          {#if drift}
+            <span class="status-badge {TONE_CLASS.warning}">{drift}</span>
+          {/if}
           {#if review}
             <span class="status-badge {TONE_CLASS[review.tone]}">{review.label}</span>
           {/if}

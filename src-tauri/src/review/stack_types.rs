@@ -91,12 +91,26 @@ pub(crate) struct StackOverview {
     pub(crate) restack: Option<RestackProgress>,
 }
 
-/// How far behind its base one stack is, for the inbox badge.
+/// One PR as GitHub has it, for counting how far behind its base it is.
+/// For a PR in a stack, the base is the git branch of the PR below.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct StackBehind {
+pub(crate) struct PrBaseInput {
     pub(crate) number: i64,
-    /// `None` when the commits are not here to count.
+    /// GitHub's head (`headRefOid`).
+    pub(crate) head_sha: String,
+    pub(crate) base_ref: String,
+    /// GitHub's base tip (`baseRefOid`) as of the last read.
+    pub(crate) base_sha: String,
+}
+
+/// How far behind its base one PR is, for the "Behind main by 3" badges.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PrBehind {
+    pub(crate) number: i64,
+    /// Commits on GitHub's base tip that GitHub's head lacks. `None` when
+    /// the commits cannot be fetched here to count.
     pub(crate) behind: Option<i64>,
 }
 

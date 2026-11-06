@@ -44,9 +44,9 @@
   import CompareCommitsDialog from "$lib/review/CompareCommitsDialog.svelte";
   import { commands } from "$lib/services/homeRouting";
   import { query } from "$lib/services/queryCache.svelte";
-  import { stackInputFor } from "$lib/stack/stack";
+  import { driftLabel, myBaseInputs, stackInputFor } from "$lib/stack/stack";
   import { toastError } from "$lib/toaster";
-  import type { InboxPr, StackInput } from "$lib/types";
+  import type { InboxPr, PrBaseInput } from "$lib/types";
   import { errorMessage } from "$lib/utils/errors";
   import { ensureWorktrees, worktreeMap } from "$lib/worktrees/worktreeMap.svelte";
   import { threadCountForPath } from "$lib/worktrees/worktrees";
@@ -107,23 +107,29 @@
       label: `${FILTER_LABELS[value]} ${inbox?.counts[value] ?? 0}`,
     })),
   );
-  // How far behind its base each of my stacks is ("Behind main by 3").
-  // Cached, so coming back to the inbox does not run the stack git work again.
-  const behindArgs = $derived.by((): [string, StackInput[]] | null => {
-    const current = inbox;
-    const listing = stacks;
-    if (!current || !listing.supported) return null;
-    const authorOf = new Map(current.prs.map((pr) => [pr.number, pr.author]));
-    const mine = listing.stacks.filter(
-      (stack) =>
-        stack.open && stack.prs.some((pr) => pr.state === "open" && authorOf.get(pr.number) === current.viewer),
-    );
-    return mine.length > 0 ? [repoPath, mine.map((stack) => stackInputFor(stack, current))] : null;
+  // How far behind its base, as GitHub has both, each of my open PRs is:
+  // "Behind main by 3" on a stack or a single PR, "Behind #12" on a PR that
+  // no longer sits on the head of the one below. Cached, so coming back to
+  // the inbox does not run the git work again.
+  const behindArgs = $derived.by((): [string, PrBaseInput[]] | null => {
+    const mine = inbox ? myBaseInputs(inbox) : [];
+    return mine.length > 0 ? [repoPath, mine] : null;
   });
-  const behindQuery = query("reviewStacksBehind", () => behindArgs);
-  const behind = $derived<Record<number, number | null>>(
-    Object.fromEntries((behindQuery.value ?? []).map((row) => [row.number, row.behind])),
-  );
+  const behindQuery = query("reviewPrsBehind", () => behindArgs);
+  const behind = $derived(new Map((behindQuery.value ?? []).map((row) => [row.number, row.behind])));
+  /** The stack's lead: how far its bottom open PR is behind the stack base. */
+  function stackBehind(group: StackGroup): number | null {
+    const open = new Set(
+      group.stack.prs.filter((entry) => entry.state === "open" && !entry.merged).map((e) => e.number),
+    );
+    const bottom = inbox?.prs.find((pr) => open.has(pr.number) && pr.baseRef === group.stack.baseRef);
+    return bottom ? (behind.get(bottom.number) ?? null) : null;
+  }
+  /** A row's own badge. In a stack card the bottom PR's lead is the card's. */
+  function rowDrift(pr: InboxPr, group: StackGroup | null): string | null {
+    if (group && pr.baseRef === group.stack.baseRef) return null;
+    return driftLabel(pr, behind.get(pr.number), inbox);
+  }
 
   function compareBase(group: StackGroup) {
     if (!inbox) return;
@@ -332,6 +338,7 @@
     stack={group
       ? { ...stackPosition(group, row.pr.number), first: depth === 0, last: depth === group.rows.length - 1 }
       : null}
+    drift={rowDrift(row.pr, group)}
     onAction={(id) => run(id, row, group)}
     onPick={(mode) => pick(row.pr.number, mode)}
   />
@@ -428,7 +435,7 @@
                 threadCount={worktree ? threadCountForPath(projects(), worktree.path) : 0}
                 onOpenStack={handlers.openStack ? () => handlers.openStack?.(repoPath, group) : undefined}
                 onRestack={handlers.restack ? () => handlers.restack?.(repoPath, group) : undefined}
-                behind={behind[group.stack.number] ?? null}
+                behind={stackBehind(group)}
                 onCompare={() => compareBase(group)}
               >
                 {#snippet row(entry, index)}

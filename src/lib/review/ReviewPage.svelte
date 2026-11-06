@@ -57,6 +57,7 @@
   import YourReview from "$lib/review/YourReview.svelte";
   import { commands } from "$lib/services/homeRouting";
   import { prefetch, query } from "$lib/services/queryCache.svelte";
+  import { baseInput, driftLabel } from "$lib/stack/stack";
   import type {
     ChangesSince,
     CheckLog,
@@ -129,6 +130,18 @@
   // `commands` marks it stale, which re-reads it.
   const detailQuery = query("reviewPrDetail", () => [repoDir, number]);
   const detail = $derived<PrDetail | null>(detailQuery.value ?? null);
+  // How far GitHub's head is behind GitHub's base tip, for the header badge.
+  const behindQuery = query("reviewPrsBehind", () =>
+    detail
+      ? [
+          repoDir,
+          [baseInput({ number, headSha: detail.headSha, baseRef: detail.summary.baseRef, baseSha: detail.baseSha })],
+        ]
+      : null,
+  );
+  const drift = $derived(
+    detail ? driftLabel({ number, baseRef: detail.summary.baseRef }, behindQuery.value?.[0]?.behind, inbox) : null,
+  );
   const error = $derived(detail ? null : detailQuery.error);
   let tab = $state<Tab>("files");
   let filter = $state<ReviewFilter>("all");
@@ -570,6 +583,13 @@
           <span class="whitespace-nowrap text-surface-500">{detail.summary.author}</span>
           {#if detail.summary.isDraft}
             <span class="status-badge preset-tonal">Draft</span>
+          {/if}
+          {#if drift}
+            <span
+              class="status-badge preset-tonal-warning whitespace-nowrap"
+              title="The base has commits this PR does not"
+              >{drift}</span
+            >
           {/if}
         {:else}
           <span class="placeholder h-4 w-48 animate-pulse rounded"></span>

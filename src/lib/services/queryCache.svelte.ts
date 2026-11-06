@@ -71,7 +71,7 @@ export const READS = {
   reviewListPrs: GITHUB,
   reviewStackOverview: GITHUB,
   reviewRestackPlan: GITHUB,
-  reviewStacksBehind: GITHUB,
+  reviewPrsBehind: GITHUB,
   reviewProviderStatus: { fresh: 5 * MINUTE, expire: 60 * MINUTE, kind: "provider", repoArg: 0 },
   reviewDiff: BY_SHA,
   reviewFile: BY_SHA,

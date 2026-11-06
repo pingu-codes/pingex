@@ -9,7 +9,8 @@ use tauri::State;
 use super::desk::ReviewDesk;
 use super::github::GhCli;
 use super::stack_types::{
-    PushReport, RestackPlan, RestackProgress, SplitRequest, StackBehind, StackInput, StackOverview,
+    PrBaseInput, PrBehind, PushReport, RestackPlan, RestackProgress, SplitRequest, StackInput,
+    StackOverview,
 };
 use crate::AppState;
 
@@ -35,13 +36,13 @@ pub(crate) async fn review_stack_overview(
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn review_stacks_behind(
+pub(crate) async fn review_prs_behind(
     repo_dir: String,
-    inputs: Vec<StackInput>,
+    prs: Vec<PrBaseInput>,
     window: crate::HomeWindow,
     state: State<'_, AppState>,
-) -> Result<Vec<StackBehind>, String> {
-    desk(&window, &state, repo_dir).stacks_behind(inputs).await
+) -> Result<Vec<PrBehind>, String> {
+    desk(&window, &state, repo_dir).prs_behind(prs).await
 }
 
 #[tauri::command]

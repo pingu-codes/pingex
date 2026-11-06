@@ -3,10 +3,12 @@ import { deskInbox, deskStacks } from "$lib/services/preview/desk";
 import {
   behindLabel,
   branchMenu,
+  driftLabel,
   dropped,
   followUpWorktrees,
   mergeFollowUp,
   moved,
+  myBaseInputs,
   stackInputFor,
 } from "$lib/stack/stack";
 import type { StackInput } from "$lib/types";
@@ -124,5 +126,38 @@ describe("the behind badge", () => {
     expect(behindLabel("main", 3)).toBe("Behind main by 3");
     expect(behindLabel("main", 0)).toBeNull();
     expect(behindLabel("main", null)).toBeNull();
+  });
+});
+
+describe("how far a PR is behind its base", () => {
+  it("checks only the viewer's PRs, each against GitHub's base tip", () => {
+    const inbox = deskInbox(MAIN);
+    const inputs = myBaseInputs(inbox);
+    const numbers = inputs.map((input) => input.number);
+    expect(numbers).toEqual(expect.arrayContaining([128, 412, 415, 418]));
+    expect(numbers).not.toContain(401);
+    const top = inbox.prs.find((pr) => pr.number === 418);
+    expect(inputs.find((input) => input.number === 418)).toEqual({
+      number: 418,
+      headSha: top?.headSha,
+      baseRef: "feat/claude-driver",
+      baseSha: top?.baseSha,
+    });
+  });
+
+  it("names the PR below when the base is its git branch, and the base and count otherwise", () => {
+    const inbox = deskInbox(MAIN);
+    expect(driftLabel({ number: 418, baseRef: "feat/claude-driver" }, 4, inbox)).toBe("Behind #415");
+    expect(driftLabel({ number: 128, baseRef: "main" }, 2, inbox)).toBe("Behind main by 2");
+    expect(driftLabel({ number: 418, baseRef: "feat/claude-driver" }, 0, inbox)).toBeNull();
+    expect(driftLabel({ number: 128, baseRef: "main" }, null, inbox)).toBeNull();
+  });
+
+  it("does not take a fork's git branch of the same name for the PR below", () => {
+    const inbox = deskInbox(MAIN);
+    const fork = { ...inbox.prs[0], number: 999, headRef: "main", headRepo: "someone/codex-custom" };
+    expect(driftLabel({ number: 128, baseRef: "main" }, 2, { ...inbox, prs: [...inbox.prs, fork] })).toBe(
+      "Behind main by 2",
+    );
   });
 });
