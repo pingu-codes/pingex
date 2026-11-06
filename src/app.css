@@ -253,6 +253,72 @@ button {
   padding: 0;
 }
 
+/* Highlighted code in review diff rows (`.ln`). The rows sit on the theme's
+   surface, not `.code-dark`, so in light mode the tokens take highlight.js's
+   github (light) colours; in dark mode the global github-dark ones apply.
+   Each selector is github.css's own with `.ln` in front, one class more
+   specific than its github-dark counterpart. */
+@media (prefers-color-scheme: light) {
+  .ln .hljs-doctag,
+  .ln .hljs-keyword,
+  .ln .hljs-meta .hljs-keyword,
+  .ln .hljs-template-tag,
+  .ln .hljs-template-variable,
+  .ln .hljs-type,
+  .ln .hljs-variable.language_ {
+    color: #d73a49;
+  }
+  .ln .hljs-title,
+  .ln .hljs-title.class_,
+  .ln .hljs-title.class_.inherited__,
+  .ln .hljs-title.function_ {
+    color: #6f42c1;
+  }
+  .ln .hljs-attr,
+  .ln .hljs-attribute,
+  .ln .hljs-literal,
+  .ln .hljs-meta,
+  .ln .hljs-number,
+  .ln .hljs-operator,
+  .ln .hljs-variable,
+  .ln .hljs-selector-attr,
+  .ln .hljs-selector-class,
+  .ln .hljs-selector-id {
+    color: #005cc5;
+  }
+  .ln .hljs-regexp,
+  .ln .hljs-string,
+  .ln .hljs-meta .hljs-string {
+    color: #032f62;
+  }
+  .ln .hljs-built_in,
+  .ln .hljs-symbol {
+    color: #e36209;
+  }
+  .ln .hljs-comment,
+  .ln .hljs-code,
+  .ln .hljs-formula {
+    color: #6a737d;
+  }
+  .ln .hljs-name,
+  .ln .hljs-quote,
+  .ln .hljs-selector-tag,
+  .ln .hljs-selector-pseudo {
+    color: #22863a;
+  }
+  .ln .hljs-subst,
+  .ln .hljs-emphasis,
+  .ln .hljs-strong {
+    color: #24292e;
+  }
+  .ln .hljs-section {
+    color: #005cc5;
+  }
+  .ln .hljs-bullet {
+    color: #735c0f;
+  }
+}
+
 /* Rendered markdown (renderMarkdown output). `.prose-md-compact` is the
    smaller variant for side panels, previews and reasoning. */
 .prose-md {
