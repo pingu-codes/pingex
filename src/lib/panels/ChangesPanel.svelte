@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { ArrowLeft, FileDiff, RefreshCw } from "@lucide/svelte";
+  import { ArrowLeft, FileDiff } from "@lucide/svelte";
   import { untrack } from "svelte";
+  import RefreshIcon from "$lib/components/RefreshIcon.svelte";
   import { commands } from "$lib/services/homeRouting";
   import type { ChangedFile, ChangesSummary, FileDiff as FileDiffData } from "$lib/types";
   import { fileIconFor } from "$lib/utils/fileIcons";
@@ -174,7 +175,7 @@
       aria-label="Refresh changes"
       disabled={loading}
     >
-      <RefreshCw size={12} class={loading ? "animate-spin" : ""} />
+      <RefreshIcon spinning={loading} size={12} />
     </button>
   </div>
   {#if files.length === 0}

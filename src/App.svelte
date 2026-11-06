@@ -61,6 +61,7 @@
   } from "$lib/app/navigation.svelte";
   import VersionBanner from "$lib/app/VersionBanner.svelte";
   import DialogHost from "$lib/components/DialogHost.svelte";
+  import RefreshIcon from "$lib/components/RefreshIcon.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import { inboxes, needsYouByRepo, startInboxSync, syncInbox } from "$lib/inbox/inboxStore.svelte";
   import PullRequestsView from "$lib/inbox/PullRequestsView.svelte";
@@ -244,7 +245,7 @@
             aria-label="Refresh Codex threads"
             class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
           >
-            <RefreshCw size={15} class={appData.loading ? "animate-spin" : ""} />
+            <RefreshIcon spinning={appData.loading} size={15} />
           </TooltipButton>
         </div>
       </header>

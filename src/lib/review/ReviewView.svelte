@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { ArrowLeft, Bot, FileDiff, GitBranch, GitPullRequest, LogIn, RefreshCw } from "@lucide/svelte";
+  import { ArrowLeft, Bot, FileDiff, GitBranch, GitPullRequest, LogIn } from "@lucide/svelte";
   import { onMount } from "svelte";
   import { newThreadInDir } from "$lib/app/navigation.svelte";
   import DiffBlock from "$lib/components/DiffBlock.svelte";
+  import RefreshIcon from "$lib/components/RefreshIcon.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import { inboxes } from "$lib/inbox/inboxStore.svelte";
   import AgentReviewPage from "$lib/review/AgentReviewPage.svelte";
@@ -160,7 +161,7 @@
         aria-label="Refresh"
         class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
       >
-        <RefreshCw size={15} class={loading ? "animate-spin" : ""} />
+        <RefreshIcon spinning={loading} size={15} />
       </TooltipButton>
     </div>
 

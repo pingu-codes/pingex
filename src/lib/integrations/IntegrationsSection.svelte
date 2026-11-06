@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { Plus, Puzzle, RefreshCw } from "@lucide/svelte";
+  import { Plus, Puzzle } from "@lucide/svelte";
   import { tick } from "svelte";
   import { openDialog } from "$lib/app/dialogs.svelte";
+  import RefreshIcon from "$lib/components/RefreshIcon.svelte";
   import Segmented from "$lib/components/Segmented.svelte";
   import AddSkillDialog from "$lib/integrations/AddSkillDialog.svelte";
   import {
@@ -299,7 +300,7 @@
         disabled={checking || loading || updating}
         class="btn btn-sm hover:preset-tonal text-xs"
       >
-        <RefreshCw size={13} class={checking ? "animate-spin" : ""} />
+        <RefreshIcon spinning={checking} size={13} />
         Refresh
       </button>
       {#if !projectPath}

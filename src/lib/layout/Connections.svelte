@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { Check, Monitor, Pencil, Plus, QrCode, RefreshCw, Smartphone, Tablet, Unplug, X } from "@lucide/svelte";
+  import { Check, Monitor, Pencil, Plus, QrCode, Smartphone, Tablet, Unplug, X } from "@lucide/svelte";
   import { openDialog } from "$lib/app/dialogs.svelte";
+  import RefreshIcon from "$lib/components/RefreshIcon.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import {
     connectionHealth,
@@ -181,7 +182,7 @@
       aria-label="Refresh connections"
       class="btn-icon btn-icon-sm shrink-0 hover:preset-tonal text-surface-500"
     >
-      <RefreshCw size={15} class={refreshing ? "animate-spin" : ""} />
+      <RefreshIcon spinning={refreshing} size={15} />
     </TooltipButton>
   </div>
 

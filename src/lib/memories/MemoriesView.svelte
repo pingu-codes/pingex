@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Brain, ChevronDown, FolderOpen, Pencil, RefreshCw, Search, Trash2, TriangleAlert } from "@lucide/svelte";
   import { projects } from "$lib/app/appData.svelte";
+  import RefreshIcon from "$lib/components/RefreshIcon.svelte";
   import Toggle from "$lib/components/Toggle.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import {
@@ -166,7 +167,7 @@
         aria-label="Reload memories"
         class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
       >
-        <RefreshCw size={14} class={loading ? "animate-spin" : ""} />
+        <RefreshIcon spinning={loading} size={14} />
       </TooltipButton>
     </div>
 

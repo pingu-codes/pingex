@@ -9,12 +9,13 @@
   Actions that open another screen go to `handlers`; the rest run here.
 -->
 <script lang="ts">
-  import { Check, ChevronDown, RefreshCw, Search, X } from "@lucide/svelte";
+  import { Check, ChevronDown, Search, X } from "@lucide/svelte";
   import { Menu, Portal } from "@skeletonlabs/skeleton-svelte";
   import { onMount } from "svelte";
   import { projects } from "$lib/app/appData.svelte";
   import { openDialog } from "$lib/app/dialogs.svelte";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
+  import RefreshIcon from "$lib/components/RefreshIcon.svelte";
   import Segmented from "$lib/components/Segmented.svelte";
   import AgentReviewsPanel from "$lib/inbox/AgentReviewsPanel.svelte";
   import { inFlight, latestPerPr, loadAgentReviews, repoAgentReviews } from "$lib/inbox/agentReviews";
@@ -399,7 +400,7 @@
         disabled={repoState?.syncing}
         onclick={() => void sync()}
       >
-        <RefreshCw size={14} class={repoState?.syncing ? "animate-spin" : ""} aria-hidden="true" />Sync
+        <RefreshIcon spinning={repoState?.syncing} size={14} />Sync
       </button>
     </header>
 

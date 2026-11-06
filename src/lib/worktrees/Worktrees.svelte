@@ -21,6 +21,7 @@
   import { Menu, Portal } from "@skeletonlabs/skeleton-svelte";
   import { onMount } from "svelte";
   import { openDialog } from "$lib/app/dialogs.svelte";
+  import RefreshIcon from "$lib/components/RefreshIcon.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import { gitWorktreeAdd } from "$lib/services/api";
   import { type CodexEvent, setThreadHandler } from "$lib/services/codexEvents.svelte";
@@ -210,7 +211,7 @@
         aria-label="Refresh worktrees"
         class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
       >
-        <RefreshCw size={15} class={loading ? "animate-spin" : ""} />
+        <RefreshIcon spinning={loading} size={15} />
       </TooltipButton>
     </div>
 

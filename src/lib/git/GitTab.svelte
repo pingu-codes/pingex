@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { AlertTriangle, ArrowLeftRight, Check, GitBranch, RefreshCw, Undo2 } from "@lucide/svelte";
+  import { AlertTriangle, ArrowLeftRight, Check, GitBranch, Undo2 } from "@lucide/svelte";
   import { onMount, untrack } from "svelte";
   import { openDialog } from "$lib/app/dialogs.svelte";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
+  import RefreshIcon from "$lib/components/RefreshIcon.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import { type CodexEvent, setThreadHandler } from "$lib/services/codexEvents.svelte";
   import { commands } from "$lib/services/homeRouting";
@@ -222,7 +223,7 @@
       aria-label="Refresh status"
       class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
     >
-      <RefreshCw size={14} class={loading ? "animate-spin" : ""} />
+      <RefreshIcon spinning={loading} size={14} />
     </TooltipButton>
   </div>
 

@@ -9,13 +9,14 @@
   from `reviewStackOverview`.
 -->
 <script lang="ts">
-  import { Ellipsis, Folder, RefreshCw, Sparkles } from "@lucide/svelte";
+  import { Ellipsis, Folder, Sparkles } from "@lucide/svelte";
   import { onMount } from "svelte";
   import { projects } from "$lib/app/appData.svelte";
   import { openDialog } from "$lib/app/dialogs.svelte";
   import { openThreadInCwd } from "$lib/app/navigation.svelte";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
+  import RefreshIcon from "$lib/components/RefreshIcon.svelte";
   import Segmented from "$lib/components/Segmented.svelte";
   import { RING_CLASS, TONE_CLASS } from "$lib/inbox/badges";
   import { ciBadge, reviewBadge, stateTone } from "$lib/inbox/inbox";
@@ -647,7 +648,7 @@
         disabled={!input || busy !== null || restacking}
         onclick={() => void restack()}
       >
-        <RefreshCw size={14} class={busy === "restack" ? "animate-spin" : ""} aria-hidden="true" />Restack onto
+        <RefreshIcon spinning={busy === "restack"} size={14} />Restack onto
         {input?.baseRef ?? "base"}
       </button>
     </div>
