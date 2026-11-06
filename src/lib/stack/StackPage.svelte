@@ -9,7 +9,7 @@
   from `reviewStackOverview`.
 -->
 <script lang="ts">
-  import { Folder, RefreshCw, Sparkles } from "@lucide/svelte";
+  import { Ellipsis, Folder, RefreshCw, Sparkles } from "@lucide/svelte";
   import { onMount } from "svelte";
   import { projects } from "$lib/app/appData.svelte";
   import { openDialog } from "$lib/app/dialogs.svelte";
@@ -21,6 +21,7 @@
   import { ciBadge, reviewBadge, stateTone } from "$lib/inbox/inbox";
   import { inboxes, syncInbox } from "$lib/inbox/inboxStore.svelte";
   import { startStackReview } from "$lib/review/agentReviews.svelte";
+  import CheckoutStepDialog from "$lib/review/CheckoutStepDialog.svelte";
   import { stepUpFor } from "$lib/review/checkoutSteps";
   import { ensurePrLinks, prLinks, rememberPrLink } from "$lib/review/prLinks.svelte";
   import ReviewView from "$lib/review/ReviewView.svelte";
@@ -74,6 +75,8 @@
   let overview = $state<StackOverview | null>(null);
   let overviewError = $state<string | null>(null);
   let progress = $state<RestackProgress | null>(null);
+  /** A restack that has not finished blocks other stack edits; a finished one only shows its result. */
+  const restacking = $derived(progress !== null && !progress.done);
   let preview = $state<RestackPlan | null>(null);
   let selected = $state<number | null>(null);
   let busy = $state<string | null>(null);
@@ -169,8 +172,22 @@
     }
   }
 
+  /** The viewer wrote this PR: pushing to its git branch needs no asking. */
+  function isMine(pr: StackInputPr): boolean {
+    return !!inbox && prByNumber.get(pr.number)?.author === inbox.viewer;
+  }
+
+  /** Someone else's stack: the page leads with reviewing it, not with editing it. */
+  const theirs = $derived(openPrs.length > 0 && !openPrs.some(isMine));
+
   function targetFor(pr: StackInputPr): CheckoutTarget {
-    return { number: pr.number, headRef: pr.headRef, headSha: pr.headSha, mine: true, stack: input?.name ?? null };
+    return {
+      number: pr.number,
+      headRef: pr.headRef,
+      headSha: pr.headSha,
+      mine: isMine(pr),
+      stack: input?.name ?? null,
+    };
   }
 
   /** The stack's worktree, creating one on `pr`'s git branch if it has none. */
@@ -286,10 +303,28 @@
   async function pushStack(only: number | null = null) {
     if (!input) return;
     const stackInput = input;
-    const pr = openPrs.find((candidate) => candidate.number === only) ?? openPrs.at(-1);
+    const pushing = openPrs.filter((candidate) => only === null || candidate.number === only);
+    const pr = pushing.at(-1);
     if (!pr) return;
-    const checkout = await stepUpFor({ repoDir, repoName, target: targetFor(pr), action: "push" });
-    if (!checkout) return;
+    if (!worktree) {
+      // Steps up to a worktree, asking first about someone else's git branch.
+      if (!(await stepUpFor({ repoDir, repoName, target: targetFor(pr), action: "push" }))) return;
+    } else {
+      // The stack's worktree holds every one of its git branches, whichever
+      // is checked out. Pushing to someone else's is still asked every time.
+      const other = pushing.find((candidate) => !isMine(candidate));
+      if (
+        other &&
+        !(await openDialog(CheckoutStepDialog, {
+          confirm: "pushToTheirBranch" as const,
+          action: "push" as const,
+          target: targetFor(other),
+          repoName,
+          reviewCheckoutPath: worktree.path,
+        }))
+      )
+        return;
+    }
     await work("push", async () => {
       const report = await commands.reviewPushStack(repoDir, stackInput, only);
       toaster.success({
@@ -299,6 +334,8 @@
             : `Pushed ${report.pushed.length} git branch${report.pushed.length === 1 ? "" : "es"}`,
         description: report.pushed.join(", ") || undefined,
       });
+      // The finished restack's card offered this push; it has done its job.
+      if (only === null && progress?.done) progress = null;
     });
   }
 
@@ -501,7 +538,7 @@
         <div class="drop-line mb-1.5" aria-live="polite">{dropHint}</div>
       {/if}
       <ActionMenu
-        entries={branchMenu(input as StackInput, pr.number, { worktreeName, canRestack: !progress })}
+        entries={branchMenu(input as StackInput, pr.number, { worktreeName, canRestack: !restacking })}
         label="Branch {pr.headRef}"
         onSelect={(id) => void runBranch(id, pr)}
       >
@@ -522,21 +559,25 @@
             onclick={() => (selected = pr.number)}
           >
             <div class="flex items-center gap-2">
-              <span class="font-mono text-[11px]" class:font-semibold={checkedOut}>{pr.headRef}</span>
+              <span class="min-w-0 truncate font-mono text-[11px]" class:font-semibold={checkedOut} title={pr.headRef}
+                >{pr.headRef}</span
+              >
               {#if checkedOut}
                 <span class="status-badge preset-tonal-primary">Checked out</span>
               {/if}
               <span class="grow"></span>
-              {#if review}
-                <span class="status-badge {TONE_CLASS[review.tone]}">{review.label}</span>
-              {/if}
-              <button {...buttonProps} type="button" class="btn-icon btn-icon-sm hover:preset-tonal">⋯</button>
+              <button {...buttonProps} type="button" class="btn-icon btn-icon-sm hover:preset-tonal shrink-0">
+                <Ellipsis size={14} aria-hidden="true" />
+              </button>
             </div>
             <div class="flex min-w-0 items-center gap-2">
               <span class="font-mono text-[11px] text-surface-500">#{pr.number}</span>
               <span class="truncate" class:font-medium={selected === pr.number}>{pr.title}</span>
             </div>
             <div class="flex flex-wrap items-center gap-2 text-surface-500">
+              {#if review}
+                <span class="status-badge {TONE_CLASS[review.tone]}">{review.label}</span>
+              {/if}
               {#if branch}
                 <span>{branch.commits} commit{branch.commits === 1 ? "" : "s"}</span>
               {/if}
@@ -582,32 +623,34 @@
         PR{openPrs.length === 1 ? "" : "s"}{overview ? ` · ${totalCommits} commits` : ""}</span
       >
     {/if}
-    <span class="grow"></span>
-    <button
-      type="button"
-      class="btn btn-sm text-xs hover:preset-tonal"
-      disabled={openPrs.length === 0 || busy !== null}
-      onclick={() => void reviewWholeStack()}
-    >
-      <Sparkles size={14} aria-hidden="true" />Review whole stack
-    </button>
-    <button
-      type="button"
-      class="btn btn-sm text-xs preset-tonal"
-      disabled={!input || busy !== null || !!progress}
-      onclick={() => void pushStack()}
-    >
-      Push stack
-    </button>
-    <button
-      type="button"
-      class="btn btn-sm text-xs preset-filled-primary-500"
-      disabled={!input || busy !== null || !!progress}
-      onclick={() => void restack()}
-    >
-      <RefreshCw size={14} class={busy === "restack" ? "animate-spin" : ""} aria-hidden="true" />Restack onto
-      {input?.baseRef ?? "base"}
-    </button>
+    <!-- The stack's actions wrap as one group. -->
+    <div class="ml-auto flex items-center gap-2">
+      <button
+        type="button"
+        class="btn btn-sm text-xs {theirs ? "preset-filled-primary-500" : "hover:preset-tonal"}"
+        disabled={openPrs.length === 0 || busy !== null}
+        onclick={() => void reviewWholeStack()}
+      >
+        <Sparkles size={14} aria-hidden="true" />Review whole stack
+      </button>
+      <button
+        type="button"
+        class="btn btn-sm text-xs preset-tonal"
+        disabled={!input || busy !== null || restacking}
+        onclick={() => void pushStack()}
+      >
+        Push stack
+      </button>
+      <button
+        type="button"
+        class="btn btn-sm text-xs {theirs ? "hover:preset-tonal" : "preset-filled-primary-500"}"
+        disabled={!input || busy !== null || restacking}
+        onclick={() => void restack()}
+      >
+        <RefreshCw size={14} class={busy === "restack" ? "animate-spin" : ""} aria-hidden="true" />Restack onto
+        {input?.baseRef ?? "base"}
+      </button>
+    </div>
   </header>
 
   {#if !input}
@@ -621,10 +664,12 @@
       {/if}
     </div>
   {:else}
-    <div class="flex min-h-0 grow flex-wrap items-stretch overflow-y-auto">
+    <!-- Side by side (400 + 560px) each pane scrolls on its own; stacked, the
+         page scrolls and the PR pane takes the full height under the tree. -->
+    <div class="@container/stack flex min-h-0 grow flex-wrap items-stretch overflow-y-auto">
       <section
         aria-label="Stack tree"
-        class="flex min-w-0 flex-[1_1_400px] flex-col gap-3 border-r border-surface-200-800 bg-surface-100-900 p-5"
+        class="flex min-w-0 flex-[1_1_400px] flex-col gap-3 border-r border-surface-200-800 bg-surface-100-900 p-5 @min-[960px]/stack:h-full @min-[960px]/stack:overflow-y-auto"
       >
         {#if followUp?.kind === "restack"}
           <div class="card flex flex-col gap-2 preset-tonal-success px-3 py-2.5" role="status">
@@ -829,7 +874,7 @@
           <button
             type="button"
             class="btn btn-sm text-xs hover:preset-tonal"
-            disabled={busy !== null || !!progress}
+            disabled={busy !== null || restacking}
             onclick={() => void addBranch(null)}
           >
             Add branch on top
@@ -838,7 +883,7 @@
             <button
               type="button"
               class="btn btn-sm text-xs hover:preset-tonal"
-              disabled={busy !== null || !!progress}
+              disabled={busy !== null || restacking}
               onclick={() => selected !== null && void addBranch(selected)}
             >
               Insert below #{selected}
@@ -876,11 +921,11 @@
 
       <section
         aria-label="Pull request {selected ?? ""}"
-        class="flex min-h-[480px] min-w-0 flex-[999_1_560px] flex-col"
+        class="flex h-full min-h-[480px] min-w-0 flex-[999_1_560px] flex-col"
       >
         {#if selected !== null}
           {#key selected}
-            <ReviewView {repoDir} {repoName} initialPr={selected} onBack={() => (selected = null)} {onAskCodex} />
+            <ReviewView {repoDir} {repoName} initialPr={selected} {onAskCodex} />
           {/key}
         {:else}
           <div class="p-6"><div class="empty-state">Pick a git branch to see its PR.</div></div>

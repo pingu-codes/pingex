@@ -2,7 +2,8 @@
   A stack as one card: its name, base and PRs bottom first, each indented
   one step above the PR it builds on. My stacks show their worktree and
   thread count, with Restack and Open stack when the Stack page is wired;
-  another author's stack shows who wrote it.
+  another author's stack shows who wrote it, and sits in its section's list
+  without a card of its own.
 -->
 <script lang="ts">
   import { Folder, GitBranch } from "@lucide/svelte";
@@ -42,12 +43,8 @@
   const behindText = $derived(behindLabel(group.stack.baseRef, behind));
 </script>
 
-<section class="panel-card overflow-hidden" aria-label="Stack {group.name}">
-  <div
-    class="flex flex-wrap items-center gap-2 border-b border-surface-200-800 px-3 py-2.5 text-xs {mine
-      ? ""
-      : "bg-surface-50-950"}"
-  >
+<section class={mine ? "panel-card overflow-hidden" : ""} aria-label="Stack {group.name}">
+  <div class="flex flex-wrap items-center gap-2 border-b border-surface-200-800 px-3 py-2.5 text-xs">
     <GitBranch size={mine ? 14 : 12} class="text-surface-500" aria-hidden="true" />
     <span class="font-semibold">{group.name}</span>
     {#if mine}

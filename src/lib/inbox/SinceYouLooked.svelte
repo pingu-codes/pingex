@@ -1,6 +1,8 @@
 <!-- "Since you last looked": activity on the repository's PRs not yet
-     marked seen, newest first. Choosing an entry opens its PR. -->
+     marked seen, newest first. Choosing an entry opens its PR. The heading
+     collapses the list; the choice is remembered per viewer. -->
 <script lang="ts">
+  import { ChevronDown, ChevronRight } from "@lucide/svelte";
   import { ago, feedText } from "$lib/inbox/inbox";
   import LoginAvatar from "$lib/inbox/LoginAvatar.svelte";
   import type { FeedEntry } from "$lib/types";
@@ -16,10 +18,49 @@
     onOpen: (number: number) => void;
     onMarkAllSeen: () => void;
   } = $props();
+
+  const OPEN_KEY = "pingex.inbox.sinceYouLookedOpen";
+  function loadOpen(): boolean {
+    try {
+      return localStorage.getItem(OPEN_KEY) !== "false";
+    } catch {
+      return true;
+    }
+  }
+
+  const uid = $props.id();
+  let open = $state(loadOpen());
+
+  function toggle() {
+    open = !open;
+    try {
+      localStorage.setItem(OPEN_KEY, String(open));
+    } catch {
+      // A per-viewer convenience: fine to lose.
+    }
+  }
 </script>
 
 <div class="flex items-center gap-2">
-  <h2 class="eyebrow grow">Since you last looked</h2>
+  <h2 class="eyebrow grow">
+    <button
+      type="button"
+      class="flex items-center gap-1 text-left uppercase hover:text-surface-950-50"
+      aria-expanded={open}
+      aria-controls="{uid}-feed"
+      onclick={toggle}
+    >
+      {#if open}
+        <ChevronDown size={12} aria-hidden="true" />
+      {:else}
+        <ChevronRight size={12} aria-hidden="true" />
+      {/if}
+      Since you last looked
+      {#if !open && feed.length > 0}
+        <span class="status-badge preset-tonal-primary normal-case">{feed.length}</span>
+      {/if}
+    </button>
+  </h2>
   <button
     type="button"
     class="btn btn-sm text-[11px] hover:preset-tonal"
@@ -29,10 +70,12 @@
     Mark all seen
   </button>
 </div>
-{#if feed.length === 0}
-  <p class="px-2 text-xs text-surface-500">Nothing new since you last looked.</p>
+{#if !open}
+  <!-- Collapsed: the heading's count stands in for the list. -->
+{:else if feed.length === 0}
+  <p id="{uid}-feed" class="px-2 text-xs text-surface-500">Nothing new since you last looked.</p>
 {:else}
-  <div class="flex flex-col gap-0.5">
+  <div id="{uid}-feed" class="flex flex-col gap-0.5">
     {#each feed as entry (entry.id)}
       {@const line = feedText(entry)}
       <button type="button" class="menu-row items-start p-2" onclick={() => onOpen(entry.number)}>

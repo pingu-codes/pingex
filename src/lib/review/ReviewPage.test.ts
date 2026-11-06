@@ -178,4 +178,20 @@ describe("ReviewPage", () => {
     await user.keyboard("k");
     expect(onOpenPr).toHaveBeenCalledWith(403);
   });
+
+  it("offers only a comment on the viewer's own PR, which GitHub takes from its author", async () => {
+    renderPage({ inbox: { ...deskInbox(repoDir), viewer: "mira-k" } });
+    await opened();
+
+    expect(within(yourReview()).queryByRole("radiogroup", { name: "Verdict" })).toBeNull();
+    expect(within(yourReview()).getByRole("button", { name: "Submit review" })).toBeDisabled();
+  });
+
+  it("offers every verdict on someone else's PR", async () => {
+    renderPage({ inbox: deskInbox(repoDir) });
+    await opened();
+
+    expect(within(yourReview()).getByRole("radiogroup", { name: "Verdict" })).toBeInTheDocument();
+    expect(within(yourReview()).getByRole("radio", { name: "Request changes" })).toBeInTheDocument();
+  });
 });

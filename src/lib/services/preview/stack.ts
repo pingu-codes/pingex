@@ -103,10 +103,11 @@ function overview(repoDir: string, input: StackInput): StackOverview {
       tip: pr.headSha,
       commits: COMMITS[index] ?? 1,
       unpushed: false,
+      // Newest first, as `git log` gives them.
       commitLines: Array.from({ length: COMMITS[index] ?? 1 }, (_, commit) => ({
         sha: `${pr.number}${commit}`.padEnd(40, "a"),
         subject: `${pr.title || pr.headRef}: part ${commit + 1}`,
-      })),
+      })).reverse(),
     })),
     worktree: entry.worktree ? { ...entry.worktree } : null,
     mergedBranches: input.prs.filter((pr) => pr.merged).map((pr) => pr.number),

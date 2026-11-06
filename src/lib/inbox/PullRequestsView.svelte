@@ -9,7 +9,8 @@
   Actions that open another screen go to `handlers`; the rest run here.
 -->
 <script lang="ts">
-  import { RefreshCw, Search, X } from "@lucide/svelte";
+  import { Check, ChevronDown, RefreshCw, Search, X } from "@lucide/svelte";
+  import { Menu, Portal } from "@skeletonlabs/skeleton-svelte";
   import { onMount } from "svelte";
   import { projects } from "$lib/app/appData.svelte";
   import { openDialog } from "$lib/app/dialogs.svelte";
@@ -336,29 +337,49 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
-  class="flex h-full min-h-0 flex-wrap content-start overflow-y-auto"
+  class="@container/desk flex h-full min-h-0 flex-wrap content-start overflow-y-auto"
   role="region"
   aria-label="Pull requests"
   onkeydown={onKeydown}
 >
-  <section class="flex min-w-0 flex-[999_1_560px] flex-col gap-4 px-6 py-5">
+  <section class="@container/inbox flex min-w-0 flex-[999_1_560px] flex-col gap-4 px-6 py-5">
     <header class="flex flex-wrap items-center gap-3">
       <div class="min-w-[200px] grow">
-        <div class="flex items-center gap-2">
-          <h1 class="text-base font-semibold">{repoName}</h1>
+        <!-- With several repositories the heading is the picker. -->
+        <h1 class="w-fit text-base font-semibold">
           {#if repos.length > 1}
-            <select
-              class="field py-0.5 text-xs"
-              aria-label="Repository"
-              value={repoPath}
-              onchange={(event) => onSelectRepo(event.currentTarget.value)}
-            >
-              {#each repos as repo (repo.path)}
-                <option value={repo.path}>{repo.name}</option>
-              {/each}
-            </select>
+            <Menu positioning={{ placement: "bottom-start", gutter: 4 }}>
+              <Menu.Trigger
+                aria-label="Repository: {repoName}"
+                class="flex items-center gap-1 rounded px-1 -mx-1 hover:preset-tonal"
+              >
+                {repoName}<ChevronDown size={14} class="text-surface-500" aria-hidden="true" />
+              </Menu.Trigger>
+              <Portal>
+                <Menu.Positioner>
+                  <Menu.Content class="popover-card z-50 min-w-48 select-none p-1 text-xs font-normal">
+                    {#each repos as repo (repo.path)}
+                      <Menu.OptionItem
+                        type="radio"
+                        value={repo.path}
+                        checked={repo.path === repoPath}
+                        onCheckedChange={(checked) => checked && repo.path !== repoPath && onSelectRepo(repo.path)}
+                        class="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:preset-tonal"
+                      >
+                        <Menu.ItemText class="flex-1 truncate">{repo.name}</Menu.ItemText>
+                        <Menu.ItemIndicator class="hidden data-[state=checked]:block">
+                          <Check size={13} class="text-primary-500" />
+                        </Menu.ItemIndicator>
+                      </Menu.OptionItem>
+                    {/each}
+                  </Menu.Content>
+                </Menu.Positioner>
+              </Portal>
+            </Menu>
+          {:else}
+            {repoName}
           {/if}
-        </div>
+        </h1>
         <div class="text-xs text-surface-500">
           {#if inbox}
             {inbox.repo}
@@ -526,9 +547,11 @@
     {/if}
   </section>
 
+  <!-- Beside the list once both fit (560 + 280px), pinned in view while the
+       list scrolls; else under it. -->
   <aside
     aria-label="Since you last looked"
-    class="flex min-w-0 flex-[1_1_280px] flex-col gap-3 border-l border-surface-200-800 px-4 py-5 text-xs"
+    class="flex min-w-0 flex-[1_1_280px] flex-col gap-3 border-t border-surface-200-800 px-6 py-5 text-xs @min-[840px]/desk:sticky @min-[840px]/desk:top-0 @min-[840px]/desk:h-full @min-[840px]/desk:self-start @min-[840px]/desk:overflow-y-auto @min-[840px]/desk:border-t-0 @min-[840px]/desk:border-l @min-[840px]/desk:px-4"
   >
     {#if inbox}
       <SinceYouLooked

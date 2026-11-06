@@ -117,7 +117,7 @@
   const badgeCount = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 </script>
 
-<section class="panel-card overflow-hidden bg-surface-50-950" aria-label={file.path} data-file={file.path}>
+<section class="panel-card shrink-0 overflow-hidden bg-surface-50-950" aria-label={file.path} data-file={file.path}>
   <ActionMenu entries={menuEntries} label="File {file.path}" onSelect={onMenu} buttonLabel="File actions">
     {#snippet row({ rowProps, buttonProps })}
       <div {...rowProps} class="file-head outline-none focus-visible:ring-1 focus-visible:ring-primary-500">
@@ -134,7 +134,7 @@
             <ChevronRight size={14} aria-hidden="true" />
           {/if}
         </button>
-        <span class="font-mono text-[11px] font-semibold">{file.path}</span>
+        <span class="min-w-0 truncate font-mono text-[11px] font-semibold" title={file.path}>{file.path}</span>
         <span class="text-success-500">+{file.additions}</span><span class="text-error-500">−{file.deletions}</span>
         {#if counts.findings > 0}
           <span class="status-badge preset-tonal-primary">{badgeCount(counts.findings, "finding", "findings")}</span>
@@ -142,20 +142,22 @@
         {#if counts.comments > 0}
           <span class="status-badge preset-tonal">{badgeCount(counts.comments, "comment", "comments")}</span>
         {/if}
-        <span class="grow"></span>
-        <label class="inline-flex items-center gap-1.5 text-surface-500">
-          <input
-            type="checkbox"
-            class="checkbox checkbox-sm"
-            checked={viewed}
-            aria-label="Viewed {file.path}"
-            onchange={(event) => onViewed(event.currentTarget.checked)}
-          >
-          Viewed
-        </label>
-        <button {...buttonProps} type="button" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
-          <Ellipsis size={14} aria-hidden="true" />
-        </button>
+        <!-- Viewed and the menu wrap together, never apart. -->
+        <span class="ml-auto flex items-center gap-2">
+          <label class="inline-flex items-center gap-1.5 text-surface-500">
+            <input
+              type="checkbox"
+              class="checkbox checkbox-sm"
+              checked={viewed}
+              aria-label="Viewed {file.path}"
+              onchange={(event) => onViewed(event.currentTarget.checked)}
+            >
+            Viewed
+          </label>
+          <button {...buttonProps} type="button" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
+            <Ellipsis size={14} aria-hidden="true" />
+          </button>
+        </span>
       </div>
     {/snippet}
   </ActionMenu>

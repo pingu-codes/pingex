@@ -25,6 +25,7 @@
     size = "sm",
     fill = false,
     iconOnly = false,
+    vertical = false,
     disabled = false,
     class: className = "",
   }: {
@@ -38,6 +39,8 @@
     fill?: boolean;
     /** Render only each option's icon; the label stays as its accessible name and title. */
     iconOnly?: boolean;
+    /** Stack the options, each the track's full width: for labels too long to share a row. */
+    vertical?: boolean;
     disabled?: boolean;
     /** Classes for the outer element, e.g. margins. */
     class?: string;
@@ -49,21 +52,27 @@
 <SegmentedControl
   {value}
   {disabled}
-  orientation="horizontal"
+  orientation={vertical ? "vertical" : "horizontal"}
   onValueChange={(details) => {
     if (details.value !== null && details.value !== value) onChange(details.value as T);
   }}
-  class="gap-0 {fill ? "" : "items-start"} {className}"
+  class="gap-0 {fill || vertical ? "" : "items-start"} {className}"
 >
   <SegmentedControl.Label class="sr-only">{label}</SegmentedControl.Label>
-  <SegmentedControl.Control class="relative flex-wrap gap-0.5 rounded-lg border-0 bg-surface-200-800 p-0.5 ring-0">
+  <SegmentedControl.Control
+    class="relative {vertical ? "flex-col" : "flex-wrap"} gap-0.5 rounded-lg border-0 bg-surface-200-800 p-0.5 ring-0"
+  >
     <SegmentedControl.Indicator class="rounded-md bg-surface-50-950 shadow-sm" />
     {#each options as option (option.value)}
       <SegmentedControl.Item
         value={option.value}
         disabled={option.disabled}
         title={option.title ?? (iconOnly ? option.label : undefined)}
-        class="h-auto min-w-0 gap-1.5 rounded-md {itemSize} {fill ? "flex-1" : "flex-none"}"
+        class="h-auto min-w-0 gap-1.5 rounded-md {itemSize} {vertical
+          ? "justify-start"
+          : fill
+            ? "flex-1"
+            : "flex-none"}"
       >
         <SegmentedControl.ItemText
           class="inline-flex items-center gap-1.5 text-surface-600-400 data-[state=checked]:font-medium data-[state=checked]:text-surface-950-50"

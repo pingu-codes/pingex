@@ -23,6 +23,7 @@
     upNext,
     onOpenPr,
     agentReview,
+    ownPr = false,
   }: {
     pending: PendingReviewStore;
     busy?: boolean;
@@ -35,6 +36,8 @@
     upNext: InboxPr[];
     onOpenPr?: (number: number) => void;
     agentReview?: Snippet;
+    /** The viewer wrote the PR: GitHub only takes a comment from its author. */
+    ownPr?: boolean;
   } = $props();
 
   const VERDICTS = [
@@ -54,7 +57,9 @@
   const submitLabel = $derived(
     count === 0 ? "Submit review" : `Submit review with ${count} ${count === 1 ? "comment" : "comments"}`,
   );
-  const canSubmit = $derived(count > 0 || pending.summary.trim().length > 0 || pending.verdict === "approve");
+  const canSubmit = $derived(
+    count > 0 || pending.summary.trim().length > 0 || (!ownPr && pending.verdict === "approve"),
+  );
 </script>
 
 <aside aria-label="Your review" class="flex min-w-0 flex-col gap-3 text-xs">
@@ -101,12 +106,15 @@
     onblur={() => void pending.save()}
   ></textarea>
 
-  <Segmented
-    label="Verdict"
-    value={pending.verdict}
-    options={VERDICTS}
-    onChange={(verdict: ReviewVerdict) => pending.setVerdict(verdict)}
-  />
+  {#if !ownPr}
+    <Segmented
+      label="Verdict"
+      vertical
+      value={pending.verdict}
+      options={VERDICTS}
+      onChange={(verdict: ReviewVerdict) => pending.setVerdict(verdict)}
+    />
+  {/if}
   {#if error}
     <div class="error-note">{error}</div>
   {/if}

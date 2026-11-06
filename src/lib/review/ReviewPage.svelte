@@ -10,7 +10,7 @@
   panel, and Findings join the review through `PendingReviewStore.add`.
 -->
 <script lang="ts">
-  import { Check, ChevronLeft, Ellipsis, Keyboard } from "@lucide/svelte";
+  import { Check, ChevronLeft, Ellipsis, Keyboard, PanelRight } from "@lucide/svelte";
   import { Avatar } from "@skeletonlabs/skeleton-svelte";
   import { onMount, type Snippet } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
@@ -81,7 +81,9 @@
   }: {
     repoDir: string;
     number: number;
-    onBack: () => void;
+    /** The breadcrumb's way back; without it (inside the Stack page, which
+     *  has its own) there is no breadcrumb. */
+    onBack?: () => void;
     /** The repository's last inbox sync: the viewer, Up next and j/k. */
     inbox?: Inbox | null;
     onOpenPr?: (number: number) => void;
@@ -124,6 +126,8 @@
   let composer = $state<Composer | null>(null);
   let currentPath = $state<string | null>(null);
   let helpOpen = $state(false);
+  /** Below the rail's width the Your review panel is an overlay, shown on demand. */
+  let reviewOpen = $state(false);
   let changes = $state<"all" | "since">("all");
   let since = $state<ChangesSince | null>(null);
   let checkLogs = $state<CheckLog[] | null>(null);
@@ -134,6 +138,8 @@
   const action = submitState();
 
   const viewer = $derived(inbox?.viewer ?? "");
+  /** GitHub refuses Approve and Request changes from a PR's author. */
+  const ownPr = $derived(!!detail && !!viewer && detail.summary.author === viewer);
   const queue = $derived(upNext(inbox, number));
   const repoName = $derived(repoDir.split(/[\\/]/).filter(Boolean).pop() ?? repoDir);
   const files = $derived<PrFile[]>(changes === "since" && since ? since.files : (detail?.files ?? []));
@@ -330,6 +336,7 @@
   async function submit() {
     if (!detail || action.busy) return;
     const head = detail.headSha;
+    if (ownPr && pending.verdict !== "comment") pending.setVerdict("comment");
     const ok = await action.run(() => pending.submit());
     if (!ok) return;
     // What "changes since your review" measures from. Best effort: a
@@ -514,62 +521,76 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="flex h-full min-h-0 flex-col text-xs">
+<!-- A container: the page lays out by its own width, so it also fits beside the Stack page's tree. -->
+<div class="@container/review flex h-full min-h-0 flex-col text-xs">
   <header class="flex flex-col gap-2.5 border-b border-surface-200-800 px-5 py-3">
-    <div class="flex flex-wrap items-center gap-2">
-      <button type="button" class="btn btn-sm hover:preset-tonal px-1 text-surface-500" onclick={onBack}>
-        <ChevronLeft size={14} aria-hidden="true" />Pull requests
-      </button>
-      <span class="text-surface-500">/</span>
-      <span class="text-surface-500">{repoName}</span>
-      <span class="text-surface-500">/</span>
-      {#if detail}
-        <h1 class="text-sm leading-5 font-semibold">{detail.summary.title}</h1>
-        <span class="font-mono text-surface-500">#{number}</span>
-        <Avatar class="avatar"><Avatar.Fallback>{initials(detail.summary.author)}</Avatar.Fallback></Avatar>
-        <span class="text-surface-500">{detail.summary.author}</span>
-        {#if detail.summary.isDraft}
-          <span class="status-badge preset-tonal">Draft</span>
-        {/if}
-      {:else}
-        <span class="placeholder h-4 w-48 animate-pulse rounded"></span>
-      {/if}
-      <span class="grow"></span>
-      <span
-        class="inline-flex items-center gap-1.5 rounded-full border border-surface-300-700 px-2 py-0.5 text-[11px]"
-        title="Code for this PR on disk"
-      >
-        <span class="size-2 shrink-0 rounded-full {STEP_DOT[step]}" aria-hidden="true"></span>{STEP_LABELS[step]}
-      </span>
-      <button
-        type="button"
-        class="btn btn-sm hover:preset-tonal text-xs"
-        title={stepHint(step, "runLocally") ?? "Run locally"}
-        disabled={!onRunLocally}
-        onclick={() => detail && onRunLocally?.(detail, "runLocally")}
-      >
-        Run locally
-      </button>
-      <button
-        type="button"
-        class="btn btn-sm hover:preset-tonal text-xs"
-        disabled={!detail}
-        onclick={() => detail && commands.openExternalUrl(detail.summary.url)}
-      >
-        Open on GitHub
-      </button>
-      <ActionMenu entries={prMenu} label="Pull request {number}" onSelect={onPrMenu} buttonLabel="Pull request actions">
-        {#snippet row({ buttonProps })}
-          <button
-            {...buttonProps}
-            type="button"
-            class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
-            disabled={!detail}
-          >
-            <Ellipsis size={14} aria-hidden="true" />
+    <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <!-- Where the PR is and what it is; the title truncates before the actions wrap. -->
+      <div class="flex min-w-64 flex-1 items-center gap-2">
+        {#if onBack}
+          <button type="button" class="btn btn-sm hover:preset-tonal px-1 text-surface-500" onclick={onBack}>
+            <ChevronLeft size={14} aria-hidden="true" />Pull requests
           </button>
-        {/snippet}
-      </ActionMenu>
+          <span class="text-surface-500">/</span>
+          <span class="text-surface-500">{repoName}</span>
+          <span class="text-surface-500">/</span>
+        {/if}
+        {#if detail}
+          <h1 class="min-w-0 truncate text-sm leading-5 font-semibold" title={detail.summary.title}>
+            {detail.summary.title}
+          </h1>
+          <span class="font-mono text-surface-500">#{number}</span>
+          <Avatar class="avatar"><Avatar.Fallback>{initials(detail.summary.author)}</Avatar.Fallback></Avatar>
+          <span class="whitespace-nowrap text-surface-500">{detail.summary.author}</span>
+          {#if detail.summary.isDraft}
+            <span class="status-badge preset-tonal">Draft</span>
+          {/if}
+        {:else}
+          <span class="placeholder h-4 w-48 animate-pulse rounded"></span>
+        {/if}
+      </div>
+      <div class="ml-auto flex shrink-0 items-center gap-2">
+        <span
+          class="inline-flex items-center gap-1.5 rounded-full border border-surface-300-700 px-2 py-0.5 text-[11px]"
+          title="Code for this PR on disk"
+        >
+          <span class="size-2 shrink-0 rounded-full {STEP_DOT[step]}" aria-hidden="true"></span>{STEP_LABELS[step]}
+        </span>
+        <button
+          type="button"
+          class="btn btn-sm hover:preset-tonal text-xs"
+          title={stepHint(step, "runLocally") ?? "Run locally"}
+          disabled={!onRunLocally}
+          onclick={() => detail && onRunLocally?.(detail, "runLocally")}
+        >
+          Run locally
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm hover:preset-tonal text-xs"
+          disabled={!detail}
+          onclick={() => detail && commands.openExternalUrl(detail.summary.url)}
+        >
+          Open on GitHub
+        </button>
+        <ActionMenu
+          entries={prMenu}
+          label="Pull request {number}"
+          onSelect={onPrMenu}
+          buttonLabel="Pull request actions"
+        >
+          {#snippet row({ buttonProps })}
+            <button
+              {...buttonProps}
+              type="button"
+              class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
+              disabled={!detail}
+            >
+              <Ellipsis size={14} aria-hidden="true" />
+            </button>
+          {/snippet}
+        </ActionMenu>
+      </div>
     </div>
     <div class="flex flex-wrap items-center gap-2">
       <Segmented label="Pull request" value={tab} options={TABS} onChange={(value) => (tab = value)} />
@@ -612,6 +633,16 @@
       {/if}
       <button
         type="button"
+        class="btn btn-sm text-[11px] @3xl/review:hidden {reviewOpen ? "preset-tonal" : "hover:preset-tonal"}"
+        aria-expanded={reviewOpen}
+        onclick={() => (reviewOpen = !reviewOpen)}
+      >
+        <PanelRight size={14} aria-hidden="true" />Your review{pending.entries.length > 0
+          ? ` · ${pending.entries.length}`
+          : ""}
+      </button>
+      <button
+        type="button"
         class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
         aria-label="Shortcuts"
         aria-expanded={helpOpen}
@@ -652,11 +683,11 @@
       </div>
     </div>
   {:else}
-    <div class="flex min-h-0 flex-1">
+    <div class="relative flex min-h-0 flex-1">
       {#if tab === "files"}
         <nav
           aria-label="Changed files"
-          class="flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-surface-200-800 bg-surface-100-900 px-2 py-3"
+          class="hidden w-56 shrink-0 @5xl/review:flex flex-col gap-0.5 overflow-y-auto border-r border-surface-200-800 bg-surface-100-900 px-2 py-3"
         >
           {#each fileGroups(files) as group (group.dir)}
             {#if group.dir}
@@ -778,8 +809,13 @@
         </section>
       {/if}
 
-      <div class="w-72 shrink-0 overflow-y-auto border-l border-surface-200-800 p-4">
+      <div
+        class="w-72 shrink-0 overflow-y-auto border-l border-surface-200-800 bg-surface-50-950 p-4 @3xl/review:static @3xl/review:block @3xl/review:shadow-none {reviewOpen
+          ? "absolute inset-y-0 right-0 z-10 block shadow-xl"
+          : "hidden"}"
+      >
         <YourReview
+          {ownPr}
           {pending}
           busy={action.busy}
           {stale}

@@ -24,7 +24,10 @@
     repoName: string;
     /** Open straight onto this PR's review page. */
     initialPr?: number | null;
-    onBack: () => void;
+    /** Leaves the view. A PR opened as `initialPr` goes straight back here;
+     *  one picked from the list goes back to the list. Without it (the
+     *  Stack page) the PR shows no breadcrumb. */
+    onBack?: () => void;
     onAskCodex: (cwd: string, prompt: string) => void;
   } = $props();
 
@@ -127,7 +130,7 @@
     <AgentReviewPage
       {repoDir}
       number={prNumber}
-      onBack={backToPicker}
+      onBack={initialPr !== null ? onBack : backToPicker}
       onOpenPr={openPr}
       viewer={inboxes[repoDir]?.inbox?.viewer ?? null}
       inbox={inboxes[repoDir]?.inbox ?? null}
@@ -141,7 +144,7 @@
     <div class="flex items-center gap-2 border-b border-surface-200-800 px-4 py-2.5">
       <TooltipButton
         label="Back"
-        onclick={mode === "picker" ? onBack : backToPicker}
+        onclick={mode === "picker" ? () => onBack?.() : backToPicker}
         aria-label="Back"
         class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
       >

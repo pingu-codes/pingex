@@ -153,7 +153,7 @@
         onOpenMemories={openMemories}
         memoriesOpen={view.memories}
         onOpenPullRequests={(path) => openPullRequests(path ?? null)}
-        pullRequestsOpen={view.pullRequests}
+        pullRequestsOpen={view.pullRequests || view.stackRepo !== null}
         needsYou={needsYouByRepo()}
         onMenuAction={menuAction}
         sidebarLayout={appData.data?.sidebarLayout}
@@ -212,7 +212,7 @@
                 {:else}
                   {view.memories
                     ? "Memories"
-                    : view.pullRequests
+                    : view.pullRequests || view.stackRepo
                       ? "Pull requests"
                       : (thread?.title ?? project?.name ?? "Home")}
                 {/if}
@@ -326,7 +326,7 @@
               repoDir={review.path}
               repoName={review.name}
               initialPr={view.reviewPr}
-              onBack={goHome}
+              onBack={view.reviewPr !== null ? () => openPullRequests(review.path) : goHome}
               onAskCodex={askCodexReview}
             />
           {/key}

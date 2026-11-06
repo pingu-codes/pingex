@@ -41,7 +41,8 @@
   }: {
     repoDir: string;
     number: number;
-    onBack: () => void;
+    /** The breadcrumb's way back; without it the page shows no breadcrumb. */
+    onBack?: () => void;
     inbox?: Inbox | null;
     /** Who is reviewing: whether the PR is mine. */
     viewer?: string | null;

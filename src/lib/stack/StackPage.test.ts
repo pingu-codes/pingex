@@ -120,6 +120,42 @@ describe("Stack page", () => {
     expect(within(progress).queryByText("Waiting")).toBeNull();
   });
 
+  it("after a restack finishes, pushes the stack from its worktree without asking for another", async () => {
+    const user = setup();
+    await loaded();
+    await user.click(screen.getByRole("button", { name: /Restack onto main/ }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Restack" }));
+    const progress = await screen.findByLabelText("Restack progress");
+    await user.click(within(progress).getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(within(progress).getByText("Restacked onto main")).toBeInTheDocument());
+
+    const header = screen.getByRole("heading", { name: "driver-trait" }).parentElement as HTMLElement;
+    const push = within(header).getByRole("button", { name: "Push stack" });
+    expect(push).toBeEnabled();
+    expect(within(header).getByRole("button", { name: /Restack onto main/ })).toBeEnabled();
+    await user.click(push);
+
+    await waitFor(() => expect(commands.reviewPushStack).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(screen.queryByLabelText("Restack progress")).toBeNull());
+  });
+
+  it("asks before pushing someone else's stack, also from its worktree", async () => {
+    const user = setup();
+    await loaded();
+    const repo = inboxes[MAIN];
+    if (repo?.inbox) repo.inbox.viewer = "jo-r";
+
+    const header = screen.getByRole("heading", { name: "driver-trait" }).parentElement as HTMLElement;
+    await user.click(within(header).getByRole("button", { name: "Push stack" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Push to feat/driver-trait?")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(commands.reviewPushStack).not.toHaveBeenCalled();
+  });
+
   it("moves a git branch with ⌥↑ after confirming, and the tree shows the new order", async () => {
     const user = setup();
     await loaded();

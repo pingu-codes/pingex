@@ -32,7 +32,7 @@ pub(crate) const INBOX_QUERY: &str = "query($owner:String!,$repo:String!,$endCur
       nodes{\
         number title url isDraft createdAt updatedAt author{login}\
         headRefName headRefOid baseRefName baseRefOid headRepository{nameWithOwner}\
-        maintainerCanModify reviewDecision additions deletions changedFiles\
+        maintainerCanModify reviewDecision additions deletions changedFiles \
         reviewRequests(first:20){nodes{requestedReviewer{\
           ... on User{login} ... on Bot{login} ... on Mannequin{login} ... on Team{slug}\
         }}}\

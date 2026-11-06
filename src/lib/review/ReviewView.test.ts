@@ -51,12 +51,32 @@ describe("ReviewView", () => {
     expect(options).toMatchObject({ sandboxMode: "read-only" });
   });
 
-  it("goes back from a PR to the picker", async () => {
+  it("goes back from a PR picked in the list to the list", async () => {
     const user = userEvent.setup();
-    render(ReviewView, { repoDir: "/repo", repoName: "repo", initialPr: 128, onBack: vi.fn(), onAskCodex: vi.fn() });
+    const onBack = vi.fn();
+    render(ReviewView, { repoDir: "/repo", repoName: "repo", onBack, onAskCodex: vi.fn() });
 
+    await user.click(await screen.findByText(/Add pull-request review view/));
     await screen.findByRole("heading", { name: "Add pull-request review view" });
     await user.click(screen.getByRole("button", { name: "Pull requests" }));
     await waitFor(() => expect(screen.getByText(/Native git worktree service/)).toBeInTheDocument());
+    expect(onBack).not.toHaveBeenCalled();
+  });
+
+  it("goes back from a PR it opened on to wherever it was opened from", async () => {
+    const user = userEvent.setup();
+    const onBack = vi.fn();
+    render(ReviewView, { repoDir: "/repo", repoName: "repo", initialPr: 128, onBack, onAskCodex: vi.fn() });
+
+    await screen.findByRole("heading", { name: "Add pull-request review view" });
+    await user.click(screen.getByRole("button", { name: "Pull requests" }));
+    expect(onBack).toHaveBeenCalledOnce();
+  });
+
+  it("shows no breadcrumb without a way back, as inside the Stack page", async () => {
+    render(ReviewView, { repoDir: "/repo", repoName: "repo", initialPr: 128, onAskCodex: vi.fn() });
+
+    await screen.findByRole("heading", { name: "Add pull-request review view" });
+    expect(screen.queryByRole("button", { name: "Pull requests" })).toBeNull();
   });
 });

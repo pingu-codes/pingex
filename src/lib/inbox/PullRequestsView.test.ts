@@ -114,6 +114,15 @@ describe("Pull requests inbox", () => {
     expect(within(row(401)).getByText("Agent review running")).toBeInTheDocument();
   });
 
+  it("opens a PR from a plain click on its row", async () => {
+    const { user, handlers } = setup();
+    await loaded();
+
+    await user.click(within(row(128)).getByText("Add pull-request review view"));
+    expect(handlers.openPr).toHaveBeenCalledWith(MAIN, expect.objectContaining({ number: 128 }), {});
+    expect(screen.queryByText(/selected$/)).toBeNull();
+  });
+
   it("selects several rows with ⌘-click, ⇧-click and X, then marks them seen at once", async () => {
     const { user } = setup();
     await loaded();
@@ -157,6 +166,22 @@ describe("Pull requests inbox", () => {
     for (const key of Object.keys(inboxes)) delete inboxes[key];
     await user.click(screen.getByRole("button", { name: "Sync" }));
     await waitFor(() => expect(row(401)).not.toHaveAttribute("data-unseen", "true"));
+  });
+
+  it("collapses the Since you last looked feed to a count", async () => {
+    const { user } = setup();
+    await loaded();
+    const feed = screen.getByRole("complementary", { name: "Since you last looked" });
+    const toggle = within(feed).getByRole("button", { name: /Since you last looked/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(within(feed).queryByText(/requested changes on #415/)).toBeNull();
+    expect(within(toggle).getByText(String(inboxes[MAIN]?.inbox?.feed.length))).toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(within(feed).getByText(/requested changes on #415/)).toBeInTheDocument();
   });
 
   it("opens a row with Enter and starts a thread with T", async () => {
