@@ -25,7 +25,6 @@
 
   let {
     row,
-    depth = 0,
     primary,
     primaryDisabled = false,
     agentReview = null,
@@ -38,8 +37,6 @@
     onPick,
   }: {
     row: InboxRow;
-    /** Indent inside a stack card: 0 for the bottom PR. */
-    depth?: number;
     primary: PrimaryAction;
     /** The primary action's handler is not wired yet. */
     primaryDisabled?: boolean;
@@ -96,12 +93,12 @@
       data-unseen={unseen ? "true" : undefined}
       data-selected={selected ? "true" : undefined}
       class="group/pr pr-row relative"
-      style:padding-left={depth > 0 || selecting ? `${12 + depth * 20 + (selecting ? 24 : 0)}px` : undefined}
+      style:padding-left={selecting ? "36px" : undefined}
       {onclick}
       onkeydown={(event) => onkeydown(event, rowProps.onkeydown)}
     >
       {#if selecting}
-        <!-- In a slot of its own at the left edge, clear of a stacked row's connector. -->
+        <!-- In a slot of its own at the left edge. -->
         <input
           type="checkbox"
           class="checkbox absolute top-1/2 left-3 size-3.5 -translate-y-1/2"
@@ -109,9 +106,6 @@
           checked={selected}
           onchange={() => onPick("toggle")}
         >
-      {/if}
-      {#if depth > 0}
-        <span class="-mt-2.5 -ml-4 size-3 shrink-0 border-b border-l border-surface-400-600" aria-hidden="true"></span>
       {/if}
       {#if triage.mine}
         <span

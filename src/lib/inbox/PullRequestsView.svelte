@@ -317,7 +317,6 @@
   })}
   <PrRow
     {row}
-    depth={group ? depth : 0}
     primary={action}
     primaryDisabled={unwired(action.id)}
     agentReview={agentState(row.pr.number)}

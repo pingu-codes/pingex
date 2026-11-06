@@ -1,6 +1,6 @@
 <!--
-  A stack as one card: its name, base and PRs bottom first, each indented
-  one step above the PR it builds on. My stacks show their worktree and
+  A stack as one card: its name, base and PRs bottom first, flush left; the
+  order alone shows which PR builds on which. My stacks show their worktree and
   thread count, with Restack and Open stack when the Stack page is wired;
   another author's stack shows who wrote it, and sits in its section's list
   without a card of its own.
