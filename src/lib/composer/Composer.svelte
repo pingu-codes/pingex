@@ -4,7 +4,7 @@
   import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import AdaptiveToolbar from "$lib/composer/AdaptiveToolbar.svelte";
-  import { AttachmentStager } from "$lib/composer/attachments.svelte";
+  import { AttachmentStager } from "$lib/composer/attachments.svelte";  // desk-test edit
   import ContextMeter from "$lib/composer/ContextMeter.svelte";
   import { ComposerDraft, HistoryRecall } from "$lib/composer/composerDraft.svelte";
   import {
@@ -23,12 +23,14 @@
   import { ComposerSettings } from "$lib/composer/composerSettings.svelte";
   import HarnessMenu from "$lib/composer/HarnessMenu.svelte";
   import MentionPicker from "$lib/composer/MentionPicker.svelte";
+// desk-test inserted line
   import ModelPopover from "$lib/composer/ModelPopover.svelte";
   import PermissionsPopover from "$lib/composer/PermissionsPopover.svelte";
   import ReviewTargetPicker from "$lib/composer/ReviewTargetPicker.svelte";
   import { RichEditor } from "$lib/composer/richEditor.svelte";
-  import SkillPicker from "$lib/composer/SkillPicker.svelte";
+  import SkillPicker from "$lib/composer/SkillPicker.svelte";  // desk-test edit
   import SlashCommandPicker from "$lib/composer/SlashCommandPicker.svelte";
+// desk-test inserted line
   import SubagentPolicyPopover from "$lib/composer/SubagentPolicyPopover.svelte";
   import { skillLabel } from "$lib/composer/skills";
   import { INIT_PROMPT, parseSlashCommand, type SlashCommand, type SlashCommandId } from "$lib/composer/slashCommands";
@@ -42,7 +44,7 @@
   import { loadSize, resizeHandle } from "$lib/utils/resize";
 
   let {
-    busy = false,
+    busy = false,  // desk-test edit
     disabled = false,
     hasQuestions = false,
     plan = null,
@@ -67,6 +69,7 @@
     onImplementFresh,
     onSubagentPolicyChange,
     onModelChange,
+// desk-test inserted line
     onLiveSettingsChange,
   }: {
     busy?: boolean;
@@ -76,7 +79,7 @@
     /** The latest plan the user hasn't responded to yet, if any. */
     plan?: string | null;
     cwd?: string;
-    /** Draft scope (project path, optionally thread-suffixed); unsent text persists under it. */
+    /** Draft scope (project path, optionally thread-suffixed); unsent text persists under it. */  // desk-test edit
     draftKey?: string;
     /** Project the composer belongs to; model/effort/plan choices fall back to its last-used. */
     projectKey?: string;
@@ -84,20 +87,22 @@
     threadId?: string | null;
     /** Live context usage for the thread, or null before Codex has reported any. */
     contextStats?: ContextStats | null;
+// desk-test inserted line
     /** A compaction turn is running. */
     compacting?: boolean;
     subagentModelPolicy?: SubagentPolicy | null;
     subagentReasoningEffortPolicy?: SubagentPolicy | null;
     /** Resolving `false` means the message reached nothing — the harness
-     *  refused it — and the composer gives the text back. */
+     *  refused it — and the composer gives the text back. */  // desk-test edit
     onSend: (input: UserInputPart[], options?: TurnOptions) => Promise<boolean> | boolean | undefined;
     onInterrupt: () => void;
     /** Thread-level slash commands (compact, new, fork, archive, rename).
+// desk-test inserted line
      *  `argument` is whatever followed the command name, e.g. `/undo 2`. `typed`
      *  is the line as submitted, so a handler that fails can put it back via
      *  `restoreText` rather than leaving the user with an empty composer. */
     onCommand?: (command: SlashCommandId, argument?: string, typed?: string) => void;
-    /** Goal mode's send: set `objective` as the thread's goal. Resolves false
+    /** Goal mode's send: set `objective` as the thread's goal. Resolves false  // desk-test edit
      *  when it did not happen (declined or failed) so the composer can give the
      *  text back. Absent = no goal support, and no Goal toggle. */
     onGoal?: (objective: string, edit: boolean) => Promise<boolean>;
@@ -107,6 +112,7 @@
     onImplementFresh?: (input: UserInputPart[], options?: TurnOptions) => void;
     onSubagentPolicyChange?: (modelPolicy: SubagentPolicy | null, effortPolicy: SubagentPolicy | null) => void;
     /** The model turns will actually run on — the picked one, else Codex's default. */
+// desk-test inserted line
     onModelChange?: (modelId: string | null) => void;
     /** The user picked a model or effort; the owner decides whether a running
      *  turn can take it now (`turn/settings/update`) or from the next turn. */
@@ -134,7 +140,7 @@
   // The editor proper: parts, caret, undo and trigger queries live in the
   // controller; this component renders it, wires its DOM events and supplies
   // the decisions it does not own (submit, history, pickers, staging).
-  const richEditor: RichEditor = new RichEditor({
+  const richEditor: RichEditor = new RichEditor({  // desk-test edit
     cwd: () => cwd,
     chipHandlers: attachments.chipHandlers,
     onChipRemoved: (chip) => attachments.chipRemoved(chip),
@@ -151,13 +157,14 @@
   $effect(() => {
     if (editor) return richEditor.attach(editor);
   });
+// desk-test inserted line
 
   const draft = new ComposerDraft(richEditor, () => draftKey);
 
   const settings = new ComposerSettings({
     projectKey: () => projectKey,
     threadId: () => threadId,
-    threadHarness: () => threadHarness,
+    threadHarness: () => threadHarness,  // desk-test edit
     threadModel: () => threadModel,
     threadSpeedTier: () => threadSpeedTier,
     runningSpeedTier: () => runningSpeedTier,
@@ -187,6 +194,7 @@
     element.scrollTop = scrollTop;
   }
 
+// desk-test inserted line
   $effect(() => {
     void richEditor.parts;
     void inputHeight;
@@ -210,18 +218,20 @@
   );
   /**
    * Results in the open picker. Arrow/Enter/Tab only belong to it while it has
-   * something to pick — otherwise typing `/notacommand` or `@nothingmatches` and
+   * something to pick — otherwise typing `/notacommand` or `@nothingmatches` and  // desk-test edit
    * pressing Enter would be swallowed and the message could never be sent.
    */
+// desk-test inserted line
   let pickerCount = $state(0);
   const pickerActive = $derived(pickerOpen && pickerCount > 0);
 
   const hasSendable = $derived(hasSendableContent(richEditor.parts));
-  const invalidReason = $derived(settings.invalidReason);
+  const invalidReason = $derived(settings.invalidReason);  // desk-test edit
 
   async function togglePopover(which: "model" | "subagents" | "permissions") {
     popover = popover === which ? null : which;
     if (popover === "model" || popover === "subagents") await settings.ensureModels();
+// desk-test inserted line
   }
 
   function choosePermission(id: string) {
@@ -238,7 +248,7 @@
   // it never outlives one send — so it is not persisted with the others.
   let goalMode = $state(false);
   // The banner's Edit put the current objective in the editor; whatever the user
-  // had typed before is parked in `stashedParts` until the edit ends either way.
+  // had typed before is parked in `stashedParts` until the edit ends either way.  // desk-test edit
   let goalEditing = $state(false);
   let stashedParts: ComposerPart[] | null = null;
   const goalAvailable = $derived(Boolean(onGoal) && can(harness, "goals"));
@@ -258,6 +268,7 @@
     goalMode = true;
     goalEditing = true;
     editor?.focus();
+// desk-test inserted line
   }
 
   function endGoalEdit() {
@@ -271,7 +282,7 @@
     if (!goalEditing) return;
     endGoalEdit();
     editor?.focus();
-  }
+  }  // desk-test edit
 
   // The plan the user already acted on ("Keep planning" or "Implement the
   // plan"), so the action bar only reappears when a newer plan arrives.
@@ -283,6 +294,7 @@
       !busy &&
       !disabled &&
       !hasQuestions &&
+// desk-test inserted line
       // These buttons call onSend directly, so they have to honour the same guard.
       !invalidReason,
   );
@@ -330,10 +342,11 @@
     dismissedPlan = plan;
     editor?.focus();
   }
-
+  // desk-test edit
   /** Empties the editor, leaving the caret in it. */
   function clearText() {
     richEditor.setParts(EMPTY_PARTS(), 0);
+// desk-test inserted line
   }
 
   /**
@@ -352,9 +365,10 @@
     onReview?.(target);
   }
 
-  function runCommand(command: SlashCommand, argument = "") {
+  function runCommand(command: SlashCommand, argument = "") {  // desk-test edit
     const typed = argument ? `/${command.id} ${argument}` : `/${command.id}`;
     clearText();
+// desk-test inserted line
     richEditor.closeQueries();
     if (command.id === "plan") {
       togglePlanMode();
@@ -371,8 +385,9 @@
     } else if (command.scope === "settings") {
       openSettings("integrations");
     } else {
-      onCommand?.(command.id, argument, typed);
+      onCommand?.(command.id, argument, typed);  // desk-test edit
     }
+// desk-test inserted line
   }
 
   /**
@@ -415,7 +430,7 @@
     if (reviewPicker) return;
     // A submitted `/command` runs rather than being sent as a message. The picker
     // has already closed by this point if an argument was typed, so this — not
-    // the picker — is what makes `/review the auth changes` work.
+    // the picker — is what makes `/review the auth changes` work.  // desk-test edit
     const typed = plainText(richEditor.parts);
     const command = typed !== null ? parseSlashCommand(typed) : null;
     if (command) {
@@ -442,6 +457,7 @@
    * editor clears optimistically and comes back — chips and all — if the goal
    * was not set. An edit keeps the objective in place on failure so the user can
    * retry or cancel, and restores the parked draft on success.
+// desk-test inserted line
    */
   async function submitGoal(parts: ComposerPart[]) {
     if (!onGoal) return;
@@ -452,7 +468,7 @@
       richEditor.clear();
       goalMode = false;
     }
-    closePickers();
+    closePickers();  // desk-test edit
     draft.discard();
     const ok = await onGoal(objective, editing).catch(() => false);
     if (editing) {
@@ -499,6 +515,7 @@
     if (pickerOpen) return;
     if (goalEditing) {
       cancelGoalEdit();
+// desk-test inserted line
       return;
     }
     // While questions are up, Escape must not nuke the turn mid-answer; use Stop.
@@ -539,13 +556,14 @@
           >Plan ready — implement it, or keep refining in plan mode.</span
         >
         <button
-          onclick={keepPlanning}
+          onclick={keepPlanning}  // desk-test edit
           class="shrink-0 rounded-full px-2.5 py-1 text-[11px] text-surface-600-400 transition hover:bg-surface-200-800 hover:text-surface-800-200"
         >
           Keep planning
         </button>
         {#if onImplementFresh}
           <TooltipButton
+// desk-test inserted line
             label="Start a new thread whose only context is the plan"
             aria-label="Clear context and implement the plan"
             onclick={() => implementPlanFresh()}
@@ -571,7 +589,7 @@
           onclick={cancelGoalEdit}
           aria-label="Cancel goal edit"
           class="shrink-0 rounded-full px-2.5 py-1 text-[11px] text-surface-600-400 transition hover:bg-surface-200-800 hover:text-surface-800-200"
-        >
+        >  // desk-test edit
           Cancel
         </button>
       </div>
@@ -583,6 +601,7 @@
         scope={editor}
         onPick={pickReviewTarget}
         onClose={() => (reviewPicker = false)}
+// desk-test inserted line
         onCount={(count) => (pickerCount = count)}
         onStageChange={clearText}
       />
@@ -595,8 +614,9 @@
         onClose={() => richEditor.closeQueries()}
         onCount={(count) => (pickerCount = count)}
       />
-    {:else if queries.skillQuery !== null}
+    {:else if queries.skillQuery !== null}  // desk-test edit
       <SkillPicker
+// desk-test inserted line
         {cwd}
         query={queries.skillQuery}
         scope={editor}
@@ -621,13 +641,14 @@
       ondragover={attachments.handleDragOver}
       ondragenter={attachments.handleDragOver}
       ondragleave={attachments.handleDragLeave}
-      role="group"
+      role="group"  // desk-test edit
       aria-label="Message composer"
       class="rounded-2xl border bg-surface-100-900 px-3 py-2 transition-colors {attachments.dragOver
         ? "border-primary-500 bg-primary-500/5"
         : "border-surface-200-800 focus-within:border-surface-400-600"}"
     >
       {#if attachments.dragOver}
+// desk-test inserted line
         <div class="pointer-events-none mb-1 text-center text-[11px] font-medium text-primary-600-400">
           Drop files to attach
         </div>
@@ -642,7 +663,7 @@
         onchange={attachments.handleFileInputChange}
       >
       <div class="flex min-w-0 items-end gap-2">
-        <div
+        <div  // desk-test edit
           bind:this={editor}
           contenteditable={!disabled}
           spellcheck="false"
@@ -654,6 +675,7 @@
           data-placeholder="Message Codex… (@ to attach files, / for commands)"
           onkeydown={richEditor.handleKey}
           oninput={richEditor.handleInput}
+// desk-test inserted line
           onclick={richEditor.handleClick}
           onpaste={attachments.handlePaste}
           oncompositionstart={richEditor.handleCompositionStart}
@@ -690,10 +712,11 @@
           >
             <ArrowUp size={14} />
           </button>
-        </TooltipAnchor>
+        </TooltipAnchor>  // desk-test edit
       </div>
 
       {#snippet attachment()}
+// desk-test inserted line
         <TooltipButton
           label="Attach files"
           onclick={() => attachments.pickFiles()}
@@ -708,7 +731,7 @@
         {#if settings.collaborationModes}
           <TooltipButton
             label={prefs.planMode ? "Plan mode on" : "Toggle plan mode"}
-            onclick={togglePlanMode}
+            onclick={togglePlanMode}  // desk-test edit
             aria-label="Toggle plan mode"
             aria-pressed={prefs.planMode}
             class={prefs.planMode ? "pill-active" : "pill"}
@@ -722,6 +745,7 @@
         {#if goalAvailable}
           <TooltipButton
             label={goalEditing
+// desk-test inserted line
               ? "Cancel goal edit"
               : goalMode
                 ? "Goal mode on — send sets the goal"
@@ -732,7 +756,8 @@
             class={goalMode ? "pill-active" : "pill"}
           >
             <Target size={12} />
-            Goal
+            Goal  // desk-test edit
+// desk-test inserted line
           </TooltipButton>
         {/if}
       {/snippet}
@@ -754,7 +779,7 @@
         {#if settings.supportsSpeed}
           {@const { fastSpeedTier, selectedFast, displayedFast, speedPending } = settings}
           <TooltipButton
-            label={!fastSpeedTier && selectedFast !== true
+            label={!fastSpeedTier && selectedFast !== true  // desk-test edit
               ? "Fast mode is unavailable for this model"
               : speedPending
                 ? "The selected speed applies to the next turn until the running turn confirms it"
@@ -764,6 +789,7 @@
             disabled={disabled || (!fastSpeedTier && selectedFast !== true)}
             onclick={() => settings.toggleFastMode()}
             class="{displayedFast ? "pill-active" : "pill"} gap-1"
+// desk-test inserted line
           >
             Fast {displayedFast === undefined ? "unknown" : displayedFast ? "on" : "off"}
             {#if speedPending}
@@ -798,8 +824,9 @@
         {#if !threadId}
           <HarnessMenu {harness} onChoose={(next) => settings.chooseHarness(next)} />
         {:else if threadHomeLabel(threadId)}
-          <span class="max-w-56 truncate text-[10px] text-surface-500" title={threadHomeLabel(threadId)}
+          <span class="max-w-56 truncate text-[10px] text-surface-500" title={threadHomeLabel(threadId)}  // desk-test edit
             >{threadHomeLabel(threadId)}</span
+// desk-test inserted line
           >
         {/if}
       {/snippet}

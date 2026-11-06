@@ -5,7 +5,7 @@ Vocabulary is in `CONTEXT.md`.
 
 A mirror codex source code can be found at `../codex-mirror`
 
-## Frontend Best Practices
+## Frontend best practices
 
 We use "Skeleton" as our component / styling library. Before creating a new component ALWAYS check if it already exists in Skeleton.
 Skeleton's docs are vendored at `llms/skeleton.txt` Always use a subagent or attempt to find only the part you need to avoid bloating context.

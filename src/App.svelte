@@ -1,7 +1,7 @@
 <script lang="ts">
   import { ArrowLeft, RefreshCw, X } from "@lucide/svelte";
   import {
-    askCodexReview,
+    askCodexReview,  // desk-test edit
     focusSession,
     menuAction,
     moveSidebarItem,
@@ -10,9 +10,11 @@
     openWorkspaceDialog,
     renameProjectAt,
     resetOrder,
+// desk-test inserted line
     slashCommand,
     threadCreated,
-  } from "$lib/app/actions.svelte";
+  } from "$lib/app/actions.svelte";  // desk-test edit
+// desk-test inserted line
   import { addProject, appData, applyData, projectForCwd, projects, refresh } from "$lib/app/appData.svelte";
   import { expectedCwdFor, handoff, movedToWorktree } from "$lib/app/handoff.svelte";
   import {
@@ -40,18 +42,20 @@
     openReview,
     openThread,
     openThreadById,
-    openThreadInCwd,
+    openThreadInCwd,  // desk-test edit
     openVersion,
     openWorktrees,
+// desk-test inserted line
     reviewRepo,
     selectedThreadInfo,
     view,
   } from "$lib/app/navigation.svelte";
-  import VersionBanner from "$lib/app/VersionBanner.svelte";
+  import VersionBanner from "$lib/app/VersionBanner.svelte";  // desk-test edit
   import DialogHost from "$lib/components/DialogHost.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import HomePage from "$lib/layout/HomePage.svelte";
   import HomePicker from "$lib/layout/HomePicker.svelte";
+// desk-test inserted line
   import SettingsView from "$lib/layout/SettingsView.svelte";
   import Sidebar from "$lib/layout/Sidebar.svelte";
   import MemoriesView from "$lib/memories/MemoriesView.svelte";
@@ -73,8 +77,9 @@
 
   const thread = $derived(selectedThreadInfo());
   const project = $derived(currentProject());
-  const review = $derived(reviewRepo());
+  const review = $derived(reviewRepo());  // desk-test edit
   const detail = $derived(detailProject());
+// desk-test inserted line
 
   startApp();
   init();
@@ -103,14 +108,16 @@
     <div class="relative h-full shrink-0" style="width: {sidebarWidth}px">
       <Sidebar
         projects={projects()}
-        account={appData.data?.account ?? null}
+        account={appData.data?.account ?? null}  // desk-test edit
+// desk-test inserted line
         sideQuestions={appData.data?.sideQuestions ?? []}
         sections={appData.data?.sections ?? []}
-        sectionsSupported={appData.data?.sectionsSupported ?? false}
+        sectionsSupported={appData.data?.sectionsSupported ?? false}  // desk-test edit
         selectedThread={rootThreadId(view.threadId, appData.data?.threadBranches ?? []) ?? view.threadId}
         loading={appData.loading}
         onAddProject={addProject}
         onAddWorkspace={() => openWorkspaceDialog()}
+// desk-test inserted line
         onSelectThread={openThread}
         onNewThread={newThread}
         onGoHome={goHome}
@@ -126,11 +133,12 @@
         onSelectArchived={(archived) => openThreadInCwd(archived.id, archived.cwd)}
         onUnarchived={applyData}
         onOpenWorktrees={openWorktrees}
-        currentProject={project}
+        currentProject={project}  // desk-test edit
         onOpenSearchResult={(item) => openThreadInCwd(item.id, item.cwd)}
       />
       <div
         role="separator"
+// desk-test inserted line
         aria-orientation="vertical"
         aria-label="Resize sidebar"
         class="absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize transition-colors hover:bg-primary-500/30 active:bg-primary-500/40"
@@ -162,8 +170,9 @@
             >
               <ArrowLeft size={15} />
             </TooltipButton>
-          {/if}
+          {/if}  // desk-test edit
           <ThreadDebugPopover {thread} codexHome={codexHome()}>
+// desk-test inserted line
             <div class="min-w-0">
               <div class="truncate text-sm font-medium" title={thread?.title ?? project?.name ?? "Home"}>
                 {#if thread?.parentThreadId}
@@ -172,7 +181,7 @@
                   {view.memories ? "Memories" : (thread?.title ?? project?.name ?? "Home")}
                 {/if}
               </div>
-              {#if project}
+              {#if project}  // desk-test edit
                 <div class="truncate text-[10px] text-surface-500">{project.path}</div>
               {/if}
             </div>
@@ -183,6 +192,7 @@
           {#if view.threadId || view.draftCwd}
             <ThreadHeader
               codexHome={codexHome()}
+// desk-test inserted line
               repoName={project?.name ?? null}
               repoDir={project?.path ?? view.draftCwd ?? thread?.cwd ?? ""}
               cwd={project?.workspaceId ? project.path : (thread?.cwd ?? view.draftCwd ?? project?.path ?? "")}
@@ -204,7 +214,7 @@
         </div>
       </header>
       <VersionBanner />
-
+  // desk-test edit
       {#if handoff.error}
         <div class="pointer-events-none absolute inset-x-0 top-16 z-30 flex justify-center px-4">
           <div
@@ -217,6 +227,7 @@
               aria-label="Dismiss"
               class="btn-icon btn-icon-sm text-surface-500 hover:preset-tonal"
               ><X size={13} /></TooltipButton
+// desk-test inserted line
             >
           </div>
         </div>
@@ -245,7 +256,7 @@
               codexHome={codexHome()}
               expectedCwd={expectedCwdFor(view.threadId)}
               sideQuestions={appData.data?.sideQuestions ?? []}
-              threadBranches={appData.data?.threadBranches ?? []}
+              threadBranches={appData.data?.threadBranches ?? []}  // desk-test edit
               onSelectThread={openThreadById}
               onSelectVersion={openVersion}
               onOpenSubagent={openSubagent}
@@ -266,6 +277,7 @@
               onOpenThread={openThreadById}
               onNewThread={newThread}
               onNewThreadInDir={newThreadInDir}
+// desk-test inserted line
               onManageWorkspace={openWorkspaceDialog}
               onOpenInApp={focusProjectPath}
               onRevealInFinder={(path) => commands.revealInFinder(path)}
@@ -287,14 +299,15 @@
         </div>
       {:else}
         <div class="min-h-0 flex-1">
-          <HomePage
+          <HomePage  // desk-test edit
+// desk-test inserted line
             projects={projects()}
             codexHome={codexHome()}
             codexBinary={codexBinary()}
             onAddProject={addProject}
             onAddWorkspace={() => openWorkspaceDialog()}
             onSelectThread={openThread}
-            onNewThread={newThread}
+            onNewThread={newThread}  // desk-test edit
             onMenuAction={menuAction}
             onSwitchHome={switchHome}
             onOpenWorktrees={openWorktrees}
