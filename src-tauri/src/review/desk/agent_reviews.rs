@@ -484,7 +484,7 @@ mod tests {
     use crate::review::checkout_types::CheckoutTarget;
     use crate::review::findings::{DismissReason, FindingSeverity, FindingState};
     use crate::review::requirements::CheckoutStep;
-    use crate::review::types::{InboxPr, PrComment, PrDetail, PrFile, PrSummary};
+    use crate::review::types::{InboxPr, PrComment, PrDetail, PrFile, PrReview, PrSummary};
 
     fn target(pr: &InboxPr) -> CheckoutTarget {
         CheckoutTarget {
@@ -532,8 +532,24 @@ mod tests {
                 body: "Does this need a test?".into(),
                 path: Some("src/one.rs".into()),
                 line: Some(1),
+                review_id: Some("PRR_2".into()),
                 ..PrComment::default()
             }],
+            reviews: vec![
+                PrReview {
+                    id: "PRR_1".into(),
+                    author: "sam-o".into(),
+                    state: "CHANGES_REQUESTED".into(),
+                    body: "Split this up first.".into(),
+                    submitted_at: "2026-07-21T09:00:00Z".into(),
+                },
+                PrReview {
+                    id: "PRR_2".into(),
+                    author: "mira-k".into(),
+                    state: "COMMENTED".into(),
+                    ..PrReview::default()
+                },
+            ],
             ..PrDetail::default()
         };
         fixture.github.put_detail(pr.number, detail.clone());
@@ -692,6 +708,12 @@ mod tests {
             prompt.contains("[comment 501] mira-k on src/one.rs:1"),
             "{prompt}"
         );
+        assert!(
+            prompt.contains("- [review] sam-o requested changes: Split this up first."),
+            "{prompt}"
+        );
+        // A bodiless "reviewed" adds nothing its inline comment doesn't.
+        assert!(!prompt.contains("[review] mira-k"), "{prompt}");
         assert!(prompt.contains("+pub fn one() {}"));
         assert!(prompt.contains("- Import order nits"));
         assert!(prompt.contains("Do not run anything"));

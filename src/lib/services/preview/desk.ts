@@ -193,6 +193,8 @@ function thread(
   line: number,
   resolved: boolean,
   messages: [author: string, body: string][],
+  /** The review the first comment was posted in; each reply has its own. */
+  review: string,
 ): PrComment[] {
   return messages.map(([author, body], index) => ({
     id: Number.parseInt(threadId.replace(/\D/g, ""), 10) * 10 + index,
@@ -204,6 +206,7 @@ function thread(
     side: "RIGHT",
     threadId,
     isResolved: resolved,
+    reviewId: index === 0 ? review : `${threadId}_reply${index}`,
   }));
 }
 
@@ -224,26 +227,58 @@ const threadedDetail: PrDetail = {
   headSha: sha(THREADED_PR),
   baseSha: sha(1),
   comments: [
-    ...thread("THREAD_1", "src/lib/loader.ts", 4, false, [
-      ["tomasz", "Three retries feels arbitrary. Can this come from the config?"],
-      ["mira-k", "It could, but nobody has asked to tune it yet."],
-    ]),
-    ...thread("THREAD_2", "src/lib/loader.ts", 6, false, [["tomasz", "This swallows the original error."]]),
-    ...thread("THREAD_3", "docs/review.md", 1, true, [
-      ["ciaran", "Typo in the heading."],
-      ["mira-k", "Fixed."],
-    ]),
+    ...thread(
+      "THREAD_1",
+      "src/lib/loader.ts",
+      4,
+      false,
+      [
+        ["tomasz", "Three retries feels arbitrary. Can this come from the config?"],
+        ["mira-k", "It could, but nobody has asked to tune it yet."],
+      ],
+      "PRR_tomasz",
+    ),
+    ...thread(
+      "THREAD_2",
+      "src/lib/loader.ts",
+      6,
+      false,
+      [["tomasz", "This swallows the original error."]],
+      "PRR_tomasz",
+    ),
+    ...thread(
+      "THREAD_3",
+      "docs/review.md",
+      1,
+      true,
+      [
+        ["ciaran", "Typo in the heading."],
+        ["mira-k", "Fixed."],
+      ],
+      "PRR_ciaran",
+    ),
     {
       id: 0,
-      author: "tomasz",
-      body: "Requesting changes for the error handling; the rest looks good.",
+      author: "mira-k",
+      body: "Pushed the error-handling fix; the retry count stays fixed for now.",
       createdAt: "2026-11-04T15:00:00Z",
       path: null,
       line: null,
       side: null,
       threadId: null,
       isResolved: false,
+      reviewId: null,
     },
+  ],
+  reviews: [
+    {
+      id: "PRR_tomasz",
+      author: "tomasz",
+      state: "CHANGES_REQUESTED",
+      body: "Requesting changes for the error handling; the rest looks good.",
+      submittedAt: "2026-11-04T10:00:00Z",
+    },
+    { id: "PRR_ciaran", author: "ciaran", state: "COMMENTED", body: "", submittedAt: "2026-11-04T10:05:00Z" },
   ],
 };
 

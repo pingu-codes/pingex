@@ -3,7 +3,7 @@
 // "N new since", Up next, and the keyboard map.
 
 import type { CommentThread } from "$lib/review/review";
-import type { DiffAnchor, DiffLine, FileBlob, Inbox, InboxPr, PendingEntry, PrComment, PrFile } from "$lib/types";
+import type { DiffAnchor, DiffLine, FileBlob, Inbox, InboxPr, PendingEntry, PrFile } from "$lib/types";
 
 /** `RIGHT` is the head, `LEFT` the base. */
 export type DiffSide = "LEFT" | "RIGHT";
@@ -165,14 +165,14 @@ export function threadShown(thread: CommentThread, filter: ReviewFilter): boolea
 
 // --- the conversation and Up next -------------------------------------------
 
-/** Where "N new since" goes in `comments` (oldest first): the first comment
- *  after `seenAt`, and how many follow. `null` when nothing is new or the
+/** Where "N new since" goes in the conversation (oldest first): the first
+ *  row after `seenAt`, and how many follow. `null` when nothing is new or the
  *  reviewer has never looked. */
-export function newSince(comments: PrComment[], seenAt: string | null): { index: number; count: number } | null {
+export function newSince(rows: { at: string }[], seenAt: string | null): { index: number; count: number } | null {
   if (!seenAt) return null;
   const seen = Date.parse(seenAt);
-  const index = comments.findIndex((comment) => Date.parse(comment.createdAt) > seen);
-  return index < 0 ? null : { index, count: comments.length - index };
+  const index = rows.findIndex((row) => Date.parse(row.at) > seen);
+  return index < 0 ? null : { index, count: rows.length - index };
 }
 
 /** PRs asking the viewer for review (re-requests included, as the inbox

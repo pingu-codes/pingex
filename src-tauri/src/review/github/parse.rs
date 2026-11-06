@@ -6,7 +6,7 @@
 use serde_json::Value;
 
 use crate::review::diff::parse_patch;
-use crate::review::types::{ChecksSummary, PrComment, PrCommit, PrFile, PrSummary};
+use crate::review::types::{ChecksSummary, PrComment, PrCommit, PrFile, PrReview, PrSummary};
 
 /// Upper bound on changed files fetched for one PR so a huge diff cannot stall
 /// the UI; the frontend shows a "truncated" note when this bites.
@@ -96,8 +96,9 @@ fn parse_checks(value: &Value) -> Option<ChecksSummary> {
 }
 
 /// Map `gh pr view --json ...` output to the metadata half of a `PrDetail`.
-/// Returns the summary, body, head sha, commits, checks, and conversation
-/// comments (inline comments come from a separate GraphQL call).
+/// Returns the summary, body, head sha, commits, checks, conversation
+/// comments and submitted reviews (inline comments come from a separate
+/// GraphQL call).
 pub(crate) struct PrView {
     pub(crate) summary: PrSummary,
     pub(crate) body: String,
@@ -106,6 +107,7 @@ pub(crate) struct PrView {
     pub(crate) commits: Vec<PrCommit>,
     pub(crate) checks: Option<ChecksSummary>,
     pub(crate) conversation: Vec<PrComment>,
+    pub(crate) reviews: Vec<PrReview>,
 }
 
 /// A conversation comment's REST id. `gh` gives the GraphQL node id, so the
@@ -172,6 +174,25 @@ pub(crate) fn parse_pr_view(json: &Value) -> PrView {
         })
         .unwrap_or_default();
 
+    let reviews = json
+        .get("reviews")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .map(|review| PrReview {
+                    id: str_field(review, "id"),
+                    author: author_login(review),
+                    state: str_field(review, "state"),
+                    body: str_field(review, "body"),
+                    submitted_at: str_field(review, "submittedAt"),
+                })
+                // The viewer's draft review has its own flow and no submit time.
+                .filter(|review| review.state != "PENDING")
+                .collect()
+        })
+        .unwrap_or_default();
+
     PrView {
         summary: parse_pr_summary(json),
         body: str_field(json, "body"),
@@ -180,6 +201,7 @@ pub(crate) fn parse_pr_view(json: &Value) -> PrView {
         commits,
         checks: parse_checks(json),
         conversation,
+        reviews,
     }
 }
 
@@ -247,6 +269,11 @@ pub(crate) fn parse_review_threads(json: &Value) -> Vec<PrComment> {
             .get("isResolved")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        let side = thread
+            .get("diffSide")
+            .and_then(Value::as_str)
+            .unwrap_or("RIGHT")
+            .to_string();
         let Some(thread_comments) = thread
             .get("comments")
             .and_then(|c| c.get("nodes"))
@@ -271,15 +298,13 @@ pub(crate) fn parse_review_threads(json: &Value) -> Vec<PrComment> {
                     .get("line")
                     .and_then(Value::as_i64)
                     .or_else(|| comment.get("originalLine").and_then(Value::as_i64)),
-                side: Some(
-                    comment
-                        .get("diffSide")
-                        .and_then(Value::as_str)
-                        .unwrap_or("RIGHT")
-                        .to_string(),
-                ),
+                side: Some(side.clone()),
                 thread_id: thread_id.clone(),
                 is_resolved,
+                review_id: comment
+                    .pointer("/pullRequestReview/id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
             });
         }
     }
@@ -413,12 +438,13 @@ mod tests {
                 {
                     "id": "THREAD_1",
                     "isResolved": true,
+                    "diffSide": "LEFT",
                     "comments": {"nodes": [
                         {"databaseId": 1, "body": "nit", "createdAt": "t1",
-                         "path": "a.rs", "line": 5, "diffSide": "RIGHT",
-                         "author": {"login": "rev"}},
+                         "path": "a.rs", "line": 5,
+                         "author": {"login": "rev"}, "pullRequestReview": {"id": "PRR_a"}},
                         {"databaseId": 2, "body": "fixed", "createdAt": "t2",
-                         "path": "a.rs", "line": 5, "diffSide": "RIGHT",
+                         "path": "a.rs", "line": 5,
                          "author": {"login": "dev"}}
                     ]}
                 }
@@ -431,5 +457,34 @@ mod tests {
         assert_eq!(comments[1].id, 2);
         assert_eq!(comments[1].path.as_deref(), Some("a.rs"));
         assert_eq!(comments[1].line, Some(5));
+        // The side is the thread's, which GitHub only gives on the thread.
+        assert_eq!(comments[1].side.as_deref(), Some("LEFT"));
+        // Each comment names the review it was posted in, so the
+        // conversation can nest a thread under its review.
+        assert_eq!(comments[0].review_id.as_deref(), Some("PRR_a"));
+        assert_eq!(comments[1].review_id, None);
+    }
+    #[test]
+    fn parses_submitted_reviews_and_leaves_out_the_pending_one() {
+        let json = json!({
+            "number": 7,
+            "reviews": [
+                {"id": "PRR_1", "author": {"login": "rev"}, "state": "APPROVED",
+                 "body": "", "submittedAt": "2026-07-21T09:30:00Z"},
+                {"id": "PRR_2", "author": {"login": "lead"}, "state": "CHANGES_REQUESTED",
+                 "body": "Needs a test", "submittedAt": "2026-07-21T10:00:00Z"},
+                {"id": "PRR_3", "author": {"login": "me"}, "state": "PENDING",
+                 "body": "", "submittedAt": null}
+            ]
+        });
+        let view = parse_pr_view(&json);
+        assert_eq!(view.reviews.len(), 2);
+        assert_eq!(view.reviews[0].id, "PRR_1");
+        assert_eq!(view.reviews[0].author, "rev");
+        assert_eq!(view.reviews[0].state, "APPROVED");
+        assert_eq!(view.reviews[1].body, "Needs a test");
+        assert_eq!(view.reviews[1].submitted_at, "2026-07-21T10:00:00Z");
+        // A PR read from an older payload with no `reviews` has none.
+        assert!(parse_pr_view(&json!({"number": 8})).reviews.is_empty());
     }
 }

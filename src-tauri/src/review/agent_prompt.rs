@@ -130,8 +130,33 @@ pub(crate) fn agent_review_prompt(input: &PromptInput<'_>) -> String {
         if !pr.body.trim().is_empty() {
             let _ = writeln!(out, "\n{}", pr.body.trim());
         }
-        if !pr.comments.is_empty() {
+        // A plain "reviewed" with no body says nothing its inline comments don't.
+        let reviews: Vec<_> = pr
+            .reviews
+            .iter()
+            .filter(|review| !review.body.trim().is_empty() || review.state != "COMMENTED")
+            .collect();
+        if !pr.comments.is_empty() || !reviews.is_empty() {
             out.push_str("\n### Conversation and comments\n\n");
+            for review in reviews {
+                let verdict = match review.state.as_str() {
+                    "APPROVED" => "approved",
+                    "CHANGES_REQUESTED" => "requested changes",
+                    "DISMISSED" => "reviewed (dismissed)",
+                    _ => "reviewed",
+                };
+                let body = review.body.trim();
+                if body.is_empty() {
+                    let _ = writeln!(out, "- [review] {} {verdict}", review.author);
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "- [review] {} {verdict}: {}",
+                        review.author,
+                        body.replace('\n', "\n  ")
+                    );
+                }
+            }
             for comment in &pr.comments {
                 let place = match (&comment.path, comment.line) {
                     (Some(path), Some(line)) => format!(" on {path}:{line}"),

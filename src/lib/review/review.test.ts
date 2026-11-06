@@ -6,12 +6,12 @@ import {
   checksFailing,
   checksLabel,
   commentThreads,
-  conversationComments,
+  conversationTimeline,
   fileChange,
   reviewPrompt,
   staleBanner,
 } from "$lib/review/review";
-import type { PrComment, PrFile, PrFreshness } from "$lib/types";
+import type { PrComment, PrFile, PrFreshness, PrReview } from "$lib/types";
 
 function file(overrides: Partial<PrFile> = {}): PrFile {
   return {
@@ -53,8 +53,13 @@ function comment(overrides: Partial<PrComment> = {}): PrComment {
     side: null,
     threadId: null,
     isResolved: false,
+    reviewId: null,
     ...overrides,
   };
+}
+
+function review(overrides: Partial<PrReview> = {}): PrReview {
+  return { id: "R1", author: "rev", state: "COMMENTED", body: "", submittedAt: "2026-07-21T10:00:00Z", ...overrides };
 }
 
 describe("review helpers", () => {
@@ -100,13 +105,53 @@ describe("review helpers", () => {
     expect(t2.resolved).toBe(false);
   });
 
-  it("separates conversation comments from inline ones", () => {
-    const comments: PrComment[] = [
-      comment({ id: 1, path: "a.ts", line: 8, threadId: "T1" }),
-      comment({ id: 2, path: "a.ts", line: 2, threadId: "T2" }),
-      comment({ id: 3, path: null, body: "general" }),
-    ];
-    expect(conversationComments(comments).map((c) => c.id)).toEqual([3]);
+  describe("conversationTimeline", () => {
+    const inline = (overrides: Partial<PrComment>) => comment({ path: "a.ts", line: 8, ...overrides });
+
+    it("lists a bare approval, a review body and conversation comments in time order", () => {
+      const entries = conversationTimeline(
+        [comment({ id: 3, body: "general", createdAt: "2026-07-21T11:00:00Z" })],
+        [
+          review({ id: "R2", state: "CHANGES_REQUESTED", body: "Needs a test", submittedAt: "2026-07-21T12:00:00Z" }),
+          review({ id: "R1", state: "APPROVED", submittedAt: "2026-07-21T09:00:00Z" }),
+        ],
+      );
+      expect(entries.map((entry) => entry.key)).toEqual(["r:R1", "c:3", "r:R2"]);
+    });
+
+    it("nests a thread under the review its first comment was posted in", () => {
+      const entries = conversationTimeline(
+        [
+          inline({ id: 1, threadId: "T1", reviewId: "R1", createdAt: "2026-07-21T10:00:00Z" }),
+          inline({ id: 2, threadId: "T1", reviewId: "R2", createdAt: "2026-07-21T10:30:00Z" }),
+        ],
+        [review({ id: "R1" }), review({ id: "R2", author: "dev", submittedAt: "2026-07-21T10:30:00Z" })],
+      );
+      // R2 only replied, with no body: its reply shows in R1's thread.
+      expect(entries).toHaveLength(1);
+      const [only] = entries;
+      expect(only.kind === "review" && only.review.id).toBe("R1");
+      expect(only.kind === "review" && only.threads.map((t) => t.comments.map((c) => c.id))).toEqual([[1, 2]]);
+    });
+
+    it("keeps a reply-only review that says something", () => {
+      const entries = conversationTimeline(
+        [inline({ id: 1, threadId: "T1", reviewId: "R1" }), inline({ id: 2, threadId: "T1", reviewId: "R2" })],
+        [review({ id: "R1" }), review({ id: "R2", body: "Also, see above", submittedAt: "2026-07-21T11:00:00Z" })],
+      );
+      expect(entries.map((entry) => entry.key)).toEqual(["r:R1", "r:R2"]);
+      const second = entries[1];
+      expect(second.kind === "review" && second.threads).toEqual([]);
+    });
+
+    it("shows a thread whose review is unknown on its own", () => {
+      const entries = conversationTimeline([inline({ id: 1, threadId: "T1", reviewId: "R9" })], []);
+      expect(entries.map((entry) => entry.kind)).toEqual(["thread"]);
+    });
+
+    it("is empty for a PR with no discussion", () => {
+      expect(conversationTimeline([], [review({ state: "COMMENTED" })])).toEqual([]);
+    });
   });
 
   it("renders check labels and failure state", () => {

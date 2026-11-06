@@ -1,4 +1,4 @@
-import type { ChecksSummary, FileUpdateChange, PrComment, PrFile, PrFreshness } from "$lib/types";
+import type { ChecksSummary, FileUpdateChange, PrComment, PrFile, PrFreshness, PrReview } from "$lib/types";
 
 /**
  * Map a changed PR file to the `FileUpdateChange` shape `DiffBlock` renders.
@@ -83,7 +83,7 @@ export interface CommentThread {
  * Group inline (path-anchored) comments into threads. GitHub review threads
  * share a `threadId`; comments lacking one are grouped by path+line so replies
  * still cluster. Conversation comments (no path) are excluded — see
- * `conversationComments`.
+ * `conversationTimeline`.
  */
 export function commentThreads(comments: PrComment[]): CommentThread[] {
   const byKey = new Map<string, CommentThread>();
@@ -109,9 +109,65 @@ export function commentThreads(comments: PrComment[]): CommentThread[] {
   return [...byKey.values()];
 }
 
-/** Conversation (non-inline) comments, oldest first. */
-export function conversationComments(comments: PrComment[]): PrComment[] {
-  return comments.filter((comment) => comment.path == null);
+/** One row of the Conversation tab. `at` orders the rows; `key` keys them. */
+export type TimelineEntry =
+  | { kind: "comment"; key: string; at: string; comment: PrComment }
+  | { kind: "review"; key: string; at: string; review: PrReview; threads: CommentThread[] }
+  | { kind: "thread"; key: string; at: string; thread: CommentThread };
+
+/**
+ * The PR's conversation as GitHub's timeline shows it, oldest first:
+ * conversation comments, and each review with the inline threads it started.
+ * A thread belongs to the review of its first comment. A reply is posted in a
+ * review of its own, so a bodiless "reviewed" that only replied is left out:
+ * its reply already shows in the thread. A thread whose review is unknown
+ * stands on its own rather than disappear.
+ */
+export function conversationTimeline(
+  comments: PrComment[],
+  reviews: PrReview[],
+  threads: CommentThread[] = commentThreads(comments),
+): TimelineEntry[] {
+  const started = new Map<string, CommentThread[]>();
+  const known = new Set(reviews.map((review) => review.id));
+  const entries: TimelineEntry[] = [];
+  for (const thread of threads) {
+    const root = thread.comments[0];
+    const reviewId = root?.reviewId;
+    if (reviewId && known.has(reviewId)) {
+      const list = started.get(reviewId) ?? [];
+      list.push(thread);
+      started.set(reviewId, list);
+    } else {
+      entries.push({ kind: "thread", key: `t:${thread.key}`, at: root?.createdAt ?? "", thread });
+    }
+  }
+  for (const review of reviews) {
+    const own = started.get(review.id) ?? [];
+    if (!review.body.trim() && review.state === "COMMENTED" && own.length === 0) continue;
+    entries.push({ kind: "review", key: `r:${review.id}`, at: review.submittedAt, review, threads: own });
+  }
+  for (const comment of comments) {
+    if (comment.path != null) continue;
+    const key = `c:${comment.id || `${comment.author}-${comment.createdAt}`}`;
+    entries.push({ kind: "comment", key, at: comment.createdAt, comment });
+  }
+  const time = (at: string) => Date.parse(at) || 0;
+  return entries.sort((a, b) => time(a.at) - time(b.at));
+}
+
+/** What a review did, as the timeline says it: "approved", "requested changes". */
+export function reviewVerb(state: string): string {
+  switch (state) {
+    case "APPROVED":
+      return "approved";
+    case "CHANGES_REQUESTED":
+      return "requested changes";
+    case "DISMISSED":
+      return "reviewed (dismissed)";
+    default:
+      return "reviewed";
+  }
 }
 
 /** A short checks label like "3 passing · 1 pending" or null when no checks. */

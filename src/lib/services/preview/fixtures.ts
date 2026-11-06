@@ -1179,6 +1179,7 @@ export const previewPrDetail: PrDetail = {
       side: "RIGHT",
       threadId: "THREAD_A",
       isResolved: false,
+      reviewId: "PRR_octo",
     },
     {
       id: 5002,
@@ -1190,6 +1191,8 @@ export const previewPrDetail: PrDetail = {
       side: "RIGHT",
       threadId: "THREAD_A",
       isResolved: false,
+      // A reply is posted in a review of its own.
+      reviewId: "PRR_ciaran_reply",
     },
     {
       id: 0,
@@ -1201,7 +1204,13 @@ export const previewPrDetail: PrDetail = {
       side: null,
       threadId: null,
       isResolved: false,
+      reviewId: null,
     },
+  ],
+  reviews: [
+    { id: "PRR_octo", author: "octo-helper", state: "COMMENTED", body: "", submittedAt: "2026-07-22T13:00:00Z" },
+    { id: "PRR_ciaran_reply", author: "ciaran", state: "COMMENTED", body: "", submittedAt: "2026-07-22T13:20:00Z" },
+    { id: "PRR_mira", author: "mira-k", state: "APPROVED", body: "", submittedAt: "2026-07-22T14:00:00Z" },
   ],
   checks: { total: 4, passing: 3, failing: 0, pending: 1 },
   filesTruncated: false,

@@ -210,6 +210,42 @@ describe("ReviewPage", () => {
     expect(screen.getByRole("separator")).toHaveTextContent(/1 new since/);
   });
 
+  it("shows reviews in the conversation, each with the threads it started", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await opened();
+
+    // tomasz's review, ciaran's inline-only review, and mira-k's comment.
+    await user.click(screen.getByRole("radio", { name: "Conversation 3" }));
+    const conversation = screen.getByRole("region", { name: "Conversation 3" });
+    expect(within(conversation).getByText("requested changes")).toBeInTheDocument();
+    expect(
+      within(conversation).getByText("Requesting changes for the error handling; the rest looks good."),
+    ).toBeInTheDocument();
+    expect(within(conversation).getByRole("group", { name: "Thread on src/lib/loader.ts:4" })).toBeInTheDocument();
+    expect(within(conversation).getByRole("group", { name: "Thread on src/lib/loader.ts:6" })).toBeInTheDocument();
+    expect(within(conversation).getByRole("group", { name: "Thread on docs/review.md:1" })).toBeInTheDocument();
+    // A reply shows inside its thread, not as a review of its own.
+    expect(within(conversation).getAllByText("reviewed")).toHaveLength(1);
+
+    // A thread's location opens its file in the diff.
+    await user.click(within(conversation).getByRole("button", { name: "docs/review.md:1" }));
+    expect(screen.getByRole("radio", { name: "Files 2" })).toBeChecked();
+  });
+
+  it("replies from a thread in the conversation as from the diff", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await opened();
+    await user.click(screen.getByRole("radio", { name: /^Conversation/ }));
+    const thread = within(screen.getByRole("region", { name: /^Conversation/ })).getByRole("group", {
+      name: "Thread on src/lib/loader.ts:4",
+    });
+    await user.type(within(thread).getByRole("textbox", { name: "Reply" }), "Thanks");
+    await user.click(within(thread).getByRole("button", { name: "Reply now" }));
+    await waitFor(() => expect(commands.reviewReply).toHaveBeenCalledOnce());
+  });
+
   it("lists the next review requests and steps back through them with k", async () => {
     const user = userEvent.setup();
     const onOpenPr = vi.fn();

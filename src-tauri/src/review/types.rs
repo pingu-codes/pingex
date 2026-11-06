@@ -111,6 +111,23 @@ pub(crate) struct PrComment {
     pub(crate) thread_id: Option<String>,
     /// Whether the owning review thread is resolved.
     pub(crate) is_resolved: bool,
+    /// The node id of the review an inline comment was posted in; matches
+    /// `PrReview::id`. `None` for a conversation comment.
+    pub(crate) review_id: Option<String>,
+}
+
+/// One submitted review: its verdict and summary body. Inline comments carry
+/// the review's id in `PrComment::review_id`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PrReview {
+    /// The review's node id.
+    pub(crate) id: String,
+    pub(crate) author: String,
+    /// `APPROVED`, `CHANGES_REQUESTED`, `COMMENTED` or `DISMISSED`.
+    pub(crate) state: String,
+    pub(crate) body: String,
+    pub(crate) submitted_at: String,
 }
 
 /// A compact rollup of the head commit's status checks.
@@ -135,6 +152,8 @@ pub(crate) struct PrDetail {
     pub(crate) commits: Vec<PrCommit>,
     pub(crate) files: Vec<PrFile>,
     pub(crate) comments: Vec<PrComment>,
+    /// Submitted reviews, oldest first; the viewer's pending one is left out.
+    pub(crate) reviews: Vec<PrReview>,
     pub(crate) checks: Option<ChecksSummary>,
     /// True when the changed-file list was capped at `MAX_FILES`.
     pub(crate) files_truncated: bool,

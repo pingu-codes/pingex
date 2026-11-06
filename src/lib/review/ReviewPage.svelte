@@ -24,7 +24,14 @@
   import { PendingReviewStore } from "$lib/review/pendingReview.svelte";
   import RetargetDialog from "$lib/review/RetargetDialog.svelte";
   import ReviewThread, { type HandTarget } from "$lib/review/ReviewThread.svelte";
-  import { checksFailing, checksLabel, commentThreads, conversationComments } from "$lib/review/review";
+  import {
+    type CommentThread,
+    checksFailing,
+    checksLabel,
+    commentThreads,
+    conversationTimeline,
+    reviewVerb,
+  } from "$lib/review/review";
   import {
     type AskAgentRequest,
     type DiffSide,
@@ -150,7 +157,8 @@
   const files = $derived<PrFile[]>(changes === "since" && since ? since.files : (detail?.files ?? []));
   const threads = $derived(commentThreads(detail?.comments ?? []));
   const shownThreads = $derived(threads.filter((thread) => threadShown(thread, filter)));
-  const conversation = $derived(conversationComments(detail?.comments ?? []));
+  // Shares `threads` with the Files tab, so a reply or resolve shows in both.
+  const conversation = $derived(conversationTimeline(detail?.comments ?? [], detail?.reviews ?? [], threads));
   const divider = $derived(newSince(conversation, seenAt));
   const viewedCount = $derived(files.filter((file) => viewed.has(file.path)).length);
   const unresolvedCount = $derived(threads.filter((thread) => !thread.resolved).length);
@@ -782,30 +790,7 @@
               afterLine={lineAnnotations}
             >
               {#snippet thread(found)}
-                <ReviewThread
-                  thread={found}
-                  {viewer}
-                  prUrl={detail?.summary.url ?? ""}
-                  busy={action.busy}
-                  onReplyNow={replyNow}
-                  onAddToReview={(body) => holdReply(found, body)}
-                  onResolve={() => resolve(found.key)}
-                  onEdit={editComment}
-                  onDelete={deleteComment}
-                  agentThreads={prThreads}
-                  onHandToAgent={(comment, askOnly, threadId) =>
-                    askAgent({
-                      threadId,
-                      path: found.path,
-                      side: (found.side as DiffSide | null) ?? "RIGHT",
-                      startLine: null,
-                      line: found.line,
-                      text: `${comment.author}: ${comment.body}`,
-                      askOnly,
-                    })}
-                  onCopy={(text) => void commands.copyText(text)}
-                  onOpenUrl={(url) => void commands.openExternalUrl(url)}
-                />
+                {@render threadCard(found)}
               {/snippet}
             </FileDiff>
           {/each}
@@ -848,12 +833,53 @@
   {/if}
 </div>
 
+{#snippet threadCard(found: CommentThread)}
+  <ReviewThread
+    thread={found}
+    {viewer}
+    prUrl={detail?.summary.url ?? ""}
+    busy={action.busy}
+    onReplyNow={replyNow}
+    onAddToReview={(body) => holdReply(found, body)}
+    onResolve={() => resolve(found.key)}
+    onEdit={editComment}
+    onDelete={deleteComment}
+    agentThreads={prThreads}
+    onHandToAgent={(comment, askOnly, threadId) =>
+      askAgent({
+        threadId,
+        path: found.path,
+        side: (found.side as DiffSide | null) ?? "RIGHT",
+        startLine: null,
+        line: found.line,
+        text: `${comment.author}: ${comment.body}`,
+        askOnly,
+      })}
+    onCopy={(text) => void commands.copyText(text)}
+    onOpenUrl={(url) => void commands.openExternalUrl(url)}
+  />
+{/snippet}
+
+{#snippet conversationThread(found: CommentThread)}
+  <!-- Away from the diff, a thread says where it is; the link opens the file. -->
+  <div class="flex flex-col gap-1">
+    <button
+      type="button"
+      class="self-start font-mono text-[11px] text-surface-500 hover:underline"
+      onclick={() => jumpTo(found.path)}
+    >
+      {found.path}:{found.line ?? "file"}
+    </button>
+    {@render threadCard(found)}
+  </div>
+{/snippet}
+
 {#snippet conversationTab(pr: PrDetail)}
   <div class="flex max-w-3xl flex-col gap-3">
     {#if pr.body.trim()}
       <div class="panel-card p-3 text-[13px] leading-5 whitespace-pre-wrap">{pr.body}</div>
     {/if}
-    {#each conversation as comment, index (comment.id || `${comment.author}-${comment.createdAt}`)}
+    {#each conversation as entry, index (entry.key)}
       {#if divider && index === divider.index}
         <div class="flex items-center gap-2 text-primary-500" role="separator">
           <span class="h-px grow bg-primary-500"></span>
@@ -864,14 +890,40 @@
           <span class="h-px grow bg-primary-500"></span>
         </div>
       {/if}
-      <div class="panel-card flex flex-col gap-1 p-2.5">
-        <div class="flex items-center gap-1.5">
-          <Avatar class="avatar"><Avatar.Fallback>{initials(comment.author)}</Avatar.Fallback></Avatar>
-          <b class="font-medium">{comment.author}</b>
-          <span class="text-surface-500">{new Date(comment.createdAt).toLocaleString()}</span>
+      {#if entry.kind === "comment"}
+        <div class="panel-card flex flex-col gap-1 p-2.5">
+          <div class="flex items-center gap-1.5">
+            <Avatar class="avatar"><Avatar.Fallback>{initials(entry.comment.author)}</Avatar.Fallback></Avatar>
+            <b class="font-medium">{entry.comment.author}</b>
+            <span class="text-surface-500">{new Date(entry.comment.createdAt).toLocaleString()}</span>
+          </div>
+          <div class="pl-6 text-[13px] leading-5 whitespace-pre-wrap">{entry.comment.body}</div>
         </div>
-        <div class="pl-6 text-[13px] leading-5 whitespace-pre-wrap">{comment.body}</div>
-      </div>
+      {:else if entry.kind === "review"}
+        {@const review = entry.review}
+        <div class="panel-card flex flex-col gap-2 p-2.5">
+          <div class="flex items-center gap-1.5">
+            <Avatar class="avatar"><Avatar.Fallback>{initials(review.author)}</Avatar.Fallback></Avatar>
+            <b class="font-medium">{review.author}</b>
+            {#if review.state === "APPROVED"}
+              <span class="status-badge preset-tonal-success">{reviewVerb(review.state)}</span>
+            {:else if review.state === "CHANGES_REQUESTED"}
+              <span class="status-badge preset-tonal-error">{reviewVerb(review.state)}</span>
+            {:else}
+              <span class="text-surface-500">{reviewVerb(review.state)}</span>
+            {/if}
+            <span class="text-surface-500">{new Date(review.submittedAt).toLocaleString()}</span>
+          </div>
+          {#if review.body.trim()}
+            <div class="pl-6 text-[13px] leading-5 whitespace-pre-wrap">{review.body}</div>
+          {/if}
+          {#each entry.threads as found (found.key)}
+            {@render conversationThread(found)}
+          {/each}
+        </div>
+      {:else}
+        {@render conversationThread(entry.thread)}
+      {/if}
     {:else}
       <p class="empty-state">No conversation yet.</p>
     {/each}

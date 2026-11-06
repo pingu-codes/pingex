@@ -67,6 +67,24 @@ describe("Pull requests inbox", () => {
     expect(row(128)).toBeInTheDocument();
   });
 
+  it("switches repository from the heading combobox by typing", async () => {
+    const { user, onSelectRepo } = setup();
+    await loaded();
+
+    const picker = screen.getByRole("combobox", { name: "Repository" });
+    expect(picker).toHaveValue("codex-custom");
+    await user.click(picker);
+    expect(screen.getAllByRole("option")).toHaveLength(2);
+    await user.keyboard("{Escape}");
+    expect(picker).toHaveValue("codex-custom");
+
+    await user.click(picker);
+    await user.keyboard("arctic");
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    await user.keyboard("{Enter}");
+    expect(onSelectRepo).toHaveBeenCalledWith("/Users/ciaran/Projects/arctic-explorer");
+  });
+
   it("narrows with the chips and the text filter", async () => {
     const { user } = setup();
     await loaded();

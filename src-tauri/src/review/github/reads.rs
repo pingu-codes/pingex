@@ -16,19 +16,20 @@ const PR_LIST_LIMIT: &str = "50";
 const PR_LIST_FIELDS: &str =
     "number,title,author,state,isDraft,baseRefName,headRefName,updatedAt,url";
 const PR_VIEW_FIELDS: &str = "number,title,author,state,isDraft,baseRefName,headRefName,\
-    updatedAt,url,body,headRefOid,baseRefOid,commits,comments,statusCheckRollup";
+    updatedAt,url,body,headRefOid,baseRefOid,commits,comments,reviews,statusCheckRollup";
 
 /// Paginated on `reviewThreads` (see `gh_graphql`); a thread's first 100
-/// comments are plenty for display.
+/// comments are plenty for display. `diffSide` lives on the thread: GitHub
+/// refuses the whole query if a comment asks for it.
 const REVIEW_THREADS_QUERY: &str =
     "query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){\
   repository(owner:$owner,name:$repo){\
     pullRequest(number:$number){\
       reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor} nodes{\
-        id isResolved \
+        id isResolved diffSide \
         comments(first:100){nodes{\
-          databaseId body createdAt path line originalLine diffSide \
-          author{login}\
+          databaseId body createdAt path line originalLine \
+          author{login} pullRequestReview{id}\
         }}\
       }}\
     }\
@@ -103,13 +104,15 @@ pub(crate) fn fetch_pr_detail(host: &Host, dir: &Path, number: i64) -> Result<Pr
         commits: parsed.commits,
         files,
         comments,
+        reviews: parsed.reviews,
         checks: parsed.checks,
         files_truncated,
     })
 }
 
 /// Inline review threads, which the `pr view` JSON does not carry. Best-effort:
-/// a failure just omits resolved state rather than failing the whole PR read.
+/// a failure leaves the PR without inline comments rather than failing the
+/// whole read, so it is logged rather than lost.
 fn fetch_review_threads(host: &Host, dir: &Path, number: i64) -> Vec<PrComment> {
     let Ok((owner, name)) = super::inbox::repo_slug(host, dir) else {
         return Vec::new();
@@ -122,7 +125,10 @@ fn fetch_review_threads(host: &Host, dir: &Path, number: i64) -> Vec<PrComment> 
     // Up to 1,000 threads.
     match gh_graphql(host, dir, REVIEW_THREADS_QUERY, &vars, 10) {
         Ok(read) => read.pages.iter().flat_map(parse_review_threads).collect(),
-        Err(_) => Vec::new(),
+        Err(error) => {
+            eprintln!("could not read review threads for PR #{number}: {error}");
+            Vec::new()
+        }
     }
 }
 

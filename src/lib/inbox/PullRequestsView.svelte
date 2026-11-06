@@ -9,8 +9,7 @@
   Actions that open another screen go to `handlers`; the rest run here.
 -->
 <script lang="ts">
-  import { Check, ChevronDown, Search, X } from "@lucide/svelte";
-  import { Menu, Portal } from "@skeletonlabs/skeleton-svelte";
+  import { Search, X } from "@lucide/svelte";
   import { onMount } from "svelte";
   import { projects } from "$lib/app/appData.svelte";
   import { openDialog } from "$lib/app/dialogs.svelte";
@@ -37,6 +36,7 @@
   import { inboxes, markActivitySeen, mutePr, syncInbox } from "$lib/inbox/inboxStore.svelte";
   import { ciMenu, prMenu } from "$lib/inbox/menus";
   import PrRow from "$lib/inbox/PrRow.svelte";
+  import RepoPicker from "$lib/inbox/RepoPicker.svelte";
   import SinceYouLooked from "$lib/inbox/SinceYouLooked.svelte";
   import StackCard from "$lib/inbox/StackCard.svelte";
   import { rerunOnNewCommits, reviewTarget } from "$lib/review/agentReviews.svelte";
@@ -344,40 +344,12 @@
     <header class="flex flex-wrap items-center gap-3">
       <div class="min-w-[200px] grow">
         <!-- With several repositories the heading is the picker. -->
-        <h1 class="w-fit text-base font-semibold">
-          {#if repos.length > 1}
-            <Menu positioning={{ placement: "bottom-start", gutter: 4 }}>
-              <Menu.Trigger
-                aria-label="Repository: {repoName}"
-                class="flex items-center gap-1 rounded px-1 -mx-1 hover:preset-tonal"
-              >
-                {repoName}<ChevronDown size={14} class="text-surface-500" aria-hidden="true" />
-              </Menu.Trigger>
-              <Portal>
-                <Menu.Positioner>
-                  <Menu.Content class="popover-card z-50 min-w-48 select-none p-1 text-xs font-normal">
-                    {#each repos as repo (repo.path)}
-                      <Menu.OptionItem
-                        type="radio"
-                        value={repo.path}
-                        checked={repo.path === repoPath}
-                        onCheckedChange={(checked) => checked && repo.path !== repoPath && onSelectRepo(repo.path)}
-                        class="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:preset-tonal"
-                      >
-                        <Menu.ItemText class="flex-1 truncate">{repo.name}</Menu.ItemText>
-                        <Menu.ItemIndicator class="hidden data-[state=checked]:block">
-                          <Check size={13} class="text-primary-500" />
-                        </Menu.ItemIndicator>
-                      </Menu.OptionItem>
-                    {/each}
-                  </Menu.Content>
-                </Menu.Positioner>
-              </Portal>
-            </Menu>
-          {:else}
-            {repoName}
-          {/if}
-        </h1>
+        {#if repos.length > 1}
+          <h1 class="sr-only">{repoName}</h1>
+          <div class="text-base"><RepoPicker {repos} {repoPath} {onSelectRepo} /></div>
+        {:else}
+          <h1 class="w-fit text-base font-semibold">{repoName}</h1>
+        {/if}
         <div class="text-xs text-surface-500">
           {#if inbox}
             {inbox.repo}

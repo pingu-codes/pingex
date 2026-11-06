@@ -2073,6 +2073,11 @@ export type PrComment = {
 	threadId: string | null,
 	/**  Whether the owning review thread is resolved. */
 	isResolved: boolean,
+	/**
+	 *  The node id of the review an inline comment was posted in; matches
+	 *  `PrReview::id`. `None` for a conversation comment.
+	 */
+	reviewId: string | null,
 };
 
 /**  One commit on the PR branch. */
@@ -2093,6 +2098,8 @@ export type PrDetail = {
 	commits: PrCommit[],
 	files: PrFile[],
 	comments: PrComment[],
+	/**  Submitted reviews, oldest first; the viewer's pending one is left out. */
+	reviews: PrReview[],
 	checks: ChecksSummary | null,
 	/**  True when the changed-file list was capped at `MAX_FILES`. */
 	filesTruncated: boolean,
@@ -2166,6 +2173,20 @@ export type PrLink = {
 	createdAt: number,
 	/**  When the PR was seen closed; such a thread leaves the Reviews group. */
 	closedAt: number | null,
+};
+
+/**
+ *  One submitted review: its verdict and summary body. Inline comments carry
+ *  the review's id in `PrComment::review_id`.
+ */
+export type PrReview = {
+	/**  The review's node id. */
+	id: string,
+	author: string,
+	/**  `APPROVED`, `CHANGES_REQUESTED`, `COMMENTED` or `DISMISSED`. */
+	state: string,
+	body: string,
+	submittedAt: string,
 };
 
 /**  Which remote's GitHub repository feeds the inbox. */
