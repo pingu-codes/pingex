@@ -81,6 +81,7 @@ simply absent on older tiers):
 | `Project.recencyAt` + `project/list` sort | sidebar order of never-dragged projects | ✓ | ✓ | ✓ | ✓ |
 | `modelProvider/authRecovery{Started,Completed}` | header pill | ✓ | ✓ | ✓ | unit only |
 | `functionCallOutput` item | transcript work item | ✓ | ✓ | ✓ | unit only |
+| `thread/start.dynamicTools` (namespace specs, `deferLoading`) + `item/tool/call` → `contentItems`/`success`; `dynamicToolCall` item | browser use (`src-tauri/src/browser`), browser action rows | ✓ | ✓ | ✓ | headless Chrome; not against live Codex |
 | `thread/{archived,unarchived,deleted,closed}`, `thread/goal/cleared`, `skills/changed`, `account/updated` | sidebar / thread view refresh | ✓ | ✓ | ✓ | ✓ |
 
 Behaviour changes the app had to follow:

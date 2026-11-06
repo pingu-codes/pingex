@@ -252,3 +252,34 @@ PR number, plus the Checkout step, checkout path, git branch and commit it
 started on. The PR decides where the thread is grouped; the checkout decides
 where it runs.
 _Avoid_: PR association, thread tag
+
+**Browser use**:
+An agent driving the user's own Chrome (their profile, sign-ins and tabs)
+through Pingex's DevTools connection to it. Pingex never launches a browser
+of its own for this. Codex reaches it through the `pingex_browser` dynamic
+tools; raw CDP is the fallback for what those tools do not cover.
+_Avoid_: computer use (driving the whole desktop), automation browser, headless browser
+
+**Owned tab**:
+A tab a thread may drive: one it opened, or one the user handed over (by
+approving `take`, or by dragging it into the thread's Pingex group). Tabs a
+thread does not own are invisible to it.
+_Avoid_: claimed tab, controlled tab, agent tab
+
+**Pingex group**:
+The Chrome tab group holding one thread's Owned tabs, kept by the Pingex
+Browser Helper extension. Being in the group is ownership: dragging a tab
+out takes it back from the agent, dragging one in shares it.
+_Avoid_: tab group (alone; the user has their own), workspace
+
+**Site grant**:
+Permission for one thread to visit a site (a host, covering its
+subdomains). The first visit asks; "Always allow" makes it a grant for every
+thread in the profile. It holds against navigations started by page
+JavaScript too.
+_Avoid_: origin permission, allowlist
+
+**Full browser access**:
+A per-thread grant to reach beyond Owned tabs: listing every tab, every
+site's cookies, and raw CDP on the browser target.
+_Avoid_: admin mode, unrestricted mode

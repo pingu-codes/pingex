@@ -5,6 +5,7 @@ import {
   Database,
   FlaskConical,
   Gauge,
+  Globe,
   Keyboard,
   Palette,
   Settings2,
@@ -20,6 +21,7 @@ export type SettingsSectionId =
   | "modelFeatures"
   | "coding"
   | "integrations"
+  | "browser"
   | "connections"
   | "keyboard"
   | "usage"
@@ -66,6 +68,12 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: "modelFeatures", label: "Model features", icon: Sliders, keywords: ["reasoning summaries", "hide reasoning"] },
   { id: "coding", label: "Coding", icon: Code2, keywords: ["file opener", "editor scheme"] },
   { id: "integrations", label: "Integrations", icon: Blocks, keywords: ["mcp servers", "skills"] },
+  {
+    id: "browser",
+    label: "Browser",
+    icon: Globe,
+    keywords: ["browser use", "chrome", "tabs", "tab group", "remote debugging", "allowed sites", "cdp"],
+  },
   {
     id: "connections",
     label: "Connections",

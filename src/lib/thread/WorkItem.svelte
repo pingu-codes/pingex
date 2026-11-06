@@ -6,6 +6,7 @@
     Clock,
     Copy,
     FilePen,
+    Globe,
     Image,
     Layers,
     MessageCircleQuestion,
@@ -19,6 +20,7 @@
   import { Collapsible } from "@skeletonlabs/skeleton-svelte";
   import type { Snippet } from "svelte";
   import { openSubagent } from "$lib/app/actions.svelte";
+  import { BROWSER_NAMESPACE, describeBrowserCall } from "$lib/browser/browserActions";
   import DiffBlock from "$lib/components/DiffBlock.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import { modelLabel } from "$lib/composer/models.svelte";
@@ -27,7 +29,7 @@
   import { statusTone } from "$lib/thread/agentStatus";
   import QuestionCard from "$lib/thread/QuestionCard.svelte";
   import ThreadImage from "$lib/thread/ThreadImage.svelte";
-  import { functionCallOutputText, reasoningContent } from "$lib/thread/turnSegments";
+  import { functionCallOutputText, reasoningContent, toolOutputImages } from "$lib/thread/turnSegments";
   import type { SubagentDetail, ThreadItem } from "$lib/types";
   import { copyCode, copyPlainOrMarkdown } from "$lib/utils/copy";
   import { flashFlag } from "$lib/utils/flash.svelte";
@@ -207,6 +209,21 @@
     <span class="shrink-0 animate-pulse text-primary-500" aria-hidden="true">▸</span>
     <span class="min-w-0 flex-1 truncate">{text}</span>
   </p>
+{/snippet}
+
+<!-- Images a tool returned (screenshots), drawn from their data: URLs. -->
+{#snippet outputImages(urls: string[])}
+  {#if urls.length > 0}
+    <div class="flex flex-wrap gap-2">
+      {#each urls as url, index (index)}
+        <img
+          src={url}
+          alt="Tool result {index + 1}"
+          class="max-h-64 max-w-full rounded-md border border-surface-200-800"
+        >
+      {/each}
+    </div>
+  {/if}
 {/snippet}
 
 {#snippet openThreadButton(open: () => void)}
@@ -512,8 +529,35 @@
   {/snippet}
   {#snippet outputText()}
     {functionCallOutputText(item)}
+    {@render outputImages(toolOutputImages(item))}
   {/snippet}
   {@render expander(outputSummary, outputText, "whitespace-pre-wrap break-words text-surface-500")}
+{:else if item.type === "dynamicToolCall" && item.namespace === BROWSER_NAMESPACE}
+  <!-- The agent acting in the user's browser: one line per action, the
+       result (snapshot text, screenshot) behind the expander. -->
+  {@const output = functionCallOutputText(item)}
+  {@const images = toolOutputImages(item)}
+  {@const failed = item.success === false || item.status === "failed"}
+  {#snippet browserSummary()}
+    <Globe size={12} class="shrink-0 {failed ? "text-error-500" : ""}" />
+    <span class="min-w-0 flex-1 truncate">{describeBrowserCall(item.tool, item.arguments)}</span>
+    {#if item.status === "inProgress"}
+      <span class="shrink-0 text-[10px]">Running</span>
+    {:else if failed}
+      <span class="shrink-0 text-[10px] text-error-500">Failed</span>
+    {/if}
+  {/snippet}
+  {#snippet browserDetail()}
+    {#if output}
+      <pre class="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-4">{output}</pre>
+    {/if}
+    {@render outputImages(images)}
+  {/snippet}
+  {#if output || images.length > 0}
+    {@render expander(browserSummary, browserDetail, "space-y-2 text-surface-500")}
+  {:else}
+    <div class="flex items-center gap-2 text-xs text-surface-500">{@render browserSummary()}</div>
+  {/if}
 {:else if item.type === "mcpToolCall" || item.type === "dynamicToolCall" || item.type === "webSearch"}
   {@const description = item.title || item.query}
   {@const preview =
@@ -535,6 +579,7 @@
       {#if output}
         <div>{output}</div>
       {/if}
+      {@render outputImages(toolOutputImages(item))}
     {/snippet}
     {@render expander(toolSummary, toolDetail, "space-y-2 whitespace-pre-wrap break-words text-surface-500")}
   {:else}

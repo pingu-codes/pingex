@@ -5,6 +5,8 @@
   import { SvelteSet } from "svelte/reactivity";
   import { nameNewThread } from "$lib/app/appData.svelte";
   import { openDialog } from "$lib/app/dialogs.svelte";
+  import BrowserApprovalCard from "$lib/browser/BrowserApprovalCard.svelte";
+  import { approvalsFor, labelBrowserThread } from "$lib/browser/browserStore.svelte";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import Segmented, { type SegmentedOption } from "$lib/components/Segmented.svelte";
   import TypingDots from "$lib/components/TypingDots.svelte";
@@ -377,6 +379,12 @@
   }
 
   const threadApprovals = $derived(approvals.list.filter((approval) => approval.threadId === liveThreadId));
+  const browserApprovals = $derived(liveThreadId ? approvalsFor(liveThreadId) : []);
+  const browserUse = $derived(can(thread?.harness, "browserUse"));
+  // Name the thread's Pingex tab group in Chrome after the thread.
+  $effect(() => {
+    if (browserUse && liveThreadId && thread?.name) labelBrowserThread(liveThreadId, thread.name);
+  });
   const threadQuestions = $derived(userInputRequests.list.filter((request) => request.threadId === liveThreadId));
   const threadElicitations = $derived(elicitations.list.filter((entry) => entry.threadId === liveThreadId));
   const turnPlan = $derived(liveThreadId ? (turnPlans.byThread[liveThreadId] ?? null) : null);
@@ -402,6 +410,7 @@
   // being written. Only text actively streaming in makes them redundant.
   const showTypingIndicator = $derived.by(() => {
     if (!activeTurn || threadApprovals.length > 0 || threadQuestions.length > 0) return false;
+    if (browserApprovals.length > 0) return false;
     if (threadElicitations.length > 0) return false;
     const last = activeTurn.items.at(-1);
     return !(last?.type === "agentMessage" && last.streaming);
@@ -741,6 +750,7 @@
           onShowFiles={() => (panelView = { kind: "files" })}
           onShowMessageLog={() => (panelView = { kind: "messageLog" })}
           onShowStatus={() => (panelView = { kind: "status" })}
+          onShowBrowser={browserUse ? () => (panelView = { kind: "browser" }) : undefined}
           onOpenSubagent={(agent) => (onOpenSubagent ? onOpenSubagent(agent) : onSelectThread?.(agent.id))}
           onOpenProcess={(process) => (panelView = { kind: "process", processKey: process.key })}
         />
@@ -860,6 +870,10 @@
 
             {#each threadApprovals as approval (approval.requestId)}
               <ApprovalCard {approval} />
+            {/each}
+
+            {#each browserApprovals as approval (approval.id)}
+              <BrowserApprovalCard {approval} />
             {/each}
 
             {#each threadQuestions as request (request.requestId)}

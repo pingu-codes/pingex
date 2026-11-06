@@ -50,6 +50,7 @@
     onShowFiles,
     onShowMessageLog,
     onShowStatus = () => {},
+    onShowBrowser,
     onOpenSubagent = () => {},
     onOpenProcess = () => {},
   }: {
@@ -79,6 +80,8 @@
     onShowMessageLog: () => void;
     /** Open the status panel: context composition, spend and account limits. */
     onShowStatus?: () => void;
+    /** Open the Browser panel; absent when the harness has no browser use. */
+    onShowBrowser?: () => void;
     onOpenSubagent?: (agent: SubagentDetail) => void;
     onOpenProcess?: (process: RunningProcess) => void;
   } = $props();
@@ -432,6 +435,12 @@
           <FolderTree size={13} class="shrink-0 text-surface-500" />
           <span class="flex-1">Files</span>
         </button>
+        {#if onShowBrowser}
+          <button onclick={onShowBrowser} class="menu-row">
+            <Globe size={13} class="shrink-0 text-surface-500" />
+            <span class="flex-1">Browser</span>
+          </button>
+        {/if}
         {#if messageLog.enabled}
           <button onclick={onShowMessageLog} class="menu-row">
             <ScrollText size={13} class="shrink-0 text-surface-500" />

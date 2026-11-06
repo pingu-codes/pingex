@@ -207,6 +207,14 @@ export const THREAD_ITEM_TYPES = [
 
 export type KnownThreadItemType = (typeof THREAD_ITEM_TYPES)[number];
 
+/** One part of a tool's result: text, or an image (a `data:` URL). */
+export interface ToolOutputPart {
+  type: string;
+  text?: string | null;
+  imageUrl?: string | null;
+  image_url?: string | null;
+}
+
 export interface ThreadItem {
   /**
    * Deliberately open: a type Codex added after this app last caught up still
@@ -263,13 +271,17 @@ export interface ThreadItem {
   progress?: string;
   /** What the model passed the tool. Present on `dynamicToolCall`. */
   arguments?: Record<string, unknown>;
+  /** A Codex `dynamicToolCall`'s result: text and image parts. */
+  contentItems?: ToolOutputPart[] | null;
+  /** Whether a Codex `dynamicToolCall` succeeded; absent while it runs. */
+  success?: boolean | null;
   // webSearch
   query?: string;
   // functionCallOutput (Codex ≥0.151): the raw result of a tool the model
   // called, as `name`/`namespace` plus a text or content-part output
   name?: string;
   namespace?: string | null;
-  output?: string | { type: string; text?: string | null }[];
+  output?: string | ToolOutputPart[];
   // userInputAnswered
   questions?: {
     id: string;

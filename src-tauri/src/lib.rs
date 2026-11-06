@@ -27,6 +27,7 @@ use std::sync::{Arc, RwLock};
 use tauri::Manager;
 
 mod acp;
+mod browser;
 mod claude;
 mod codex;
 mod composer;
@@ -836,6 +837,18 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             os::reveal_in_finder,
             os::open_external_url,
             os::open_in_zed,
+            // Browser use: the user's own Chrome
+            browser::commands::browser_overview,
+            browser::commands::browser_connect,
+            browser::commands::browser_install_helper,
+            browser::commands::browser_set_settings,
+            browser::commands::browser_resolve_approval,
+            browser::commands::browser_label_thread,
+            browser::commands::browser_release_tab,
+            browser::commands::browser_focus_tab,
+            browser::commands::browser_revoke_site,
+            browser::commands::browser_set_full_access,
+            browser::commands::browser_stop,
         ])
         // Everything the backend pushes at the webview; see `codex::events`.
         .events(tauri_specta::collect_events![
@@ -844,6 +857,10 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             codex::events::CodexDisconnected,
             harness::HarnessEventEnvelope,
             harness::HarnessRequestEnvelope,
+            browser::commands::BrowserStatusChanged,
+            browser::commands::BrowserTabsChanged,
+            browser::approvals::BrowserApprovalRequested,
+            browser::approvals::BrowserApprovalResolved,
         ])
 }
 
@@ -971,6 +988,7 @@ pub fn run() {
             // Typed events panic on emit until their registry is mounted, so
             // this precedes anything that could spawn an app-server child.
             specta.mount_events(app);
+            app.manage(browser::commands::BrowserState::new(app.handle().clone()));
             // Register the `codex://` scheme at runtime (needed on Linux/Windows
             // dev; a no-op where the OS already routes via the bundle config).
             #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]

@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    AppWindow,
     ArrowLeft,
     Eraser,
     FileDiff,
@@ -14,6 +15,7 @@
     X,
   } from "@lucide/svelte";
   import { openFilePreview } from "$lib/app/filePreview";
+  import BrowserPanel from "$lib/browser/BrowserPanel.svelte";
   import DiffBlock from "$lib/components/DiffBlock.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import MessageLog from "$lib/layout/MessageLog.svelte";
@@ -38,6 +40,7 @@
     | { kind: "files" }
     | { kind: "messageLog" }
     | { kind: "status" }
+    | { kind: "browser" }
     | { kind: "process"; processKey: string };
 
   let {
@@ -100,6 +103,7 @@
     files: { title: "Files", icon: FolderTree },
     messageLog: { title: "Message log", icon: ScrollText },
     status: { title: "Status", icon: Gauge },
+    browser: { title: "Browser", icon: AppWindow },
     process: { title: "Process", icon: SquareTerminal },
   };
   const panelMeta = $derived(PANEL_META[view.kind]);
@@ -234,6 +238,8 @@
           {showSystemPromptInThread}
           {onToggleSystemPromptInThread}
         />
+      {:else if view.kind === "browser"}
+        <BrowserPanel threadId={parentThreadId} />
       {:else if view.kind === "process"}
         {@const process = processByKey(view.processKey)}
         <!-- Interrupting is only possible for the open thread's own turn. -->

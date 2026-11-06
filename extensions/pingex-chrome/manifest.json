@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Pingex Browser Helper",
+  "description": "Lets Pingex keep the tabs its agents use in a tab group, so you can see which tabs they own.",
+  "version": "0.1.0",
+  "minimum_chrome_version": "144",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA+Fg0+r+Ub+UpgyyuaUMBy21zTnqsPwzq5TZadPffXfXsYaooyC14cnVa6RrMNrjMwM9M0suDmahboXVPfBIuhiUFIEgfCQOkDsZ4DwfRztKYN/WrF2uvxYeJ/dvpYtCP7q8EWhejYMgweUZ049OpuKxtGvdaWsPpCZhPlh5rjJAnHHb/SAHrtUeJGAjmdn7jCdGGNO9FgGN0OX1NUolSEgJfkPPEIu8XLBAPPuNoHzZf6ciQdQzI+MEeBgJdCuZ1j5lTXOz+K4QFCf1zH1AOz5haM4zsQ5D/QI3T5BkMcGcSV6RnS4X/bEPE13MBwMmbNJQiYXaFvfYC9r6ffE4tpQIDAQAB",
+  "permissions": ["tabs", "tabGroups", "debugger", "alarms"],
+  "background": { "service_worker": "service-worker.js" }
+}

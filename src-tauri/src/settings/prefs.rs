@@ -50,6 +50,14 @@ pub(crate) struct RuntimeOverrides {
     /// Model slug for the naming turn. `None` leaves the model unset so the
     /// app-server picks its own default.
     pub(crate) auto_name_model: Option<String>,
+    /// Whether new Codex threads get the `pingex_browser` tools. `None`
+    /// means off: driving the user's own browser is opt-in.
+    pub(crate) browser_use: Option<bool>,
+    /// Which browser to connect to first. `None` tries Chrome, then the
+    /// other Chromium-family browsers.
+    pub(crate) browser_channel: Option<crate::browser::attach::BrowserChannel>,
+    /// Sites the user chose "Always allow" for, in every thread.
+    pub(crate) browser_trusted_sites: Vec<String>,
 }
 
 /// How thread auto-naming is configured, with the defaults already applied.
@@ -229,6 +237,9 @@ mod tests {
             quick_shortcut: None,
             auto_name_threads: None,
             auto_name_model: None,
+            browser_use: Some(true),
+            browser_channel: Some(crate::browser::attach::BrowserChannel::Brave),
+            browser_trusted_sites: vec!["localhost:5173".into()],
         };
         write_overrides(&path, &overrides).unwrap();
         assert_eq!(read_overrides(&path), overrides);

@@ -388,11 +388,9 @@ function onServerRequest(payload: CodexServerRequestEvent) {
       break;
     }
     default:
-      // The requests Rust answers by itself never arrive here (`currentTime/read`, ...): a response
-      // held by the webview would not survive a reload. Anything still reaching
-      // this branch is a method Codex has added since — and because an
-      // unanswered request stalls its turn, it is worth saying so out loud
-      // rather than letting the thread quietly hang.
+      // Rust answers what it can (`currentTime/read`, `item/tool/call`, ...) and
+      // refuses every method it does not know, so a turn never waits on this
+      // window. Reaching here means a request decoded but has no route above.
       console.warn(`Unhandled Codex server request: ${payload.params.method}`, payload.params.params);
   }
 }

@@ -11,7 +11,7 @@ use tauri::State;
 use crate::AppState;
 
 /// The command that reveals `target` in the platform's file manager.
-fn reveal_command(target: &Path, os: &str) -> Command {
+pub(crate) fn reveal_command(target: &Path, os: &str) -> Command {
     match os {
         "macos" => {
             let mut command = Command::new("open");

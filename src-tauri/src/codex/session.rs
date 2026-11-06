@@ -102,6 +102,35 @@ impl MainSessionSink {
     }
 }
 
+impl MainSessionSink {
+    /// Codex stops waiting on a dynamic tool call when it resolves the
+    /// request itself or the turn ends; stop the browser work behind it.
+    fn cancel_browser_calls(&self, method: &str, params: &Value) {
+        use tauri::Manager;
+        let Some(browser) = self
+            .app
+            .try_state::<crate::browser::commands::BrowserState>()
+        else {
+            return;
+        };
+        match method {
+            "serverRequest/resolved" => {
+                if let Some(request_id) = params["requestId"].as_i64() {
+                    browser.cancel_request(request_id);
+                }
+            }
+            "turn/completed" => {
+                if let (Some(thread), Some(turn)) =
+                    (params["threadId"].as_str(), params["turn"]["id"].as_str())
+                {
+                    browser.cancel_turn(thread, turn);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 impl ChildSink for MainSessionSink {
     fn on_notification(&self, method: &str, params: &Value) {
         crate::util::timing::mark(&format!("notification {method}"));
@@ -109,6 +138,7 @@ impl ChildSink for MainSessionSink {
         if method == "thread/settings/updated" {
             self.cache_thread_settings(params);
         }
+        self.cancel_browser_calls(method, params);
         let trimmed = crate::codex::journal::trim_live_params(method, params);
         let params = trimmed.as_ref().unwrap_or(params);
         let _ = CodexEvent {
@@ -134,6 +164,12 @@ impl ChildSink for MainSessionSink {
                 let _ = child.respond(id, json!({"currentTimeAt": seconds}));
                 return;
             }
+            // Dynamic tools (`pingex_browser`) run in Rust: they can wait on
+            // the user for minutes and must survive a webview reload.
+            "item/tool/call" => {
+                crate::browser::commands::handle_tool_call(&self.app, child, id, params);
+                return;
+            }
             "attestation/generate" | "account/chatgptAuthTokens/refresh" => {
                 let _ = child.respond_error(
                     id,
@@ -145,6 +181,10 @@ impl ChildSink for MainSessionSink {
             _ => {}
         }
         let mut request = ServerRequest::decode(method, params);
+        if let Some(message) = refusal_for(&request) {
+            let _ = child.respond_error(id, METHOD_NOT_FOUND, &message);
+            return;
+        }
         if let ServerRequest::ToolRequestUserInput(question) = &mut request {
             if let (Some(turn_id), Some(item_id)) = (&question.turn_id, &question.item_id) {
                 question.after_item_id = self.journal.anchor_and_advance(turn_id, item_id);
@@ -165,6 +205,20 @@ impl ChildSink for MainSessionSink {
             codex_home: self.home_key.clone(),
         }
         .emit(&self.app);
+    }
+}
+
+/// The message to refuse a server request with, when nothing in this client
+/// can answer it. Codex blocks the raising turn until it hears back, so a
+/// method we do not serve (or one whose params no longer decode) is refused
+/// here instead of being handed to a webview that can only log it.
+fn refusal_for(request: &ServerRequest) -> Option<String> {
+    match request {
+        ServerRequest::Unknown(unknown) => Some(format!(
+            "{} is not supported by this client",
+            unknown.method
+        )),
+        _ => None,
     }
 }
 
@@ -505,6 +559,20 @@ impl CodexSession {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn unknown_server_requests_are_refused_rather_than_forwarded() {
+        let unknown = ServerRequest::decode("item/someFutureThing", &json!({"threadId": "t"}));
+        assert_eq!(
+            refusal_for(&unknown).as_deref(),
+            Some("item/someFutureThing is not supported by this client")
+        );
+        let approval = ServerRequest::decode(
+            "item/commandExecution/requestApproval",
+            &json!({"threadId": "t", "command": "ls"}),
+        );
+        assert_eq!(refusal_for(&approval), None);
+    }
 
     /// Sessions are numbered; each call to `session()` is a (re)spawn.
     fn sessions() -> (

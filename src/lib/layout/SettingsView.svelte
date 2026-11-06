@@ -5,6 +5,7 @@
   import Connections from "$lib/layout/Connections.svelte";
   import Advanced from "$lib/layout/settings/Advanced.svelte";
   import Appearance from "$lib/layout/settings/Appearance.svelte";
+  import BrowserSettings from "$lib/layout/settings/Browser.svelte";
   import ConfigToml from "$lib/layout/settings/ConfigToml.svelte";
   import General from "$lib/layout/settings/General.svelte";
   import Keyboard from "$lib/layout/settings/Keyboard.svelte";
@@ -137,6 +138,8 @@
             nonce={settingsNav.nonce}
             onGoToConnections={() => (activeSection = "connections")}
           />
+        {:else if currentSection === "browser"}
+          <BrowserSettings />
         {:else if currentSection === "connections"}
           <Connections active />
         {:else if currentSection === "keyboard"}

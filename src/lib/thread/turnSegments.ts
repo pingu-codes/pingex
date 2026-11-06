@@ -1,4 +1,4 @@
-import type { KnownThreadItemType, ThreadItem, Turn, UserInputPart } from "$lib/types";
+import type { KnownThreadItemType, ThreadItem, ToolOutputPart, Turn, UserInputPart } from "$lib/types";
 import { can } from "$lib/utils/capabilities";
 
 export type Segment = { kind: "item"; item: ThreadItem } | { kind: "reasoning"; items: ThreadItem[] };
@@ -26,18 +26,30 @@ export function turnSegments(items: ThreadItem[]): Segment[] {
   return segments;
 }
 
+function outputParts(item: ThreadItem): ToolOutputPart[] {
+  if (Array.isArray(item.output)) return item.output;
+  return item.contentItems ?? [];
+}
+
 /**
- * The text of a `functionCallOutput` item. Upstream sends either a string or
- * content parts; only the text parts are readable here, so images are counted.
+ * The text of a tool result: a `functionCallOutput` item's `output` (a string
+ * or content parts) or a Codex `dynamicToolCall`'s `contentItems`. Images are
+ * left to `toolOutputImages`.
  */
 export function functionCallOutputText(item: ThreadItem): string {
-  const output = item.output;
-  if (typeof output === "string") return output;
-  if (!Array.isArray(output)) return "";
-  const texts = output.filter((part) => typeof part.text === "string").map((part) => part.text as string);
-  const images = output.length - texts.length;
-  if (images > 0) texts.push(`[${images} image${images === 1 ? "" : "s"}]`);
-  return texts.join("\n");
+  if (typeof item.output === "string") return item.output;
+  return outputParts(item)
+    .filter((part) => typeof part.text === "string")
+    .map((part) => part.text as string)
+    .join("\n");
+}
+
+/** The images in a tool result, as inline `data:image/` URLs. Remote URLs
+ *  are left out; Codex refuses them in tool results anyway. */
+export function toolOutputImages(item: ThreadItem): string[] {
+  return outputParts(item)
+    .map((part) => part.imageUrl ?? part.image_url ?? "")
+    .filter((url) => url.startsWith("data:image/"));
 }
 
 export const segmentKey = (segment: Segment) =>

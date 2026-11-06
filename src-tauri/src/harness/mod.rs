@@ -129,6 +129,9 @@ pub(crate) enum Capability {
     /// cannot change files without asking: Codex's sandbox, Claude's Default
     /// mode. Agents in No checkout and review checkouts need it.
     ReadOnlySandbox,
+    /// Driving the user's own Chrome through the `pingex_browser` tools
+    /// (Codex dynamic tools, `src-tauri/src/browser`).
+    BrowserUse,
 }
 
 impl HarnessKind {
@@ -144,6 +147,7 @@ impl HarnessKind {
                 Review,
                 SideQuestions,
                 ReadOnlySandbox,
+                BrowserUse,
             ],
             HarnessKind::Claude => &[
                 PermissionModes,

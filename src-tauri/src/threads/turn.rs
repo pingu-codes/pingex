@@ -24,6 +24,8 @@ struct StartInputs {
     /// Codex-side project to file the thread under (`None` before Codex 0.149
     /// or when the cwd is not under a mirrored project).
     project_id: Option<String>,
+    /// Give the thread the `pingex_browser` tools (Settings → Browser).
+    browser_tools: bool,
 }
 
 /// A workspace's hub is where its threads run, so it wins over the caller's
@@ -69,6 +71,11 @@ fn build_start_request(inputs: &StartInputs) -> Request {
     // the start (Codex ≥0.149), so the assignment holds even if its cwd
     // later drifts. Unmirrored (older Codex) simply sends no `projectId`.
     requests::apply_project(&mut request.params, inputs.project_id.as_deref());
+    // Codex keeps a thread's dynamic tools in its rollout, so a resumed
+    // thread has them without sending them again.
+    if inputs.browser_tools {
+        request.params["dynamicTools"] = crate::browser::tools::specs();
+    }
     request
 }
 
@@ -96,11 +103,16 @@ async fn fetch_start_inputs(
             crate::projects::server::project_id_for_cwd(&store.projects, &mapping, &cwd)
         }
     };
+    let browser_tools =
+        crate::settings::prefs::read_overrides(&crate::settings::prefs::settings_path())
+            .browser_use
+            .unwrap_or(false);
     Ok(StartInputs {
         cwd,
         workspace,
         project_instructions,
         project_id,
+        browser_tools,
     })
 }
 
@@ -552,7 +564,21 @@ mod tests {
             workspace: None,
             project_instructions: String::new(),
             project_id: None,
+            browser_tools: false,
         }
+    }
+
+    #[test]
+    fn browser_tools_are_sent_only_when_enabled() {
+        assert!(build_start_request(&inputs())
+            .params
+            .get("dynamicTools")
+            .is_none());
+        let request = build_start_request(&StartInputs {
+            browser_tools: true,
+            ..inputs()
+        });
+        assert_eq!(request.params["dynamicTools"][0]["name"], "pingex_browser");
     }
 
     #[test]

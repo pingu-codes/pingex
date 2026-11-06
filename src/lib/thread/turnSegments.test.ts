@@ -4,6 +4,7 @@ import {
   functionCallOutputText,
   rendersSomething,
   splitTurn,
+  toolOutputImages,
   turnSegments,
   workedLabel,
 } from "$lib/thread/turnSegments";
@@ -138,7 +139,7 @@ describe("turnSegments", () => {
 });
 
 describe("functionCallOutputText", () => {
-  it("reads a string output as-is and joins text parts, counting images", () => {
+  it("reads a string output as-is and joins text parts", () => {
     expect(functionCallOutputText({ type: "functionCallOutput", id: "i", output: "42" })).toBe("42");
     expect(
       functionCallOutputText({
@@ -146,8 +147,29 @@ describe("functionCallOutputText", () => {
         id: "i",
         output: [{ type: "inputText", text: "a" }, { type: "inputImage" }, { type: "inputText", text: "b" }],
       }),
-    ).toBe("a\nb\n[1 image]");
+    ).toBe("a\nb");
     expect(functionCallOutputText({ type: "functionCallOutput", id: "i" })).toBe("");
+  });
+
+  it("reads a dynamic tool call's content items, keeping only inline images", () => {
+    const item = {
+      type: "dynamicToolCall",
+      id: "i",
+      contentItems: [
+        { type: "inputText", text: "Screenshot of t1" },
+        { type: "inputImage", imageUrl: "data:image/jpeg;base64,AA==" },
+        { type: "inputImage", imageUrl: "https://example.com/x.png" },
+      ],
+    };
+    expect(functionCallOutputText(item)).toBe("Screenshot of t1");
+    expect(toolOutputImages(item)).toEqual(["data:image/jpeg;base64,AA=="]);
+    expect(
+      toolOutputImages({
+        type: "functionCallOutput",
+        id: "i",
+        output: [{ type: "input_image", image_url: "data:image/png;base64,AA==" }],
+      }),
+    ).toEqual(["data:image/png;base64,AA=="]);
   });
 });
 
