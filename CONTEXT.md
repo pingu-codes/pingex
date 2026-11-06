@@ -170,3 +170,4 @@ An app-server API that some supported tiers lack, tried once per Codex child
 and remembered as present or refused. The probed half of a Capability,
 specific to the Codex driver.
 _Avoid_: flag, capability check, version gate, feature flag
+Appended line with no newline at end of file
