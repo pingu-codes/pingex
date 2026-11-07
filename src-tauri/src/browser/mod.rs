@@ -102,6 +102,10 @@ struct ThreadScope {
     next_tab: u32,
     sites: BTreeSet<String>,
     full_access: bool,
+    /// The thread's latest turn runs with approval policy `never` (the Full
+    /// Access preset): every browser question is answered yes without asking.
+    /// Nothing is granted on the way, so a later turn back on Auto asks again.
+    unattended: bool,
     group_id: Option<i64>,
 }
 
@@ -308,7 +312,7 @@ impl Browser {
     fn spawn_dispatcher(&self, conn: Arc<Conn>) {
         let mut events = conn.cdp.subscribe();
         let browser = self.clone();
-        tokio::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             loop {
                 match events.recv().await {
                     Ok(event) if event.method == CLOSED_EVENT => break,
@@ -360,7 +364,9 @@ impl Browser {
                     let browser = self.clone();
                     let conn = conn.clone();
                     let target_id = info["targetId"].as_str().unwrap_or_default().to_string();
-                    tokio::spawn(async move { browser.attach_helper(&conn, &target_id).await });
+                    tauri::async_runtime::spawn(async move {
+                        browser.attach_helper(&conn, &target_id).await
+                    });
                 }
                 if event.method == "Target.targetInfoChanged" {
                     self.on_target_changed(info);
@@ -403,9 +409,9 @@ impl Browser {
             if event.method == "Fetch.requestPaused" {
                 let browser = self.clone();
                 let conn = conn.clone();
-                tokio::spawn(
-                    async move { browser.gate_navigation(&conn, &tab, event.params).await },
-                );
+                tauri::async_runtime::spawn(async move {
+                    browser.gate_navigation(&conn, &tab, event.params).await
+                });
             }
             return;
         }
@@ -513,7 +519,7 @@ impl Browser {
         });
         if let (Some(group), Some(conn)) = (group, self.live_conn()) {
             let (title, color) = self.group_style(thread_id);
-            tokio::spawn(async move {
+            tauri::async_runtime::spawn(async move {
                 let _ = helper::update_group(&conn, group, &title, color).await;
             });
         }
@@ -531,7 +537,7 @@ impl Browser {
     pub(crate) fn site_allowed(&self, thread_id: &str, site: &str) -> bool {
         let state = self.0.state.lock().unwrap();
         let thread = state.threads.get(thread_id);
-        thread.is_some_and(|scope| scope.full_access)
+        thread.is_some_and(|scope| scope.full_access || scope.unattended)
             || state
                 .trusted_sites
                 .iter()
@@ -578,7 +584,12 @@ impl Browser {
     }
 
     fn full_access(&self, thread_id: &str) -> bool {
-        self.with_scope(thread_id, |scope| scope.full_access)
+        self.with_scope(thread_id, |scope| scope.full_access || scope.unattended)
+    }
+
+    /// Follow the thread's approval policy: `never` stops browser questions.
+    pub(crate) fn set_unattended(&self, thread_id: &str, on: bool) {
+        self.with_scope(thread_id, |scope| scope.unattended = on);
     }
 
     /// Ask for (or recall) permission to visit `url` in this thread.
@@ -595,8 +606,6 @@ impl Browser {
             return Ok(());
         }
         let decision = self
-            .0
-            .ui
             .ask(BrowserApproval {
                 id: String::new(),
                 thread_id: thread_id.to_string(),
@@ -626,8 +635,6 @@ impl Browser {
             return Ok(());
         }
         let decision = self
-            .0
-            .ui
             .ask(BrowserApproval {
                 id: String::new(),
                 thread_id: thread_id.to_string(),
@@ -648,6 +655,9 @@ impl Browser {
     }
 
     async fn ask(&self, approval: BrowserApproval) -> BrowserDecision {
+        if self.with_scope(&approval.thread_id, |scope| scope.unattended) {
+            return BrowserDecision::Allow;
+        }
         self.0.ui.ask(approval).await
     }
 
@@ -886,7 +896,7 @@ impl Browser {
         };
         let browser = self.clone();
         let conn = conn.clone();
-        tokio::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             match owner {
                 // Still in its own group (Pingex just grouped it): nothing to do.
                 Some((_, _, Some(group))) if group == group_id => {}
@@ -933,4 +943,47 @@ fn truncate_chars(text: &str, limit: usize) -> String {
     let mut cut: String = text.chars().take(limit - 1).collect();
     cut.push('…');
     cut
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct CountingUi {
+        asked: Mutex<usize>,
+    }
+
+    #[async_trait::async_trait]
+    impl Ui for CountingUi {
+        fn status_changed(&self, _: &BrowserStatus) {}
+        fn tabs_changed(&self, _: &str) {}
+        async fn ask(&self, _: BrowserApproval) -> BrowserDecision {
+            *self.asked.lock().unwrap() += 1;
+            BrowserDecision::Deny
+        }
+    }
+
+    #[tokio::test]
+    async fn full_access_turns_ask_nothing_and_grant_nothing() {
+        let ui = Arc::new(CountingUi::default());
+        let browser = Browser::new(ui.clone(), BTreeSet::new());
+        browser.set_unattended("t", true);
+        assert!(browser
+            .ensure_site("t", "https://bank.test/", "go")
+            .await
+            .is_ok());
+        assert!(browser.ensure_full_access("t", "cookies").await.is_ok());
+        assert_eq!(*ui.asked.lock().unwrap(), 0);
+
+        // Back on a prompting policy: the earlier answers left no grants.
+        browser.set_unattended("t", false);
+        let view = browser.thread_view("t");
+        assert!(view.sites.is_empty() && !view.full_access);
+        assert!(browser
+            .ensure_site("t", "https://bank.test/", "go")
+            .await
+            .is_err());
+        assert_eq!(*ui.asked.lock().unwrap(), 1);
+    }
 }

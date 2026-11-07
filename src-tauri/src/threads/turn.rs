@@ -1,7 +1,7 @@
 //! Starting threads and running turns, plus the two things a running turn asks
 //! back of the user: approvals and `request_user_input` questions.
 
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::codex::compat::Feature;
 use crate::codex::requests::{self, Request};
@@ -246,6 +246,19 @@ pub(crate) async fn start_turn(
     }
     ctx.session.ensure_resumed(&app, &thread_id).await?;
     storage::invalidate_thread_detail(&ctx.database(), &thread_id).await?;
+    // A turn that never asks for approval (Full Access) does not ask before
+    // using the browser either. Set before the turn starts, since its first
+    // tool call can arrive before `turn/start` returns.
+    if let (Some(policy), Some(browser)) = (
+        options
+            .as_ref()
+            .and_then(|options| options.approval_policy.as_deref()),
+        app.try_state::<crate::browser::commands::BrowserState>(),
+    ) {
+        browser
+            .browser
+            .set_unattended(&thread_id, policy == "never");
+    }
     let resolved = options
         .as_ref()
         .map(|options| {
