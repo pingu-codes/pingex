@@ -32,8 +32,15 @@ use attach::BrowserChannel;
 use cdp::{Cdp, CdpEvent, CLOSED_EVENT};
 use tab::Tab;
 
-/// How long the user has to click "Allow" in Chrome's connection dialog.
-const ALLOW_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long a tool call waits for the user to click "Allow" in Chrome's
+/// connection dialog before it gives up (the handshake keeps waiting).
+const ALLOW_WAIT: Duration = Duration::from_secs(60);
+/// How long the handshake itself waits on that dialog. Chrome asks again for
+/// every new socket, so a late "Allow" must still land on this one.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+
+/// A handshake's outcome, once there is one.
+type Handshake = tokio::sync::watch::Receiver<Option<Result<Arc<Conn>, String>>>;
 
 /// What the UI layer does for the browser. Tauri in the app
 /// (`commands::TauriUi`); a fake in tests.
@@ -144,9 +151,13 @@ struct State {
 pub(crate) struct Inner {
     ui: Arc<dyn Ui>,
     state: Mutex<State>,
-    connecting: tokio::sync::Mutex<()>,
+    /// The latest handshake. It runs on its own task, not the tool call that
+    /// started it, so an interrupted turn cannot drop a pending "Allow".
+    handshake: Mutex<Option<Handshake>>,
     /// Tests point this at a throwaway browser instead of discovering one.
     endpoint_override: Option<String>,
+    allow_wait: Duration,
+    handshake_timeout: Duration,
 }
 
 /// Cheap to clone; every clone is the same browser.
@@ -163,6 +174,20 @@ impl Browser {
         Self::build(ui, BTreeSet::new(), Some(ws_url))
     }
 
+    #[cfg(test)]
+    fn with_waits(
+        ui: Arc<dyn Ui>,
+        ws_url: String,
+        allow_wait: Duration,
+        handshake_timeout: Duration,
+    ) -> Self {
+        let mut browser = Self::build(ui, BTreeSet::new(), Some(ws_url));
+        let inner = Arc::get_mut(&mut browser.0).expect("not shared yet");
+        inner.allow_wait = allow_wait;
+        inner.handshake_timeout = handshake_timeout;
+        browser
+    }
+
     fn build(
         ui: Arc<dyn Ui>,
         trusted_sites: BTreeSet<String>,
@@ -177,8 +202,10 @@ impl Browser {
                 trusted_sites,
                 preferred: None,
             }),
-            connecting: tokio::sync::Mutex::new(()),
+            handshake: Mutex::new(None),
             endpoint_override,
+            allow_wait: ALLOW_WAIT,
+            handshake_timeout: HANDSHAKE_TIMEOUT,
         }))
     }
 
@@ -209,16 +236,51 @@ impl Browser {
         state.conn.clone().filter(|conn| !conn.cdp.is_closed())
     }
 
-    /// The live connection, connecting first if there is none.
+    /// The live connection, connecting first if there is none. Every caller
+    /// shares one handshake, so Chrome shows one dialog however many calls
+    /// are waiting, and one that gives up leaves the dialog answerable.
     pub(crate) async fn connection(&self) -> Result<Arc<Conn>, String> {
         if let Some(conn) = self.live_conn() {
             return Ok(conn);
         }
-        let _guard = self.0.connecting.lock().await;
-        if let Some(conn) = self.live_conn() {
-            return Ok(conn);
+        let mut handshake = self.handshake();
+        let outcome = tokio::time::timeout(
+            self.0.allow_wait,
+            handshake.wait_for(Option::is_some),
+        )
+        .await;
+        match outcome {
+            Ok(Ok(result)) => result.clone().expect("waited for an outcome"),
+            Ok(Err(_)) => Err("The browser connection attempt stopped. Try again.".to_string()),
+            Err(_) => {
+                let browser = self.status().browser.unwrap_or_else(|| "Chrome".to_string());
+                Err(format!("{browser} is still waiting for the user to click \"Allow\" in its connection dialog. Ask them to allow it, then retry this action; the pending connection is kept."))
+            }
         }
-        self.connect().await
+    }
+
+    /// The handshake to wait on: the one in flight, or a new one when the
+    /// last finished without leaving a live connection.
+    fn handshake(&self) -> Handshake {
+        let mut slot = self.0.handshake.lock().unwrap();
+        if let Some(handshake) = slot.as_ref() {
+            let reusable = match &*handshake.borrow() {
+                None => true,
+                Some(Ok(conn)) => !conn.cdp.is_closed(),
+                Some(Err(_)) => false,
+            };
+            if reusable {
+                return handshake.clone();
+            }
+        }
+        let (outcome, handshake) = tokio::sync::watch::channel(None);
+        *slot = Some(handshake.clone());
+        let browser = self.clone();
+        tauri::async_runtime::spawn(async move {
+            let result = browser.connect().await;
+            let _ = outcome.send(Some(result));
+        });
+        handshake
     }
 
     async fn connect(&self) -> Result<Arc<Conn>, String> {
@@ -240,13 +302,23 @@ impl Browser {
                 (endpoint.ws_url(), endpoint.channel.label().to_string())
             }
         };
+        {
+            let status = &self.0.state.lock().unwrap().status;
+            if status.state == ConnectionState::Lost {
+                eprintln!(
+                    "[browser] reconnecting to {browser} after: {}",
+                    status.message.as_deref().unwrap_or("an unknown close")
+                );
+            }
+        }
         self.set_status(BrowserStatus {
             state: ConnectionState::AwaitingApproval,
             browser: Some(browser.clone()),
             helper: false,
             message: Some(format!("Allow the connection in {browser}'s dialog.")),
         });
-        let cdp = match tokio::time::timeout(ALLOW_TIMEOUT, Cdp::connect(&url)).await {
+        let handshake_timeout = self.0.handshake_timeout;
+        let cdp = match tokio::time::timeout(handshake_timeout, Cdp::connect(&url)).await {
             Ok(Ok(cdp)) => cdp,
             Ok(Err(error)) => {
                 let refused = error.contains("refused") || error.contains("Connection reset");
@@ -268,7 +340,7 @@ impl Browser {
                 return Err(message);
             }
             Err(_) => {
-                let message = format!("{browser} did not allow the connection within {}s. Click \"Allow\" in its dialog, then try again.", ALLOW_TIMEOUT.as_secs());
+                let message = format!("{browser} did not allow the connection within {} minutes. Click \"Allow\" in its dialog, then try again.", handshake_timeout.as_secs() / 60);
                 self.set_status(BrowserStatus {
                     state: ConnectionState::Failed,
                     browser: Some(browser),
@@ -345,11 +417,19 @@ impl Browser {
             }
             changed
         };
+        let reason = conn
+            .cdp
+            .closed_reason()
+            .unwrap_or_else(|| "no reason given".to_string());
+        eprintln!("[browser] connection to {} closed: {reason}", conn.browser);
         self.set_status(BrowserStatus {
             state: ConnectionState::Lost,
             browser: Some(conn.browser.clone()),
             helper: false,
-            message: Some(format!("The connection to {} closed.", conn.browser)),
+            message: Some(format!(
+                "The connection to {} closed ({reason}).",
+                conn.browser
+            )),
         });
         for thread in threads {
             self.0.ui.tabs_changed(&thread);
@@ -985,5 +1065,74 @@ mod tests {
             .await
             .is_err());
         assert_eq!(*ui.asked.lock().unwrap(), 1);
+    }
+    /// A browser endpoint that holds the WebSocket handshake until `allow`
+    /// fires, the way Chrome holds it behind its dialog, and answers every
+    /// call with an empty result. Counts the sockets opened against it.
+    async fn gated_browser(
+        allow: tokio::sync::oneshot::Receiver<()>,
+    ) -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+        use futures_util::{SinkExt, StreamExt};
+        use tokio_tungstenite::tungstenite::Message;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let opened = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = opened.clone();
+        tokio::spawn(async move {
+            let mut allow = Some(allow);
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    return;
+                };
+                count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if let Some(allow) = allow.take() {
+                    let _ = allow.await;
+                }
+                tokio::spawn(async move {
+                    let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+                    while let Some(Ok(Message::Text(text))) = socket.next().await {
+                        let id = serde_json::from_str::<Value>(&text).unwrap()["id"].clone();
+                        let reply = json!({"id": id, "result": {}}).to_string();
+                        if socket.send(Message::Text(reply.into())).await.is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+        (format!("ws://127.0.0.1:{port}/devtools/browser/test"), opened)
+    }
+
+    #[tokio::test]
+    async fn a_late_allow_lands_on_the_one_pending_handshake() {
+        let (allow, gate) = tokio::sync::oneshot::channel();
+        let (url, opened) = gated_browser(gate).await;
+        let browser = Browser::with_waits(
+            Arc::new(CountingUi::default()),
+            url,
+            Duration::from_millis(300),
+            Duration::from_secs(10),
+        );
+
+        // The first call gives up while the dialog is still up...
+        let first = browser.connection().await.err().unwrap();
+        assert!(first.contains("still waiting"), "{first}");
+        assert_eq!(browser.status().state, ConnectionState::AwaitingApproval);
+        // ...and a second is aborted mid-wait, as an interrupted turn does.
+        let waiting = {
+            let browser = browser.clone();
+            tokio::spawn(async move { browser.connection().await.map(|_| ()) })
+        };
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        waiting.abort();
+
+        // The user finally clicks Allow: the next call gets that connection.
+        allow.send(()).unwrap();
+        let conn = browser.connection().await.unwrap();
+        assert!(!conn.cdp.is_closed());
+        assert_eq!(browser.status().state, ConnectionState::Connected);
+        let again = browser.connection().await.unwrap();
+        assert!(Arc::ptr_eq(&conn, &again));
+        assert_eq!(opened.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 }
