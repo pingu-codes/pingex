@@ -42,6 +42,9 @@ export function finalizeRunningTurns(turns: Turn[], status: string) {
   }
 }
 
+/** An optimistic turn `send` pushed, still waiting on `turn/start` for its id. */
+const isOptimistic = (turn: Turn) => turn.id.startsWith("local-");
+
 /// Command output kept while it streams. Mirrors the journal's
 /// `MAX_OUTPUT_BYTES` (src-tauri/src/codex/journal.rs) so a thread looks the
 /// same live as it does reloaded, and so the webview is never asked to lay out
@@ -187,7 +190,8 @@ export function applyThreadEvent(thread: ThreadDetail, event: CodexEvent): Apply
       // resolves that the same way on its own side: an unmatched completion
       // applies to whatever is currently running.
       const matched = thread.turns.find((candidate) => candidate.id === params.turn.id);
-      const turn = matched ?? thread.turns.find((candidate) => candidate.status === "inProgress");
+      const turn =
+        matched ?? thread.turns.find((candidate) => candidate.status === "inProgress" && !isOptimistic(candidate));
       if (turn) {
         turn.status = params.turn.status;
         // An `error` notification may already have attached the misalignment
@@ -201,10 +205,17 @@ export function applyThreadEvent(thread: ThreadDetail, event: CodexEvent): Apply
         turn.model = params.turn.model ?? turn.model;
         turn.reasoningEffort = params.turn.reasoningEffort ?? turn.reasoningEffort;
       }
-      // An unmatched completion means Codex considers the whole thread idle —
-      // the session store clears it outright — so no other turn may stay
-      // running here either, or the composer sits busy forever.
-      if (!matched) finalizeRunningTurns(thread.turns, params.turn.status);
+      // Codex runs one turn per thread and completes it before it starts the
+      // next (a goal's continuations included), so once a turn completes the
+      // thread is idle — the session store clears it outright. Any other turn
+      // still running here is an orphan no `turn/completed` will ever name,
+      // and left alone it keeps the typing dots up and the composer busy. The
+      // one exception is a send whose `turn/start` has not answered yet.
+      for (const other of thread.turns) {
+        if (other !== turn && other.status === "inProgress" && !isOptimistic(other)) {
+          other.status = params.turn.status;
+        }
+      }
       outcome.turnCompleted = true;
       break;
     }

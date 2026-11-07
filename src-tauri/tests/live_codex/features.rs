@@ -262,6 +262,121 @@ fn start_with_goal_on_fresh_thread_then_pause_survives_restart() {
     server.call(requests::thread_goal_clear(&thread_id));
 }
 
+/// The notification shape a goal run leaves on the wire, down to the ids the
+/// transcript reducer keys on: no model text, so the recording can be
+/// committed as a fixture.
+fn wire_skeleton(message: &Value) -> Option<Value> {
+    if message.get("id").is_some() {
+        return None;
+    }
+    let method = message.get("method")?.as_str()?;
+    let params = message.get("params").cloned().unwrap_or(Value::Null);
+    let mut kept = serde_json::Map::new();
+    for key in ["threadId", "turnId", "itemId", "willRetry"] {
+        if let Some(value) = params.get(key) {
+            kept.insert(key.into(), value.clone());
+        }
+    }
+    if let Some(turn) = params.get("turn") {
+        kept.insert(
+            "turn".into(),
+            json!({"id": turn.get("id"), "status": turn.get("status")}),
+        );
+    }
+    if let Some(item) = params.get("item") {
+        kept.insert(
+            "item".into(),
+            json!({"type": item.get("type"), "id": item.get("id")}),
+        );
+    }
+    if let Some(goal) = params.get("goal").filter(|goal| goal.is_object()) {
+        kept.insert("goal".into(), json!({"status": goal.get("status")}));
+    }
+    if let Some(status) = params.get("status") {
+        kept.insert("status".into(), status.clone());
+    }
+    Some(json!({"method": method, "params": kept}))
+}
+
+/// A goal Codex drives to completion on its own: every turn it announces must
+/// end under the id it announced, and every item must belong to an announced
+/// turn — anything else leaves the transcript showing a turn that never ends.
+/// `PINGEX_RECORD_GOAL_FIXTURE=<path>` writes the wire skeleton there (the
+/// frontend replays `tests/fixtures/protocol/codex/goal-complete/wire.ndjson`).
+#[test]
+fn goal_runs_to_completion_and_closes_every_turn() {
+    live!(server);
+    let (thread_id, _) = server.persisted_thread();
+    let from = server.cursor();
+    let objective = "E2E goal: reply with exactly GOAL-DONE-OK one time. Doing that fully achieves this goal, so mark the goal complete straight after.";
+    let set = server.call(requests::thread_goal_set(
+        &thread_id,
+        Some(objective),
+        None,
+        None,
+    ));
+    assert_eq!(goal_status(&set["goal"]), "active", "{set}");
+
+    let completed = server.wait_notification(from, "thread/goal/updated", TURN_TIMEOUT, |p| {
+        p["threadId"] == thread_id
+            && p.pointer("/goal/status").and_then(Value::as_str) == Some("complete")
+    });
+    if completed.is_none() {
+        // Never leave an active goal driving turns behind a failed test.
+        server.call(requests::thread_goal_set(
+            &thread_id,
+            None,
+            Some("paused"),
+            None,
+        ));
+    }
+    let started = server.drain_turns(from, GOAL_SETTLE);
+    let messages = server.messages_since(from);
+    let skeleton: Vec<Value> = messages.iter().filter_map(wire_skeleton).collect();
+    if let Ok(path) = std::env::var("PINGEX_RECORD_GOAL_FIXTURE") {
+        let lines: Vec<String> = skeleton.iter().map(Value::to_string).collect();
+        std::fs::write(&path, lines.join("\n") + "\n").expect("write goal fixture");
+    }
+    assert!(
+        completed.is_some(),
+        "goal never reported complete; wire: {skeleton:#?}"
+    );
+    assert!(!started.is_empty(), "goal started no turn");
+
+    let ids_of = |method: &str| -> Vec<String> {
+        skeleton
+            .iter()
+            .filter(|m| m["method"] == method)
+            .filter_map(|m| m.pointer("/params/turn/id").and_then(Value::as_str))
+            .map(str::to_string)
+            .collect()
+    };
+    let finished = ids_of("turn/completed");
+    for id in &started {
+        assert!(
+            finished.contains(id),
+            "turn {id} started but never completed: {skeleton:#?}"
+        );
+    }
+    let foreign: Vec<&Value> = skeleton
+        .iter()
+        .filter(|m| {
+            m["method"]
+                .as_str()
+                .is_some_and(|method| method.starts_with("item/"))
+        })
+        .filter(|m| {
+            m.pointer("/params/turnId")
+                .and_then(Value::as_str)
+                .is_some_and(|turn| !started.iter().any(|id| id == turn))
+        })
+        .collect();
+    assert!(
+        foreign.is_empty(),
+        "items under turns never announced: {foreign:#?}"
+    );
+}
+
 // ---------------------------------------------------------------- plans
 
 const PLAN_FILE: &str = "PLAN_DONE.txt";

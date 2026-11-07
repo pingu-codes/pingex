@@ -599,6 +599,69 @@ describe("applyThreadEvent — turn/started under a new id", () => {
   });
 });
 
+// A goal keeps starting turns of its own until it is complete. Codex runs one
+// turn per thread and completes it before starting the next, so once the
+// goal's last turn completes nothing else can still be running — a turn left
+// `inProgress` beside it kept the typing dots up until a reload.
+describe("applyThreadEvent — a completed turn leaves nothing else running", () => {
+  it("ends an orphaned running turn when another turn completes under its own id", () => {
+    const thread = makeThread([
+      { id: "turn-1", status: "inProgress", items: [{ type: "agentMessage", id: "m1", text: "…" }] },
+    ]);
+    applyThreadEvent(thread, { method: "turn/started", params: { threadId: "t", turn: { id: "goal-turn" } } });
+    applyThreadEvent(thread, {
+      method: "turn/completed",
+      params: { threadId: "t", turn: { id: "goal-turn", status: "completed" } },
+    });
+    expect(thread.turns.map((turn) => [turn.id, turn.status])).toEqual([
+      ["turn-1", "completed"],
+      ["goal-turn", "completed"],
+    ]);
+  });
+
+  it("ends a turn opened only by items, once the announced turn completes", () => {
+    const thread = makeThread();
+    applyThreadEvent(thread, { method: "turn/started", params: { threadId: "t", turn: { id: "goal-turn" } } });
+    applyThreadEvent(thread, {
+      method: "item/completed",
+      params: { threadId: "t", turnId: "stray", item: { type: "agentMessage", id: "m1", text: "done" } },
+    });
+    applyThreadEvent(thread, {
+      method: "turn/completed",
+      params: { threadId: "t", turn: { id: "goal-turn", status: "completed" } },
+    });
+    expect(thread.turns.every((turn) => turn.status !== "inProgress")).toBe(true);
+  });
+
+  it("keeps an optimistic send whose turn/start has not answered yet", () => {
+    const thread = makeThread([
+      { id: "goal-turn", status: "inProgress", items: [] },
+      {
+        id: "local-1",
+        status: "inProgress",
+        items: [{ type: "userMessage", id: "local-item-1", content: [{ type: "text", text: "hi" }] }],
+      },
+    ]);
+    applyThreadEvent(thread, {
+      method: "turn/completed",
+      params: { threadId: "t", turn: { id: "goal-turn", status: "completed" } },
+    });
+    expect(thread.turns.find((turn) => turn.id === "local-1")?.status).toBe("inProgress");
+  });
+
+  it("keeps an optimistic send through a completion whose id matches nothing", () => {
+    const thread = makeThread([
+      { id: "turn-1", status: "inProgress", items: [] },
+      { id: "local-1", status: "inProgress", items: [] },
+    ]);
+    applyThreadEvent(thread, {
+      method: "turn/completed",
+      params: { threadId: "t", turn: { id: "unknown", status: "completed" } },
+    });
+    expect(thread.turns.map((turn) => turn.status)).toEqual(["completed", "inProgress"]);
+  });
+});
+
 describe("streamed command output", () => {
   it("keeps only the tail once the live cap is exceeded", () => {
     const thread = makeThread();

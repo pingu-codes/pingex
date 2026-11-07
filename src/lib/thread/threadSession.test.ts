@@ -254,6 +254,32 @@ describe("sessions retention", () => {
     expect(peekSession("thread-a")).toBeNull();
   });
 
+  it("goes idle when a goal's last turn completes beside an orphaned one", async () => {
+    mocks.readThread.mockResolvedValueOnce(detail("thread-a"));
+    const session = openSession("thread-a");
+    await settle();
+    mocks.activeTurns.list = ["thread-a"];
+    emit("turn/started", { threadId: "thread-a", turn: { id: "goal-1" } });
+    emit("item/completed", {
+      threadId: "thread-a",
+      turnId: "goal-1",
+      item: { type: "agentMessage", id: "m1", text: "working" },
+    });
+    // Items under a turn nothing announced open a running turn of their own.
+    emit("item/completed", {
+      threadId: "thread-a",
+      turnId: "stray",
+      item: { type: "agentMessage", id: "m2", text: "GOAL-DONE-OK" },
+    });
+    mocks.activeTurns.list = [];
+    emit("thread/goal/updated", { threadId: "thread-a", goal: { objective: "Ship", status: "complete" } });
+    emit("turn/completed", { threadId: "thread-a", turn: { id: "goal-1", status: "completed" } });
+
+    expect(session.activeTurn).toBeNull();
+    releaseSession(session);
+    expect(peekSession("thread-a")).toBeNull();
+  });
+
   it("keeps a finished thread while a view still shows it", async () => {
     mocks.readThread.mockResolvedValueOnce(detail("thread-a", [{ id: "t", status: "inProgress", items: [] }]));
     mocks.activeTurns.list = ["thread-a"];
