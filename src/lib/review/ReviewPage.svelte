@@ -11,7 +11,7 @@
   panel, and Findings join the review through `PendingReviewStore.add`.
 -->
 <script lang="ts">
-  import { Check, ChevronLeft, Ellipsis, Keyboard, PanelRight } from "@lucide/svelte";
+  import { ArrowUp, Check, ChevronLeft, Ellipsis, Keyboard, PanelRight, PanelRightOpen } from "@lucide/svelte";
   import { Avatar } from "@skeletonlabs/skeleton-svelte";
   import { type Snippet, untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
@@ -20,6 +20,7 @@
   import type { MenuEntry } from "$lib/components/actionMenu";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import Segmented from "$lib/components/Segmented.svelte";
+  import TooltipButton from "$lib/components/TooltipButton.svelte";
   import { STEP_LABELS, stepHint } from "$lib/review/actions";
   import CommentBody from "$lib/review/CommentBody.svelte";
   import FileDiff, { type Composer, type LineSlot } from "$lib/review/FileDiff.svelte";
@@ -60,6 +61,7 @@
     threadShown,
     upNext,
   } from "$lib/review/reviewPage";
+  import { loadReviewCollapsed, saveReviewCollapsed } from "$lib/review/reviewPrefs";
   import ThreadContext from "$lib/review/ThreadContext.svelte";
   import WholeFileDialog from "$lib/review/WholeFileDialog.svelte";
   import YourReview from "$lib/review/YourReview.svelte";
@@ -168,6 +170,13 @@
   let helpOpen = $state(false);
   /** Below the rail's width the Your review panel is an overlay, shown on demand. */
   let reviewOpen = $state(false);
+  /** At the rail's width, the Your review panel folded to a thin strip. The
+   *  page remounts per PR, so the choice is stored to carry between them. */
+  let reviewCollapsed = $state(loadReviewCollapsed());
+  let scroller = $state<HTMLElement>();
+  /** The topbar has scrolled fully out of the page. */
+  let topbarHidden = $state(false);
+  let topbarHeight = $state(0);
   let changes = $state<"all" | "since">("all");
   let since = $state<ChangesSince | null>(null);
   let checkLogs = $state<CheckLog[] | null>(null);
@@ -267,6 +276,27 @@
   async function reload() {
     await detailQuery.reload();
     if (detailQuery.error) action.error = detailQuery.error;
+  }
+
+  // --- scrolling and the Your review panel ---------------------------------
+
+  /** From the scroll event and a height kept by a ResizeObserver, so nothing
+   *  forces layout. Not a second IntersectionObserver on this scroller: in
+   *  WebKit that splits `nearViewport`'s row swap across frames, a layout lands
+   *  on the half-swapped page, and the scroll position clamps upward. */
+  function onPageScroll() {
+    if (scroller) topbarHidden = topbarHeight > 0 && scroller.scrollTop >= topbarHeight;
+  }
+
+  /** At once, not smoothly: a smooth scroll would mount every file it passes. */
+  function scrollToTop() {
+    if (scroller) scroller.scrollTop = 0;
+  }
+
+  function setReviewCollapsed(value: boolean) {
+    reviewCollapsed = value;
+    reviewOpen = false;
+    saveReviewCollapsed(value);
   }
 
   // --- files ---------------------------------------------------------------
@@ -605,301 +635,358 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<!-- A container: the page lays out by its own width, so it also fits beside the Stack page's tree. -->
-<div class="@container/review flex h-full min-h-0 flex-col text-xs">
-  <header class="flex flex-col gap-2.5 border-b border-surface-200-800 px-5 py-3">
-    <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-      <!-- Where the PR is and what it is; the title truncates before the actions wrap. -->
-      <div class="flex min-w-64 flex-1 items-center gap-2">
-        {#if onBack}
-          <button type="button" class="btn btn-sm hover:preset-tonal px-1 text-surface-500" onclick={onBack}>
-            <ChevronLeft size={14} aria-hidden="true" />Pull requests
-          </button>
-          <span class="text-surface-500">/</span>
-          <span class="text-surface-500">{repoName}</span>
-          <span class="text-surface-500">/</span>
-        {/if}
-        {#if detail}
-          <h1 class="min-w-0 truncate text-sm leading-5 font-semibold" title={detail.summary.title}>
-            {detail.summary.title}
-          </h1>
-          <span class="font-mono text-surface-500">#{number}</span>
-          <Avatar class="avatar"><Avatar.Fallback>{initials(detail.summary.author)}</Avatar.Fallback></Avatar>
-          <span class="whitespace-nowrap text-surface-500">{detail.summary.author}</span>
-          {#if detail.summary.isDraft}
-            <span class="status-badge preset-tonal">Draft</span>
-          {/if}
-          {#if drift}
-            <span
-              class="status-badge preset-tonal-warning whitespace-nowrap"
-              title="The base has commits this PR does not"
-              >{drift}</span
-            >
-          {/if}
-        {:else}
-          <span class="placeholder h-4 w-48 animate-pulse rounded"></span>
-        {/if}
-      </div>
-      <div class="ml-auto flex shrink-0 items-center gap-2">
-        <span
-          class="inline-flex items-center gap-1.5 rounded-full border border-surface-300-700 px-2 py-0.5 text-[11px]"
-          title="Code for this PR on disk"
-        >
-          <span class="size-2 shrink-0 rounded-full {STEP_DOT[step]}" aria-hidden="true"></span>{STEP_LABELS[step]}
-        </span>
-        <button
-          type="button"
-          class="btn btn-sm hover:preset-tonal text-xs"
-          title={stepHint(step, "runLocally") ?? "Run locally"}
-          disabled={!onRunLocally}
-          onclick={() => detail && onRunLocally?.(detail, "runLocally")}
-        >
-          Run locally
-        </button>
-        <button
-          type="button"
-          class="btn btn-sm hover:preset-tonal text-xs"
-          disabled={!detail}
-          onclick={() => detail && commands.openExternalUrl(detail.summary.url)}
-        >
-          Open on GitHub
-        </button>
-        <ActionMenu
-          entries={prMenu}
-          label="Pull request {number}"
-          onSelect={onPrMenu}
-          buttonLabel="Pull request actions"
-        >
-          {#snippet row({ buttonProps })}
-            <button
-              {...buttonProps}
-              type="button"
-              class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
-              disabled={!detail}
-            >
-              <Ellipsis size={14} aria-hidden="true" />
+<!-- A size container: the page lays out by its own width, so it also fits beside the Stack page's
+     tree, and the sticky rails measure the page's height (100cqh). -->
+<div class="relative h-full min-h-0 text-xs [container:review/size]">
+  <!-- One scroller for the topbar and the panes, so the topbar scrolls away with the code. -->
+  <div
+    bind:this={scroller}
+    data-diff-pane
+    onscroll={onPageScroll}
+    class="flex h-full flex-col overflow-x-hidden overflow-y-auto"
+  >
+    <header
+      bind:offsetHeight={topbarHeight}
+      class="flex shrink-0 flex-col gap-2.5 border-b border-surface-200-800 px-5 py-3"
+    >
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <!-- Where the PR is and what it is; the title truncates before the actions wrap. -->
+        <div class="flex min-w-64 flex-1 items-center gap-2">
+          {#if onBack}
+            <button type="button" class="btn btn-sm hover:preset-tonal px-1 text-surface-500" onclick={onBack}>
+              <ChevronLeft size={14} aria-hidden="true" />Pull requests
             </button>
-          {/snippet}
-        </ActionMenu>
-      </div>
-    </div>
-    <div class="flex flex-wrap items-center gap-2">
-      <Segmented label="Pull request" value={tab} options={TABS} onChange={(value) => (tab = value)} />
-      {#if tab === "files"}
-        {#each FILTERS as option (option.value)}
+            <span class="text-surface-500">/</span>
+            <span class="text-surface-500">{repoName}</span>
+            <span class="text-surface-500">/</span>
+          {/if}
+          {#if detail}
+            <h1 class="min-w-0 truncate text-sm leading-5 font-semibold" title={detail.summary.title}>
+              {detail.summary.title}
+            </h1>
+            <span class="font-mono text-surface-500">#{number}</span>
+            <Avatar class="avatar"><Avatar.Fallback>{initials(detail.summary.author)}</Avatar.Fallback></Avatar>
+            <span class="whitespace-nowrap text-surface-500">{detail.summary.author}</span>
+            {#if detail.summary.isDraft}
+              <span class="status-badge preset-tonal">Draft</span>
+            {/if}
+            {#if drift}
+              <span
+                class="status-badge preset-tonal-warning whitespace-nowrap"
+                title="The base has commits this PR does not"
+                >{drift}</span
+              >
+            {/if}
+          {:else}
+            <span class="placeholder h-4 w-48 animate-pulse rounded"></span>
+          {/if}
+        </div>
+        <div class="ml-auto flex shrink-0 items-center gap-2">
+          <span
+            class="inline-flex items-center gap-1.5 rounded-full border border-surface-300-700 px-2 py-0.5 text-[11px]"
+            title="Code for this PR on disk"
+          >
+            <span class="size-2 shrink-0 rounded-full {STEP_DOT[step]}" aria-hidden="true"></span>{STEP_LABELS[step]}
+          </span>
           <button
             type="button"
-            class={filter === option.value ? "pill-active" : "pill"}
-            aria-pressed={filter === option.value}
-            onclick={() => (filter = option.value)}
+            class="btn btn-sm hover:preset-tonal text-xs"
+            title={stepHint(step, "runLocally") ?? "Run locally"}
+            disabled={!onRunLocally}
+            onclick={() => detail && onRunLocally?.(detail, "runLocally")}
           >
-            {option.label}
+            Run locally
           </button>
-        {/each}
+          <button
+            type="button"
+            class="btn btn-sm hover:preset-tonal text-xs"
+            disabled={!detail}
+            onclick={() => detail && commands.openExternalUrl(detail.summary.url)}
+          >
+            Open on GitHub
+          </button>
+          <ActionMenu
+            entries={prMenu}
+            label="Pull request {number}"
+            onSelect={onPrMenu}
+            buttonLabel="Pull request actions"
+          >
+            {#snippet row({ buttonProps })}
+              <button
+                {...buttonProps}
+                type="button"
+                class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
+                disabled={!detail}
+              >
+                <Ellipsis size={14} aria-hidden="true" />
+              </button>
+            {/snippet}
+          </ActionMenu>
+        </div>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
         <Segmented
-          label="Changes"
-          value={changes}
-          options={[
-            { value: "all", label: "All changes" },
-            { value: "since", label: "Since your review" },
-          ]}
-          onChange={showChanges}
+          label="Pull request"
+          value={tab}
+          options={TABS}
+          onChange={(value) => {
+            tab = value;
+            scrollToTop();
+          }}
         />
-        <span class="grow"></span>
-        <span class="text-surface-500">Viewed {viewedCount} of {files.length}</span>
-        <button type="button" class="btn btn-sm hover:preset-tonal text-[11px]" onclick={() => collapsed.clear()}>
-          Expand all
+        {#if tab === "files"}
+          {#each FILTERS as option (option.value)}
+            <button
+              type="button"
+              class={filter === option.value ? "pill-active" : "pill"}
+              aria-pressed={filter === option.value}
+              onclick={() => (filter = option.value)}
+            >
+              {option.label}
+            </button>
+          {/each}
+          <Segmented
+            label="Changes"
+            value={changes}
+            options={[
+              { value: "all", label: "All changes" },
+              { value: "since", label: "Since your review" },
+            ]}
+            onChange={showChanges}
+          />
+          <span class="grow"></span>
+          <span class="text-surface-500">Viewed {viewedCount} of {files.length}</span>
+          <button type="button" class="btn btn-sm hover:preset-tonal text-[11px]" onclick={() => collapsed.clear()}>
+            Expand all
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm hover:preset-tonal text-[11px]"
+            onclick={() => {
+              for (const file of files) collapsed.add(file.path);
+            }}
+          >
+            Collapse all
+          </button>
+        {:else}
+          <span class="grow"></span>
+        {/if}
+        <button
+          type="button"
+          class="btn btn-sm text-[11px] @3xl/review:hidden {reviewOpen ? "preset-tonal" : "hover:preset-tonal"}"
+          aria-expanded={reviewOpen}
+          onclick={() => (reviewOpen = !reviewOpen)}
+        >
+          <PanelRight size={14} aria-hidden="true" />Your review{pending.entries.length > 0
+            ? ` · ${pending.entries.length}`
+            : ""}
         </button>
         <button
           type="button"
-          class="btn btn-sm hover:preset-tonal text-[11px]"
-          onclick={() => {
-            for (const file of files) collapsed.add(file.path);
-          }}
+          class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
+          aria-label="Shortcuts"
+          aria-expanded={helpOpen}
+          onclick={() => (helpOpen = !helpOpen)}
         >
-          Collapse all
+          <Keyboard size={14} aria-hidden="true" />
         </button>
-      {:else}
-        <span class="grow"></span>
-      {/if}
-      <button
-        type="button"
-        class="btn btn-sm text-[11px] @3xl/review:hidden {reviewOpen ? "preset-tonal" : "hover:preset-tonal"}"
-        aria-expanded={reviewOpen}
-        onclick={() => (reviewOpen = !reviewOpen)}
-      >
-        <PanelRight size={14} aria-hidden="true" />Your review{pending.entries.length > 0
-          ? ` · ${pending.entries.length}`
-          : ""}
-      </button>
-      <button
-        type="button"
-        class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
-        aria-label="Shortcuts"
-        aria-expanded={helpOpen}
-        onclick={() => (helpOpen = !helpOpen)}
-      >
-        <Keyboard size={14} aria-hidden="true" />
-      </button>
-    </div>
+      </div>
+    </header>
+
+    <!-- Sticky, so the ? shortcut shows it wherever the page is scrolled. -->
     {#if helpOpen}
-      <div
-        class="popover-card grid max-w-md grid-cols-2 gap-x-4 gap-y-1.5 self-end p-3"
-        role="dialog"
-        aria-label="Shortcuts"
-      >
-        {#each REVIEW_SHORTCUTS as shortcut (shortcut.label)}
-          <div class="flex justify-between gap-2">
-            <span>{shortcut.label}</span>
-            <span class="flex gap-1"
-              >{#each shortcut.keys as key (key)}
-                <kbd class="kbd">{key}</kbd>
-              {/each}</span
-            >
-          </div>
-        {/each}
+      <div class="sticky top-2 z-20 flex h-0 shrink-0 justify-end pr-5">
+        <div
+          class="popover-card grid h-fit max-w-md grid-cols-2 gap-x-4 gap-y-1.5 p-3"
+          role="dialog"
+          aria-label="Shortcuts"
+        >
+          {#each REVIEW_SHORTCUTS as shortcut (shortcut.label)}
+            <div class="flex justify-between gap-2">
+              <span>{shortcut.label}</span>
+              <span class="flex gap-1"
+                >{#each shortcut.keys as key (key)}
+                  <kbd class="kbd">{key}</kbd>
+                {/each}</span
+              >
+            </div>
+          {/each}
+        </div>
       </div>
     {/if}
-  </header>
 
-  {#if action.error}
-    <div class="error-note mx-5 mt-2 rounded-md">{action.error}</div>
-  {/if}
-
-  {#if error}
-    <div class="grid flex-1 place-items-center p-8">
-      <div class="error-note max-w-md">
-        <div class="font-semibold">Could not load this pull request</div>
-        <p class="mt-1">{error}</p>
+    {#if action.error}
+      <!-- Sticky: a failed write must show even with the topbar scrolled away. -->
+      <div class="sticky top-0 z-20 shrink-0 bg-surface-50-950 px-5 pt-2">
+        <div class="error-note rounded-md">{action.error}</div>
       </div>
-    </div>
-  {:else}
-    <div class="relative flex min-h-0 flex-1">
-      {#if tab === "files"}
-        <nav
-          aria-label="Changed files"
-          class="hidden w-56 shrink-0 @5xl/review:flex flex-col gap-0.5 overflow-y-auto border-r border-surface-200-800 bg-surface-100-900 px-2 py-3"
-        >
-          {#each fileGroups(files) as group (group.dir)}
-            {#if group.dir}
-              <div class="eyebrow px-2 pt-2 pb-1.5">{group.dir}</div>
-            {/if}
-            {#each group.files as file (file.path)}
-              {@const counts = countsByPath.get(file.path) ?? NO_COUNTS}
-              <button
-                type="button"
-                class="menu-row {currentPath === file.path ? "bg-surface-200-800" : ""}"
-                aria-current={currentPath === file.path}
-                onclick={() => jumpTo(file.path)}
-              >
-                <span class="min-w-0 grow truncate font-mono text-[11px]">{fileName(file.path)}</span>
-                {#if counts.findings > 0}
-                  <span class="status-badge preset-tonal-primary" title="Agent findings">{counts.findings}</span>
-                {/if}
-                {#if counts.comments > 0}
-                  <span class="status-badge preset-tonal" title="Comments">{counts.comments}</span>
-                {/if}
-                {#if viewed.has(file.path)}
-                  <Check size={12} class="text-success-500" aria-label="Viewed" />
-                {/if}
-              </button>
-            {/each}
-          {/each}
-          <div class="grow"></div>
-          <div class="flex flex-col gap-1.5 border-t border-surface-200-800 p-2 text-surface-500">
-            <div class="flex items-center gap-1.5">
-              <kbd class="kbd">]</kbd><kbd class="kbd">[</kbd>Next / previous file
-            </div>
-            <div class="flex items-center gap-1.5"><kbd class="kbd">v</kbd>Mark viewed and collapse</div>
-          </div>
-        </nav>
+    {/if}
 
-        <section
-          aria-label="Diffs"
-          data-diff-pane
-          class="flex min-w-0 flex-1 flex-col gap-2.5 overflow-y-auto px-5 py-4"
-        >
-          {#if changes === "since" && since}
-            <div class="rounded-md preset-tonal p-2 text-surface-600-400">
-              {#if !since.seenSha}
-                You have not reviewed this PR yet, so this is every change.
-              {:else if since.fastForward}
-                Changes pushed since your review at {since.seenSha.slice(0, 7)}.
-              {:else}
-                The git branch was rewritten since your review at {since.seenSha.slice(0, 7)}. This compares the two
-                heads, so it can include changes from the base.
+    {#if error}
+      <div class="grid flex-1 place-items-center p-8">
+        <div class="error-note max-w-md">
+          <div class="font-semibold">Could not load this pull request</div>
+          <p class="mt-1">{error}</p>
+        </div>
+      </div>
+    {:else}
+      <div class="relative flex flex-1">
+        {#if tab === "files"}
+          <div class="hidden w-56 shrink-0 @5xl/review:block border-r border-surface-200-800 bg-surface-100-900">
+            <nav
+              aria-label="Changed files"
+              class="sticky top-0 flex max-h-[100cqh] flex-col gap-0.5 overflow-y-auto px-2 py-3"
+            >
+              {#each fileGroups(files) as group (group.dir)}
+                {#if group.dir}
+                  <div class="eyebrow px-2 pt-2 pb-1.5">{group.dir}</div>
+                {/if}
+                {#each group.files as file (file.path)}
+                  {@const counts = countsByPath.get(file.path) ?? NO_COUNTS}
+                  <button
+                    type="button"
+                    class="menu-row {currentPath === file.path ? "bg-surface-200-800" : ""}"
+                    aria-current={currentPath === file.path}
+                    onclick={() => jumpTo(file.path)}
+                  >
+                    <span class="min-w-0 grow truncate font-mono text-[11px]">{fileName(file.path)}</span>
+                    {#if counts.findings > 0}
+                      <span class="status-badge preset-tonal-primary" title="Agent findings">{counts.findings}</span>
+                    {/if}
+                    {#if counts.comments > 0}
+                      <span class="status-badge preset-tonal" title="Comments">{counts.comments}</span>
+                    {/if}
+                    {#if viewed.has(file.path)}
+                      <Check size={12} class="text-success-500" aria-label="Viewed" />
+                    {/if}
+                  </button>
+                {/each}
+              {/each}
+              <div class="mt-2 flex flex-col gap-1.5 border-t border-surface-200-800 p-2 text-surface-500">
+                <div class="flex items-center gap-1.5">
+                  <kbd class="kbd">]</kbd><kbd class="kbd">[</kbd>Next / previous file
+                </div>
+                <div class="flex items-center gap-1.5"><kbd class="kbd">v</kbd>Mark viewed and collapse</div>
+              </div>
+            </nav>
+          </div>
+
+          <section aria-label="Diffs" class="flex min-w-0 flex-1 flex-col gap-2.5 px-5 py-4">
+            {#if changes === "since" && since}
+              <div class="rounded-md preset-tonal p-2 text-surface-600-400">
+                {#if !since.seenSha}
+                  You have not reviewed this PR yet, so this is every change.
+                {:else if since.fastForward}
+                  Changes pushed since your review at {since.seenSha.slice(0, 7)}.
+                {:else}
+                  The git branch was rewritten since your review at {since.seenSha.slice(0, 7)}. This compares the two
+                  heads, so it can include changes from the base.
+                {/if}
+              </div>
+            {/if}
+            {#if !detail}
+              <div class="placeholder h-40 animate-pulse rounded-xl"></div>
+            {:else if files.length === 0}
+              <p class="empty-state">No changed files.</p>
+            {/if}
+            {#each files as file (file.path)}
+              <FileDiff
+                {file}
+                open={!collapsed.has(file.path)}
+                viewed={viewed.has(file.path)}
+                counts={countsByPath.get(file.path) ?? NO_COUNTS}
+                threads={threadsByPath.get(file.path) ?? NO_THREADS}
+                pending={pendingByPath.get(file.path) ?? NO_PENDING}
+                {selection}
+                {composer}
+                menuEntries={viewed.has(file.path) ? fileMenus.viewed : fileMenus.unviewed}
+                onMenu={(id) => onFileMenu(file, id)}
+                onToggle={(event) => toggle(file, event)}
+                onViewed={(value) => setViewed([file], value)}
+                onSelectLine={(side, line, extend) => onSelectLine(file, side, line, extend)}
+                onCompose={compose}
+                onAskAgent={() => askAboutSelection(file)}
+                onAddEntry={addEntry}
+                onCancelComposer={() => (composer = null)}
+                onRemoveEntry={(id) => pending.remove(id)}
+                afterLine={lineAnnotations}
+                annotated={annotatedLines?.get(file.path)}
+              >
+                {#snippet thread(found)}
+                  {@render threadCard(found)}
+                {/snippet}
+              </FileDiff>
+            {/each}
+          </section>
+        {:else}
+          <section aria-label={TABS.find((option) => option.value === tab)?.label} class="min-w-0 flex-1 px-5 py-4">
+            {#if !detail}
+              <div class="placeholder h-40 animate-pulse rounded-xl"></div>
+            {:else if tab === "conversation"}
+              {@render conversationTab(detail)}
+            {:else if tab === "checks"}
+              {@render checksTab(detail)}
+            {:else}
+              <p class="empty-state">Threads started on this PR show here, with their git branch and commit.</p>
+            {/if}
+          </section>
+        {/if}
+
+        {#if reviewCollapsed && !reviewOpen}
+          <div class="hidden w-10 shrink-0 border-l border-surface-200-800 bg-surface-50-950 @3xl/review:block">
+            <div class="sticky top-0 flex flex-col items-center gap-2 py-3">
+              <TooltipButton
+                type="button"
+                label="Expand Your review"
+                class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
+                aria-expanded={false}
+                onclick={() => setReviewCollapsed(false)}
+              >
+                <PanelRightOpen size={14} aria-hidden="true" />
+              </TooltipButton>
+              {#if pending.entries.length > 0}
+                <span class="status-badge preset-tonal-primary" title="Entries in your pending review">
+                  {pending.entries.length}
+                </span>
               {/if}
             </div>
-          {/if}
-          {#if !detail}
-            <div class="placeholder h-40 animate-pulse rounded-xl"></div>
-          {:else if files.length === 0}
-            <p class="empty-state">No changed files.</p>
-          {/if}
-          {#each files as file (file.path)}
-            <FileDiff
-              {file}
-              open={!collapsed.has(file.path)}
-              viewed={viewed.has(file.path)}
-              counts={countsByPath.get(file.path) ?? NO_COUNTS}
-              threads={threadsByPath.get(file.path) ?? NO_THREADS}
-              pending={pendingByPath.get(file.path) ?? NO_PENDING}
-              {selection}
-              {composer}
-              menuEntries={viewed.has(file.path) ? fileMenus.viewed : fileMenus.unviewed}
-              onMenu={(id) => onFileMenu(file, id)}
-              onToggle={(event) => toggle(file, event)}
-              onViewed={(value) => setViewed([file], value)}
-              onSelectLine={(side, line, extend) => onSelectLine(file, side, line, extend)}
-              onCompose={compose}
-              onAskAgent={() => askAboutSelection(file)}
-              onAddEntry={addEntry}
-              onCancelComposer={() => (composer = null)}
-              onRemoveEntry={(id) => pending.remove(id)}
-              afterLine={lineAnnotations}
-              annotated={annotatedLines?.get(file.path)}
-            >
-              {#snippet thread(found)}
-                {@render threadCard(found)}
-              {/snippet}
-            </FileDiff>
-          {/each}
-        </section>
-      {:else}
-        <section
-          aria-label={TABS.find((option) => option.value === tab)?.label}
-          class="min-w-0 flex-1 overflow-y-auto px-5 py-4"
-        >
-          {#if !detail}
-            <div class="placeholder h-40 animate-pulse rounded-xl"></div>
-          {:else if tab === "conversation"}
-            {@render conversationTab(detail)}
-          {:else if tab === "checks"}
-            {@render checksTab(detail)}
-          {:else}
-            <p class="empty-state">Threads started on this PR show here, with their git branch and commit.</p>
-          {/if}
-        </section>
-      {/if}
+          </div>
+        {/if}
 
-      <div
-        class="w-72 shrink-0 overflow-y-auto border-l border-surface-200-800 bg-surface-50-950 p-4 @3xl/review:static @3xl/review:block @3xl/review:shadow-none {reviewOpen
-          ? "absolute inset-y-0 right-0 z-10 block shadow-xl"
-          : "hidden"}"
-      >
-        <YourReview
-          {ownPr}
-          {pending}
-          busy={action.busy}
-          {stale}
-          onSubmit={submit}
-          onJump={(entry) => jumpTo(entryLocation(entry).path)}
-          upNext={queue}
-          {onOpenPr}
-          {agentReview}
-        />
+        <!-- Hidden rather than removed, so a half-typed summary and its cursor survive a collapse.
+           The outer box holds the border at full height; the inner one stays on screen. -->
+        <div
+          class="w-72 shrink-0 border-l border-surface-200-800 bg-surface-50-950 @3xl/review:static @3xl/review:shadow-none {reviewOpen
+            ? "absolute inset-y-0 right-0 z-10 block shadow-xl"
+            : "hidden"} {reviewCollapsed && !reviewOpen ? "" : "@3xl/review:block"}"
+        >
+          <div class="sticky top-0 max-h-[100cqh] overflow-y-auto p-4">
+            <YourReview
+              {ownPr}
+              {pending}
+              busy={action.busy}
+              {stale}
+              onSubmit={submit}
+              onJump={(entry) => jumpTo(entryLocation(entry).path)}
+              upNext={queue}
+              {onOpenPr}
+              {agentReview}
+              onCollapse={() => setReviewCollapsed(true)}
+            />
+          </div>
+        </div>
       </div>
-    </div>
+    {/if}
+  </div>
+
+  {#if topbarHidden}
+    <button
+      type="button"
+      class="btn btn-sm preset-filled-surface-950-50 absolute bottom-4 left-1/2 z-20 -translate-x-1/2 text-xs shadow-lg"
+      onclick={scrollToTop}
+    >
+      <ArrowUp size={14} aria-hidden="true" />Back to top
+    </button>
   {/if}
 </div>
 

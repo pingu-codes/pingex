@@ -5,10 +5,11 @@
   review's summary card goes; Up next lists the PRs waiting on me.
 -->
 <script lang="ts">
-  import { AlertTriangle, X } from "@lucide/svelte";
+  import { AlertTriangle, PanelRightClose, X } from "@lucide/svelte";
   import { Avatar } from "@skeletonlabs/skeleton-svelte";
   import type { Snippet } from "svelte";
   import Segmented from "$lib/components/Segmented.svelte";
+  import TooltipButton from "$lib/components/TooltipButton.svelte";
   import type { PendingReviewStore } from "$lib/review/pendingReview.svelte";
   import { entryLabel, initials } from "$lib/review/reviewPage";
   import type { InboxPr, PendingEntry, ReviewVerdict } from "$lib/types";
@@ -24,6 +25,7 @@
     onOpenPr,
     agentReview,
     ownPr = false,
+    onCollapse,
   }: {
     pending: PendingReviewStore;
     busy?: boolean;
@@ -38,6 +40,8 @@
     agentReview?: Snippet;
     /** The viewer wrote the PR: GitHub only takes a comment from its author. */
     ownPr?: boolean;
+    /** Fold the panel away; without it the panel has no collapse button. */
+    onCollapse?: () => void;
   } = $props();
 
   const VERDICTS = [
@@ -63,7 +67,20 @@
 </script>
 
 <aside aria-label="Your review" class="flex min-w-0 flex-col gap-3 text-xs">
-  <div class="eyebrow">Your review</div>
+  <div class="flex items-center justify-between gap-2">
+    <div class="eyebrow">Your review</div>
+    {#if onCollapse}
+      <TooltipButton
+        type="button"
+        label="Collapse Your review"
+        class="btn-icon btn-icon-sm hover:preset-tonal -my-1 text-surface-500"
+        aria-expanded={true}
+        onclick={onCollapse}
+      >
+        <PanelRightClose size={14} aria-hidden="true" />
+      </TooltipButton>
+    {/if}
+  </div>
   {#if pending.entries.length > 0}
     <div class="panel-card flex flex-col p-1.5">
       {#each pending.entries as entry (entry.id)}

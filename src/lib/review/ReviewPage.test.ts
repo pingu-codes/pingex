@@ -32,6 +32,7 @@ async function opened() {
 const yourReview = () => screen.getByRole("complementary", { name: "Your review" });
 
 beforeEach(() => {
+  localStorage.removeItem("pingex-review-panel-collapsed");
   resetDeskReviewState();
   vi.mocked(commands.reviewReply).mockClear();
   vi.mocked(commands.reviewSubmitPendingReview).mockClear();
@@ -39,6 +40,25 @@ beforeEach(() => {
 });
 
 describe("ReviewPage", () => {
+  it("a collapsed Your review stays collapsed on the next PR, and still counts its entries", async () => {
+    const user = userEvent.setup();
+    const first = renderPage();
+    await opened();
+    const thread = screen.getByRole("group", { name: "Thread on src/lib/loader.ts:4" });
+    await user.type(within(thread).getByRole("textbox", { name: "Reply" }), "Thanks");
+    await user.click(within(thread).getByRole("button", { name: "Add to review" }));
+    await user.click(screen.getByRole("button", { name: "Collapse Your review" }));
+    // The strip says a pending review is still there.
+    expect(screen.getByTitle("Entries in your pending review")).toHaveTextContent("1");
+    first.unmount();
+
+    renderPage();
+    await opened();
+    await user.click(screen.getByRole("button", { name: "Expand Your review" }));
+    expect(screen.queryByRole("button", { name: "Expand Your review" })).not.toBeInTheDocument();
+    expect(localStorage.getItem("pingex-review-panel-collapsed")).toBe("false");
+  });
+
   it("a remount shows the PR from the cache at once, without reading it again", async () => {
     const first = renderPage();
     await opened();

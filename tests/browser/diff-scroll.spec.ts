@@ -47,7 +47,7 @@ test.describe("render budget", () => {
     const diffs = await openLargeDiff(page, MANY_FILES);
     const { mounted, scrollHeight } = await diffs.evaluate((section) => ({
       mounted: section.querySelectorAll(".ln").length,
-      scrollHeight: section.scrollHeight,
+      scrollHeight: section.closest("[data-diff-pane]")!.scrollHeight,
     }));
     // 250 files of 120 lines in three hunks: each line and hunk header a row.
     const total = 250 * (120 + 3);
@@ -103,9 +103,10 @@ test.describe("mounting rows near the viewport", () => {
     await first.getByRole("button", { name: "Select line 3", exact: true }).click();
     await page.keyboard.press("c");
     await page.getByPlaceholder("Leave a comment").fill("keep me");
-    await diffs.evaluate((section) => (section.scrollTop = section.scrollHeight / 2));
+    const pane = diffs.locator("xpath=ancestor::*[@data-diff-pane]");
+    await pane.evaluate((element) => (element.scrollTop = element.scrollHeight / 2));
     await expect(diffs.locator('[data-file="src/large/file-01.ts"] .ln')).toHaveCount(0);
-    await diffs.evaluate((section) => (section.scrollTop = 0));
+    await pane.evaluate((element) => (element.scrollTop = 0));
     await expect(page.getByPlaceholder("Leave a comment")).toHaveValue("keep me");
   });
 
@@ -118,7 +119,9 @@ test.describe("mounting rows near the viewport", () => {
     });
     expect(width).toBeGreaterThan(500);
     // Far down the file, the long lines near the top have unmounted.
-    await diffs.evaluate((section) => (section.scrollTop = section.scrollHeight - section.clientHeight));
+    await diffs
+      .locator("xpath=ancestor::*[@data-diff-pane]")
+      .evaluate((element) => (element.scrollTop = element.scrollHeight - element.clientHeight));
     await expect(diffs.locator('.ln[data-line="1"]')).toHaveCount(0);
     expect(await body.evaluate((element) => element.scrollLeft)).toBe(width);
   });
@@ -130,12 +133,13 @@ async function scrollFrames(diffs: Locator, pixelsPerFrame: number, frames: numb
   return diffs.evaluate(
     (section, { pixelsPerFrame, frames }) =>
       new Promise<number[]>((resolve) => {
+        const pane = section.closest("[data-diff-pane]")!;
         const deltas: number[] = [];
         let last = performance.now();
         const step = (now: number) => {
           deltas.push(now - last);
           last = now;
-          section.scrollTop += pixelsPerFrame;
+          pane.scrollTop += pixelsPerFrame;
           if (deltas.length < frames) requestAnimationFrame(step);
           else resolve(deltas.slice(1));
         };
