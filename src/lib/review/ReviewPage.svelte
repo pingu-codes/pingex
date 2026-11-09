@@ -29,7 +29,7 @@
   import CommentBody from "$lib/review/CommentBody.svelte";
   import FileDiff, { type Composer, type LineSlot } from "$lib/review/FileDiff.svelte";
   import FindBar from "$lib/review/FindBar.svelte";
-  import { PendingReviewStore } from "$lib/review/pendingReview.svelte";
+  import type { PendingReviewStore } from "$lib/review/pendingReview.svelte";
   import ReviewThread, { type HandTarget } from "$lib/review/ReviewThread.svelte";
   import {
     type CommentThread,
@@ -101,7 +101,6 @@
     onAskAgent,
     onRunLocally,
     headerActions,
-    onDetail,
     step = "noCheckout",
     checkout = null,
     checkoutKnown = false,
@@ -111,7 +110,7 @@
     annotationText,
     agentReview,
     threadsTab,
-    pending: pendingReview,
+    pending,
     prThreads = [],
   }: {
     repoDir: string;
@@ -131,7 +130,6 @@
     /** More of the header's actions, beside Run locally. */
     headerActions?: Snippet;
     /** The PR's detail, each time it loads. */
-    onDetail?: (detail: PrDetail) => void;
     step?: CheckoutStep;
     /** Where the PR is on disk, for the header's badge. */
     checkout?: PrCheckout | null;
@@ -147,9 +145,8 @@
     agentReview?: Snippet;
     /** The Threads tab: the threads started on this PR. */
     threadsTab?: Snippet;
-    /** The pending review, when the caller adds to it too (agent
-     *  Findings); else the page keeps its own. */
-    pending?: PendingReviewStore;
+    /** The pending review, which the caller adds to as well (agent Findings). */
+    pending: PendingReviewStore;
     /** Threads already on this PR: "Hand to agent" offers them. */
     prThreads?: HandTarget[];
   } = $props();
@@ -218,7 +215,6 @@
   let lastUnresolved = -1;
 
   // svelte-ignore state_referenced_locally -- the page is keyed by PR.
-  const pending = pendingReview ?? new PendingReviewStore(repoDir, number);
   const action = submitState();
 
   const viewer = $derived(inbox?.viewer ?? "");
@@ -278,7 +274,6 @@
     const next = detail;
     if (!next) return;
     untrack(() => {
-      onDetail?.(next);
       currentPath ??= next.files[0]?.path ?? null;
       pending.syncHead(next.headSha);
       if (readHead === next.headSha) return;
@@ -293,7 +288,9 @@
 
   /** The ? key opens the shortcuts wherever the page is scrolled: under their
    *  button, or at the page's corner once the topbar has gone. */
-  function shortcutsAnchor(button: { getBoundingClientRect(): { x: number; y: number; width: number; height: number } } | null) {
+  function shortcutsAnchor(
+    button: { getBoundingClientRect(): { x: number; y: number; width: number; height: number } } | null,
+  ) {
     if (button && !topbarHidden) return button.getBoundingClientRect();
     const page = scroller?.getBoundingClientRect();
     return page ? { x: page.right - 20, y: page.top + 2, width: 0, height: 0 } : null;
@@ -644,7 +641,7 @@
 
   function holdReply(thread: (typeof threads)[number], body: string) {
     const root = thread.comments[0];
-    if (!root || !thread.key) return;
+    if (!root) return;
     pending.add({
       kind: "reply",
       threadId: thread.key,

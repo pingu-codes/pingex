@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/sve
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import CheckLogList from "$lib/inbox/CheckLogList.svelte";
+import { PendingReviewStore } from "$lib/review/pendingReview.svelte";
 import ReviewPage from "$lib/review/ReviewPage.svelte";
 import { prPlace } from "$lib/review/reviewPage";
 import { commands } from "$lib/services/homeRouting";
@@ -26,7 +27,8 @@ vi.mock("$lib/services/homeRouting", async (importOriginal) => {
 const repoDir = DESK_REPOS[0].path as string;
 
 function renderPage(props: Partial<Parameters<typeof render<typeof ReviewPage>>[1]> = {}) {
-  return render(ReviewPage, { repoDir, number: THREADED_PR, onBack: vi.fn(), ...props });
+  const pending = new PendingReviewStore(repoDir, THREADED_PR);
+  return render(ReviewPage, { repoDir, number: THREADED_PR, onBack: vi.fn(), pending, ...props });
 }
 
 async function opened() {

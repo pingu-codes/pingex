@@ -19,7 +19,18 @@ beforeEach(() => {
 
 function setup(handlers: Partial<InboxHandlers> = {}) {
   render(DialogHost);
-  const all: InboxHandlers = { openPr: vi.fn(), newThread: vi.fn(), ...handlers };
+  const all: InboxHandlers = {
+    openPr: vi.fn(),
+    newThread: vi.fn(),
+    startAgentReviews: vi.fn(),
+    createWorktrees: vi.fn(),
+    openInWorktree: vi.fn(),
+    fixCi: vi.fn(),
+    openStack: vi.fn(),
+    restack: vi.fn(),
+    checkOutStack: vi.fn(),
+    ...handlers,
+  };
   render(PullRequestsView, {
     repos: [{ path: MAIN, name: "codex-custom" }],
     repoPath: MAIN,

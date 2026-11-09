@@ -12,7 +12,7 @@
 -->
 <script lang="ts">
   import { ChevronLeft, Ellipsis, Folder, PanelLeftClose, PanelLeftOpen, Sparkles } from "@lucide/svelte";
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { projectForCwd, projects } from "$lib/app/appData.svelte";
   import { openDialog } from "$lib/app/dialogs.svelte";
   import { openReview, openThreadInCwd, type PrMove } from "$lib/app/navigation.svelte";
@@ -35,7 +35,7 @@
   import WorktreeBadge from "$lib/review/WorktreeBadge.svelte";
   import { startThreadWithTurn } from "$lib/services/api";
   import { commands } from "$lib/services/homeRouting";
-  import { peekQuery, prefetch, query, readFresh } from "$lib/services/queryCache.svelte";
+  import { prefetch, query, readFresh } from "$lib/services/queryCache.svelte";
   import BranchNameDialog from "$lib/stack/BranchNameDialog.svelte";
   import { followUps, putOffFollowUp } from "$lib/stack/followUps.svelte";
   import RestackDialog from "$lib/stack/RestackDialog.svelte";
@@ -90,12 +90,9 @@
     restackOnOpen?: boolean;
   } = $props();
 
-  let overview = $state<StackOverview | null>(null);
-  let overviewError = $state<string | null>(null);
   let progress = $state<RestackProgress | null>(null);
   /** A restack that has not finished blocks other stack edits; a finished one only shows its result. */
   const restacking = $derived(progress !== null && !progress.done);
-  let preview = $state<RestackPlan | null>(null);
   // svelte-ignore state_referenced_locally -- the page remounts per navigation.
   const left = place(`stack:${repoDir}#${stackNumber}`, () => ({
     selected: null as number | null,
@@ -129,8 +126,21 @@
       return found ? [baseInput(found)] : [];
     }),
   );
+  // All three re-read when `input` changes or a write marks them stale, so a
+  // merge in the nested pane shows here. The stack's last overview stays up
+  // while one for new input is read.
+  const overviewQuery = query("reviewStackOverview", () => (input ? [repoDir, input] : null));
+  let lastOverview: StackOverview | null = null;
+  const overview = $derived((lastOverview = overviewQuery.value ?? lastOverview));
+  const overviewError = $derived(overviewQuery.error);
+  const behindQuery = query("reviewPrsBehind", () => (input ? [repoDir, behindInputs] : null));
   /** Commits each open PR's base has that GitHub's head lacks. */
-  let behind = $state<Map<number, number | null>>(new Map());
+  const behind = $derived(new Map((behindQuery.value ?? []).map((row) => [row.number, row.behind])));
+  /** The restack preview, when the base moved or a PR left the head below it. */
+  const planQuery = query("reviewRestackPlan", () =>
+    input && overview && needsRestack(overview, behind) ? [repoDir, input, null] : null,
+  );
+  const preview = $derived(planQuery.value ?? null);
   const branchByNumber = $derived(new Map((overview?.branches ?? []).map((branch) => [branch.number, branch])));
   const totalCommits = $derived((overview?.branches ?? []).reduce((sum, branch) => sum + branch.commits, 0));
   const worktree = $derived(overview?.worktree ?? null);
@@ -182,53 +192,36 @@
     ).length;
   }
 
-  function applyOverview(next: StackOverview) {
-    overview = next;
-    overviewError = null;
-    // A finished restack stays up, offering Push stack, until dismissed.
-    progress = next.restack ?? (progress?.done ? progress : null);
-    selected ??= openPrs.find((pr) => pr.headRef === next.worktree?.branch)?.number ?? openPrs.at(-1)?.number ?? null;
-  }
+  $effect(() => {
+    const next = overviewQuery.value;
+    if (!next) return;
+    untrack(() => {
+      // A finished restack stays up, offering Push stack, until dismissed.
+      progress = next.restack ?? (progress?.done ? progress : null);
+      selected ??= openPrs.find((pr) => pr.headRef === next.worktree?.branch)?.number ?? openPrs.at(-1)?.number ?? null;
+    });
+  });
 
-  /** Read the overview (and the restack preview when the base moved). Both
-   *  are cached: a write through `commands` marks them stale, so after one
-   *  this waits for a new read. */
+  // Merged PRs with nothing left to offer (restacked, or cleaned up elsewhere)
+  // are settled, or the sidebar's dot stays with no card to clear it from.
+  // Only from a settled read of these PRs: an older one hasn't seen the merge.
+  $effect(() => {
+    const settled = overviewQuery.value && !overviewQuery.refreshing;
+    if (settled && input?.prs.some((pr) => pr.merged) && !followUp && !restacking) later();
+  });
+
+  /** Wait for what a write changed: it marked these stale, so this waits for
+   *  new reads, not the cached answers. */
   async function loadOverview() {
+    // `input` may have just changed, and the queries follow it on the next tick.
+    await tick();
     if (!input) return;
-    const asked = input;
-    try {
-      const [next, counts] = await Promise.all([
-        readFresh("reviewStackOverview", repoDir, input),
-        readFresh("reviewPrsBehind", repoDir, behindInputs).catch(() => []),
-      ]);
-      applyOverview(next);
-      // Merged PRs with nothing left to offer (restacked, or cleaned up
-      // elsewhere) are settled, or the sidebar's dot stays with no card to
-      // clear it from. Only from a read of these PRs: an older overview
-      // hasn't seen the merge.
-      if (input === asked && asked.prs.some((pr) => pr.merged) && !followUp && !restacking) later();
-      behind = countsByNumber(counts);
-      preview = needsRestack(next, behind)
-        ? await readFresh("reviewRestackPlan", repoDir, input, null).catch(() => null)
-        : null;
-      prefetchAround(selected);
-    } catch (cause) {
-      overviewError = errorMessage(cause);
-    }
-  }
-
-  /** The cached overview, shown before the re-read lands. */
-  function showCached() {
-    if (!input) return;
-    const cached = peekQuery("reviewStackOverview", repoDir, input);
-    if (!cached) return;
-    applyOverview(cached);
-    behind = countsByNumber(peekQuery("reviewPrsBehind", repoDir, behindInputs) ?? []);
-    preview = needsRestack(cached, behind) ? (peekQuery("reviewRestackPlan", repoDir, input, null) ?? null) : null;
-  }
-
-  function countsByNumber(counts: PrBehind[]): Map<number, number | null> {
-    return new Map(counts.map((row) => [row.number, row.behind]));
+    await Promise.all([
+      readFresh("reviewStackOverview", repoDir, input).catch(() => null),
+      readFresh("reviewPrsBehind", repoDir, behindInputs).catch(() => null),
+    ]);
+    await tick();
+    prefetchAround(selected);
   }
 
   /** The base moved, or a PR no longer sits on the head of the one below. */
@@ -252,7 +245,6 @@
 
   onMount(() => {
     void ensurePrLinks();
-    showCached();
     void tick().then(() => {
       if (page) page.scrollTop = left.pageScrollTop;
       if (tree) tree.scrollTop = left.treeScrollTop;

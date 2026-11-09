@@ -50,11 +50,6 @@ export class PendingReviewStore {
     readonly number: number,
   ) {}
 
-  /** How many comments Submit posts, replies and accepted Findings included. */
-  get commentCount(): number {
-    return this.entries.length;
-  }
-
   /** Restore the stored review, if any, for a PR now at `headSha`. */
   async load(headSha: string): Promise<void> {
     this.headSha = headSha;

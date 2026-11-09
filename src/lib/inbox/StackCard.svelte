@@ -101,7 +101,6 @@
               id: "restack",
               label: "Restack",
               disabled: !onRestack,
-              title: onRestack ? undefined : "Not available yet",
             },
             { id: "compare", label: "Compare", disabled: !onCompare },
           ]}

@@ -270,7 +270,7 @@
     const pr = row.pr;
     if (id.startsWith("worktree:")) {
       const path = id.slice("worktree:".length);
-      handlers.openInWorktree?.(repoPath, pr, path === "new" ? null : path);
+      handlers.openInWorktree(repoPath, pr, path === "new" ? null : path);
       return;
     }
     switch (id) {
@@ -287,10 +287,10 @@
       case "primary:startReview":
       case "primary:agentReview":
       case "agentReview":
-        return handlers.startAgentReviews?.(repoPath, [pr]);
+        return handlers.startAgentReviews(repoPath, [pr]);
       case "primary:fixCi":
       case "fixCi":
-        return handlers.fixCi?.(repoPath, pr);
+        return handlers.fixCi(repoPath, pr);
       case "primary:merge":
         return void confirmThen(
           pr,
@@ -331,13 +331,6 @@
     }
   }
 
-  /** The primary action needs a handler a later slice wires. */
-  function unwired(id: string): boolean {
-    if (id === "fixCi") return !handlers.fixCi;
-    if (id === "startReview" || id === "agentReview") return !handlers.startAgentReviews;
-    return false;
-  }
-
   function onKeydown(event: KeyboardEvent) {
     if (event.key === "Escape" && selected.size > 0) clearSelection();
   }
@@ -356,17 +349,14 @@
     {row}
     {people}
     primary={action}
-    primaryDisabled={unwired(action.id)}
     agentReview={agentState(row.pr.number)}
     agentFindings={agentByNumber.get(row.pr.number)?.findings ?? 0}
     selected={selected.has(row.pr.number)}
     selecting={selected.size > 0}
     menu={prMenu(row.pr, {
       worktrees,
-      canOpenInWorktree: !!handlers.openInWorktree,
-      canStartAgentReview: !!handlers.startAgentReviews,
     })}
-    ciEntries={ciMenu({ canFixCi: !!handlers.fixCi })}
+    ciEntries={ciMenu()}
     stack={group
       ? { ...stackPosition(group, row.pr.number), first: depth === 0, last: depth === group.rows.length - 1 }
       : null}
@@ -483,9 +473,9 @@
                 {checkout}
                 checkoutKnown={checkoutsKnown}
                 threadCount={checkout?.path ? threadCountForPath(projects(), checkout.path) : 0}
-                onCheckOut={handlers.checkOutStack ? () => handlers.checkOutStack?.(repoPath, group) : undefined}
-                onOpenStack={handlers.openStack ? () => handlers.openStack?.(repoPath, group) : undefined}
-                onRestack={handlers.restack ? () => handlers.restack?.(repoPath, group) : undefined}
+                onCheckOut={() => handlers.checkOutStack(repoPath, group)}
+                onOpenStack={() => handlers.openStack(repoPath, group)}
+                onRestack={() => handlers.restack(repoPath, group)}
                 behind={stackBehind(group)}
                 onCompare={() => compareBase(group)}
               >
@@ -510,7 +500,7 @@
                       mine={false}
                       checkout={stackCheckout(group)}
                       checkoutKnown={checkoutsKnown}
-                      onCheckOut={handlers.checkOutStack ? () => handlers.checkOutStack?.(repoPath, group) : undefined}
+                      onCheckOut={() => handlers.checkOutStack(repoPath, group)}
                     >
                       {#snippet row(entry, index)}
                         {@render prRow(entry, index, group)}
@@ -546,18 +536,14 @@
         <button
           type="button"
           class="btn btn-sm text-[11px] preset-tonal"
-          disabled={!handlers.startAgentReviews}
-          title={handlers.startAgentReviews ? undefined : "Not available yet"}
-          onclick={() => handlers.startAgentReviews?.(repoPath, selectedPrs)}
+          onclick={() => handlers.startAgentReviews(repoPath, selectedPrs)}
         >
           Start agent reviews
         </button>
         <button
           type="button"
           class="btn btn-sm text-[11px] hover:preset-tonal"
-          disabled={!handlers.createWorktrees}
-          title={handlers.createWorktrees ? undefined : "Not available yet"}
-          onclick={() => handlers.createWorktrees?.(repoPath, selectedPrs)}
+          onclick={() => handlers.createWorktrees(repoPath, selectedPrs)}
         >
           Create worktrees
         </button>

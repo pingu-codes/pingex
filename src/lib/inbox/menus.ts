@@ -5,12 +5,7 @@ import type { MenuEntry } from "$lib/components/actionMenu";
 import type { InboxPr, WorktreeEntry } from "$lib/types";
 import { basename } from "$lib/utils/path";
 
-const LATER = "Not available yet";
-
-export function prMenu(
-  pr: InboxPr,
-  context: { worktrees: WorktreeEntry[]; canOpenInWorktree: boolean; canStartAgentReview: boolean },
-): MenuEntry[] {
+export function prMenu(pr: InboxPr, context: { worktrees: WorktreeEntry[] }): MenuEntry[] {
   const worktrees: MenuEntry[] = context.worktrees.map((worktree) => ({
     id: `worktree:${worktree.path}`,
     label: worktree.isMain ? "Main checkout" : basename(worktree.path),
@@ -23,7 +18,6 @@ export function prMenu(
       kind: "submenu",
       id: "openIn",
       label: "Open in worktree",
-      disabled: !context.canOpenInWorktree,
       entries: [
         ...worktrees,
         ...(worktrees.length > 0 ? [{ kind: "separator" } as const] : []),
@@ -31,13 +25,7 @@ export function prMenu(
       ],
     },
     { id: "newThread", label: "Work on this PR", shortcut: "T" },
-    {
-      id: "agentReview",
-      label: "Start agent review",
-      shortcut: "R",
-      disabled: !context.canStartAgentReview,
-      title: context.canStartAgentReview ? undefined : LATER,
-    },
+    { id: "agentReview", label: "Start agent review", shortcut: "R" },
     { kind: "separator" },
     { id: "copyBranch", label: "Copy branch name", shortcut: "CmdOrCtrl+Shift+C" },
     { id: "copyLink", label: "Copy link" },
@@ -50,14 +38,9 @@ export function prMenu(
   ];
 }
 
-export function ciMenu(context: { canFixCi: boolean }): MenuEntry[] {
+export function ciMenu(): MenuEntry[] {
   return [
-    {
-      id: "fixCi",
-      label: "Fix in a new thread",
-      disabled: !context.canFixCi,
-      title: context.canFixCi ? undefined : LATER,
-    },
+    { id: "fixCi", label: "Fix in a new thread" },
     { id: "rerunChecks", label: "Re-run failed checks" },
     { id: "viewLog", label: "View log" },
   ];

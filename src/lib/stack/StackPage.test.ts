@@ -245,6 +245,21 @@ describe("Stack page", () => {
   });
 });
 
+describe("when the inbox changes under the page", () => {
+  it("offers the follow-up as soon as a PR merges elsewhere, without reopening", async () => {
+    setup();
+    await loaded();
+    expect(screen.queryByText(/merged into main/)).toBeNull();
+
+    const repo = inboxes[MAIN];
+    const stack = repo?.stacks?.stacks.find((candidate) => candidate.number === 7);
+    if (!stack) throw new Error("fixture stack missing");
+    stack.prs[0] = { ...stack.prs[0], merged: true, state: "closed" };
+
+    expect(await screen.findByText("#412 merged into main")).toBeInTheDocument();
+  });
+});
+
 describe("the sidebar's follow-up dot", () => {
   it("settles when a merged PR leaves nothing to offer", async () => {
     const stack = deskLiveRepo(MAIN).stacks.stacks.find((candidate) => candidate.number === 7);

@@ -61,7 +61,7 @@
     acceptedFinding: { label: "From agent", tone: "preset-tonal-primary" },
   };
 
-  const count = $derived(pending.commentCount);
+  const count = $derived(pending.entries.length);
   const submitLabel = $derived(
     count === 0 ? "Submit review" : `Submit review with ${count} ${count === 1 ? "comment" : "comments"}`,
   );

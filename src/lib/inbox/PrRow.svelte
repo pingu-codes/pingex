@@ -36,7 +36,6 @@
     row,
     people = new Map(),
     primary,
-    primaryDisabled = false,
     agentReview = null,
     agentFindings = 0,
     selected = false,
@@ -54,7 +53,6 @@
     people?: People;
     primary: PrimaryAction;
     /** The primary action's handler is not wired yet. */
-    primaryDisabled?: boolean;
     agentReview?: AgentReviewState | null;
     /** Draft Findings of a finished agent review. */
     agentFindings?: number;
@@ -82,9 +80,6 @@
   const reviewing = $derived(reviewers(pr));
   const unseen = $derived(triage.newActivity > 0);
   const since = $derived(triage.commitsSinceMyReview ?? 0);
-  const agentReviewOff = $derived(
-    menu.some((entry) => entry.kind !== "separator" && entry.id === "agentReview" && entry.disabled),
-  );
 
   function onclick(event: MouseEvent) {
     if (isRowControl(event.target)) return;
@@ -255,16 +250,14 @@
           >
             <SquarePen size={12} />
           </TooltipButton>
-          <button
-            type="button"
+          <TooltipButton
             class="row-action size-[22px] group-hover/pr:opacity-100 group-focus/pr:opacity-100 group-focus-visible/pr:hidden"
             aria-label="Start agent review"
-            title={agentReviewOff ? "Not available yet" : "Start agent review (R)"}
-            disabled={agentReviewOff}
+            label="Start agent review (R)"
             onclick={() => onAction("agentReview")}
           >
             <Sparkles size={12} />
-          </button>
+          </TooltipButton>
           <button
             {...buttonProps}
             type="button"
@@ -279,8 +272,6 @@
             class="btn btn-sm max-w-full min-w-0 text-[11px] {primary.id === "open" || primary.id === "agentReview"
               ? "hover:preset-tonal"
               : "preset-tonal"}"
-            disabled={primaryDisabled}
-            title={primaryDisabled ? "Not available yet" : primary.label}
             onclick={() => onAction(`primary:${primary.id}`)}
           >
             <span class="truncate">{primary.label}</span>

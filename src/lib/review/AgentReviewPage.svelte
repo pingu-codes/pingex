@@ -25,6 +25,7 @@
   import { startTurn } from "$lib/services/api";
   import { activeTurns } from "$lib/services/codexEvents.svelte";
   import { commands } from "$lib/services/homeRouting";
+  import { query } from "$lib/services/queryCache.svelte";
   import { toaster, toastFailure } from "$lib/toaster";
   import type { AgentReview, CheckoutStep, CheckoutTarget, Finding, Inbox, PrCheckout, PrDetail } from "$lib/types";
   import { harnessName } from "$lib/utils/capabilities";
@@ -40,8 +41,6 @@
     viewer = null,
     onOpenPr,
     onRunLocally,
-    onDetail,
-    checkout,
     onWorkOnPr,
     onPushToPr,
   }: {
@@ -56,10 +55,7 @@
     viewer?: string | null;
     onOpenPr?: (number: number, move?: PrMove) => void;
     onRunLocally?: (detail: PrDetail, action: "runLocally" | "openInEditor") => void;
-    onDetail?: (detail: PrDetail) => void;
     /** The PR's worktree, if it has one. */
-    /** The PR's checkout; `undefined` until it has been read. */
-    checkout?: PrCheckout | null;
     /** Work on this PR: a thread in its worktree, making one if needed. */
     onWorkOnPr?: (detail: PrDetail) => void;
     /** Push the worktree's commits to the PR. */
@@ -71,7 +67,13 @@
   // svelte-ignore state_referenced_locally -- likewise.
   const findings = new FindingsStore(repoDir, number, pending);
 
-  let detail = $state<PrDetail | null>(null);
+  // The same reads as the page's: one entry each, so no second request.
+  const detailQuery = query("reviewPrDetail", () => [repoDir, number]);
+  const detail = $derived<PrDetail | null>(detailQuery.value ?? null);
+  const checkoutQuery = query("reviewCheckoutState", () => (detail ? [repoDir, targetOf(detail)] : null));
+  /** Undefined until answered, and when the read fails: the page then says
+   *  nothing about a worktree rather than that there isn't one. */
+  const checkout = $derived(checkoutQuery.value);
   const repoName = $derived(basename(repoDir));
   const latest = $derived(findings.latest);
   const anyRun = $derived(findings.runs.length > 0 || findings.findings.length > 0);
@@ -244,10 +246,6 @@
   {onOpenPr}
   onAskAgent={askAgent}
   {onRunLocally}
-  onDetail={(next) => {
-    detail = next;
-    onDetail?.(next);
-  }}
   step={checkout?.step ?? "noCheckout"}
   {checkout}
   checkoutKnown={checkout !== undefined}

@@ -27,7 +27,18 @@ const REPOS = [
 ];
 
 function setup(handlers: Partial<InboxHandlers> = {}) {
-  const all: InboxHandlers = { openPr: vi.fn(), newThread: vi.fn(), ...handlers };
+  const all: InboxHandlers = {
+    openPr: vi.fn(),
+    newThread: vi.fn(),
+    startAgentReviews: vi.fn(),
+    createWorktrees: vi.fn(),
+    openInWorktree: vi.fn(),
+    fixCi: vi.fn(),
+    openStack: vi.fn(),
+    restack: vi.fn(),
+    checkOutStack: vi.fn(),
+    ...handlers,
+  };
   const onSelectRepo = vi.fn();
   render(PullRequestsView, { repos: REPOS, repoPath: MAIN, onSelectRepo, handlers: all });
   return { user: userEvent.setup(), handlers: all, onSelectRepo };
@@ -155,7 +166,7 @@ describe("Pull requests inbox", () => {
 
     expect(within(row(412)).getByRole("button", { name: "Merge" })).toBeInTheDocument();
     expect(within(row(415)).getByRole("button", { name: "Respond" })).toBeInTheDocument();
-    expect(within(row(418)).getByRole("button", { name: "Fix CI in thread" })).toBeDisabled();
+    expect(within(row(418)).getByRole("button", { name: "Fix CI in thread" })).toBeEnabled();
     expect(await within(row(409)).findByRole("button", { name: "Review" })).toBeInTheDocument();
     expect(await within(row(409)).findByText(/Agent review ready · 3\s+findings/)).toBeInTheDocument();
     expect(within(row(401)).getByText("Agent review running")).toBeInTheDocument();

@@ -11,7 +11,7 @@
   import { detailTarget } from "$lib/review/prTarget";
   import { changeStat, fileChange, reviewPrompt } from "$lib/review/review";
   import { commands } from "$lib/services/homeRouting";
-  import { fetchQuery, invalidate, query } from "$lib/services/queryCache.svelte";
+  import { fetchQuery, invalidate } from "$lib/services/queryCache.svelte";
   import { toaster, toastFailure } from "$lib/toaster";
   import type { CheckoutTarget, PrDetail, PrFile, ProviderStatus, PrSummary } from "$lib/types";
   import { errorMessage } from "$lib/utils/errors";
@@ -53,21 +53,6 @@
   );
 
   const targetOf = (detail: PrDetail): CheckoutTarget => detailTarget(repoDir, detail);
-
-  // The PR's checkout, for the page's badge, local state and button tooltips.
-  // A query, so work done in a terminal or by an agent shows when it re-reads.
-  let shownDetail = $state<PrDetail | null>(null);
-  const checkoutQuery = query("reviewCheckoutState", () =>
-    // The last PR's details stay until the next one's load: don't name its worktree.
-    shownDetail?.summary.number === initialPr ? [repoDir, targetOf(shownDetail)] : null,
-  );
-  // Undefined until answered, and when the read fails: the page then says
-  // nothing about a worktree rather than that there isn't one.
-  const prCheckout = $derived(checkoutQuery.value);
-
-  function readStep(detail: PrDetail) {
-    shownDetail = detail;
-  }
 
   /** Run locally / Open in editor: step up to the PR's worktree (asking per
    *  the repository's policy, with an Undo toast), then use it. */
@@ -161,8 +146,6 @@
       {onOpenPr}
       viewer={inboxes[repoDir]?.inbox?.viewer ?? null}
       inbox={inboxes[repoDir]?.inbox ?? null}
-      checkout={prCheckout}
-      onDetail={readStep}
       onRunLocally={runLocally}
       onWorkOnPr={startWork}
       onPushToPr={pushToPr}
