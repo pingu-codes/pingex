@@ -192,3 +192,17 @@ test.describe("the file rail", () => {
     expect(await rail(page).evaluate(fits)).toBe(true);
   });
 });
+
+test("? shows the shortcuts once the topbar has gone, and Escape stays where the reviewer was", async ({ page }) => {
+  const { pane } = await openPr(page);
+  await pane.evaluate((element) => (element.scrollTop = 3000));
+  await expect(page.getByRole("button", { name: "Back to top" })).toBeVisible();
+
+  await page.keyboard.press("?");
+  const shortcuts = page.getByRole("dialog", { name: "Shortcuts" });
+  await expect(shortcuts).toBeInViewport();
+
+  await page.keyboard.press("Escape");
+  await expect(shortcuts).toBeHidden();
+  expect(await pane.evaluate((element) => element.scrollTop)).toBe(3000);
+});

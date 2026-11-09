@@ -11,34 +11,26 @@
   panel, and Findings join the review through `PendingReviewStore.add`.
 -->
 <script lang="ts">
-  import { ArrowUp, Check, ChevronLeft, Ellipsis, Keyboard, PanelRight, PanelRightOpen } from "@lucide/svelte";
-  import { Popover, Portal } from "@skeletonlabs/skeleton-svelte";
+  import { ArrowUp, ChevronLeft, PanelRightOpen } from "@lucide/svelte";
   import { type Snippet, tick, untrack } from "svelte";
-  import { SvelteSet } from "svelte/reactivity";
   import { dialogStack, openDialog } from "$lib/app/dialogs.svelte";
   import type { PrMove } from "$lib/app/navigation.svelte";
-  import ActionMenu from "$lib/components/ActionMenu.svelte";
   import type { MenuEntry } from "$lib/components/actionMenu";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
-  import Segmented from "$lib/components/Segmented.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
-  import CheckLogList from "$lib/inbox/CheckLogList.svelte";
   import { peopleByLogin } from "$lib/inbox/inbox";
-  import LoginAvatar from "$lib/inbox/LoginAvatar.svelte";
   import { stepHint } from "$lib/review/actions";
-  import CommentBody from "$lib/review/CommentBody.svelte";
+  import ChecksTab from "$lib/review/ChecksTab.svelte";
+  import ConversationTab from "$lib/review/ConversationTab.svelte";
   import FileDiff, { type Composer, type LineSlot } from "$lib/review/FileDiff.svelte";
+  import FileRail from "$lib/review/FileRail.svelte";
   import FindBar from "$lib/review/FindBar.svelte";
   import type { PendingReviewStore } from "$lib/review/pendingReview.svelte";
+  import { mergeMethod } from "$lib/review/prActions";
+  import ReviewHeader from "$lib/review/ReviewHeader.svelte";
   import ReviewThread, { type HandTarget } from "$lib/review/ReviewThread.svelte";
-  import {
-    type CommentThread,
-    checksFailing,
-    checksLabel,
-    commentThreads,
-    conversationTimeline,
-    reviewVerb,
-  } from "$lib/review/review";
+  import { type CommentThread, commentThreads, conversationTimeline } from "$lib/review/review";
+  import { ReviewFiles } from "$lib/review/reviewFiles.svelte";
   import { type FindMatch, type FindText, type FindUnit, fileFindUnits, PATH_UNIT } from "$lib/review/reviewFind";
   import {
     type AskAgentRequest,
@@ -47,13 +39,11 @@
     type FileCounts,
     fileBlob,
     fileCounts,
-    fileGroups,
     fileInView,
     groupBy,
     type LineRange,
     prPlace,
     queueNeighbour,
-    REVIEW_SHORTCUTS,
     type ReviewFilter,
     rangeAnchor,
     rangeText,
@@ -66,7 +56,6 @@
     upNext,
   } from "$lib/review/reviewPage";
   import { loadReviewCollapsed, saveReviewCollapsed } from "$lib/review/reviewPrefs";
-  import ThreadContext from "$lib/review/ThreadContext.svelte";
   import WholeFileDialog from "$lib/review/WholeFileDialog.svelte";
   import WorktreeBadge from "$lib/review/WorktreeBadge.svelte";
   import YourReview from "$lib/review/YourReview.svelte";
@@ -129,7 +118,7 @@
     onRunLocally?: (detail: PrDetail, action: "runLocally" | "openInEditor") => void;
     /** More of the header's actions, beside Run locally. */
     headerActions?: Snippet;
-    /** The PR's detail, each time it loads. */
+    /** The checkout step the PR is at. */
     step?: CheckoutStep;
     /** Where the PR is on disk, for the header's badge. */
     checkout?: PrCheckout | null;
@@ -156,8 +145,6 @@
   const NO_COUNTS: FileCounts = { comments: 0, unresolved: 0, findings: 0 };
   /** A chosen current file survives scrolling by less than a diff row. */
   const HOLD_SLOP = 20;
-  /** Room kept around the highlighted rail row: its folder's label fits. */
-  const RAIL_MARGIN = 32;
 
   // Cached: a remount (j/k, back from a thread, a branch click on the Stack
   // page) shows the PR at once and refreshes it behind. A write through
@@ -183,18 +170,16 @@
   const opensOnSince = left.changes === "since";
   /** Where to land: the scroll position recorded as the page loads may be clamped. */
   const landAt = left.scrollTop;
-  const hadCollapsed = left.collapsed !== null;
   let tab = $state(left.tab);
   let filter = $state(left.filter);
-  const collapsed = new SvelteSet<string>(left.collapsed ?? []);
-  let collapsedKnown = $state(hadCollapsed);
+  const reviewFiles = new ReviewFiles(left.collapsed);
+  const { viewed, collapsed } = reviewFiles;
   $effect(() => {
     left.tab = tab;
     left.filter = filter;
     left.changes = changes;
-    if (collapsedKnown) left.collapsed = [...collapsed];
+    if (reviewFiles.collapsedKnown) left.collapsed = [...collapsed];
   });
-  const viewed = new SvelteSet<string>();
   let selection = $state<LineRange | null>(null);
   let composer = $state<Composer | null>(null);
   let currentPath = $state<string | null>(null);
@@ -205,7 +190,6 @@
    *  page remounts per PR, so the choice is stored to carry between them. */
   let reviewCollapsed = $state(loadReviewCollapsed());
   let scroller = $state<HTMLElement>();
-  let rail = $state<HTMLElement>();
   /** The topbar has scrolled fully out of the page. */
   let topbarHidden = $state(false);
   let topbarHeight = $state(0);
@@ -222,7 +206,6 @@
   const ownPr = $derived(!!detail && !!viewer && detail.summary.author === viewer);
   const queue = $derived(upNext(inbox, number));
   const people = $derived(inbox ? peopleByLogin(inbox) : new Map<string, GitHubPerson>());
-  const repoName = $derived(basename(repoDir));
   const files = $derived<PrFile[]>(changes === "since" && since ? since.files : (detail?.files ?? []));
   const threads = $derived(commentThreads(detail?.comments ?? []));
   const shownThreads = $derived(threads.filter((thread) => threadShown(thread, filter)));
@@ -309,15 +292,7 @@
     ]);
     if (detail) pending.syncHead(detail.headSha);
     if (readHead !== next.headSha) return;
-    // Marks follow the file's content: one that changed is unread again.
-    for (const path of viewed) if (!marked.includes(path)) collapsed.delete(path);
-    viewed.clear();
-    for (const path of marked) {
-      viewed.add(path);
-      // A page coming back keeps what the reviewer had folded and unfolded.
-      if (!hadCollapsed) collapsed.add(path);
-    }
-    collapsedKnown = true;
+    reviewFiles.applyMarks(marked);
     // The pending review's cards and the folds above change the page's height.
     if (first && !opensOnSince) land();
   }
@@ -400,22 +375,6 @@
     };
   });
 
-  // Keep the highlighted row, and the folder above it, in the rail's view. By
-  // hand: `scrollIntoView` would also move the page.
-  $effect(() => {
-    void currentPath;
-    const nav = rail;
-    if (!nav) return;
-    const frame = requestAnimationFrame(() => {
-      const row = nav.querySelector('[aria-current="true"]')?.getBoundingClientRect();
-      if (!row) return;
-      const box = nav.getBoundingClientRect();
-      if (row.top - RAIL_MARGIN < box.top) nav.scrollTop -= box.top - row.top + RAIL_MARGIN;
-      else if (row.bottom + RAIL_MARGIN > box.bottom) nav.scrollTop += row.bottom - box.bottom + RAIL_MARGIN;
-    });
-    return () => cancelAnimationFrame(frame);
-  });
-
   /** The reader chose this file: it stays current until the page moves on. */
   function holdCurrent(path: string) {
     currentPath = path;
@@ -459,20 +418,8 @@
 
   // --- files ---------------------------------------------------------------
 
-  function setOpen(path: string, open: boolean) {
-    if (open) collapsed.delete(path);
-    else collapsed.add(path);
-  }
-
   function setViewed(targets: PrFile[], value: boolean) {
-    void keepingPlace(() => {
-      for (const file of targets) {
-        if (value) viewed.add(file.path);
-        else viewed.delete(file.path);
-        // Marking viewed collapses; unmarking opens it again.
-        setOpen(file.path, !value);
-      }
-    });
+    void keepingPlace(() => reviewFiles.setViewed(targets, value));
     if (targets.length > 0) {
       commands.reviewSetViewed(repoDir, number, targets.map(fileBlob), value).catch((cause) => {
         action.error = errorMessage(cause);
@@ -483,17 +430,14 @@
   function toggle(file: PrFile, event: MouseEvent) {
     holdCurrent(file.path);
     void keepingPlace(() => {
-      if (event.altKey) {
-        for (const other of files) setOpen(other.path, other.path === file.path);
-      } else {
-        setOpen(file.path, collapsed.has(file.path));
-      }
+      if (event.altKey) reviewFiles.openOnly(files, file.path);
+      else reviewFiles.toggle(file.path);
     });
   }
 
   function jumpTo(path: string) {
     currentPath = path;
-    setOpen(path, true);
+    reviewFiles.setOpen(path, true);
     tab = "files";
     queueMicrotask(() => {
       document.querySelector(`[data-file="${CSS.escape(path)}"]`)?.scrollIntoView?.({ block: "start" });
@@ -539,9 +483,7 @@
         setViewed(files.slice(0, index + 1), true);
         break;
       case "others":
-        void keepingPlace(() => {
-          for (const other of files) setOpen(other.path, other.path === file.path);
-        });
+        void keepingPlace(() => reviewFiles.openOnly(files, file.path));
         break;
       case "whole":
         if (detail) {
@@ -685,28 +627,11 @@
 
   // --- the PR itself -------------------------------------------------------
 
-  const prMenu = $derived<MenuEntry[]>([
-    {
-      kind: "submenu",
-      id: "merge",
-      label: "Merge",
-      entries: [
-        { id: "merge:merge", label: "Create a merge commit" },
-        { id: "merge:squash", label: "Squash and merge" },
-        { id: "merge:rebase", label: "Rebase and merge" },
-      ],
-    },
-    ...(detail?.summary.isDraft ? [{ id: "ready", label: "Mark ready for review" }] : []),
-    { id: "retarget", label: "Retarget…" },
-    { kind: "separator" },
-    { id: "close", label: "Close pull request…", danger: true },
-  ]);
-
   async function onPrMenu(id: string) {
     if (!detail) return;
     const at = detail;
-    if (id.startsWith("merge:")) {
-      const method = id.slice("merge:".length) as "merge" | "squash" | "rebase";
+    const method = mergeMethod(id);
+    if (method) {
       const confirmed = await openDialog(ConfirmDialog, {
         title: `Merge #${number}?`,
         body: `Merges ${at.summary.headRef} into ${at.summary.baseRef} on GitHub, at the head you are reading.`,
@@ -795,7 +720,7 @@
     const { path, id, row } = match.unit;
     if (!path) return;
     holdCurrent(path);
-    if (id !== PATH_UNIT) setOpen(path, true);
+    if (id !== PATH_UNIT) reviewFiles.setOpen(path, true);
     findRow = row ? { path, row } : null;
   }
 
@@ -887,170 +812,51 @@
     onscroll={onPageScroll}
     class="flex h-full flex-col overflow-x-hidden overflow-y-auto"
   >
-    <header
-      bind:offsetHeight={topbarHeight}
-      class="flex shrink-0 flex-col gap-2.5 border-b border-surface-200-800 px-5 py-3"
+    <ReviewHeader
+      bind:height={topbarHeight}
+      bind:helpOpen
+      {onBack}
+      {backLabel}
+      repoName={basename(repoDir)}
+      {detail}
+      {number}
+      {people}
+      {drift}
+      {onPrMenu}
+      {tab}
+      tabs={TABS}
+      onTabChange={(value) => {
+        tab = value;
+        scrollToTop();
+      }}
+      {filter}
+      filters={FILTERS}
+      onFilterChange={(value) => (filter = value)}
+      {changes}
+      onShowChanges={showChanges}
+      {viewedCount}
+      fileCount={files.length}
+      onExpandAll={() => keepingPlace(() => reviewFiles.expandAll())}
+      onCollapseAll={() => keepingPlace(() => reviewFiles.collapseAll(files))}
+      {reviewOpen}
+      onToggleReview={() => (reviewOpen = !reviewOpen)}
+      pendingCount={pending.entries.length}
+      {shortcutsAnchor}
     >
-      <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <!-- Where the PR is and what it is; the title truncates before the actions wrap. -->
-        <div class="flex min-w-64 flex-1 items-center gap-2">
-          {#if onBack}
-            <button type="button" class="btn btn-sm hover:preset-tonal px-1 text-surface-500" onclick={onBack}>
-              <ChevronLeft size={14} aria-hidden="true" />{backLabel}
-            </button>
-            <span class="text-surface-500">/</span>
-            <span class="text-surface-500">{repoName}</span>
-            <span class="text-surface-500">/</span>
-          {/if}
-          {#if detail}
-            <h1 class="min-w-0 truncate text-sm leading-5 font-semibold" title={detail.summary.title}>
-              {detail.summary.title}
-            </h1>
-            <span class="font-mono text-surface-500">#{number}</span>
-            <LoginAvatar login={detail.summary.author} person={people.get(detail.summary.author)} role="Author" />
-            <span class="whitespace-nowrap text-surface-500">{detail.summary.author}</span>
-            {#if detail.summary.isDraft}
-              <span class="status-badge preset-tonal">Draft</span>
-            {/if}
-            {#if drift}
-              <span
-                class="status-badge preset-tonal-warning whitespace-nowrap"
-                title="The base has commits this PR does not"
-                >{drift}</span
-              >
-            {/if}
-          {:else}
-            <span class="placeholder h-4 w-48 animate-pulse rounded"></span>
-          {/if}
-        </div>
-        <div class="ml-auto flex shrink-0 items-center gap-2">
-          <WorktreeBadge variant="chip" {checkout} known={checkoutKnown} />
-          {@render headerActions?.()}
-          <button
-            type="button"
-            class="btn btn-sm hover:preset-tonal text-xs"
-            title={stepHint(step, "runLocally") ?? "Run locally"}
-            disabled={!onRunLocally}
-            onclick={() => detail && onRunLocally?.(detail, "runLocally")}
-          >
-            Run locally
-          </button>
-          <button
-            type="button"
-            class="btn btn-sm hover:preset-tonal text-xs"
-            disabled={!detail}
-            onclick={() => detail && commands.openExternalUrl(detail.summary.url)}
-          >
-            Open on GitHub
-          </button>
-          <ActionMenu
-            entries={prMenu}
-            label="Pull request {number}"
-            onSelect={onPrMenu}
-            buttonLabel="Pull request actions"
-          >
-            {#snippet row({ buttonProps })}
-              <button
-                {...buttonProps}
-                type="button"
-                class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
-                disabled={!detail}
-              >
-                <Ellipsis size={14} aria-hidden="true" />
-              </button>
-            {/snippet}
-          </ActionMenu>
-        </div>
-      </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <Segmented
-          label="Pull request"
-          value={tab}
-          options={TABS}
-          onChange={(value) => {
-            tab = value;
-            scrollToTop();
-          }}
-        />
-        {#if tab === "files"}
-          <Segmented label="Show comments" value={filter} options={FILTERS} onChange={(value) => (filter = value)} />
-          <Segmented
-            label="Changes"
-            value={changes}
-            options={[
-              { value: "all", label: "All changes" },
-              { value: "since", label: "Since your review" },
-            ]}
-            onChange={showChanges}
-          />
-          <span class="grow"></span>
-          <span class="text-surface-500">Viewed {viewedCount} of {files.length}</span>
-          <button
-            type="button"
-            class="btn btn-sm hover:preset-tonal text-[11px]"
-            onclick={() => keepingPlace(() => collapsed.clear())}
-          >
-            Expand all
-          </button>
-          <button
-            type="button"
-            class="btn btn-sm hover:preset-tonal text-[11px]"
-            onclick={() =>
-              keepingPlace(() => {
-                for (const file of files) collapsed.add(file.path);
-              })}
-          >
-            Collapse all
-          </button>
-        {:else}
-          <span class="grow"></span>
-        {/if}
+      {#snippet actions()}
+        <WorktreeBadge variant="chip" {checkout} known={checkoutKnown} />
+        {@render headerActions?.()}
         <button
           type="button"
-          class="btn btn-sm text-[11px] @3xl/review:hidden {reviewOpen ? "preset-tonal" : "hover:preset-tonal"}"
-          aria-expanded={reviewOpen}
-          onclick={() => (reviewOpen = !reviewOpen)}
+          class="btn btn-sm hover:preset-tonal text-xs"
+          title={stepHint(step, "runLocally") ?? "Run locally"}
+          disabled={!onRunLocally}
+          onclick={() => detail && onRunLocally?.(detail, "runLocally")}
         >
-          <PanelRight size={14} aria-hidden="true" />Your review{pending.entries.length > 0
-            ? ` · ${pending.entries.length}`
-            : ""}
+          Run locally
         </button>
-        <!-- Focus stays in the page: returning it to this button would scroll the
-             reviewer back up to the topbar. -->
-        <Popover
-          open={helpOpen}
-          onOpenChange={(details) => (helpOpen = details.open)}
-          autoFocus={false}
-          restoreFocus={false}
-          positioning={{ placement: "bottom-end", strategy: "fixed", gutter: 6, getAnchorRect: shortcutsAnchor }}
-        >
-          <Popover.Trigger class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500" aria-label="Shortcuts">
-            <Keyboard size={14} aria-hidden="true" />
-          </Popover.Trigger>
-          <Portal>
-            <Popover.Positioner>
-              <Popover.Content
-                class="popover-card z-50 grid max-w-md grid-cols-2 gap-x-4 gap-y-1.5 p-3 text-xs"
-                aria-label="Shortcuts"
-              >
-                {#if helpOpen}
-                  {#each REVIEW_SHORTCUTS as shortcut (shortcut.label)}
-                    <div class="flex justify-between gap-2">
-                      <span>{shortcut.label}</span>
-                      <span class="flex gap-1"
-                        >{#each shortcut.keys as key (key)}
-                          <kbd class="kbd">{key}</kbd>
-                        {/each}</span
-                      >
-                    </div>
-                  {/each}
-                {/if}
-              </Popover.Content>
-            </Popover.Positioner>
-          </Portal>
-        </Popover>
-      </div>
-    </header>
+      {/snippet}
+    </ReviewHeader>
 
     {#if action.error}
       <!-- Sticky: a failed write must show even with the topbar scrolled away. -->
@@ -1069,46 +875,7 @@
     {:else}
       <div class="relative flex flex-1">
         {#if tab === "files"}
-          <div class="hidden w-56 shrink-0 @5xl/review:block border-r border-surface-200-800 bg-surface-100-900">
-            <nav
-              bind:this={rail}
-              aria-label="Changed files"
-              class="sticky top-0 flex max-h-[100cqh] flex-col gap-0.5 overflow-y-auto px-2 py-3"
-            >
-              {#each fileGroups(files) as group (group.dir)}
-                {#if group.dir}
-                  <!-- Wraps at a slash when it can: WebKit won't break there on its own. -->
-                  <div class="eyebrow px-2 pt-2 pb-1.5 wrap-anywhere">{group.dir.replaceAll("/", "/\u200b")}</div>
-                {/if}
-                {#each group.files as file (file.path)}
-                  {@const counts = countsByPath.get(file.path) ?? NO_COUNTS}
-                  <button
-                    type="button"
-                    class="menu-row {currentPath === file.path ? "bg-surface-200-800" : ""}"
-                    aria-current={currentPath === file.path}
-                    onclick={() => jumpTo(file.path)}
-                  >
-                    <span class="min-w-0 grow truncate font-mono text-[11px]">{basename(file.path)}</span>
-                    {#if counts.findings > 0}
-                      <span class="status-badge preset-tonal-primary" title="Agent findings">{counts.findings}</span>
-                    {/if}
-                    {#if counts.comments > 0}
-                      <span class="status-badge preset-tonal" title="Comments">{counts.comments}</span>
-                    {/if}
-                    {#if viewed.has(file.path)}
-                      <Check size={12} class="text-success-500" aria-label="Viewed" />
-                    {/if}
-                  </button>
-                {/each}
-              {/each}
-              <div class="mt-2 flex flex-col gap-1.5 border-t border-surface-200-800 p-2 text-surface-500">
-                <div class="flex items-center gap-1.5">
-                  <kbd class="kbd">]</kbd><kbd class="kbd">[</kbd>Next / previous file
-                </div>
-                <div class="flex items-center gap-1.5"><kbd class="kbd">v</kbd>Mark viewed and collapse</div>
-              </div>
-            </nav>
-          </div>
+          <FileRail {files} {currentPath} {countsByPath} {viewed} onJump={jumpTo} />
 
           <section aria-label="Diffs" data-find-root class="flex min-w-0 flex-1 flex-col gap-2.5 px-5 py-4">
             {#if changes === "since" && since}
@@ -1167,9 +934,15 @@
             {#if !detail}
               <div class="placeholder h-40 animate-pulse rounded-xl"></div>
             {:else if tab === "conversation"}
-              {@render conversationTab(detail)}
+              <ConversationTab pr={detail} {conversation} {people} onJump={jumpTo} {threadCard} />
             {:else if tab === "checks"}
-              {@render checksTab(detail)}
+              <ChecksTab
+                checks={detail.checks}
+                logs={checkLogs}
+                busy={action.busy}
+                onLoadLogs={loadCheckLogs}
+                onRerun={() => action.run(() => commands.reviewRerunFailedChecks(repoDir, number))}
+              />
             {:else}
               {@render threadsTab?.()}
             {/if}
@@ -1284,100 +1057,4 @@
     onCopy={(text) => void commands.copyText(text)}
     onOpenUrl={(url) => void commands.openExternalUrl(url)}
   />
-{/snippet}
-
-{#snippet conversationThread(found: CommentThread)}
-  <!-- Away from the diff, a thread shows where it is and the lines it is about. -->
-  <div class="flex flex-col gap-1">
-    <ThreadContext thread={found} onJump={jumpTo} />
-    {@render threadCard(found)}
-  </div>
-{/snippet}
-
-{#snippet conversationTab(pr: PrDetail)}
-  <div class="flex max-w-3xl flex-col gap-3">
-    {#if pr.body.trim()}
-      <CommentBody class="panel-card p-3" body={pr.body} />
-    {/if}
-    {#each conversation as entry (entry.key)}
-      {#if entry.kind === "comment"}
-        <div class="panel-card flex flex-col gap-1 p-2.5">
-          <div class="flex items-center gap-1.5">
-            <LoginAvatar login={entry.comment.author} person={people.get(entry.comment.author)} />
-            <b class="font-medium">{entry.comment.author}</b>
-            <span class="text-surface-500">{new Date(entry.comment.createdAt).toLocaleString()}</span>
-          </div>
-          <CommentBody class="pl-6" body={entry.comment.body} />
-        </div>
-      {:else if entry.kind === "review"}
-        {@const review = entry.review}
-        <div class="panel-card flex flex-col gap-2 p-2.5">
-          <div class="flex items-center gap-1.5">
-            <LoginAvatar login={review.author} person={people.get(review.author)} />
-            <b class="font-medium">{review.author}</b>
-            {#if review.state === "APPROVED"}
-              <span class="status-badge preset-tonal-success">{reviewVerb(review.state)}</span>
-            {:else if review.state === "CHANGES_REQUESTED"}
-              <span class="status-badge preset-tonal-warning">{reviewVerb(review.state)}</span>
-            {:else}
-              <span class="text-surface-500">{reviewVerb(review.state)}</span>
-            {/if}
-            <span class="text-surface-500">{new Date(review.submittedAt).toLocaleString()}</span>
-          </div>
-          {#if review.body.trim()}
-            <CommentBody class="pl-6" body={review.body} />
-          {/if}
-          {#each entry.threads as found (found.key)}
-            {@render conversationThread(found)}
-          {/each}
-        </div>
-      {:else}
-        {@render conversationThread(entry.thread)}
-      {/if}
-    {:else}
-      <p class="empty-state">No conversation yet.</p>
-    {/each}
-    {#if pr.commits.length > 0}
-      <div class="eyebrow mt-2">Commits</div>
-      <div class="panel-card flex flex-col p-1.5">
-        {#each pr.commits as commit (commit.oid)}
-          <div class="menu-row">
-            <span class="font-mono text-[11px] text-surface-500">{commit.shortOid}</span>{commit.headline}
-          </div>
-        {/each}
-      </div>
-    {/if}
-  </div>
-{/snippet}
-
-{#snippet checksTab(pr: PrDetail)}
-  <div class="flex max-w-3xl flex-col gap-3">
-    <div class="flex items-center gap-2">
-      <span class={checksFailing(pr.checks) ? "text-error-500" : "text-surface-500"}>
-        {checksLabel(pr.checks) ?? "No checks on this head."}
-      </span>
-      <span class="grow"></span>
-      {#if checksFailing(pr.checks)}
-        <button
-          type="button"
-          class="btn btn-sm hover:preset-tonal text-[11px]"
-          disabled={action.busy}
-          onclick={loadCheckLogs}
-        >
-          View failing logs
-        </button>
-        <button
-          type="button"
-          class="btn btn-sm preset-tonal text-[11px]"
-          disabled={action.busy}
-          onclick={() => action.run(() => commands.reviewRerunFailedChecks(repoDir, number))}
-        >
-          Re-run failed checks
-        </button>
-      {/if}
-    </div>
-    {#if checkLogs}
-      <CheckLogList logs={checkLogs} />
-    {/if}
-  </div>
 {/snippet}
