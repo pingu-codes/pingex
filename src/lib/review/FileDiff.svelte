@@ -17,6 +17,7 @@
   import type { Snippet } from "svelte";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
   import type { MenuEntry } from "$lib/components/actionMenu";
+  import CommentBody from "$lib/review/CommentBody.svelte";
   import { highlightedRows } from "$lib/review/diffHighlight";
   import LineComposer from "$lib/review/LineComposer.svelte";
   import type { CommentThread } from "$lib/review/review";
@@ -321,7 +322,7 @@
     <span class="status-badge preset-tonal">Pending</span>
     <div class="min-w-0 grow">
       <div class="font-mono text-[11px] text-surface-500">{entryLabel(entry)}</div>
-      <div class="text-[13px] leading-5 whitespace-pre-wrap">{entry.body}</div>
+      <CommentBody body={entry.body} />
       {#if entry.kind === "suggestion"}
         <pre
           class="mt-1 rounded bg-surface-100-900 p-1.5 font-mono text-[11px] whitespace-pre-wrap"

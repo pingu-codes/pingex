@@ -20,6 +20,7 @@
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import Segmented from "$lib/components/Segmented.svelte";
   import { STEP_LABELS, stepHint } from "$lib/review/actions";
+  import CommentBody from "$lib/review/CommentBody.svelte";
   import FileDiff, { type Composer, type LineSlot } from "$lib/review/FileDiff.svelte";
   import { PendingReviewStore } from "$lib/review/pendingReview.svelte";
   import RetargetDialog from "$lib/review/RetargetDialog.svelte";
@@ -53,6 +54,7 @@
     threadShown,
     upNext,
   } from "$lib/review/reviewPage";
+  import ThreadContext from "$lib/review/ThreadContext.svelte";
   import WholeFileDialog from "$lib/review/WholeFileDialog.svelte";
   import YourReview from "$lib/review/YourReview.svelte";
   import { commands } from "$lib/services/homeRouting";
@@ -881,15 +883,9 @@
 {/snippet}
 
 {#snippet conversationThread(found: CommentThread)}
-  <!-- Away from the diff, a thread says where it is; the link opens the file. -->
+  <!-- Away from the diff, a thread shows where it is and the lines it is about. -->
   <div class="flex flex-col gap-1">
-    <button
-      type="button"
-      class="self-start font-mono text-[11px] text-surface-500 hover:underline"
-      onclick={() => jumpTo(found.path)}
-    >
-      {found.path}:{found.line ?? "file"}
-    </button>
+    <ThreadContext thread={found} onJump={jumpTo} />
     {@render threadCard(found)}
   </div>
 {/snippet}
@@ -897,7 +893,7 @@
 {#snippet conversationTab(pr: PrDetail)}
   <div class="flex max-w-3xl flex-col gap-3">
     {#if pr.body.trim()}
-      <div class="panel-card p-3 text-[13px] leading-5 whitespace-pre-wrap">{pr.body}</div>
+      <CommentBody class="panel-card p-3" body={pr.body} />
     {/if}
     {#each conversation as entry, index (entry.key)}
       {#if divider && index === divider.index}
@@ -917,7 +913,7 @@
             <b class="font-medium">{entry.comment.author}</b>
             <span class="text-surface-500">{new Date(entry.comment.createdAt).toLocaleString()}</span>
           </div>
-          <div class="pl-6 text-[13px] leading-5 whitespace-pre-wrap">{entry.comment.body}</div>
+          <CommentBody class="pl-6" body={entry.comment.body} />
         </div>
       {:else if entry.kind === "review"}
         {@const review = entry.review}
@@ -935,7 +931,7 @@
             <span class="text-surface-500">{new Date(review.submittedAt).toLocaleString()}</span>
           </div>
           {#if review.body.trim()}
-            <div class="pl-6 text-[13px] leading-5 whitespace-pre-wrap">{review.body}</div>
+            <CommentBody class="pl-6" body={review.body} />
           {/if}
           {#each entry.threads as found (found.key)}
             {@render conversationThread(found)}

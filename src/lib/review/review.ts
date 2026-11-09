@@ -1,4 +1,4 @@
-import type { ChecksSummary, FileUpdateChange, PrComment, PrFile, PrFreshness, PrReview } from "$lib/types";
+import type { ChecksSummary, DiffHunk, FileUpdateChange, PrComment, PrFile, PrFreshness, PrReview } from "$lib/types";
 
 /**
  * Map a changed PR file to the `FileUpdateChange` shape `DiffBlock` renders.
@@ -77,6 +77,12 @@ export interface CommentThread {
   side: string | null;
   resolved: boolean;
   comments: PrComment[];
+  /** The anchor GitHub gives the thread's first comment; see `threadContext`. */
+  startLine: number | null;
+  originalLine: number | null;
+  originalStartLine: number | null;
+  diffHunk: DiffHunk | null;
+  outdated: boolean;
 }
 
 /**
@@ -99,6 +105,11 @@ export function commentThreads(comments: PrComment[]): CommentThread[] {
         side: comment.side,
         resolved: comment.isResolved,
         comments: [],
+        startLine: comment.startLine,
+        originalLine: comment.originalLine,
+        originalStartLine: comment.originalStartLine,
+        diffHunk: comment.diffHunk,
+        outdated: comment.outdated,
       };
       byKey.set(key, thread);
     }

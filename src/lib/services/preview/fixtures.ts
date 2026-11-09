@@ -43,7 +43,7 @@ import type {
   WorktreeEntry,
 } from "$lib/types";
 import { basename } from "$lib/utils/path";
-import { threadSummary, worktreeEntry } from "./factories";
+import { NO_ANCHOR, threadSummary, withAnchors, worktreeEntry } from "./factories";
 
 let previewCounter = 100;
 
@@ -1102,7 +1102,7 @@ const previewReviewPatch = [
   " export const VERSION = 1;",
 ].join("\n");
 
-export const previewPrDetail: PrDetail = {
+export const previewPrDetail: PrDetail = withAnchors({
   summary: previewPrs[0],
   body: "This adds a three-pane review view: PR summary and files on the left, diff in the center, and review/comments on the right.\n\nCloses #99.",
   headSha: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
@@ -1179,6 +1179,7 @@ export const previewPrDetail: PrDetail = {
       side: "RIGHT",
       threadId: "THREAD_A",
       isResolved: false,
+      ...NO_ANCHOR,
       reviewId: "PRR_octo",
     },
     {
@@ -1191,6 +1192,7 @@ export const previewPrDetail: PrDetail = {
       side: "RIGHT",
       threadId: "THREAD_A",
       isResolved: false,
+      ...NO_ANCHOR,
       // A reply is posted in a review of its own.
       reviewId: "PRR_ciaran_reply",
     },
@@ -1204,6 +1206,7 @@ export const previewPrDetail: PrDetail = {
       side: null,
       threadId: null,
       isResolved: false,
+      ...NO_ANCHOR,
       reviewId: null,
     },
   ],
@@ -1214,7 +1217,7 @@ export const previewPrDetail: PrDetail = {
   ],
   checks: { total: 4, passing: 3, failing: 0, pending: 1 },
   filesTruncated: false,
-};
+});
 
 // Fake paired devices so browser preview renders connection cards. One is
 // freshly active (online), one was seen a few hours ago, one is only known

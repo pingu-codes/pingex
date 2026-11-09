@@ -2,7 +2,36 @@
 // dozen. Each starts from a plain, idle record and takes the fields that
 // matter to the caller.
 
-import type { DiffLine, InboxPr, PrFile, ThreadSummary, WorktreeEntry } from "$lib/types";
+import type { DiffLine, InboxPr, PrComment, PrDetail, PrFile, ThreadSummary, WorktreeEntry } from "$lib/types";
+
+/** The anchor fields of a comment GitHub gave no diff context for. */
+export const NO_ANCHOR = {
+  startLine: null,
+  originalLine: null,
+  originalStartLine: null,
+  diffHunk: null,
+  outdated: false,
+} satisfies Partial<PrComment>;
+
+/**
+ * `detail` with each inline comment's `diffHunk` filled from its own diff, the
+ * way GitHub sends it: the file's hunk cut off at the commented head line.
+ */
+export function withAnchors(detail: PrDetail): PrDetail {
+  for (const comment of detail.comments) {
+    const line = comment.originalLine ?? comment.line;
+    if (comment.path == null || line == null || comment.diffHunk) continue;
+    for (const hunk of detail.files.find((file) => file.path === comment.path)?.hunks ?? []) {
+      const end = hunk.lines.findIndex((row) => row.kind !== "del" && row.newLine === line);
+      if (end < 0) continue;
+      comment.diffHunk = { ...hunk, lines: hunk.lines.slice(0, end + 1) };
+      comment.originalLine = line;
+      if (!comment.outdated) comment.originalStartLine ??= comment.startLine;
+      break;
+    }
+  }
+  return detail;
+}
 
 /** A clean linked worktree on branch `feature`. */
 export function worktreeEntry(overrides: Partial<WorktreeEntry> = {}): WorktreeEntry {

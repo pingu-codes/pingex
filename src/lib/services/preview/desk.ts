@@ -23,7 +23,7 @@ import type {
   Repository,
   StackListing,
 } from "$lib/types";
-import { inboxPr, largeDiffFiles } from "./factories";
+import { inboxPr, largeDiffFiles, NO_ANCHOR, withAnchors } from "./factories";
 import { previewInbox, previewPrDetail } from "./fixtures";
 
 export const DESK_VIEWER = "ciaran";
@@ -195,6 +195,8 @@ function thread(
   messages: [author: string, body: string][],
   /** The review the first comment was posted in; each reply has its own. */
   review: string,
+  /** A range or outdated flag; the hunk itself comes from `withAnchors`. */
+  anchor: Partial<PrComment> = {},
 ): PrComment[] {
   return messages.map(([author, body], index) => ({
     id: Number.parseInt(threadId.replace(/\D/g, ""), 10) * 10 + index,
@@ -207,10 +209,12 @@ function thread(
     threadId,
     isResolved: resolved,
     reviewId: index === 0 ? review : `${threadId}_reply${index}`,
+    ...NO_ANCHOR,
+    ...anchor,
   }));
 }
 
-const threadedDetail: PrDetail = {
+const threadedDetail: PrDetail = withAnchors({
   ...structuredClone(previewPrDetail),
   summary: {
     number: THREADED_PR,
@@ -233,7 +237,7 @@ const threadedDetail: PrDetail = {
       4,
       false,
       [
-        ["tomasz", "Three retries feels arbitrary. Can this come from the config?"],
+        ["tomasz", "Three retries feels **arbitrary**. Can this come from the _config_?"],
         ["mira-k", "It could, but nobody has asked to tune it yet."],
       ],
       "PRR_tomasz",
@@ -243,8 +247,14 @@ const threadedDetail: PrDetail = {
       "src/lib/loader.ts",
       6,
       false,
-      [["tomasz", "This swallows the original error."]],
+      [
+        [
+          "tomasz",
+          "This swallows the original error. Keep it as the `cause`:\n\n```ts\nthrow new Error('path is required', { cause });\n```",
+        ],
+      ],
       "PRR_tomasz",
+      { startLine: 4 },
     ),
     ...thread(
       "THREAD_3",
@@ -256,6 +266,7 @@ const threadedDetail: PrDetail = {
         ["mira-k", "Fixed."],
       ],
       "PRR_ciaran",
+      { outdated: true },
     ),
     {
       id: 0,
@@ -268,6 +279,7 @@ const threadedDetail: PrDetail = {
       threadId: null,
       isResolved: false,
       reviewId: null,
+      ...NO_ANCHOR,
     },
   ],
   reviews: [
@@ -280,7 +292,7 @@ const threadedDetail: PrDetail = {
     },
     { id: "PRR_ciaran", author: "ciaran", state: "COMMENTED", body: "", submittedAt: "2026-11-04T10:05:00Z" },
   ],
-};
+});
 
 // --- the other repositories --------------------------------------------------
 

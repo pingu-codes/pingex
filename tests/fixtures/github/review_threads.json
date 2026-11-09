@@ -1,0 +1,231 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "reviewThreads": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": "Y3Vyc29yOnYyOpK0MjAyNi0xMC0yMVQxOTozNToxMVrOruwdUw=="
+          },
+          "nodes": [
+            {
+              "id": "PRRT_1",
+              "isResolved": true,
+              "isOutdated": true,
+              "diffSide": "RIGHT",
+              "startLine": null,
+              "originalLine": 127,
+              "originalStartLine": null,
+              "comments": {
+                "nodes": [
+                  {
+                    "databaseId": 1000,
+                    "body": "We should handle references too.\n```suggestion\n    if let Some(kind) = match cx.typeck_results().expr_ty(recv).peel_refs().opt_diag_name(cx) {\n```\n\ncan you also add tests for references.\n\n*[View changes since the review](https://example.com/changes-since/1/aaaa..bbbb)*",
+                    "createdAt": "2026-10-08T15:51:45Z",
+                    "path": "clippy_lints/src/methods/unnecessary_lazy_eval.rs",
+                    "line": null,
+                    "originalLine": 127,
+                    "diffHunk": "@@ -107,3 +107,72 @@ pub(super) fn check<'tcx>(\n     }\n     false\n }\n+\n+/// lint use of `_.map_or_else(|| value, f)` for `Option`s and `Result`s that can be\n+/// replaced with `_.map_or(value, f)`\n+pub(super) fn check_map_or_else<'tcx>(\n+    cx: &LateContext<'tcx>,\n+    expr: &'tcx hir::Expr<'_>,\n+    recv: &'tcx hir::Expr<'_>,\n+    def_arg: &'tcx hir::Expr<'_>,\n+    map_arg: &'tcx hir::Expr<'_>,\n+    call_span: Span,\n+) {\n+    #[derive(PartialEq)]\n+    enum Kind {\n+        Option,\n+        Result,\n+    }\n+\n+    if let Some(kind) = match cx.typeck_results().expr_ty(recv).opt_diag_name(cx) {",
+                    "author": {
+                      "login": "reviewer-a"
+                    },
+                    "pullRequestReview": {
+                      "id": "PRR_2"
+                    }
+                  },
+                  {
+                    "databaseId": 1001,
+                    "body": "Fixed and added tests.",
+                    "createdAt": "2026-10-10T13:32:00Z",
+                    "path": "clippy_lints/src/methods/unnecessary_lazy_eval.rs",
+                    "line": null,
+                    "originalLine": 127,
+                    "diffHunk": "@@ -107,3 +107,72 @@ pub(super) fn check<'tcx>(\n     }\n     false\n }\n+\n+/// lint use of `_.map_or_else(|| value, f)` for `Option`s and `Result`s that can be\n+/// replaced with `_.map_or(value, f)`\n+pub(super) fn check_map_or_else<'tcx>(\n+    cx: &LateContext<'tcx>,\n+    expr: &'tcx hir::Expr<'_>,\n+    recv: &'tcx hir::Expr<'_>,\n+    def_arg: &'tcx hir::Expr<'_>,\n+    map_arg: &'tcx hir::Expr<'_>,\n+    call_span: Span,\n+) {\n+    #[derive(PartialEq)]\n+    enum Kind {\n+        Option,\n+        Result,\n+    }\n+\n+    if let Some(kind) = match cx.typeck_results().expr_ty(recv).opt_diag_name(cx) {",
+                    "author": {
+                      "login": "author-b"
+                    },
+                    "pullRequestReview": {
+                      "id": "PRR_3"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "id": "PRRT_4",
+              "isResolved": true,
+              "isOutdated": false,
+              "diffSide": "RIGHT",
+              "startLine": 133,
+              "originalLine": 141,
+              "originalStartLine": 137,
+              "comments": {
+                "nodes": [
+                  {
+                    "databaseId": 1002,
+                    "body": "We should also check if `body_expr` or `map_arg` are from an expansion.\n\n*[View changes since the review](https://example.com/changes-since/1/aaaa..bbbb)*",
+                    "createdAt": "2026-10-08T15:57:08Z",
+                    "path": "clippy_lints/src/methods/unnecessary_lazy_eval.rs",
+                    "line": 137,
+                    "originalLine": 141,
+                    "diffHunk": "@@ -107,3 +107,72 @@ pub(super) fn check<'tcx>(\n     }\n     false\n }\n+\n+/// lint use of `_.map_or_else(|| value, f)` for `Option`s and `Result`s that can be\n+/// replaced with `_.map_or(value, f)`\n+pub(super) fn check_map_or_else<'tcx>(\n+    cx: &LateContext<'tcx>,\n+    expr: &'tcx hir::Expr<'_>,\n+    recv: &'tcx hir::Expr<'_>,\n+    def_arg: &'tcx hir::Expr<'_>,\n+    map_arg: &'tcx hir::Expr<'_>,\n+    call_span: Span,\n+) {\n+    #[derive(PartialEq)]\n+    enum Kind {\n+        Option,\n+        Result,\n+    }\n+\n+    if let Some(kind) = match cx.typeck_results().expr_ty(recv).opt_diag_name(cx) {\n+        Some(sym::Option) => Some(Kind::Option),\n+        Some(sym::Result) => Some(Kind::Result),\n+        _ => None,\n+    } && let hir::ExprKind::Closure(&hir::Closure {\n+        body,\n+        fn_decl,\n+        kind: hir::ClosureKind::Closure,\n+        ..\n+    }) = def_arg.kind\n+        && let body = cx.tcx.hir_body(body)\n+        && let body_expr = &body.value\n+        && !usage::BindingUsageFinder::are_params_used(cx, body)\n+        && eager_or_lazy::switch_to_eager_eval(cx, body_expr)\n+        && !is_from_proc_macro(cx, expr)",
+                    "author": {
+                      "login": "reviewer-a"
+                    },
+                    "pullRequestReview": {
+                      "id": "PRR_2"
+                    }
+                  },
+                  {
+                    "databaseId": 1003,
+                    "body": "Fixed and added tests.",
+                    "createdAt": "2026-10-10T13:31:57Z",
+                    "path": "clippy_lints/src/methods/unnecessary_lazy_eval.rs",
+                    "line": 137,
+                    "originalLine": 141,
+                    "diffHunk": "@@ -107,3 +107,72 @@ pub(super) fn check<'tcx>(\n     }\n     false\n }\n+\n+/// lint use of `_.map_or_else(|| value, f)` for `Option`s and `Result`s that can be\n+/// replaced with `_.map_or(value, f)`\n+pub(super) fn check_map_or_else<'tcx>(\n+    cx: &LateContext<'tcx>,\n+    expr: &'tcx hir::Expr<'_>,\n+    recv: &'tcx hir::Expr<'_>,\n+    def_arg: &'tcx hir::Expr<'_>,\n+    map_arg: &'tcx hir::Expr<'_>,\n+    call_span: Span,\n+) {\n+    #[derive(PartialEq)]\n+    enum Kind {\n+        Option,\n+        Result,\n+    }\n+\n+    if let Some(kind) = match cx.typeck_results().expr_ty(recv).opt_diag_name(cx) {\n+        Some(sym::Option) => Some(Kind::Option),\n+        Some(sym::Result) => Some(Kind::Result),\n+        _ => None,\n+    } && let hir::ExprKind::Closure(&hir::Closure {\n+        body,\n+        fn_decl,\n+        kind: hir::ClosureKind::Closure,\n+        ..\n+    }) = def_arg.kind\n+        && let body = cx.tcx.hir_body(body)\n+        && let body_expr = &body.value\n+        && !usage::BindingUsageFinder::are_params_used(cx, body)\n+        && eager_or_lazy::switch_to_eager_eval(cx, body_expr)\n+        && !is_from_proc_macro(cx, expr)",
+                    "author": {
+                      "login": "author-b"
+                    },
+                    "pullRequestReview": {
+                      "id": "PRR_5"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "id": "PRRT_6",
+              "isResolved": true,
+              "isOutdated": true,
+              "diffSide": "RIGHT",
+              "startLine": null,
+              "originalLine": 261,
+              "originalStartLine": 236,
+              "comments": {
+                "nodes": [
+                  {
+                    "databaseId": 1004,
+                    "body": "nit: Could you wrap these cases in a function names like `issue15829` just like other fix issue testing?",
+                    "createdAt": "2026-10-16T15:56:43Z",
+                    "path": "tests/ui/unnecessary_lazy_eval.rs",
+                    "line": null,
+                    "originalLine": 261,
+                    "diffHunk": "@@ -232,6 +232,33 @@ fn main() {\n     // neither bind_instead_of_map nor unnecessary_lazy_eval applies here\n     let _: Result<usize, usize> = res.and_then(|x| Err(x));\n     let _: Result<usize, usize> = res.or_else(|err| Ok(err));\n+\n+    // Issue #15829 - map_or_else\n+    // Should lint - Option\n+    let _ = opt.map_or_else(|| 42, |_| 42);\n+    //~^ unnecessary_lazy_evaluations\n+    let opt_ref = &opt;\n+    let _ = opt_ref.map_or_else(|| 42, |_| 42);\n+    //~^ unnecessary_lazy_evaluations\n+\n+    // Should lint - Result\n+    let _ = res.map_or_else(|_| 42, |_| 42);\n+    //~^ unnecessary_lazy_evaluations\n+    let res_ref = &res;\n+    let _ = res_ref.map_or_else(|_| 42, |_| 42);\n+    //~^ unnecessary_lazy_evaluations\n+\n+    // Should not lint\n+    // closure uses its parameter\n+    let _ = res.map_or_else(|err| err, |x| x + 1);\n+    // closure contains function call\n+    let _ = opt.map_or_else(|| some_call(), |x| x + 1);\n+    // default closure is proc macro\n+    let _ = opt.map_or_else(external! {|| $42}, |_| 42);\n+    // default closure body is proc macro\n+    let _ = opt.map_or_else(|| external!(42), |_| 42);\n+    // map closure is proc macro\n+    let _ = opt.map_or_else(|| 42, external! { |_| $42 });",
+                    "author": {
+                      "login": "reviewer-c"
+                    },
+                    "pullRequestReview": {
+                      "id": "PRR_7"
+                    }
+                  },
+                  {
+                    "databaseId": 1005,
+                    "body": "Fixed.",
+                    "createdAt": "2026-10-17T18:37:06Z",
+                    "path": "tests/ui/unnecessary_lazy_eval.rs",
+                    "line": null,
+                    "originalLine": 261,
+                    "diffHunk": "@@ -232,6 +232,33 @@ fn main() {\n     // neither bind_instead_of_map nor unnecessary_lazy_eval applies here\n     let _: Result<usize, usize> = res.and_then(|x| Err(x));\n     let _: Result<usize, usize> = res.or_else(|err| Ok(err));\n+\n+    // Issue #15829 - map_or_else\n+    // Should lint - Option\n+    let _ = opt.map_or_else(|| 42, |_| 42);\n+    //~^ unnecessary_lazy_evaluations\n+    let opt_ref = &opt;\n+    let _ = opt_ref.map_or_else(|| 42, |_| 42);\n+    //~^ unnecessary_lazy_evaluations\n+\n+    // Should lint - Result\n+    let _ = res.map_or_else(|_| 42, |_| 42);\n+    //~^ unnecessary_lazy_evaluations\n+    let res_ref = &res;\n+    let _ = res_ref.map_or_else(|_| 42, |_| 42);\n+    //~^ unnecessary_lazy_evaluations\n+\n+    // Should not lint\n+    // closure uses its parameter\n+    let _ = res.map_or_else(|err| err, |x| x + 1);\n+    // closure contains function call\n+    let _ = opt.map_or_else(|| some_call(), |x| x + 1);\n+    // default closure is proc macro\n+    let _ = opt.map_or_else(external! {|| $42}, |_| 42);\n+    // default closure body is proc macro\n+    let _ = opt.map_or_else(|| external!(42), |_| 42);\n+    // map closure is proc macro\n+    let _ = opt.map_or_else(|| 42, external! { |_| $42 });",
+                    "author": {
+                      "login": "author-b"
+                    },
+                    "pullRequestReview": {
+                      "id": "PRR_8"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "id": "PRRT_9",
+              "isResolved": true,
+              "isOutdated": false,
+              "diffSide": "RIGHT",
+              "startLine": 150,
+              "originalLine": 165,
+              "originalStartLine": 150,
+              "comments": {
+                "nodes": [
+                  {
+                    "databaseId": 1006,
+                    "body": "The lint may generate uncompilable suggestion with `Applicability::MachineApplicable`. The applicability isn't shown in stderr so maybe I'm wrong and please check this locally.\r\n\r\n---\r\n\r\nBefore:\r\n```rust\r\nlet re: Result<(), _> = Err(Default::default());\r\nlet _ = re.map_or_else(|_: i32| 42, |_| 42);\r\n```\r\nThe explicit i32 parameter type constrains the error type of re to i32.\r\n\r\nAfter fix applied:\r\n```rust\r\nlet re: Result<(), _> = Err(Default::default());\r\nlet _ = re.map_or(42, |_| 42);\r\n```\r\nWe don't need type annotation in `map_or`, so the compiler doesn't know the `Result<(), _>` `_`'s type, which leads to `error[E0790]: cannot call associated function on trait without specifying the corresponding \"impl\" type`. \r\n\r\nI think `Applicability::MachineApplicable` may not fit, what about switch all the applicabilities to `Applicability::MaybeIncorrect`? Or you could also avoid this suggestion error by checking the `fn_decl.inputs`.\r\n\r\n---\r\n\r\nMaybe this patch could specifically downgrade when closures' parameters have a type annotation?\r\n```suggestion\r\n        let mut applicability = if body\r\n            .params\r\n            .iter()\r\n            .all(|param| matches!(param.pat.kind, hir::PatKind::Binding(..) | hir::PatKind::Wild))\r\n            && matches!(\r\n                fn_decl.output,\r\n                FnRetTy::DefaultReturn(_)\r\n                    | FnRetTy::Return(hir::Ty {\r\n                        kind: hir::TyKind::Infer(()),\r\n                        ..\r\n                    })\r\n            )\r\n            && fn_decl\r\n                .inputs\r\n                .iter()\r\n                .all(|ty| matches!(ty.kind, hir::TyKind::Infer(())))\r\n        {\r\n            Applicability::MachineApplicable\r\n        } else {\r\n            Applicability::MaybeIncorrect\r\n        };\r\n```",
+                    "createdAt": "2026-10-16T20:20:15Z",
+                    "path": "clippy_lints/src/methods/unnecessary_lazy_eval.rs",
+                    "line": 161,
+                    "originalLine": 165,
+                    "diffHunk": "@@ -107,3 +107,74 @@ pub(super) fn check<'tcx>(\n     }\n     false\n }\n+\n+/// lint use of `_.map_or_else(|| value, f)` for `Option`s and `Result`s that can be\n+/// replaced with `_.map_or(value, f)`\n+pub(super) fn check_map_or_else<'tcx>(\n+    cx: &LateContext<'tcx>,\n+    expr: &'tcx hir::Expr<'_>,\n+    recv: &'tcx hir::Expr<'_>,\n+    def_arg: &'tcx hir::Expr<'_>,\n+    map_arg: &'tcx hir::Expr<'_>,\n+    call_span: Span,\n+) {\n+    #[derive(PartialEq)]\n+    enum Kind {\n+        Option,\n+        Result,\n+    }\n+\n+    if let Some(kind) = match cx.typeck_results().expr_ty(recv).peel_refs().opt_diag_name(cx) {\n+        Some(sym::Option) => Some(Kind::Option),\n+        Some(sym::Result) => Some(Kind::Result),\n+        _ => None,\n+    } && let hir::ExprKind::Closure(&hir::Closure {\n+        body,\n+        fn_decl,\n+        kind: hir::ClosureKind::Closure,\n+        ..\n+    }) = def_arg.kind\n+        && let body = cx.tcx.hir_body(body)\n+        && let body_expr = &body.value\n+        && !usage::BindingUsageFinder::are_params_used(cx, body)\n+        && eager_or_lazy::switch_to_eager_eval(cx, body_expr)\n+        && !is_from_proc_macro(cx, expr)\n+        && !is_from_proc_macro(cx, map_arg)\n+        && !is_from_proc_macro(cx, *body_expr)\n+    {\n+        let msg = if kind == Kind::Option {\n+            \"unnecessary closure used to substitute value for `Option::None`\"\n+        } else {\n+            \"unnecessary closure used to substitute value for `Result::Err`\"\n+        };\n+        let mut applicability = if body\n+            .params\n+            .iter()\n+            .all(|param| matches!(param.pat.kind, hir::PatKind::Binding(..) | hir::PatKind::Wild))\n+            && matches!(\n+                fn_decl.output,\n+                FnRetTy::DefaultReturn(_)\n+                    | FnRetTy::Return(hir::Ty {\n+                        kind: hir::TyKind::Infer(()),\n+                        ..\n+                    })\n+            ) {\n+            Applicability::MachineApplicable\n+        } else {\n+            Applicability::MaybeIncorrect\n+        };",
+                    "author": {
+                      "login": "reviewer-c"
+                    },
+                    "pullRequestReview": {
+                      "id": "PRR_7"
+                    }
+                  },
+                  {
+                    "databaseId": 1007,
+                    "body": "I have applied the suggested fix, it looks correct to me. I was not able to add new test; I think the test harness doesn't support this. See https://github.com/example/linter/blob/main/tests/compile-test.rs#L223 where `rustfix` would write the suggested change to `.fixed` always.\r\n\r\nTesting locally with a crate configured to use local `clippy`:\r\n\r\n```\r\ndev@host ~/temp/map_or_else_app\r\n❯ cat src/main.rs\r\n#![warn(clippy::unnecessary_lazy_evaluations)]\r\n\r\nfn main() {\r\n    let re: Result<(), _> = Err(Default::default());\r\n    let _ = re.map_or_else(|_: i32| 42, |_| 42);\r\n}\r\ndev@host ~/temp/map_or_else_app\r\n❯ LD_LIBRARY_PATH=\"$(rustc --print sysroot)/lib\" cargo check --message-format=json 2>/dev/null |\r\n      jq -r '\r\n      select(.reason == \"compiler-message\"\r\n             and .message.code.code == \"clippy::unnecessary_lazy_evaluations\")\r\n      | .message.children[]?.spans[]?\r\n      | select(.suggested_replacement != null)\r\n      | \"applicability=\\(.suggestion_applicability)\\nreplacement=\\(.suggested_replacement)\"\r\n    '\r\napplicability=MaybeIncorrect\r\nreplacement=map_or(42, |_| 42)\r\n```\r\n\r\nIs there anything else I should do?",
+                    "createdAt": "2026-10-17T18:36:48Z",
+                    "path": "clippy_lints/src/methods/unnecessary_lazy_eval.rs",
+                    "line": 161,
+                    "originalLine": 165,
+                    "diffHunk": "@@ -107,3 +107,74 @@ pub(super) fn check<'tcx>(\n     }\n     false\n }\n+\n+/// lint use of `_.map_or_else(|| value, f)` for `Option`s and `Result`s that can be\n+/// replaced with `_.map_or(value, f)`\n+pub(super) fn check_map_or_else<'tcx>(\n+    cx: &LateContext<'tcx>,\n+    expr: &'tcx hir::Expr<'_>,\n+    recv: &'tcx hir::Expr<'_>,\n+    def_arg: &'tcx hir::Expr<'_>,\n+    map_arg: &'tcx hir::Expr<'_>,\n+    call_span: Span,\n+) {\n+    #[derive(PartialEq)]\n+    enum Kind {\n+        Option,\n+        Result,\n+    }\n+\n+    if let Some(kind) = match cx.typeck_results().expr_ty(recv).peel_refs().opt_diag_name(cx) {\n+        Some(sym::Option) => Some(Kind::Option),\n+        Some(sym::Result) => Some(Kind::Result),\n+        _ => None,\n+    } && let hir::ExprKind::Closure(&hir::Closure {\n+        body,\n+        fn_decl,\n+        kind: hir::ClosureKind::Closure,\n+        ..\n+    }) = def_arg.kind\n+        && let body = cx.tcx.hir_body(body)\n+        && let body_expr = &body.value\n+        && !usage::BindingUsageFinder::are_params_used(cx, body)\n+        && eager_or_lazy::switch_to_eager_eval(cx, body_expr)\n+        && !is_from_proc_macro(cx, expr)\n+        && !is_from_proc_macro(cx, map_arg)\n+        && !is_from_proc_macro(cx, *body_expr)\n+    {\n+        let msg = if kind == Kind::Option {\n+            \"unnecessary closure used to substitute value for `Option::None`\"\n+        } else {\n+            \"unnecessary closure used to substitute value for `Result::Err`\"\n+        };\n+        let mut applicability = if body\n+            .params\n+            .iter()\n+            .all(|param| matches!(param.pat.kind, hir::PatKind::Binding(..) | hir::PatKind::Wild))\n+            && matches!(\n+                fn_decl.output,\n+                FnRetTy::DefaultReturn(_)\n+                    | FnRetTy::Return(hir::Ty {\n+                        kind: hir::TyKind::Infer(()),\n+                        ..\n+                    })\n+            ) {\n+            Applicability::MachineApplicable\n+        } else {\n+            Applicability::MaybeIncorrect\n+        };",
+                    "author": {
+                      "login": "author-b"
+                    },
+                    "pullRequestReview": {
+                      "id": "PRR_10"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "id": "PRRT_11",
+              "isResolved": true,
+              "isOutdated": true,
+              "diffSide": "RIGHT",
+              "startLine": null,
+              "originalLine": 130,
+              "originalStartLine": 127,
+              "comments": {
+                "nodes": [
+                  {
+                    "databaseId": 1008,
+                    "body": "We don't need the `Kind` enum here, we can just return the `msg` direclty:\n```rust\nlet msg = match cx.typeck_results().expr_ty(recv).peel_refs().opt_diag_name(cx) {\n    Some(sym::Option) => \"unnecessary closure used to substitute value for `Option::None`\",\n    Some(sym::Result) => \"unnecessary closure used to substitute value for `Result::Err`\",\n    _ => return,\n};\n```\n\n*[View changes since the review](https://example.com/changes-since/1/aaaa..bbbb)*",
+                    "createdAt": "2026-10-21T19:35:11Z",
+                    "path": "clippy_lints/src/methods/unnecessary_lazy_eval.rs",
+                    "line": null,
+                    "originalLine": 130,
+                    "diffHunk": "@@ -107,3 +107,79 @@ pub(super) fn check<'tcx>(\n     }\n     false\n }\n+\n+/// lint use of `_.map_or_else(|| value, f)` for `Option`s and `Result`s that can be\n+/// replaced with `_.map_or(value, f)`\n+pub(super) fn check_map_or_else<'tcx>(\n+    cx: &LateContext<'tcx>,\n+    expr: &'tcx hir::Expr<'_>,\n+    recv: &'tcx hir::Expr<'_>,\n+    def_arg: &'tcx hir::Expr<'_>,\n+    map_arg: &'tcx hir::Expr<'_>,\n+    call_span: Span,\n+) {\n+    #[derive(PartialEq)]\n+    enum Kind {\n+        Option,\n+        Result,\n+    }\n+\n+    if let Some(kind) = match cx.typeck_results().expr_ty(recv).peel_refs().opt_diag_name(cx) {\n+        Some(sym::Option) => Some(Kind::Option),\n+        Some(sym::Result) => Some(Kind::Result),\n+        _ => None,",
+                    "author": {
+                      "login": "reviewer-a"
+                    },
+                    "pullRequestReview": {
+                      "id": "PRR_12"
+                    }
+                  },
+                  {
+                    "databaseId": 1009,
+                    "body": "Fixed.",
+                    "createdAt": "2026-10-21T20:03:04Z",
+                    "path": "clippy_lints/src/methods/unnecessary_lazy_eval.rs",
+                    "line": null,
+                    "originalLine": 130,
+                    "diffHunk": "@@ -107,3 +107,79 @@ pub(super) fn check<'tcx>(\n     }\n     false\n }\n+\n+/// lint use of `_.map_or_else(|| value, f)` for `Option`s and `Result`s that can be\n+/// replaced with `_.map_or(value, f)`\n+pub(super) fn check_map_or_else<'tcx>(\n+    cx: &LateContext<'tcx>,\n+    expr: &'tcx hir::Expr<'_>,\n+    recv: &'tcx hir::Expr<'_>,\n+    def_arg: &'tcx hir::Expr<'_>,\n+    map_arg: &'tcx hir::Expr<'_>,\n+    call_span: Span,\n+) {\n+    #[derive(PartialEq)]\n+    enum Kind {\n+        Option,\n+        Result,\n+    }\n+\n+    if let Some(kind) = match cx.typeck_results().expr_ty(recv).peel_refs().opt_diag_name(cx) {\n+        Some(sym::Option) => Some(Kind::Option),\n+        Some(sym::Result) => Some(Kind::Result),\n+        _ => None,",
+                    "author": {
+                      "login": "author-b"
+                    },
+                    "pullRequestReview": {
+                      "id": "PRR_13"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

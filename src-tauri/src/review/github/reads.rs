@@ -20,15 +20,17 @@ const PR_VIEW_FIELDS: &str = "number,title,author,state,isDraft,baseRefName,head
 
 /// Paginated on `reviewThreads` (see `gh_graphql`); a thread's first 100
 /// comments are plenty for display. `diffSide` lives on the thread: GitHub
-/// refuses the whole query if a comment asks for it.
+/// refuses the whole query if a comment asks for it. The range and outdated
+/// flag are thread-level too; `diffHunk` is per comment and is numbered
+/// against the commit the comment was made on (`original*`), not the head.
 const REVIEW_THREADS_QUERY: &str =
     "query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){\
   repository(owner:$owner,name:$repo){\
     pullRequest(number:$number){\
       reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor} nodes{\
-        id isResolved diffSide \
+        id isResolved isOutdated diffSide startLine originalLine originalStartLine \
         comments(first:100){nodes{\
-          databaseId body createdAt path line originalLine \
+          databaseId body createdAt path line originalLine diffHunk \
           author{login} pullRequestReview{id}\
         }}\
       }}\

@@ -274,6 +274,13 @@ pub(crate) fn parse_review_threads(json: &Value) -> Vec<PrComment> {
             .and_then(Value::as_str)
             .unwrap_or("RIGHT")
             .to_string();
+        let outdated = thread
+            .get("isOutdated")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let int = |value: &Value, key: &str| value.get(key).and_then(Value::as_i64);
+        let start_line = int(thread, "startLine");
+        let original_start_line = int(thread, "originalStartLine");
         let Some(thread_comments) = thread
             .get("comments")
             .and_then(|c| c.get("nodes"))
@@ -294,10 +301,15 @@ pub(crate) fn parse_review_threads(json: &Value) -> Vec<PrComment> {
                     .get("path")
                     .and_then(Value::as_str)
                     .map(str::to_string),
-                line: comment
-                    .get("line")
-                    .and_then(Value::as_i64)
-                    .or_else(|| comment.get("originalLine").and_then(Value::as_i64)),
+                line: int(comment, "line").or_else(|| int(comment, "originalLine")),
+                start_line,
+                original_line: int(comment, "originalLine").or_else(|| int(thread, "originalLine")),
+                original_start_line,
+                diff_hunk: comment
+                    .get("diffHunk")
+                    .and_then(Value::as_str)
+                    .and_then(|hunk| parse_patch(hunk).pop()),
+                outdated,
                 side: Some(side.clone()),
                 thread_id: thread_id.clone(),
                 is_resolved,
@@ -463,6 +475,41 @@ mod tests {
         // conversation can nest a thread under its review.
         assert_eq!(comments[0].review_id.as_deref(), Some("PRR_a"));
         assert_eq!(comments[1].review_id, None);
+    }
+    #[test]
+    fn parses_recorded_review_threads_with_their_anchor_context() {
+        // Recorded from a public PR with REVIEW_THREADS_QUERY; names, ids and URLs replaced.
+        let text = include_str!("../../../../tests/fixtures/github/review_threads.json");
+        let json: Value = serde_json::from_str(text).expect("fixture parses");
+        let comments = parse_review_threads(&json);
+        assert_eq!(comments.len(), 10);
+
+        // Outdated single-line thread: no head line, so `line` falls back to
+        // the original, and the hunk ends on the commented line.
+        let outdated = &comments[0];
+        assert!(outdated.outdated);
+        assert_eq!(outdated.line, Some(127));
+        assert_eq!(outdated.original_line, Some(127));
+        assert_eq!(outdated.start_line, None);
+        let hunk = outdated.diff_hunk.as_ref().expect("hunk");
+        assert!(hunk.header.starts_with("@@ "));
+        let last = hunk.lines.last().expect("lines");
+        assert_eq!(last.new_line, Some(127));
+        assert!(last.content.ends_with("opt_diag_name(cx) {"));
+
+        // Live multi-line thread: the head range differs from the original
+        // one the hunk is numbered against.
+        let live = &comments[2];
+        assert!(!live.outdated);
+        assert_eq!((live.start_line, live.line), (Some(133), Some(137)));
+        assert_eq!(
+            (live.original_start_line, live.original_line),
+            (Some(137), Some(141))
+        );
+        assert!(live.diff_hunk.is_some());
+        // Replies carry the thread's anchor too.
+        assert_eq!(comments[3].start_line, Some(133));
+        assert!(comments[3].diff_hunk.is_some());
     }
     #[test]
     fn parses_submitted_reviews_and_leaves_out_the_pending_one() {

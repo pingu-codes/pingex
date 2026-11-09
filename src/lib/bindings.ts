@@ -2231,6 +2231,26 @@ export type PrComment = {
 	path: string | null,
 	/**  Line on the diff the comment anchors to. */
 	line: number | null,
+	/**  First line of a multi-line comment at the head; `None` once outdated. */
+	startLine: number | null,
+	/**
+	 *  `line` on the commit the comment was made on; `diff_hunk` counts
+	 *  from there.
+	 */
+	originalLine: number | null,
+	/**  `start_line` on the commit the comment was made on. */
+	originalStartLine: number | null,
+	/**
+	 *  The diff hunk around the comment on the commit it was made on,
+	 *  ending at `original_line` and numbered like it. Shown above a thread
+	 *  away from the diff.
+	 */
+	diffHunk: DiffHunk | null,
+	/**
+	 *  Whether the commented lines changed since, so the thread no longer
+	 *  sits on the head diff.
+	 */
+	outdated: boolean,
 	/**  `RIGHT` (head) or `LEFT` (base) for an inline comment. */
 	side: string | null,
 	/**  The review-thread node id (GraphQL), shared by every comment in a thread. */

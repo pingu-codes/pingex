@@ -13,6 +13,7 @@
   import { Avatar } from "@skeletonlabs/skeleton-svelte";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
   import type { MenuEntry } from "$lib/components/actionMenu";
+  import CommentBody from "$lib/review/CommentBody.svelte";
   import type { CommentThread } from "$lib/review/review";
   import { initials } from "$lib/review/reviewPage";
   import type { PrComment } from "$lib/types";
@@ -207,7 +208,7 @@
               </button>
             </div>
           {:else}
-            <div class="pl-6 text-[13px] leading-5 whitespace-pre-wrap">{comment.body}</div>
+            <CommentBody class="pl-6" body={comment.body} />
           {/if}
         </div>
       {/snippet}

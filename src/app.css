@@ -452,3 +452,12 @@ button {
   padding: 0.5rem 0.7rem;
   font-size: 11px;
 }
+
+/* A GitHub comment body (`CommentBody.svelte`): flush with its card, so a
+   one-line comment is as tall as its text. */
+.comment-body > :first-child {
+  margin-top: 0;
+}
+.comment-body > :last-child {
+  margin-bottom: 0;
+}

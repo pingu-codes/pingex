@@ -11,6 +11,7 @@ import {
   reviewPrompt,
   staleBanner,
 } from "$lib/review/review";
+import { NO_ANCHOR } from "$lib/services/preview/factories";
 import type { PrComment, PrFile, PrFreshness, PrReview } from "$lib/types";
 
 function file(overrides: Partial<PrFile> = {}): PrFile {
@@ -54,6 +55,7 @@ function comment(overrides: Partial<PrComment> = {}): PrComment {
     threadId: null,
     isResolved: false,
     reviewId: null,
+    ...NO_ANCHOR,
     ...overrides,
   };
 }

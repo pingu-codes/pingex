@@ -105,6 +105,20 @@ pub(crate) struct PrComment {
     pub(crate) path: Option<String>,
     /// Line on the diff the comment anchors to.
     pub(crate) line: Option<i64>,
+    /// First line of a multi-line comment at the head; `None` once outdated.
+    pub(crate) start_line: Option<i64>,
+    /// `line` on the commit the comment was made on; `diff_hunk` counts
+    /// from there.
+    pub(crate) original_line: Option<i64>,
+    /// `start_line` on the commit the comment was made on.
+    pub(crate) original_start_line: Option<i64>,
+    /// The diff hunk around the comment on the commit it was made on,
+    /// ending at `original_line` and numbered like it. Shown above a thread
+    /// away from the diff.
+    pub(crate) diff_hunk: Option<DiffHunk>,
+    /// Whether the commented lines changed since, so the thread no longer
+    /// sits on the head diff.
+    pub(crate) outdated: bool,
     /// `RIGHT` (head) or `LEFT` (base) for an inline comment.
     pub(crate) side: Option<String>,
     /// The review-thread node id (GraphQL), shared by every comment in a thread.

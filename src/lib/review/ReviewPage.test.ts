@@ -233,6 +233,28 @@ describe("ReviewPage", () => {
     expect(screen.getByRole("radio", { name: "Files 2" })).toBeChecked();
   });
 
+  it("renders comments as markdown, under the lines each thread is about", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await opened();
+    await user.click(screen.getByRole("radio", { name: /^Conversation/ }));
+    const conversation = screen.getByRole("region", { name: /^Conversation/ });
+
+    const thread = within(conversation).getByRole("group", { name: "Thread on src/lib/loader.ts:4" });
+    expect(within(thread).getByText("arbitrary").tagName).toBe("STRONG");
+    expect(within(thread).getByText("config").tagName).toBe("EM");
+
+    // A single-line thread shows its line and the ones before it, marked.
+    const lines = within(conversation).getByRole("figure", { name: "Lines src/lib/loader.ts:4" });
+    expect(lines).toHaveTextContent("if (!path) {");
+    expect(lines.querySelector("[data-commented=true]")).toHaveTextContent("if (!path) {");
+    // A multi-line one shows its range; an outdated one says so.
+    expect(within(conversation).getByRole("figure", { name: "Lines src/lib/loader.ts:4–6" })).toHaveTextContent(
+      "throw new Error",
+    );
+    expect(within(conversation).getAllByText("Outdated")).toHaveLength(1);
+  });
+
   it("replies from a thread in the conversation as from the diff", async () => {
     const user = userEvent.setup();
     renderPage();
