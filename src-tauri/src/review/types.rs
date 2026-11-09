@@ -230,6 +230,11 @@ pub(crate) struct InboxPr {
     /// The head commit's combined check state: `SUCCESS`, `FAILURE`,
     /// `PENDING`, `ERROR`, `EXPECTED`, or none when there are no checks.
     pub(crate) checks: Option<String>,
+    /// The login on the head commit, the best guess at who last pushed:
+    /// GitHub does not say who pushed. `None` when the commit's author has no
+    /// GitHub account, and in snapshots stored before this field.
+    #[serde(default)]
+    pub(crate) head_author: Option<String>,
     pub(crate) unresolved_threads: i64,
     pub(crate) additions: i64,
     pub(crate) deletions: i64,
@@ -245,6 +250,50 @@ pub(crate) struct InboxReview {
     /// The head commit the review was written against, when known.
     #[serde(default)]
     pub(crate) commit: Option<String>,
+}
+
+/// Why a repository's commands run as the account they do.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum AccountSource {
+    /// `GH_TOKEN` or `GITHUB_TOKEN` is set, and gh uses it regardless.
+    Environment,
+    /// The user chose it for this repository.
+    Pinned,
+    /// The user chose an account that is no longer signed in. Its commands
+    /// fail rather than run as someone else.
+    PinMissing,
+    /// A signed-in account owns one of the clone's GitHub remotes.
+    Owner,
+    /// gh's active account.
+    #[default]
+    Global,
+}
+
+/// The account a repository's commands run as, and what it could use instead.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RepositoryAccount {
+    pub(crate) login: Option<String>,
+    pub(crate) source: AccountSource,
+    /// The login the user chose for this repository.
+    pub(crate) pin: Option<String>,
+    /// Everyone signed in to gh.
+    pub(crate) logins: Vec<String>,
+    /// gh's active account.
+    pub(crate) global: Option<String>,
+}
+
+/// A GitHub account or team an inbox read names, for showing it. Logins stay
+/// the identity everywhere else; this is what each one looks like.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GitHubPerson {
+    /// The login, or a team's slug.
+    pub(crate) login: String,
+    pub(crate) name: Option<String>,
+    pub(crate) avatar_url: Option<String>,
+    pub(crate) is_team: bool,
 }
 
 /// What the last query cost against GitHub's GraphQL rate limit.
@@ -281,6 +330,8 @@ pub(crate) struct Inbox {
     /// The signed-in GitHub login, for "needs me" and "mine".
     pub(crate) viewer: String,
     pub(crate) prs: Vec<InboxPr>,
+    /// Everyone `prs` names, once each.
+    pub(crate) people: Vec<GitHubPerson>,
     /// Changes since the previous sync; empty on the first.
     pub(crate) events: Vec<InboxEvent>,
     pub(crate) rate_limit: Option<RateLimit>,
@@ -452,6 +503,8 @@ pub(crate) struct InboxRead {
     pub(crate) repo: String,
     pub(crate) viewer: String,
     pub(crate) prs: Vec<InboxPr>,
+    /// Everyone `prs` names, once each.
+    pub(crate) people: Vec<GitHubPerson>,
     pub(crate) rate_limit: Option<RateLimit>,
     /// False when the repository has more open PRs than one read returns.
     pub(crate) complete: bool,

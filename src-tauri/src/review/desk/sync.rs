@@ -159,6 +159,7 @@ impl ReviewDesk {
         let payload = serde_json::to_string(&read.prs)
             .map_err(|_| "Could not store the inbox".to_string())?;
         storage::write_inbox_snapshot(database, PROVIDER, &read.repo, &payload).await?;
+        self.repair_pr_links(&read.prs, &read.viewer).await?;
 
         let seen = storage::read_seen_prs(database, PROVIDER, &read.repo).await?;
         let synced_at = crate::util::time::unix_millis();
@@ -183,6 +184,7 @@ impl ReviewDesk {
             repo: read.repo,
             viewer: read.viewer,
             prs: read.prs,
+            people: read.people,
             events,
             rate_limit: read.rate_limit,
             complete: read.complete,
@@ -191,6 +193,28 @@ impl ReviewDesk {
             triage,
             feed,
         })
+    }
+
+    /// Open links store whether their PR is the viewer's, as it was when they
+    /// were made. The viewer can change since: correct those that disagree.
+    async fn repair_pr_links(&self, prs: &[InboxPr], viewer: &str) -> Result<(), String> {
+        if viewer.is_empty() {
+            return Ok(());
+        }
+        let repo_key = self.repo_key();
+        for link in storage::read_pr_links(&self.database).await? {
+            if link.repo_key != repo_key || link.closed_at.is_some() {
+                continue;
+            }
+            let Some(pr) = prs.iter().find(|pr| pr.number == link.pr_number) else {
+                continue;
+            };
+            let mine = pr.author == viewer;
+            if link.mine != mine {
+                storage::set_pr_link_mine(&self.database, &link.thread_id, mine).await?;
+            }
+        }
+        Ok(())
     }
 
     /// The repository's native stacks (bottom PR first), or

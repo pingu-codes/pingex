@@ -740,6 +740,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             review::commands::review_set_viewed,
             review::commands::review_github_account,
             review::commands::review_switch_github_account,
+            review::commands::review_repository_account,
+            review::commands::review_set_repository_account,
             review::commands::review_inspect_folder,
             review::commands::review_repository,
             review::commands::review_repository_settings,

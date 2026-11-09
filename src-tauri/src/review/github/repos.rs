@@ -2,23 +2,21 @@
 //! for Add repository.
 
 use std::collections::HashMap;
-use std::path::Path;
 
 use serde_json::Value;
 
 use crate::review::types::{GitHubAccount, GitHubRepo, ReviewRequests};
-use crate::util::host::Host;
 
 use super::parse::str_field;
-use super::run::{redact_gh_error, run_gh, READ_TIMEOUT, WRITE_TIMEOUT};
+use super::run::{redact_gh_error, run_gh, Gh, READ_TIMEOUT, WRITE_TIMEOUT};
 
 /// The 100 most recently pushed repositories the account owns, collaborates
 /// on, or reaches through an organization.
 const MY_REPOS_ENDPOINT: &str =
     "user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member";
 
-fn read_json(host: &Host, dir: &Path, args: &[&str], failed: &str) -> Result<Value, String> {
-    let output = run_gh(host, dir, args, READ_TIMEOUT)?;
+fn read_json(gh: &Gh<'_>, args: &[&str], failed: &str) -> Result<Value, String> {
+    let output = run_gh(gh, args, READ_TIMEOUT)?;
     if !output.ok {
         return Err(redact_gh_error(failed, &output));
     }
@@ -67,23 +65,18 @@ pub(crate) fn count_review_requests(json: &Value) -> Vec<ReviewRequests> {
     requests
 }
 
-pub(crate) fn my_repositories(host: &Host, dir: &Path) -> Result<Vec<GitHubRepo>, String> {
+pub(crate) fn my_repositories(gh: &Gh<'_>) -> Result<Vec<GitHubRepo>, String> {
     let json = read_json(
-        host,
-        dir,
+        gh,
         &["api", MY_REPOS_ENDPOINT],
         "Could not list your repositories",
     )?;
     Ok(parse_repos(&json))
 }
 
-pub(crate) fn repositories_requesting_review(
-    host: &Host,
-    dir: &Path,
-) -> Result<Vec<ReviewRequests>, String> {
+pub(crate) fn repositories_requesting_review(gh: &Gh<'_>) -> Result<Vec<ReviewRequests>, String> {
     let json = read_json(
-        host,
-        dir,
+        gh,
         &[
             "search",
             "prs",
@@ -141,10 +134,9 @@ pub(crate) fn parse_auth_status(text: &str) -> GitHubAccount {
     }
 }
 
-pub(crate) fn account(host: &Host, dir: &Path) -> Result<GitHubAccount, String> {
+pub(crate) fn account(gh: &Gh<'_>) -> Result<GitHubAccount, String> {
     let output = run_gh(
-        host,
-        dir,
+        gh,
         &["auth", "status", "--hostname", "github.com"],
         READ_TIMEOUT,
     )?;
@@ -156,7 +148,7 @@ pub(crate) fn account(host: &Host, dir: &Path) -> Result<GitHubAccount, String> 
     )))
 }
 
-pub(crate) fn switch_account(host: &Host, dir: &Path, login: &str) -> Result<(), String> {
+pub(crate) fn switch_account(gh: &Gh<'_>, login: &str) -> Result<(), String> {
     let valid = !login.is_empty()
         && !login.starts_with('-')
         && login
@@ -166,8 +158,7 @@ pub(crate) fn switch_account(host: &Host, dir: &Path, login: &str) -> Result<(),
         return Err("That is not a GitHub login".to_string());
     }
     let output = run_gh(
-        host,
-        dir,
+        gh,
         &[
             "auth",
             "switch",

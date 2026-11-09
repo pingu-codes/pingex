@@ -31,7 +31,8 @@ pub(crate) fn diff_snapshots(
             continue;
         };
         if old.head_sha != pr.head_sha {
-            events.push(event(pr.number, "pushed", Some(&pr.author), None));
+            let pusher = pr.head_author.as_deref().unwrap_or(&pr.author);
+            events.push(event(pr.number, "pushed", Some(pusher), None));
         }
         let old_reviews: HashMap<&str, &str> = old
             .reviews
@@ -114,5 +115,39 @@ mod tests {
         );
         assert_eq!(events[2].state.as_deref(), Some("APPROVED"));
         assert!(diff_snapshots(&previous, &previous, "pingu-codes").is_empty());
+    }
+
+    fn pushed_actor(head_author: Option<&str>) -> Option<String> {
+        let old = InboxPr {
+            number: 1,
+            author: "mira-k".into(),
+            head_sha: "a".repeat(40),
+            ..InboxPr::default()
+        };
+        let new = InboxPr {
+            head_sha: "b".repeat(40),
+            head_author: head_author.map(str::to_string),
+            ..old.clone()
+        };
+        let events = diff_snapshots(&[old], &[new], "pingu-codes");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, "pushed");
+        events[0].actor.clone()
+    }
+
+    #[test]
+    fn a_push_names_the_head_commits_author() {
+        assert_eq!(pushed_actor(Some("jo-r")).as_deref(), Some("jo-r"));
+    }
+
+    #[test]
+    fn a_push_with_no_known_author_falls_back_to_the_prs() {
+        assert_eq!(pushed_actor(None).as_deref(), Some("mira-k"));
+    }
+
+    #[test]
+    fn a_different_viewer_adds_no_events() {
+        let prs = parse_inbox(&fixture()).prs;
+        assert!(diff_snapshots(&prs, &prs, "someone-else").is_empty());
     }
 }

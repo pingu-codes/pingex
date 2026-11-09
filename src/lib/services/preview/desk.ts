@@ -12,6 +12,7 @@ import type {
   CheckoutStep,
   FeedEntry,
   FileBlob,
+  GitHubPerson,
   HarnessKind,
   Inbox,
   InboxPr,
@@ -333,11 +334,23 @@ type RepoData = { inbox: Inbox; stacks: StackListing; details: Map<number, PrDet
 const SYNCED_AT = Date.parse("2026-11-05T10:00:00Z");
 const minutesAgo = (minutes: number) => SYNCED_AT - minutes * 60_000;
 
+/** A flat colour for an avatar, so the preview and tests never reach the network. */
+const avatar = (color: string) =>
+  `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1" fill="${color}"/></svg>`)}`;
+
+const DESK_PEOPLE: GitHubPerson[] = [
+  { login: "jo-r", name: "Jo Reyes", avatarUrl: avatar("#0e7490"), isTeam: false },
+  { login: "mira-k", name: "Mira Kovac", avatarUrl: avatar("#b45309"), isTeam: false },
+  // No display name, and no avatar to fetch: initials.
+  { login: "tomasz", name: null, avatarUrl: null, isTeam: false },
+];
+
 function inbox(slug: string, prs: InboxPr[]): Inbox {
   return {
     repo: slug,
     viewer: DESK_VIEWER,
     prs,
+    people: DESK_PEOPLE,
     events: [],
     rateLimit: { cost: 1, remaining: 4990, resetAt: "2026-11-05T11:00:00Z" },
     complete: true,

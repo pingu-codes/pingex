@@ -9,10 +9,12 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use super::github::describe_account;
 use super::provider::GitHubProvider;
 use super::types::{
     CheckLog, CommentRef, GitHubAccount, GitHubRepo, InboxPr, InboxRead, MergeRequest, NewPr,
-    PrDetail, PrHead, PrSummary, ProviderStatus, ReviewRequests, ReviewSubmission, StackListing,
+    PrDetail, PrHead, PrSummary, ProviderStatus, RepositoryAccount, ReviewRequests,
+    ReviewSubmission, StackListing,
 };
 
 /// One write the fake received.
@@ -54,6 +56,8 @@ pub(crate) enum Sent {
 #[derive(Default)]
 struct State {
     viewer: String,
+    /// Signed in alongside `viewer`.
+    other_logins: Vec<String>,
     prs: Vec<InboxPr>,
     details: HashMap<i64, PrDetail>,
     stacks: StackListing,
@@ -75,6 +79,10 @@ pub(crate) struct FakeGitHub {
 }
 
 impl FakeGitHub {
+    pub(crate) fn sign_in_too(&self, login: &str) {
+        self.state().other_logins.push(login.to_string());
+    }
+
     pub(crate) fn new(slug: &str, viewer: &str) -> Self {
         Self {
             slug: slug.to_string(),
@@ -206,12 +214,18 @@ impl GitHubProvider for FakeGitHub {
     }
 
     fn account(&self) -> Result<GitHubAccount, String> {
-        let viewer = self.state().viewer.clone();
+        let state = self.state();
+        let mut logins = vec![state.viewer.clone()];
+        logins.extend(state.other_logins.iter().cloned());
         Ok(GitHubAccount {
-            login: Some(viewer.clone()),
+            login: Some(state.viewer.clone()),
             token_source: Some("keyring".to_string()),
-            logins: vec![viewer],
+            logins,
         })
+    }
+
+    fn repository_account(&self, pin: Option<&str>) -> Result<RepositoryAccount, String> {
+        Ok(describe_account(pin, &[], self.account()?))
     }
 
     fn switch_account(&self, login: &str) -> Result<(), String> {
@@ -244,6 +258,7 @@ impl GitHubProvider for FakeGitHub {
             repo: self.slug.clone(),
             viewer: state.viewer.clone(),
             prs: state.prs.clone(),
+            people: Vec::new(),
             rate_limit: None,
             complete: true,
         })

@@ -161,9 +161,95 @@ pub(crate) async fn write_repository_settings(
     .await
 }
 
+/// The GitHub login the user chose for `repo_key`.
+pub(crate) async fn read_repository_account(
+    database: &Database,
+    repo_key: &str,
+) -> Result<Option<String>, String> {
+    let connection = db::conn(database)?;
+    let stored = db::one(
+        &connection,
+        "SELECT github_login FROM repository_settings WHERE repo_key = ?",
+        params![repo_key],
+        |row| db::opt_text(row, 0),
+    )
+    .await?;
+    Ok(stored.flatten())
+}
+
+/// Choose a GitHub login for `repo_key`, or with `None` clear the choice. Kept
+/// apart from `RepositorySettings` so a settings save can't overwrite it. A
+/// new row keeps `updated_at` at 0, "nothing stored", so that choosing an
+/// account doesn't also freeze the repository's default PR source.
+pub(crate) async fn write_repository_account(
+    database: &Database,
+    repo_key: &str,
+    login: Option<&str>,
+) -> Result<(), String> {
+    let connection = db::conn(database)?;
+    db::exec(
+        &connection,
+        "INSERT INTO repository_settings(repo_key, github_login, updated_at)
+         VALUES (?, ?, 0)
+         ON CONFLICT(repo_key) DO UPDATE SET github_login = excluded.github_login",
+        params![repo_key, login],
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_chosen_account_survives_a_settings_save_and_can_be_cleared() {
+        let dir = tempfile::tempdir().unwrap();
+        let database = crate::storage::open(dir.path()).await.unwrap();
+        let key = "/code/pingex";
+        assert_eq!(read_repository_account(&database, key).await.unwrap(), None);
+
+        write_repository_account(&database, key, Some("pingu-codes"))
+            .await
+            .unwrap();
+        let settings = RepositorySettings {
+            repo_key: key.into(),
+            setup_command: Some("bun install".into()),
+            ..RepositorySettings::default()
+        };
+        write_repository_settings(&database, &settings)
+            .await
+            .unwrap();
+        assert_eq!(
+            read_repository_account(&database, key)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("pingu-codes")
+        );
+
+        write_repository_account(&database, key, None)
+            .await
+            .unwrap();
+        assert_eq!(read_repository_account(&database, key).await.unwrap(), None);
+        let settings = read_repository_settings(&database, key).await.unwrap();
+        assert_eq!(settings.setup_command.as_deref(), Some("bun install"));
+    }
+
+    #[tokio::test]
+    async fn choosing_an_account_alone_leaves_the_settings_unstored() {
+        let dir = tempfile::tempdir().unwrap();
+        let database = crate::storage::open(dir.path()).await.unwrap();
+        write_repository_account(&database, "/code/pingex", Some("pingu-codes"))
+            .await
+            .unwrap();
+        let settings = read_repository_settings(&database, "/code/pingex")
+            .await
+            .unwrap();
+        assert_eq!(
+            settings.updated_at, 0,
+            "the default PR source still applies"
+        );
+    }
 
     #[tokio::test]
     async fn a_repository_with_nothing_stored_reads_as_the_defaults() {

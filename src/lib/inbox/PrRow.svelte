@@ -1,6 +1,7 @@
 <!--
-  One pull request in the inbox: state ring, number and title, review and CI
-  badges, unresolved threads, reviewers and one primary action. Row actions
+  One pull request in the inbox: state ring, or the author on someone else's
+  PR, number and title, review and CI badges, unresolved threads, reviewers
+  (ringed by how they reviewed) and one primary action. Row actions
   and shortcut hints (↵ R T) fade in on hover and focus; unseen activity is
   bold with a dot and "N new". In a stack the ring holds the PR's position
   and a rail joins it to the rows above and below. The primary action sits in
@@ -18,6 +19,7 @@
     type AgentReviewState,
     ciBadge,
     type InboxRow,
+    type People,
     type PrimaryAction,
     reviewBadge,
     reviewers,
@@ -27,6 +29,7 @@
 
   let {
     row,
+    people = new Map(),
     primary,
     primaryDisabled = false,
     agentReview = null,
@@ -41,6 +44,7 @@
     onPick,
   }: {
     row: InboxRow;
+    people?: People;
     primary: PrimaryAction;
     /** The primary action's handler is not wired yet. */
     primaryDisabled?: boolean;
@@ -64,7 +68,7 @@
   const triage = $derived(row.triage);
   const review = $derived(reviewBadge(pr));
   const ci = $derived(ciBadge(pr));
-  const people = $derived(reviewers(pr));
+  const reviewing = $derived(reviewers(pr));
   const unseen = $derived(triage.newActivity > 0);
   const since = $derived(triage.commitsSinceMyReview ?? 0);
   const agentReviewOff = $derived(
@@ -144,7 +148,7 @@
           aria-hidden="true"
         ></span>
       {:else}
-        <LoginAvatar login={pr.author} />
+        <LoginAvatar login={pr.author} person={people.get(pr.author)} role="Author" />
       {/if}
       <!-- Title and badges: two lines in a narrow inbox; one once it is wide (`@container/inbox`), unless the badges would squeeze the title. -->
       <div
@@ -158,6 +162,10 @@
               : ""}"
             >{pr.title}</span
           >
+          <!-- A stack's header names its author. -->
+          {#if !triage.mine && !stack}
+            <span class="max-w-40 shrink-0 truncate text-[11px] text-surface-500">{pr.author}</span>
+          {/if}
           {#if unseen}
             <span class="unseen-dot" aria-hidden="true"></span>
             <span class="shrink-0 text-surface-500">{triage.newActivity} new</span>
@@ -207,10 +215,16 @@
               <Sparkles size={10} aria-hidden="true" />Agent review {agentReview}
             </span>
           {/if}
-          {#if people.length > 0}
-            <span class="inline-flex">
-              {#each people as login, index (login)}
-                <LoginAvatar {login} class={index > 0 ? "-ml-1" : ""} />
+          {#if reviewing.length > 0}
+            <span class="inline-flex" role="group" aria-label="Reviewers">
+              {#each reviewing as reviewer, index (reviewer.login)}
+                <LoginAvatar
+                  login={reviewer.login}
+                  person={people.get(reviewer.login)}
+                  role={reviewer.role}
+                  avatarClass="border-2 {reviewer.pending ? "border-dashed" : ""} {RING_CLASS[reviewer.tone]}"
+                  class={index > 0 ? "-ml-1" : ""}
+                />
               {/each}
             </span>
           {:else if triage.mine}

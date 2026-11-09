@@ -72,7 +72,16 @@ The writes that need no checkout are commands too: `review_merge`,
 `review_close`, `review_retarget`, `review_mark_ready`, `review_check_logs`,
 `review_rerun_failed_checks`, `review_create_pr`, `review_edit_comment` and
 `review_delete_comment`. `review_my_repositories` and
-`review_repositories_requesting_review` answer for the signed-in account.
+`review_repositories_requesting_review` answer for the Global account.
+
+Everything else runs as the Repository account. `review/github/account.rs`
+resolves it in this order: a token in the environment, which `gh` obeys
+regardless; the login the user pinned for this clone, which fails rather than
+falls back if that login has signed out; a signed-in login that owns one of the
+clone's GitHub remotes, checked in the order `gh` picks a base repository; and
+last the Global account. The account menu in the inbox header
+(`review_repository_account`, `review_set_repository_account`) shows the result
+and changes it, and warns when GitHub answers as someone else.
 
 Repositories added as "PRs only" have no clone. They keep using the GitHub
 file listing (`review_pr_detail`) until something has to run.

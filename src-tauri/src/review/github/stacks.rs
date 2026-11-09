@@ -7,7 +7,6 @@
 //! above it is retargeted onto the stack's base. A repository without the
 //! feature answers 404, which is cached for an hour.
 
-use std::path::Path;
 use std::sync::LazyLock;
 use std::time::Duration;
 
@@ -15,25 +14,27 @@ use serde_json::Value;
 
 use super::parse::str_field;
 use super::reads::merge_paginated_arrays;
-use super::run::{redact_gh_error, run_gh, READ_TIMEOUT};
+use super::run::{redact_gh_error, run_gh, Gh, READ_TIMEOUT};
 use crate::review::types::{PrStack, StackListing, StackPr};
-use crate::util::host::Host;
 use crate::util::ttl_cache::TtlCache;
 
-/// Repositories that answered 404 for stacks in the last hour, by
-/// `owner/name`, so a repository that gains the feature is asked again.
-static UNSUPPORTED: LazyLock<TtlCache<String, ()>> =
+/// Repositories that answered 404 for stacks in the last hour, by login and
+/// `owner/name`, so a repository that gains the feature is asked again. The
+/// login is in the key because GitHub also answers 404 to an account that
+/// can't see the repository.
+static UNSUPPORTED: LazyLock<TtlCache<(String, String), ()>> =
     LazyLock::new(|| TtlCache::new(Duration::from_secs(60 * 60), 256));
 
-pub(crate) fn list_stacks(host: &Host, dir: &Path, slug: &str) -> Result<StackListing, String> {
-    if UNSUPPORTED.get(&slug.to_string()).is_some() {
+pub(crate) fn list_stacks(gh: &Gh<'_>, slug: &str) -> Result<StackListing, String> {
+    let key = (gh.login.to_string(), slug.to_string());
+    if UNSUPPORTED.get(&key).is_some() {
         return Ok(StackListing::default());
     }
     let endpoint = format!("repos/{slug}/stacks");
-    let output = run_gh(host, dir, &["api", "--paginate", &endpoint], READ_TIMEOUT)?;
+    let output = run_gh(gh, &["api", "--paginate", &endpoint], READ_TIMEOUT)?;
     if !output.ok {
         if output.stderr.contains("HTTP 404") {
-            UNSUPPORTED.insert(slug.to_string(), ());
+            UNSUPPORTED.insert(key, ());
             return Ok(StackListing::default());
         }
         return Err(redact_gh_error(

@@ -191,6 +191,19 @@ A repository's open pull requests as of its last sync, with their review,
 check and thread state, and what changed since the sync before.
 _Avoid_: PR list, notifications
 
+**Repository account**:
+The GitHub account a repository's pull requests are read and written as, and
+so whose PRs count as "mine" in its Inbox. You can pin one for a repository.
+Otherwise it is the signed-in account that owns the repository, if there is
+one, and the Global account if not.
+_Avoid_: viewer (in prose; the Inbox's `viewer` is who GitHub answered as), user
+
+**Global account**:
+The account `gh` itself is using, in Pingex and in a terminal. Changing it
+changes both, and every repository without a Repository account of its own
+follows it.
+_Avoid_: default account, active user
+
 **Seen head**:
 The head commit of a pull request that the reviewer last marked as seen.
 "Changes since you last looked" is measured from it, and it stays readable

@@ -157,6 +157,18 @@ impl Host {
         }
     }
 
+    /// Give `command`, from [`Host::command`], an environment variable that
+    /// stays off the command line. `env` crosses into a distribution as
+    /// `wsl.exe` arguments, visible to anything logging process creation, so
+    /// this goes through `WSLENV`, which names what `wsl.exe` forwards.
+    pub(crate) fn set_secret_env(&self, command: &mut Command, key: &str, value: &str) {
+        command.env(key, value);
+        if self.is_wsl() {
+            let existing = std::env::var("WSLENV").unwrap_or_default();
+            command.env("WSLENV", wslenv_with(&existing, key));
+        }
+    }
+
     /// Append `segment` to a host path. A Linux path must never go through
     /// `Path::join` on Windows, which would insert a backslash.
     pub fn join_str(&self, base: &str, segment: &str) -> String {
@@ -599,9 +611,60 @@ pub(crate) fn no_console_window(command: &mut Command) {
     let _ = command;
 }
 
+/// `existing` plus `key`, forwarded as is (`/u`: Windows to WSL only).
+fn wslenv_with(existing: &str, key: &str) -> String {
+    let forward = format!("{key}/u");
+    if existing.is_empty() {
+        forward
+    } else {
+        format!("{existing}:{forward}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_secret_stays_off_the_wsl_command_line() {
+        let host = Host::Wsl {
+            distro: "Ubuntu".to_string(),
+        };
+        let mut command = host.command("gh", &["api", "user"], Some("/repo"), &[], &[]);
+        host.set_secret_env(&mut command, "GH_TOKEN", "gho_secret");
+        assert!(command
+            .get_args()
+            .all(|arg| !arg.to_string_lossy().contains("gho_secret")));
+        let env: Vec<_> = command.get_envs().collect();
+        assert!(env
+            .iter()
+            .any(|(key, value)| *key == "GH_TOKEN"
+                && value.is_some_and(|value| value == "gho_secret")));
+        let wslenv = env
+            .iter()
+            .find(|(key, _)| *key == "WSLENV")
+            .expect("WSLENV");
+        assert!(wslenv
+            .1
+            .is_some_and(|value| value.to_string_lossy().contains("GH_TOKEN/u")));
+    }
+
+    #[test]
+    fn forwarding_a_secret_keeps_what_wslenv_already_forwards() {
+        assert_eq!(wslenv_with("", "GH_TOKEN"), "GH_TOKEN/u");
+        assert_eq!(wslenv_with("A/p:B", "GH_TOKEN"), "A/p:B:GH_TOKEN/u");
+    }
+
+    #[test]
+    fn a_native_secret_is_only_an_environment_variable() {
+        let host = Host::Native;
+        let mut command = host.command("gh", &["api", "user"], Some("/repo"), &[], &[]);
+        host.set_secret_env(&mut command, "GH_TOKEN", "gho_secret");
+        assert!(command
+            .get_args()
+            .all(|arg| !arg.to_string_lossy().contains("gho_secret")));
+        assert!(command.get_envs().all(|(key, _)| key != "WSLENV"));
+    }
 
     #[test]
     fn resolved_paths_are_scoped_to_the_distribution_and_respect_overrides() {

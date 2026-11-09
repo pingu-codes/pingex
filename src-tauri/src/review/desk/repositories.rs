@@ -14,9 +14,10 @@ use super::ReviewDesk;
 use crate::git::remotes::{self, GitRemote};
 use crate::git::run::{run_git, READ_TIMEOUT};
 use crate::review::repository::{
-    default_pr_source, folder_name, source_with, FolderFacts, KnownClone, Repository, LOCKFILES,
+    account_key, default_pr_source, folder_name, source_with, FolderFacts, KnownClone, Repository,
+    LOCKFILES,
 };
-use crate::review::types::{GitHubAccount, GitHubRepo, ReviewRequests};
+use crate::review::types::{GitHubAccount, GitHubRepo, RepositoryAccount, ReviewRequests};
 use crate::storage::{self, RepositorySettings};
 use crate::util::host::Host;
 
@@ -44,6 +45,43 @@ impl ReviewDesk {
             desk.github.account()
         })
         .await
+    }
+
+    /// The account this repository's commands run as, and why.
+    pub(crate) async fn repository_account(&self) -> Result<RepositoryAccount, String> {
+        let key = self
+            .blocking("Reading the GitHub account failed", |desk| {
+                Ok(account_key(&desk.host, desk.dir()))
+            })
+            .await?;
+        let pin = storage::read_repository_account(&self.database, &key).await?;
+        self.blocking("Reading the GitHub account failed", move |desk| {
+            desk.github.repository_account(pin.as_deref())
+        })
+        .await
+    }
+
+    /// Pin this repository to `login`, which must be signed in, or with
+    /// `None` go back to choosing automatically. Worktrees share their
+    /// clone's choice.
+    pub(crate) async fn set_repository_account(&self, login: Option<String>) -> Result<(), String> {
+        let (key, login) = self
+            .blocking("Setting the GitHub account failed", move |desk| {
+                let key = account_key(&desk.host, desk.dir());
+                let Some(login) = login else {
+                    return Ok((key, None));
+                };
+                let account = desk.github.account()?;
+                let known = account
+                    .logins
+                    .iter()
+                    .find(|known| known.eq_ignore_ascii_case(&login))
+                    .cloned()
+                    .ok_or_else(|| format!("{login} is not signed in to gh"))?;
+                Ok((key, Some(known)))
+            })
+            .await?;
+        storage::write_repository_account(&self.database, &key, login.as_deref()).await
     }
 
     /// Make `login`, already signed in, the account Pingex uses.
@@ -266,9 +304,9 @@ fn require_slug(slug: &str) -> Result<&str, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_support::{fixture, SLUG};
+    use super::super::test_support::{fixture, SLUG, VIEWER};
     use crate::review::repository::RepositoryState;
-    use crate::review::types::{GitHubRepo, ReviewRequests};
+    use crate::review::types::{AccountSource, GitHubRepo, ReviewRequests};
     use crate::storage::{PrSource, RepositorySettings};
 
     fn canonical(path: &std::path::Path) -> String {
@@ -509,5 +547,45 @@ mod tests {
             .unwrap();
         let account = fixture.desk.github_account().await.unwrap();
         assert_eq!(account.login.as_deref(), Some("other-login"));
+    }
+
+    #[tokio::test]
+    async fn pins_a_signed_in_account_and_goes_back_to_automatic() {
+        let Some(fixture) = fixture().await else {
+            return;
+        };
+        fixture.github.sign_in_too("Personal");
+
+        let start = fixture.desk.repository_account().await.unwrap();
+        assert_eq!(start.source, AccountSource::Global);
+        assert_eq!(start.login.as_deref(), Some(VIEWER));
+
+        fixture
+            .desk
+            .set_repository_account(Some("personal".into()))
+            .await
+            .unwrap();
+        let pinned = fixture.desk.repository_account().await.unwrap();
+        assert_eq!(pinned.source, AccountSource::Pinned);
+        assert_eq!(pinned.login.as_deref(), Some("Personal"), "gh's spelling");
+
+        fixture.desk.set_repository_account(None).await.unwrap();
+        let cleared = fixture.desk.repository_account().await.unwrap();
+        assert_eq!(cleared.source, AccountSource::Global);
+        assert_eq!(cleared.pin, None);
+    }
+
+    #[tokio::test]
+    async fn refuses_to_pin_an_account_that_is_not_signed_in() {
+        let Some(fixture) = fixture().await else {
+            return;
+        };
+        let refused = fixture
+            .desk
+            .set_repository_account(Some("stranger".into()))
+            .await;
+        assert!(refused.is_err());
+        let account = fixture.desk.repository_account().await.unwrap();
+        assert_eq!(account.pin, None);
     }
 }

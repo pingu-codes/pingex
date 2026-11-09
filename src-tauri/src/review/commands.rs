@@ -13,7 +13,8 @@ use super::repository::{FolderFacts, KnownClone, Repository};
 use super::types::{
     ChangesSince, CheckLog, CommentRef, FetchedPr, FileBlob, GitHubAccount, GitHubRepo, Inbox,
     MergeRequest, NewPr, PendingComment, PrDetail, PrFile, PrFileContents, PrFreshness, PrSummary,
-    ProviderStatus, ReviewRequests, ReviewSubmission, ReviewVerdict, ShaDiff, StackListing,
+    ProviderStatus, RepositoryAccount, ReviewRequests, ReviewSubmission, ReviewVerdict, ShaDiff,
+    StackListing,
 };
 use crate::storage::{self, RepositorySettings, ReviewDraft};
 use crate::util::host::Host;
@@ -24,7 +25,7 @@ fn desk(window: &crate::HomeWindow, state: &State<'_, AppState>, repo_dir: Strin
     let ctx = state.ctx(window);
     let host = ctx.host();
     let dir = PathBuf::from(repo_dir);
-    let github = Arc::new(GhCli::new(host.clone(), dir.clone()));
+    let github = Arc::new(GhCli::new(host.clone(), dir.clone(), ctx.database()));
     ReviewDesk::new(host, dir, github, ctx.database())
 }
 
@@ -579,8 +580,9 @@ fn desk_on(
         None => Host::from_local(path.trim()),
     };
     let dir = PathBuf::from(dir);
-    let github = Arc::new(GhCli::new(host.clone(), dir.clone()));
-    ReviewDesk::new(host, dir, github, state.ctx(window).database())
+    let database = state.ctx(window).database();
+    let github = Arc::new(GhCli::new(host.clone(), dir.clone(), database.clone()));
+    ReviewDesk::new(host, dir, github, database)
 }
 
 #[tauri::command]
@@ -590,6 +592,32 @@ pub(crate) async fn review_github_account(
     state: State<'_, AppState>,
 ) -> Result<GitHubAccount, String> {
     account_desk(&window, &state).github_account().await
+}
+
+/// The account the repository's commands run as, and why.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_repository_account(
+    repo_dir: String,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<RepositoryAccount, String> {
+    desk(&window, &state, repo_dir).repository_account().await
+}
+
+/// Pin the repository to a signed-in login, or with `None` go back to
+/// choosing automatically. Changes only this repository, nothing in `gh`.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_set_repository_account(
+    repo_dir: String,
+    login: Option<String>,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    desk(&window, &state, repo_dir)
+        .set_repository_account(login)
+        .await
 }
 
 #[tauri::command]

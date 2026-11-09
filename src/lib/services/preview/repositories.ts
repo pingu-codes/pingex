@@ -93,6 +93,7 @@ const ACCOUNT: GitHubAccount = { login: DESK_VIEWER, tokenSource: "keyring", log
 let account = structuredClone(ACCOUNT);
 let prsOnly: string[] = [];
 const settings = new Map<string, RepositorySettings>();
+const accountPins = new Map<string, string>();
 const clones = new Map<string, string>();
 
 /** Sign the preview out of GitHub, or in as someone else. */
@@ -105,6 +106,7 @@ export function resetPreviewRepositories() {
   account = structuredClone(ACCOUNT);
   prsOnly = DESK_REPOS.filter((repo) => repo.state === "prsOnly").map((repo) => repo.slug);
   settings.clear();
+  accountPins.clear();
   clones.clear();
 }
 resetPreviewRepositories();
@@ -193,6 +195,23 @@ export const repositoryCommands: PreviewCommands = {
       .filter((repo) => repo.count > 0)
       .sort((a, b) => b.count - a.count),
   reviewGithubAccount: () => structuredClone(account),
+  reviewRepositoryAccount(repoDir) {
+    const pin = accountPins.get(repoDir) ?? null;
+    const missing = pin !== null && !account.logins.includes(pin);
+    return {
+      login: pin ?? account.login,
+      source: missing ? "pinMissing" : pin ? "pinned" : "global",
+      pin,
+      logins: [...account.logins],
+      global: account.login,
+    };
+  },
+  reviewSetRepositoryAccount(repoDir, login) {
+    if (login === null) accountPins.delete(repoDir);
+    else if (account.logins.includes(login)) accountPins.set(repoDir, login);
+    else throw new Error(`${login} is not signed in to gh`);
+    return null;
+  },
   reviewSwitchGithubAccount(login) {
     if (!account.logins.includes(login)) throw new Error("That account is not signed in");
     account = { ...account, login };

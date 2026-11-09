@@ -3,17 +3,19 @@
      collapses the list; the choice is remembered per viewer. -->
 <script lang="ts">
   import { ChevronDown, ChevronRight } from "@lucide/svelte";
-  import { ago, feedText } from "$lib/inbox/inbox";
+  import { ago, feedText, type People } from "$lib/inbox/inbox";
   import LoginAvatar from "$lib/inbox/LoginAvatar.svelte";
   import type { FeedEntry } from "$lib/types";
 
   let {
     feed,
+    people = new Map(),
     now,
     onOpen,
     onMarkAllSeen,
   }: {
     feed: FeedEntry[];
+    people?: People;
     now: number;
     onOpen: (number: number) => void;
     onMarkAllSeen: () => void;
@@ -80,7 +82,7 @@
       {@const line = feedText(entry)}
       <button type="button" class="menu-row items-start p-2" onclick={() => onOpen(entry.number)}>
         {#if line.actor}
-          <LoginAvatar login={line.actor} />
+          <LoginAvatar login={line.actor} person={people.get(line.actor)} />
         {:else}
           <span
             class="grid size-[18px] shrink-0 place-items-center rounded-full text-[9px] font-semibold {entry.kind ===

@@ -31,6 +31,9 @@ function entry(repoDir: string): RepoInbox {
  *  skipped when the writer already synced. */
 const syncStartedAt = new Map<string, number>();
 
+/** Repositories whose running sync may answer for the wrong GitHub account. */
+const staleSyncs = new Set<string>();
+
 /** Sync one repository's inbox and its stacks. */
 export async function syncInbox(repoDir: string): Promise<void> {
   const state = entry(repoDir);
@@ -42,8 +45,11 @@ export async function syncInbox(repoDir: string): Promise<void> {
       commands.reviewInbox(repoDir),
       commands.reviewStacks(repoDir).catch(() => NO_STACKS),
     ]);
+    // A sync files threads under "Reviews" by who the viewer is.
+    const viewerChanged = state.inbox?.viewer !== inbox.viewer;
     state.inbox = inbox;
     state.stacks = stacks;
+    if (viewerChanged) void reloadPrLinks();
     state.error = null;
     // What closed PRs left behind: refs now, review checkouts after 7 days,
     // and their threads leave the Reviews group. It works from this sync's
@@ -63,7 +69,15 @@ export async function syncInbox(repoDir: string): Promise<void> {
     state.error = errorMessage(cause);
   } finally {
     state.syncing = false;
+    if (staleSyncs.delete(repoDir)) void syncInbox(repoDir);
   }
+}
+
+/** Sync with the repository's current GitHub account. A sync already running
+ *  may have started with the old one, so one more follows it. */
+export async function resyncInbox(repoDir: string): Promise<void> {
+  if (entry(repoDir).syncing) staleSyncs.add(repoDir);
+  else await syncInbox(repoDir);
 }
 
 /** The "N need you" count per repository folder, from the last sync. */
@@ -157,6 +171,17 @@ const GITHUB_WRITES = new Set<string>([
 const SYNC_AFTER_WRITE_MS = 750;
 
 const pendingSyncs = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** Whose PRs are "mine" changed: every repository for a global switch, since
+ *  those without an account of their own follow it. */
+onCommandSettled((command) => {
+  if (command.name === "reviewSwitchGithubAccount") {
+    for (const repoDir of Object.keys(inboxes)) void resyncInbox(repoDir);
+  } else if (command.name === "reviewSetRepositoryAccount") {
+    const repoDir = argNamed(command, "repoDir");
+    if (typeof repoDir === "string" && inboxes[repoDir]) void resyncInbox(repoDir);
+  }
+});
 
 onCommandSettled((command) => {
   if (!GITHUB_WRITES.has(command.name)) return;

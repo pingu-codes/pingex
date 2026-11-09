@@ -85,6 +85,7 @@ fn spawn_git(
         dir: &dir_str,
         args: &argv,
         env: &env,
+        secret: None,
         stdin,
         timeout,
         max_stdout,

@@ -6,14 +6,12 @@
 //! tested; running them needs a real GitHub, which tests never touch.
 
 use serde_json::json;
-use std::path::Path;
 
 use crate::review::types::{
     CommentRef, MergeMethod, MergeRequest, NewPr, PendingComment, ReviewSubmission, ReviewVerdict,
 };
-use crate::util::host::Host;
 
-use super::run::{redact_gh_error, run_gh, run_gh_with_input, WRITE_TIMEOUT};
+use super::run::{redact_gh_error, run_gh, run_gh_with_input, Gh, WRITE_TIMEOUT};
 
 const RESOLVE_THREAD_MUTATION: &str =
     "mutation($threadId:ID!){resolveReviewThread(input:{threadId:$threadId}){thread{id isResolved}}}";
@@ -90,9 +88,9 @@ fn reply_in_review_args(review_node: &str, thread_id: &str, body: &str) -> Vec<S
 }
 
 /// Run a write and turn a refusal into a redacted message.
-fn write(host: &Host, dir: &Path, args: &[String], failed: &str) -> Result<String, String> {
+fn write(gh: &Gh<'_>, args: &[String], failed: &str) -> Result<String, String> {
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
-    let output = run_gh(host, dir, &args, WRITE_TIMEOUT)?;
+    let output = run_gh(gh, &args, WRITE_TIMEOUT)?;
     if !output.ok {
         return Err(redact_gh_error(failed, &output));
     }
@@ -114,8 +112,7 @@ fn strings(args: &[&str]) -> Vec<String> {
 }
 
 pub(crate) fn submit_review(
-    host: &Host,
-    dir: &Path,
+    gh: &Gh<'_>,
     slug: &str,
     number: i64,
     review: &ReviewSubmission,
@@ -129,7 +126,7 @@ pub(crate) fn submit_review(
     let endpoint = format!("repos/{slug}/pulls/{number}/reviews");
     if review.replies.is_empty() {
         let body = review_payload(review, false).to_string();
-        let output = run_gh_with_input(host, dir, &endpoint, &body)?;
+        let output = run_gh_with_input(gh, &endpoint, &body)?;
         if !output.ok {
             return Err(redact_gh_error("Could not submit the review", &output));
         }
@@ -139,7 +136,7 @@ pub(crate) fn submit_review(
     // review pending, attach each reply to it, then submit it; a failure
     // part way deletes the pending review so nothing half-posts.
     let body = review_payload(review, true).to_string();
-    let output = run_gh_with_input(host, dir, &endpoint, &body)?;
+    let output = run_gh_with_input(gh, &endpoint, &body)?;
     if !output.ok {
         return Err(redact_gh_error("Could not submit the review", &output));
     }
@@ -154,15 +151,10 @@ pub(crate) fn submit_review(
     let finish = || -> Result<(), String> {
         for reply in &review.replies {
             let args = reply_in_review_args(node, &reply.thread_id, &reply.body);
-            write(host, dir, &args, "Could not add a reply to the review")?;
+            write(gh, &args, "Could not add a reply to the review")?;
         }
         let events = format!("{endpoint}/{id}/events");
-        let output = run_gh_with_input(
-            host,
-            dir,
-            &events,
-            &submit_event_payload(review).to_string(),
-        )?;
+        let output = run_gh_with_input(gh, &events, &submit_event_payload(review).to_string())?;
         if !output.ok {
             return Err(redact_gh_error("Could not submit the review", &output));
         }
@@ -170,13 +162,12 @@ pub(crate) fn submit_review(
     };
     finish().inspect_err(|_| {
         let discard = strings(&["api", "--method", "DELETE", &format!("{endpoint}/{id}")]);
-        let _ = write(host, dir, &discard, "Could not discard the pending review");
+        let _ = write(gh, &discard, "Could not discard the pending review");
     })
 }
 
 pub(crate) fn reply_to_comment(
-    host: &Host,
-    dir: &Path,
+    gh: &Gh<'_>,
     slug: &str,
     number: i64,
     comment_id: i64,
@@ -191,10 +182,10 @@ pub(crate) fn reply_to_comment(
         "-f",
         &format!("body={body}"),
     ]);
-    write(host, dir, &args, "Could not post the reply").map(drop)
+    write(gh, &args, "Could not post the reply").map(drop)
 }
 
-pub(crate) fn resolve_thread(host: &Host, dir: &Path, thread_id: &str) -> Result<(), String> {
+pub(crate) fn resolve_thread(gh: &Gh<'_>, thread_id: &str) -> Result<(), String> {
     let args = strings(&[
         "api",
         "graphql",
@@ -203,7 +194,7 @@ pub(crate) fn resolve_thread(host: &Host, dir: &Path, thread_id: &str) -> Result
         "-f",
         &format!("threadId={thread_id}"),
     ]);
-    write(host, dir, &args, "Could not resolve the thread").map(drop)
+    write(gh, &args, "Could not resolve the thread").map(drop)
 }
 
 fn comment_endpoint(slug: &str, comment: CommentRef) -> String {
@@ -225,29 +216,23 @@ fn edit_comment_args(slug: &str, comment: CommentRef, body: &str) -> Vec<String>
 }
 
 pub(crate) fn edit_comment(
-    host: &Host,
-    dir: &Path,
+    gh: &Gh<'_>,
     slug: &str,
     comment: CommentRef,
     body: &str,
 ) -> Result<(), String> {
     let args = edit_comment_args(slug, comment, body);
-    write(host, dir, &args, "Could not edit the comment").map(drop)
+    write(gh, &args, "Could not edit the comment").map(drop)
 }
 
-pub(crate) fn delete_comment(
-    host: &Host,
-    dir: &Path,
-    slug: &str,
-    comment: CommentRef,
-) -> Result<(), String> {
+pub(crate) fn delete_comment(gh: &Gh<'_>, slug: &str, comment: CommentRef) -> Result<(), String> {
     let args = strings(&[
         "api",
         "--method",
         "DELETE",
         &comment_endpoint(slug, comment),
     ]);
-    write(host, dir, &args, "Could not delete the comment").map(drop)
+    write(gh, &args, "Could not delete the comment").map(drop)
 }
 
 fn merge_args(slug: &str, number: i64, request: &MergeRequest) -> Result<Vec<String>, String> {
@@ -265,33 +250,24 @@ fn merge_args(slug: &str, number: i64, request: &MergeRequest) -> Result<Vec<Str
 }
 
 pub(crate) fn merge(
-    host: &Host,
-    dir: &Path,
+    gh: &Gh<'_>,
     slug: &str,
     number: i64,
     request: &MergeRequest,
 ) -> Result<(), String> {
     let args = merge_args(slug, number, request)?;
-    write(host, dir, &args, "Could not merge the pull request").map(drop)
+    write(gh, &args, "Could not merge the pull request").map(drop)
 }
 
 /// `gh pr <verb> <n> --repo <slug>`, for the writes that take nothing else.
-fn pr_verb(
-    host: &Host,
-    dir: &Path,
-    slug: &str,
-    verb: &str,
-    number: i64,
-    failed: &str,
-) -> Result<(), String> {
+fn pr_verb(gh: &Gh<'_>, slug: &str, verb: &str, number: i64, failed: &str) -> Result<(), String> {
     let args = strings(&["pr", verb, &number.to_string(), "--repo", slug]);
-    write(host, dir, &args, failed).map(drop)
+    write(gh, &args, failed).map(drop)
 }
 
-pub(crate) fn close(host: &Host, dir: &Path, slug: &str, number: i64) -> Result<(), String> {
+pub(crate) fn close(gh: &Gh<'_>, slug: &str, number: i64) -> Result<(), String> {
     pr_verb(
-        host,
-        dir,
+        gh,
         slug,
         "close",
         number,
@@ -299,10 +275,9 @@ pub(crate) fn close(host: &Host, dir: &Path, slug: &str, number: i64) -> Result<
     )
 }
 
-pub(crate) fn mark_ready(host: &Host, dir: &Path, slug: &str, number: i64) -> Result<(), String> {
+pub(crate) fn mark_ready(gh: &Gh<'_>, slug: &str, number: i64) -> Result<(), String> {
     pr_verb(
-        host,
-        dir,
+        gh,
         slug,
         "ready",
         number,
@@ -322,15 +297,9 @@ fn retarget_args(slug: &str, number: i64, base: &str) -> Result<Vec<String>, Str
     ]))
 }
 
-pub(crate) fn retarget(
-    host: &Host,
-    dir: &Path,
-    slug: &str,
-    number: i64,
-    base: &str,
-) -> Result<(), String> {
+pub(crate) fn retarget(gh: &Gh<'_>, slug: &str, number: i64, base: &str) -> Result<(), String> {
     let args = retarget_args(slug, number, base)?;
-    write(host, dir, &args, "Could not retarget the pull request").map(drop)
+    write(gh, &args, "Could not retarget the pull request").map(drop)
 }
 
 fn create_pr_args(slug: &str, pr: &NewPr) -> Result<Vec<String>, String> {
@@ -356,9 +325,9 @@ fn number_from_pr_url(stdout: &str) -> Option<i64> {
     url.trim().rsplit('/').next()?.parse().ok()
 }
 
-pub(crate) fn create_pr(host: &Host, dir: &Path, slug: &str, pr: &NewPr) -> Result<i64, String> {
+pub(crate) fn create_pr(gh: &Gh<'_>, slug: &str, pr: &NewPr) -> Result<i64, String> {
     let args = create_pr_args(slug, pr)?;
-    let stdout = write(host, dir, &args, "Could not open the pull request")?;
+    let stdout = write(gh, &args, "Could not open the pull request")?;
     number_from_pr_url(&stdout)
         .ok_or_else(|| "GitHub did not say which pull request it opened".to_string())
 }
@@ -377,21 +346,9 @@ fn rename_branch_args(slug: &str, from: &str, to: &str) -> Result<Vec<String>, S
 
 /// Rename a git branch on GitHub (`POST /repos/{o}/{r}/branches/{b}/rename`):
 /// open PRs from or onto it follow the new name.
-pub(crate) fn rename_branch(
-    host: &Host,
-    dir: &Path,
-    slug: &str,
-    from: &str,
-    to: &str,
-) -> Result<(), String> {
+pub(crate) fn rename_branch(gh: &Gh<'_>, slug: &str, from: &str, to: &str) -> Result<(), String> {
     let args = rename_branch_args(slug, from, to)?;
-    write(
-        host,
-        dir,
-        &args,
-        "Could not rename the git branch on GitHub",
-    )
-    .map(drop)
+    write(gh, &args, "Could not rename the git branch on GitHub").map(drop)
 }
 
 #[cfg(test)]

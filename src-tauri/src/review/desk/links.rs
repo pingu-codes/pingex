@@ -197,6 +197,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_sync_corrects_a_link_when_the_viewer_changes() {
+        let Some(fixture) = fixture().await else {
+            return;
+        };
+        let pr = fixture.open_pr(32, "feature", "src/lib.rs");
+        let link = fixture
+            .desk
+            .link_thread("t".into(), target(&pr))
+            .await
+            .unwrap();
+        assert!(!link.mine);
+        fixture.desk.sync_inbox().await.unwrap();
+
+        crate::review::provider::GitHubProvider::switch_account(&*fixture.github, &pr.author)
+            .unwrap();
+        let inbox = fixture.desk.sync_inbox().await.unwrap();
+
+        assert!(inbox.events.is_empty(), "the same PRs: nothing happened");
+        let links = crate::storage::read_pr_links(&fixture.desk.database)
+            .await
+            .unwrap();
+        assert!(links[0].mine);
+    }
+
+    #[tokio::test]
     async fn moving_a_thread_to_another_pr_keeps_its_recorded_start() {
         let Some(fixture) = fixture().await else {
             return;

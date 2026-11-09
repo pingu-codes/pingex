@@ -15,6 +15,7 @@ vi.mock("$lib/services/homeRouting", async (importOriginal) => {
       ...actual.commands,
       reviewInbox: vi.fn(actual.commands.reviewInbox),
       reviewMarkActivitySeen: vi.fn(actual.commands.reviewMarkActivitySeen),
+      reviewSetRepositoryAccount: vi.fn(actual.commands.reviewSetRepositoryAccount),
     },
   };
 });
@@ -223,5 +224,38 @@ describe("Pull requests inbox", () => {
     const panel = await screen.findByRole("region", { name: "Agent reviews" });
     await waitFor(() => expect(within(panel).getByText("Running")).toBeInTheDocument());
     expect(within(panel).getByText("Queued")).toBeInTheDocument();
+  });
+
+  it("names the author on someone else's row, with their avatar, and not on mine", async () => {
+    setup();
+    await loaded();
+    await userEvent.setup().click(filter(/^Everyone/));
+    const theirs = screen.getAllByRole("listitem").find((item) => within(item).queryByText("mira-k") !== null);
+    expect(theirs).toBeDefined();
+    expect(theirs?.querySelector("img")).toHaveAttribute("src", expect.stringContaining("data:image"));
+    expect(within(row(412)).queryByText("ciaran")).toBeNull();
+  });
+
+  it("keeps reviewers apart from the author", async () => {
+    setup();
+    await loaded();
+    expect(within(row(415)).getByRole("group", { name: "Reviewers" })).toBeInTheDocument();
+  });
+});
+
+describe("the repository's GitHub account", () => {
+  it("shows the account and pins this repository from its menu", async () => {
+    const { user } = setup();
+    await loaded();
+    await user.click(await screen.findByRole("button", { name: "GitHub account: ciaran" }));
+    await user.click(await screen.findByRole("menuitem", { name: /ciaran-work/ }));
+    expect(await screen.findByRole("button", { name: "GitHub account: ciaran-work" })).toBeInTheDocument();
+    expect(commands.reviewSetRepositoryAccount).toHaveBeenCalledWith(MAIN, "ciaran-work");
+    // The preview's inbox still answers as ciaran: the token didn't take.
+    expect(await screen.findByText(/Read as ciaran/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "GitHub account: ciaran-work" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Automatic/ }));
+    expect(await screen.findByRole("button", { name: "GitHub account: ciaran" })).toBeInTheDocument();
   });
 });

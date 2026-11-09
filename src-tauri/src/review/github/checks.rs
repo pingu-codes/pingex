@@ -5,14 +5,12 @@
 //! CI services have no run and job to address and are skipped.
 
 use std::collections::BTreeSet;
-use std::path::Path;
 
 use serde_json::Value;
 
 use crate::review::types::CheckLog;
-use crate::util::host::Host;
 
-use super::run::{redact_gh_error, run_gh, run_gh_capped, READ_TIMEOUT, WRITE_TIMEOUT};
+use super::run::{redact_gh_error, run_gh, run_gh_capped, Gh, READ_TIMEOUT, WRITE_TIMEOUT};
 
 /// One log is plenty for an agent's prompt or the log view.
 const MAX_LOG_BYTES: usize = 256 * 1024;
@@ -56,11 +54,10 @@ pub(crate) fn parse_failed_jobs(json: &Value) -> Vec<FailedJob> {
         .collect()
 }
 
-fn failed_jobs(host: &Host, dir: &Path, slug: &str, number: i64) -> Result<Vec<FailedJob>, String> {
+fn failed_jobs(gh: &Gh<'_>, slug: &str, number: i64) -> Result<Vec<FailedJob>, String> {
     let number = number.to_string();
     let output = run_gh(
-        host,
-        dir,
+        gh,
         &[
             "pr",
             "checks",
@@ -82,18 +79,16 @@ fn failed_jobs(host: &Host, dir: &Path, slug: &str, number: i64) -> Result<Vec<F
 }
 
 pub(crate) fn failed_check_logs(
-    host: &Host,
-    dir: &Path,
+    gh: &Gh<'_>,
     slug: &str,
     number: i64,
 ) -> Result<Vec<CheckLog>, String> {
-    failed_jobs(host, dir, slug, number)?
+    failed_jobs(gh, slug, number)?
         .into_iter()
         .map(|job| {
             let job_id = job.job_id.to_string();
             let output = run_gh_capped(
-                host,
-                dir,
+                gh,
                 &[
                     "run",
                     "view",
@@ -118,21 +113,15 @@ pub(crate) fn failed_check_logs(
         .collect()
 }
 
-pub(crate) fn rerun_failed_checks(
-    host: &Host,
-    dir: &Path,
-    slug: &str,
-    number: i64,
-) -> Result<(), String> {
-    let runs: BTreeSet<u64> = failed_jobs(host, dir, slug, number)?
+pub(crate) fn rerun_failed_checks(gh: &Gh<'_>, slug: &str, number: i64) -> Result<(), String> {
+    let runs: BTreeSet<u64> = failed_jobs(gh, slug, number)?
         .into_iter()
         .map(|job| job.run_id)
         .collect();
     for run in runs {
         let run = run.to_string();
         let output = run_gh(
-            host,
-            dir,
+            gh,
             &["run", "rerun", &run, "--failed", "--repo", slug],
             WRITE_TIMEOUT,
         )?;

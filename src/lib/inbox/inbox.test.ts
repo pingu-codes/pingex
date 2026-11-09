@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   inboxSections,
+  matchesText,
+  personLabel,
   primaryAction,
   rangeSelection,
+  reviewers,
   sectionOrder,
   stackPosition,
   syncDelay,
@@ -10,7 +13,8 @@ import {
 } from "$lib/inbox/inbox";
 import { commands } from "$lib/services/homeRouting";
 import { resetDeskActivity } from "$lib/services/preview/desk";
-import type { Inbox, StackListing } from "$lib/types";
+import { inboxPr } from "$lib/services/preview/factories";
+import type { GitHubPerson, Inbox, StackListing } from "$lib/types";
 
 const MAIN = "/Users/ciaran/Projects/codex-custom";
 const NO_CHIPS = { drafts: false, ciFailing: false, unresolved: false };
@@ -131,5 +135,48 @@ describe("the sync timer", () => {
     expect(syncDelay(4000)).toBe(120_000);
     expect(syncDelay(800)).toBeGreaterThan(120_000);
     expect(syncDelay(50)).toBeGreaterThan(syncDelay(800));
+  });
+});
+
+describe("who is on a PR", () => {
+  const person = (login: string, name: string | null = null): GitHubPerson => ({
+    login,
+    name,
+    avatarUrl: null,
+    isTeam: false,
+  });
+
+  it("says why someone is on the row, by name when GitHub has one", () => {
+    expect(personLabel("mira-k", person("mira-k", "Mira Kovac"), "Approved")).toBe("Approved: Mira Kovac (mira-k)");
+    expect(personLabel("tomasz", person("tomasz"), "Author")).toBe("Author: tomasz");
+    expect(personLabel("tomasz")).toBe("tomasz");
+  });
+
+  it("gives each reviewer their role, and asking again replaces an old review", () => {
+    const pr = inboxPr({
+      number: 1,
+      title: "Reviewed",
+      reviews: [
+        { author: "a", state: "APPROVED" },
+        { author: "b", state: "CHANGES_REQUESTED" },
+        { author: "c", state: "APPROVED" },
+        { author: "d", state: "DISMISSED" },
+      ],
+      reviewRequests: ["c", "core-team"],
+    });
+    expect(reviewers(pr).map(({ login, role, tone, pending }) => [login, role, tone, pending])).toEqual([
+      ["a", "Approved", "success", false],
+      ["b", "Changes requested", "warning", false],
+      ["c", "Review requested", "surface", true],
+      ["d", "Reviewed", "surface", false],
+      ["core-team", "Review requested", "surface", true],
+    ]);
+  });
+
+  it("finds a PR by its author's display name", () => {
+    const pr = inboxPr({ number: 1, author: "mk42", title: "Unrelated" });
+    const people = new Map([["mk42", person("mk42", "Mira Kovac")]]);
+    expect(matchesText(pr, "kovac", people)).toBe(true);
+    expect(matchesText(pr, "kovac")).toBe(false);
   });
 });

@@ -2,13 +2,11 @@
 //! inline review threads.
 
 use serde_json::Value;
-use std::path::Path;
 
 use crate::review::types::{PrComment, PrDetail, PrHead, PrSummary};
-use crate::util::host::Host;
 
 use super::parse::{parse_files, parse_pr_list, parse_pr_view, parse_review_threads, str_field};
-use super::run::{gh_graphql, redact_gh_error, run_gh, GqlVar, READ_TIMEOUT};
+use super::run::{gh_graphql, redact_gh_error, run_gh, Gh, GqlVar, READ_TIMEOUT};
 
 /// How many open PRs the picker lists.
 const PR_LIST_LIMIT: &str = "50";
@@ -38,10 +36,9 @@ const REVIEW_THREADS_QUERY: &str =
   }\
 }";
 
-pub(crate) fn list_open_prs(host: &Host, dir: &Path) -> Result<Vec<PrSummary>, String> {
+pub(crate) fn list_open_prs(gh: &Gh<'_>) -> Result<Vec<PrSummary>, String> {
     let output = run_gh(
-        host,
-        dir,
+        gh,
         &[
             "pr",
             "list",
@@ -62,11 +59,10 @@ pub(crate) fn list_open_prs(host: &Host, dir: &Path) -> Result<Vec<PrSummary>, S
     Ok(parse_pr_list(&json))
 }
 
-pub(crate) fn fetch_pr_detail(host: &Host, dir: &Path, number: i64) -> Result<PrDetail, String> {
+pub(crate) fn fetch_pr_detail(gh: &Gh<'_>, number: i64) -> Result<PrDetail, String> {
     let number_str = number.to_string();
     let view = run_gh(
-        host,
-        dir,
+        gh,
         &["pr", "view", &number_str, "--json", PR_VIEW_FIELDS],
         READ_TIMEOUT,
     )?;
@@ -78,8 +74,7 @@ pub(crate) fn fetch_pr_detail(host: &Host, dir: &Path, number: i64) -> Result<Pr
     let parsed = parse_pr_view(&view_json);
 
     let files_output = run_gh(
-        host,
-        dir,
+        gh,
         &[
             "api",
             "--paginate",
@@ -96,7 +91,7 @@ pub(crate) fn fetch_pr_detail(host: &Host, dir: &Path, number: i64) -> Result<Pr
     };
 
     let mut comments = parsed.conversation;
-    comments.extend(fetch_review_threads(host, dir, number));
+    comments.extend(fetch_review_threads(gh, number));
 
     Ok(PrDetail {
         summary: parsed.summary,
@@ -115,8 +110,8 @@ pub(crate) fn fetch_pr_detail(host: &Host, dir: &Path, number: i64) -> Result<Pr
 /// Inline review threads, which the `pr view` JSON does not carry. Best-effort:
 /// a failure leaves the PR without inline comments rather than failing the
 /// whole read, so it is logged rather than lost.
-fn fetch_review_threads(host: &Host, dir: &Path, number: i64) -> Vec<PrComment> {
-    let Ok((owner, name)) = super::inbox::repo_slug(host, dir) else {
+fn fetch_review_threads(gh: &Gh<'_>, number: i64) -> Vec<PrComment> {
+    let Ok((owner, name)) = super::inbox::repo_slug(gh) else {
         return Vec::new();
     };
     let vars = [
@@ -125,7 +120,7 @@ fn fetch_review_threads(host: &Host, dir: &Path, number: i64) -> Vec<PrComment> 
         ("number", GqlVar::Int(number)),
     ];
     // Up to 1,000 threads.
-    match gh_graphql(host, dir, REVIEW_THREADS_QUERY, &vars, 10) {
+    match gh_graphql(gh, REVIEW_THREADS_QUERY, &vars, 10) {
         Ok(read) => read.pages.iter().flat_map(parse_review_threads).collect(),
         Err(error) => {
             eprintln!("could not read review threads for PR #{number}: {error}");
@@ -150,11 +145,10 @@ pub(crate) fn merge_paginated_arrays(stdout: &str) -> Value {
 }
 
 /// The PR's head and `updatedAt` as GitHub has them now.
-pub(crate) fn pr_head(host: &Host, dir: &Path, number: i64) -> Result<PrHead, String> {
+pub(crate) fn pr_head(gh: &Gh<'_>, number: i64) -> Result<PrHead, String> {
     let number_str = number.to_string();
     let output = run_gh(
-        host,
-        dir,
+        gh,
         &["pr", "view", &number_str, "--json", "headRefOid,updatedAt"],
         READ_TIMEOUT,
     )?;

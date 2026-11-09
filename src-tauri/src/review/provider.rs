@@ -7,9 +7,11 @@
 //! Enterprise Server) would implement this trait over its own API and map
 //! onto the same provider-neutral types.
 //!
-//! One provider value serves one repository. The account-level reads
-//! (`my_repositories`, `repositories_requesting_review`) answer for the
-//! signed-in account whichever repository the value was made for.
+//! One provider value serves one repository, as the account that repository
+//! resolves to (see `RepositoryAccount`). The account-level operations
+//! (`my_repositories`, `repositories_requesting_review`, `account`,
+//! `switch_account`) answer for the global signed-in account whichever
+//! repository the value was made for.
 //!
 //! Every call blocks (it is a subprocess or a network request), so the desk
 //! runs them off the async runtime. Adding an operation: add it here, in
@@ -17,7 +19,8 @@
 
 use super::types::{
     CheckLog, CommentRef, GitHubAccount, GitHubRepo, InboxRead, MergeRequest, NewPr, PrDetail,
-    PrHead, PrSummary, ProviderStatus, ReviewRequests, ReviewSubmission, StackListing,
+    PrHead, PrSummary, ProviderStatus, RepositoryAccount, ReviewRequests, ReviewSubmission,
+    StackListing,
 };
 
 pub(crate) trait GitHubProvider: Send + Sync {
@@ -36,6 +39,9 @@ pub(crate) trait GitHubProvider: Send + Sync {
     /// The signed-in account, where its token comes from, and the other
     /// accounts signed in alongside it.
     fn account(&self) -> Result<GitHubAccount, String>;
+    /// The account this repository's operations run as, given the login the
+    /// user chose for it, if any.
+    fn repository_account(&self, pin: Option<&str>) -> Result<RepositoryAccount, String>;
     /// Make `login`, already signed in, the active account. Changes only the
     /// local sign-in, nothing on GitHub.
     fn switch_account(&self, login: &str) -> Result<(), String>;

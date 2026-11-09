@@ -45,8 +45,15 @@ call. We decided four things.
 
 3. **GitHub goes through `gh`, and reads are GraphQL pages Pingex walks
    itself** (`gh_graphql` in `src-tauri/src/review/github/run.rs`). gh stays the
-   only holder of the token: a WSL Home uses the distribution's own gh and
-   login, and Pingex never stores a credential.
+   only store of tokens: a WSL Home uses the distribution's own gh and login,
+   and Pingex never stores a credential.
+   - A repository can run as a signed-in account other than gh's active one
+     (`src-tauri/src/review/github/account.rs`). Pingex asks `gh auth token` for
+     that account and passes the token to `gh` in `GH_TOKEN`, for one command.
+     It holds the token in memory for that long, keeps it off command lines
+     (`Host::set_secret_env`) and never writes it anywhere. The alternative,
+     `gh auth switch`, would change the account `gh` uses in the user's
+     terminal, and two repositories syncing at once would race on it.
    - The inbox is one query per repository (`src-tauri/src/review/github/inbox.rs`),
      25 PRs a page and at most 8 pages, each page with its own timeout. We
      page ourselves rather than use `gh --paginate` so a huge repository
@@ -101,8 +108,8 @@ operations it lacks are refused with a message:
 
 - **A native HTTP client with the token from `gh auth token`.** This would
   have given ETags, rate-limit headers and connection reuse. It was rejected
-  because Pingex would then hold a token, and a WSL Home would need its own
-  credential path.
+  because Pingex would then hold a token for as long as it runs, and a WSL Home
+  would need its own credential path.
 - **libgit2 or gix in place of the git CLI.** Rejected because agents and
   users run the CLI on the same repositories. Matching its config, hooks,
   credential helpers and on-disk formats is the CLI's job.

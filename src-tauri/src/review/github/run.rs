@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
+use super::account::GhToken;
 use crate::review::types::ProviderStatus;
 use crate::util::host::Host;
 use crate::util::process::{self, CommandOutput, Run, RunError};
@@ -29,6 +30,18 @@ const NON_INTERACTIVE: [(&str, &str); 4] = [
     ("GH_NO_UPDATE_NOTIFIER", "1"),
 ];
 
+/// Where and as whom one `gh` command runs. `token` is `None` when gh's own
+/// active account is the right one.
+#[derive(Clone, Copy)]
+pub(crate) struct Gh<'a> {
+    pub(crate) host: &'a Host,
+    pub(crate) dir: &'a Path,
+    /// The login the command acts as; empty for the account-level commands,
+    /// which answer for whichever account is active.
+    pub(crate) login: &'a str,
+    pub(crate) token: Option<&'a GhToken>,
+}
+
 fn describe(error: RunError) -> String {
     match error {
         RunError::NotFound => "GitHub CLI (gh) is not installed or not on PATH".to_string(),
@@ -39,21 +52,21 @@ fn describe(error: RunError) -> String {
 }
 
 fn spawn_gh(
-    host: &Host,
-    dir: &Path,
+    gh: &Gh<'_>,
     args: &[&str],
     stdin: Option<&str>,
     timeout: Duration,
     max_stdout: Option<usize>,
 ) -> Result<CommandOutput, String> {
-    let dir = host.path_string(dir);
-    let binary = host.resolve_binary("gh").unwrap_or_else(|| "gh".into());
+    let dir = gh.host.path_string(gh.dir);
+    let binary = gh.host.resolve_binary("gh").unwrap_or_else(|| "gh".into());
     process::run(Run {
-        host,
+        host: gh.host,
         program: &binary,
         dir: &dir,
         args,
         env: &NON_INTERACTIVE,
+        secret: gh.token.map(|token| ("GH_TOKEN", token.expose())),
         stdin,
         timeout,
         max_stdout,
@@ -64,40 +77,36 @@ fn spawn_gh(
 /// Run `gh <args...>` on `host` inside `dir` (a host path) with a timeout. A
 /// missing executable or a timeout is returned as a redacted error; a non-zero
 /// exit is surfaced through `CommandOutput::ok` so callers classify it (e.g.
-/// "not authenticated"). `host` comes from the window's Home, like git's, so a
-/// WSL Home runs the distribution's own `gh` and login.
+/// "not authenticated"). The host comes from the window's Home, like git's, so
+/// a WSL Home runs the distribution's own `gh` and login.
 pub(crate) fn run_gh(
-    host: &Host,
-    dir: &Path,
+    gh: &Gh<'_>,
     args: &[&str],
     timeout: Duration,
 ) -> Result<CommandOutput, String> {
-    spawn_gh(host, dir, args, None, timeout, None)
+    spawn_gh(gh, args, None, timeout, None)
 }
 
 /// `run_gh`, reading at most `max_stdout` bytes (`CommandOutput::truncated`
 /// says when it stopped), for output that can be huge, like a CI log.
 pub(crate) fn run_gh_capped(
-    host: &Host,
-    dir: &Path,
+    gh: &Gh<'_>,
     args: &[&str],
     timeout: Duration,
     max_stdout: usize,
 ) -> Result<CommandOutput, String> {
-    spawn_gh(host, dir, args, None, timeout, Some(max_stdout))
+    spawn_gh(gh, args, None, timeout, Some(max_stdout))
 }
 
 /// POST a JSON body to a `gh api` endpoint by piping it through stdin. Used for
 /// payloads (a review with nested inline comments) that `-f` fields cannot express.
 pub(crate) fn run_gh_with_input(
-    host: &Host,
-    dir: &Path,
+    gh: &Gh<'_>,
     endpoint: &str,
     body: &str,
 ) -> Result<CommandOutput, String> {
     spawn_gh(
-        host,
-        dir,
+        gh,
         &["api", "--method", "POST", endpoint, "--input", "-"],
         Some(body),
         WRITE_TIMEOUT,
@@ -154,8 +163,7 @@ fn page_info(value: &Value) -> Option<(bool, Option<String>)> {
 /// exits 0. Keep pages small: GitHub answers a query that takes longer than
 /// about 10s with a 502.
 pub(crate) fn gh_graphql(
-    host: &Host,
-    dir: &Path,
+    gh: &Gh<'_>,
     query: &str,
     vars: &[(&str, GqlVar<'_>)],
     max_pages: usize,
@@ -179,7 +187,7 @@ pub(crate) fn gh_graphql(
         if let Some(field) = &cursor_field {
             args.extend(["-f", field.as_str()]);
         }
-        let output = run_gh(host, dir, &args, READ_TIMEOUT)?;
+        let output = run_gh(gh, &args, READ_TIMEOUT)?;
         if !output.ok {
             return Err(redact_gh_error("GitHub did not answer the query", &output));
         }
@@ -220,8 +228,8 @@ pub(crate) fn redact_gh_error(fallback: &str, output: &CommandOutput) -> String 
 }
 
 /// Probe whether `gh` is installed and logged in.
-pub(crate) fn provider_status(host: &Host, dir: &Path) -> ProviderStatus {
-    let version = run_gh(host, dir, &["--version"], Duration::from_secs(5));
+pub(crate) fn provider_status(gh: &Gh<'_>) -> ProviderStatus {
+    let version = run_gh(gh, &["--version"], Duration::from_secs(5));
     let installed = matches!(version, Ok(ref output) if output.ok);
     if !installed {
         return ProviderStatus {
@@ -230,7 +238,7 @@ pub(crate) fn provider_status(host: &Host, dir: &Path) -> ProviderStatus {
             message: Some("Install the GitHub CLI (gh) to review pull requests".to_string()),
         };
     }
-    match run_gh(host, dir, &["auth", "status"], Duration::from_secs(10)) {
+    match run_gh(gh, &["auth", "status"], Duration::from_secs(10)) {
         Ok(output) if output.ok => ProviderStatus {
             installed: true,
             authenticated: true,
@@ -245,10 +253,9 @@ pub(crate) fn provider_status(host: &Host, dir: &Path) -> ProviderStatus {
 }
 
 /// Resolve `owner/name` for the repository in `dir` via `gh repo view`.
-pub(crate) fn repo_name_with_owner(host: &Host, dir: &Path) -> Result<(String, String), String> {
+pub(crate) fn repo_name_with_owner(gh: &Gh<'_>) -> Result<(String, String), String> {
     let output = run_gh(
-        host,
-        dir,
+        gh,
         &[
             "repo",
             "view",

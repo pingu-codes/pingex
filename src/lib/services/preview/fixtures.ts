@@ -1077,6 +1077,7 @@ export const previewInbox: Inbox = {
     deletions: 14,
     changedFiles: 4,
   })),
+  people: [],
   events: [{ number: 126, kind: "reviewRequested", actor: null, state: null }],
   rateLimit: { cost: 1, remaining: 4999, resetAt: "2026-07-22T15:30:00Z" },
   complete: true,

@@ -290,6 +290,22 @@ pub(crate) async fn move_pr_link(
     .await
 }
 
+/// Correct whether a link's PR is the viewer's, which changes when the
+/// repository's GitHub account does.
+pub(crate) async fn set_pr_link_mine(
+    database: &Database,
+    thread_id: &str,
+    mine: bool,
+) -> Result<(), String> {
+    let connection = db::conn(database)?;
+    db::exec(
+        &connection,
+        "UPDATE review_pr_links SET mine = ? WHERE thread_id = ?",
+        params![i64::from(mine), thread_id],
+    )
+    .await
+}
+
 pub(crate) async fn delete_pr_link(database: &Database, thread_id: &str) -> Result<(), String> {
     let connection = db::conn(database)?;
     db::exec(

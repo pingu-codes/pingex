@@ -6,10 +6,13 @@
 //! for its remotes: a fork's `upstream`, else `origin`. These rules are pure
 //! over the remotes so the desk and its tests share them.
 
+use std::path::Path;
+
 use serde::Serialize;
 
 use crate::git::remotes::GitRemote;
 use crate::storage::PrSource;
+use crate::util::host::Host;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -187,6 +190,13 @@ pub(crate) fn source_with(source: PrSource, remote: &str) -> Result<PrSource, St
             ))
         }
     })
+}
+
+/// Where a repository's chosen GitHub account is stored: its main clone's
+/// path, so its worktrees share the choice.
+pub(crate) fn account_key(host: &Host, dir: &Path) -> String {
+    let path = host.path_string(dir);
+    crate::projects::worktrees::worktree_parent_project_on(host, &path).unwrap_or(path)
 }
 
 #[cfg(test)]

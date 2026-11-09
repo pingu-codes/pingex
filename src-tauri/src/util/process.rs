@@ -55,6 +55,9 @@ pub struct Run<'a> {
     pub(crate) args: &'a [&'a str],
     /// Extra environment variables, applied on top of the inherited environment.
     pub(crate) env: &'a [(&'a str, &'a str)],
+    /// One variable that must not appear on a command line, where anything
+    /// logging process creation would see it. See `Host::set_secret_env`.
+    pub(crate) secret: Option<(&'a str, &'a str)>,
     /// Written to the child's stdin and then closed. `None` denies stdin
     /// entirely so a prompting tool fails fast instead of blocking.
     pub(crate) stdin: Option<&'a str>,
@@ -91,6 +94,7 @@ impl<'a> Run<'a> {
             dir,
             args,
             env: &[],
+            secret: None,
             stdin: None,
             timeout,
             max_stdout: None,
@@ -131,6 +135,9 @@ fn run_child(spec: Run<'_>) -> Result<CommandOutput, RunError> {
     let mut command = spec
         .host
         .command(spec.program, spec.args, Some(spec.dir), spec.env, &[]);
+    if let Some((key, value)) = spec.secret {
+        spec.host.set_secret_env(&mut command, key, value);
+    }
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     command.stdin(if spec.stdin.is_some() {
         Stdio::piped()
@@ -295,6 +302,7 @@ mod tests {
             dir: cwd(),
             args: &[],
             env: &[],
+            secret: None,
             stdin: Some("piped input"),
             timeout: Duration::from_secs(5),
             max_stdout: None,
@@ -324,12 +332,30 @@ mod tests {
             dir: cwd(),
             args: &["-c", "printf %s \"$PINGU_TEST_VAR\""],
             env: &[("PINGU_TEST_VAR", "set-by-test")],
+            secret: None,
             stdin: None,
             timeout: Duration::from_secs(5),
             max_stdout: None,
         })
         .expect("sh should run");
         assert_eq!(output.stdout, "set-by-test");
+    }
+
+    #[test]
+    fn a_secret_reaches_the_child() {
+        let output = run(Run {
+            host: &Host::Native,
+            program: "sh",
+            dir: cwd(),
+            args: &["-c", "printf %s \"$PINGU_TEST_SECRET\""],
+            env: &[],
+            secret: Some(("PINGU_TEST_SECRET", "from-the-environment")),
+            stdin: None,
+            timeout: Duration::from_secs(5),
+            max_stdout: None,
+        })
+        .expect("sh should run");
+        assert_eq!(output.stdout, "from-the-environment");
     }
 
     #[test]

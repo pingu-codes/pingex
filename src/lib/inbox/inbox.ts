@@ -7,7 +7,7 @@
 // re-derives it, so the filter counts and the sidebar badge agree.
 
 import { ACTION_LABELS } from "$lib/review/actions";
-import type { FeedEntry, Inbox, InboxPr, PrStack, PrTriage, StackListing } from "$lib/types";
+import type { FeedEntry, GitHubPerson, Inbox, InboxPr, PrStack, PrTriage, StackListing } from "$lib/types";
 
 export type InboxFilter = "needsMe" | "mine" | "reviewRequested" | "everyone";
 
@@ -67,17 +67,28 @@ function inChips({ pr }: InboxRow, chips: InboxChips): boolean {
   );
 }
 
-/** Title, number (`#412` or `412`), author or git branch, ignoring case. */
-export function matchesText(pr: InboxPr, text: string): boolean {
+/** Who each login in an inbox is. */
+export type People = ReadonlyMap<string, GitHubPerson>;
+
+export function peopleByLogin(inbox: Inbox): People {
+  return new Map(inbox.people.map((person) => [person.login, person]));
+}
+
+/** Title, number (`#412` or `412`), author's login or name, or git branch, ignoring case. */
+export function matchesText(pr: InboxPr, text: string, people?: People): boolean {
   const query = text.trim().toLowerCase();
   if (!query) return true;
   const number = query.replace(/^#/, "");
   if (/^\d+$/.test(number)) return String(pr.number).startsWith(number);
-  return [pr.title, pr.author, pr.headRef].some((field) => field.toLowerCase().includes(query));
+  const name = people?.get(pr.author)?.name ?? "";
+  return [pr.title, pr.author, name, pr.headRef].some((field) => field.toLowerCase().includes(query));
 }
 
 export function visibleRows(inbox: Inbox, filter: InboxFilter, chips: InboxChips, text: string): InboxRow[] {
-  return inboxRows(inbox).filter((row) => inFilter(row, filter) && inChips(row, chips) && matchesText(row.pr, text));
+  const people = peopleByLogin(inbox);
+  return inboxRows(inbox).filter(
+    (row) => inFilter(row, filter) && inChips(row, chips) && matchesText(row.pr, text, people),
+  );
 }
 
 // --- Sections and stacks ----------------------------------------------------
@@ -216,9 +227,34 @@ export function stateTone(pr: InboxPr): BadgeTone {
   return "surface";
 }
 
-/** People on the PR: who reviewed, then who is asked to. */
-export function reviewers(pr: InboxPr): string[] {
-  return [...new Set([...pr.reviews.map((review) => review.author), ...pr.reviewRequests])];
+/** Someone on a PR other than its author. */
+export type Reviewer = { login: string; role: string; tone: BadgeTone; pending: boolean };
+
+/** People on the PR: who reviewed, then who is asked to. Asked again after
+ *  reviewing, their old review no longer counts. */
+export function reviewers(pr: InboxPr): Reviewer[] {
+  const logins = [...new Set([...pr.reviews.map((review) => review.author), ...pr.reviewRequests])];
+  return logins.map((login): Reviewer => {
+    const state = pr.reviewRequests.includes(login)
+      ? null
+      : pr.reviews.find((review) => review.author === login)?.state;
+    switch (state) {
+      case null:
+        return { login, role: "Review requested", tone: "surface", pending: true };
+      case "APPROVED":
+        return { login, role: "Approved", tone: "success", pending: false };
+      case "CHANGES_REQUESTED":
+        return { login, role: "Changes requested", tone: "warning", pending: false };
+      default:
+        return { login, role: "Reviewed", tone: "surface", pending: false };
+    }
+  });
+}
+
+/** What hovering someone's avatar says: "Approved: Mira Kovac (mira-k)". */
+export function personLabel(login: string, person?: GitHubPerson | null, role?: string | null): string {
+  const who = person?.name ? `${person.name} (${login})` : login;
+  return role ? `${role}: ${who}` : who;
 }
 
 export function initials(login: string): string {

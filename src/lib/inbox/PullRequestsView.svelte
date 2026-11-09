@@ -16,6 +16,7 @@
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import RefreshIcon from "$lib/components/RefreshIcon.svelte";
   import Segmented from "$lib/components/Segmented.svelte";
+  import AccountMenu from "$lib/inbox/AccountMenu.svelte";
   import AgentReviewsPanel from "$lib/inbox/AgentReviewsPanel.svelte";
   import { inFlight, latestPerPr, loadAgentReviews, repoAgentReviews } from "$lib/inbox/agentReviews";
   import CheckLogDialog from "$lib/inbox/CheckLogDialog.svelte";
@@ -27,6 +28,8 @@
     type InboxFilter,
     type InboxRow,
     inboxSections,
+    type People,
+    peopleByLogin,
     primaryAction,
     rangeSelection,
     type StackGroup,
@@ -84,6 +87,7 @@
   const repoState = $derived(inboxes[repoPath]);
   const inbox = $derived(repoState?.inbox ?? null);
   const stacks = $derived(repoState?.stacks ?? { supported: false, stacks: [] });
+  const people = $derived<People>(inbox ? peopleByLogin(inbox) : new Map());
   const repoName = $derived(repos.find((repo) => repo.path === repoPath)?.name ?? repoPath.split("/").pop());
   const rows = $derived(inbox ? visibleRows(inbox, filter, chips, text) : []);
   const sections = $derived(inbox ? inboxSections(inbox, stacks, rows, groupByStack) : []);
@@ -323,6 +327,7 @@
   })}
   <PrRow
     {row}
+    {people}
     primary={action}
     primaryDisabled={unwired(action.id)}
     agentReview={agentState(row.pr.number)}
@@ -353,7 +358,7 @@
 >
   <section class="@container/inbox flex min-w-0 flex-[999_1_560px] flex-col gap-4 px-6 py-5">
     <header class="flex flex-wrap items-center gap-3">
-      <div class="min-w-[200px] grow">
+      <div class="min-w-[200px] grow basis-[200px]">
         <!-- With several repositories the heading is the picker. -->
         {#if repos.length > 1}
           <h1 class="sr-only">{repoName}</h1>
@@ -361,13 +366,14 @@
         {:else}
           <h1 class="w-fit text-base font-semibold">{repoName}</h1>
         {/if}
-        <div class="text-xs text-surface-500">
+        <div class="flex flex-wrap items-center gap-x-1.5 text-xs text-surface-500">
           {#if inbox}
-            {inbox.repo}
-            · synced {syncedAgo === "now" ? "just now" : `${syncedAgo} ago`}
+            <span>{inbox.repo} · synced {syncedAgo === "now" ? "just now" : `${syncedAgo} ago`}</span>
           {:else if repoState?.syncing}
-            Syncing…
+            <span>Syncing…</span>
           {/if}
+          <!-- Outside the inbox: a pin to an account that has gone is why there may not be one. -->
+          <AccountMenu {repoPath} viewer={inbox?.viewer ?? null} syncing={repoState?.syncing ?? false} onError={fail} />
         </div>
       </div>
       <label class="relative flex items-center">
@@ -430,6 +436,7 @@
                 worktrees.find((entry) => group.stack.prs.some((pr) => pr.headRef === entry.branch)) ?? null}
               <StackCard
                 {group}
+                {people}
                 mine={true}
                 {worktree}
                 threadCount={worktree ? threadCountForPath(projects(), worktree.path) : 0}
@@ -453,7 +460,7 @@
                 {#if item.kind === "stack"}
                   {@const group = item.group}
                   <div role="listitem" aria-label="Stack {group.name}" class="contents">
-                    <StackCard {group} mine={false}>
+                    <StackCard {group} {people} mine={false}>
                       {#snippet row(entry, index)}
                         {@render prRow(entry, index, group)}
                       {/snippet}
@@ -537,6 +544,7 @@
     {#if inbox}
       <SinceYouLooked
         feed={inbox.feed}
+        {people}
         {now}
         onOpen={(number) => {
           const pr = inbox.prs.find((candidate) => candidate.number === number);

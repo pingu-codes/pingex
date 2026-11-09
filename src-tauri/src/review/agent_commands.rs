@@ -17,7 +17,7 @@ fn desk(window: &crate::HomeWindow, state: &State<'_, AppState>, repo_dir: Strin
     let ctx = state.ctx(window);
     let host = ctx.host();
     let dir = PathBuf::from(repo_dir);
-    let github = Arc::new(GhCli::new(host.clone(), dir.clone()));
+    let github = Arc::new(GhCli::new(host.clone(), dir.clone(), ctx.database()));
     ReviewDesk::new(host, dir, github, ctx.database())
 }
 

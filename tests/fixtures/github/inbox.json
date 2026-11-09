@@ -14,7 +14,11 @@
               "isDraft": false,
               "createdAt": "2026-11-01T09:00:00Z",
               "updatedAt": "2026-11-05T15:48:00Z",
-              "author": { "login": "pingu-codes" },
+              "author": {
+                "login": "pingu-codes",
+                "name": null,
+                "avatarUrl": "https://avatars.githubusercontent.com/u/44237086?s=40&v=4"
+              },
               "headRefName": "feat/claude-driver",
               "headRefOid": "3c1e9a2b7d4f60118e2c9a5b0d3e7f4a6b8c9d01",
               "baseRefName": "feat/driver-trait",
@@ -27,15 +31,51 @@
               "changedFiles": 12,
               "reviewRequests": {
                 "nodes": [
-                  { "requestedReviewer": { "login": "jo-r" } },
-                  { "requestedReviewer": { "slug": "core-team" } },
+                  {
+                    "requestedReviewer": {
+                      "login": "jo-r",
+                      "name": "Jo Reyes",
+                      "avatarUrl": "https://avatars.githubusercontent.com/u/1002?s=40&v=4"
+                    }
+                  },
+                  {
+                    "requestedReviewer": {
+                      "slug": "core-team",
+                      "name": "Core",
+                      "avatarUrl": "https://avatars.githubusercontent.com/t/77?s=40&v=4"
+                    }
+                  },
                   { "requestedReviewer": null }
                 ]
               },
               "latestOpinionatedReviews": {
-                "nodes": [{ "state": "CHANGES_REQUESTED", "author": { "login": "mira-k" } }]
+                "nodes": [
+                  {
+                    "state": "CHANGES_REQUESTED",
+                    "author": {
+                      "login": "mira-k",
+                      "name": "Mira Kovac",
+                      "avatarUrl": "https://avatars.githubusercontent.com/u/1003?s=40&v=4"
+                    }
+                  }
+                ]
               },
-              "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] },
+              "commits": {
+                "nodes": [
+                  {
+                    "commit": {
+                      "statusCheckRollup": { "state": "SUCCESS" },
+                      "author": {
+                        "user": {
+                          "login": "pingu-codes",
+                          "name": null,
+                          "avatarUrl": "https://avatars.githubusercontent.com/u/44237086?s=40&v=4"
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
               "reviewThreads": {
                 "nodes": [{ "isResolved": false }, { "isResolved": true }, { "isResolved": false }]
               }
@@ -47,7 +87,11 @@
               "isDraft": false,
               "createdAt": "2026-11-04T10:00:00Z",
               "updatedAt": "2026-11-05T15:35:00Z",
-              "author": { "login": "jo-r" },
+              "author": {
+                "login": "jo-r",
+                "name": "Jo Reyes",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1002?s=40&v=4"
+              },
               "headRefName": "usage-weekly",
               "headRefOid": "7e2c1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e",
               "baseRefName": "main",
@@ -60,7 +104,22 @@
               "changedFiles": 5,
               "reviewRequests": { "nodes": [] },
               "latestOpinionatedReviews": { "nodes": [] },
-              "commits": { "nodes": [{ "commit": { "statusCheckRollup": null } }] },
+              "commits": {
+                "nodes": [
+                  {
+                    "commit": {
+                      "statusCheckRollup": null,
+                      "author": {
+                        "user": {
+                          "login": "dependabot[bot]",
+                          "name": null,
+                          "avatarUrl": "https://avatars.githubusercontent.com/in/29110?s=40&v=4"
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
               "reviewThreads": { "nodes": [] }
             }
           ]

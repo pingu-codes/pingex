@@ -371,6 +371,7 @@ const UNCACHED_READS = new Set<string>([
   "reviewRepositorySettings",
   "reviewRules",
   "reviewGithubAccount",
+  "reviewRepositoryAccount",
   "reviewMyRepositories",
   "reviewRepositoriesRequestingReview",
   "reviewPrsOnlyRepositories",

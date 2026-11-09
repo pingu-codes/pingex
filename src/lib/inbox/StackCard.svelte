@@ -9,12 +9,14 @@
   import { Folder, GitBranch } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
-  import type { InboxRow, StackGroup } from "$lib/inbox/inbox";
+  import type { InboxRow, People, StackGroup } from "$lib/inbox/inbox";
+  import LoginAvatar from "$lib/inbox/LoginAvatar.svelte";
   import { behindLabel } from "$lib/stack/stack";
   import type { WorktreeEntry } from "$lib/types";
 
   let {
     group,
+    people = new Map(),
     mine,
     worktree = null,
     threadCount = 0,
@@ -25,6 +27,7 @@
     row,
   }: {
     group: StackGroup;
+    people?: People;
     mine: boolean;
     /** The worktree one of the stack's git branches is checked out in. */
     worktree?: WorktreeEntry | null;
@@ -110,6 +113,7 @@
         <button type="button" class="btn btn-sm text-xs hover:preset-tonal" onclick={onRestack}>Restack</button>
       {/if}
     {:else}
+      <LoginAvatar login={group.author} person={people.get(group.author)} role="Author" />
       <span class="text-surface-500">{group.author} · {count} PR{count === 1 ? "" : "s"}</span>
     {/if}
   </div>
