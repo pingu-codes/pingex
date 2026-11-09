@@ -7,12 +7,12 @@
   import { inboxes } from "$lib/inbox/inboxStore.svelte";
   import AgentReviewPage from "$lib/review/AgentReviewPage.svelte";
   import { stepUpFor, workOnPr } from "$lib/review/checkoutSteps";
-  import { checkoutTarget } from "$lib/review/checkoutTarget";
+  import { prTarget } from "$lib/review/prTarget";
   import { changeStat, fileChange, reviewPrompt } from "$lib/review/review";
   import { commands } from "$lib/services/homeRouting";
-  import { fetchQuery, invalidate } from "$lib/services/queryCache.svelte";
+  import { fetchQuery, invalidate, query } from "$lib/services/queryCache.svelte";
   import { toastError, toaster } from "$lib/toaster";
-  import type { CheckoutTarget, PrCheckout, PrDetail, PrFile, ProviderStatus, PrSummary } from "$lib/types";
+  import type { CheckoutTarget, PrDetail, PrFile, ProviderStatus, PrSummary } from "$lib/types";
   import { errorMessage } from "$lib/utils/errors";
 
   let {
@@ -50,16 +50,24 @@
     localFiles.find((file) => file.path === selectedPath) ?? localFiles[0] ?? null,
   );
 
-  // The PR's checkout, for the page's badge, local state and button tooltips.
-  let prCheckout = $state<PrCheckout | null>(null);
-
   function targetOf(detail: PrDetail): CheckoutTarget {
     const viewer = inboxes[repoDir]?.inbox?.viewer;
-    return checkoutTarget({ ...detail.summary, headSha: detail.headSha }, detail.summary.author === viewer);
+    return prTarget(repoDir, { ...detail.summary, headSha: detail.headSha }, detail.summary.author === viewer);
   }
 
-  async function readStep(detail: PrDetail) {
-    prCheckout = await fetchQuery("reviewCheckoutState", repoDir, targetOf(detail)).catch(() => null);
+  // The PR's checkout, for the page's badge, local state and button tooltips.
+  // A query, so work done in a terminal or by an agent shows when it re-reads.
+  let shownDetail = $state<PrDetail | null>(null);
+  const checkoutQuery = query("reviewCheckoutState", () =>
+    // The last PR's details stay until the next one's load: don't name its worktree.
+    shownDetail?.summary.number === prNumber ? [repoDir, targetOf(shownDetail)] : null,
+  );
+  // Undefined until answered, and when the read fails: the page then says
+  // nothing about a worktree rather than that there isn't one.
+  const prCheckout = $derived(checkoutQuery.value);
+
+  function readStep(detail: PrDetail) {
+    shownDetail = detail;
   }
 
   /** Run locally / Open in editor: step up to the PR's worktree (asking per
@@ -70,7 +78,6 @@
         ? await workOnPr({ repoDir, repoName, target: targetOf(detail), action })
         : await stepUpFor({ repoDir, repoName, target: targetOf(detail), action });
     if (!checkout?.path) return;
-    prCheckout = checkout;
     if (action === "openInEditor") {
       await commands.openInZed(checkout.path).catch((cause) => toastError(errorMessage(cause)));
     }
@@ -78,8 +85,7 @@
 
   /** Work on this PR: a draft thread in its worktree, always asked for. */
   async function startWork(detail: PrDetail) {
-    const checkout = await workOnPr({ repoDir, repoName, target: targetOf(detail), action: "workOnPr" });
-    if (checkout) prCheckout = checkout;
+    await workOnPr({ repoDir, repoName, target: targetOf(detail), action: "workOnPr" });
   }
 
   /** Push to PR: the worktree's commits go to the PR's branch, without forcing.
@@ -90,7 +96,6 @@
     try {
       await commands.reviewPushToPr(repoDir, detail.summary.number);
       toaster.success({ title: `Pushed to #${detail.summary.number}` });
-      await readStep(detail);
     } catch (cause) {
       toastError(errorMessage(cause));
     }

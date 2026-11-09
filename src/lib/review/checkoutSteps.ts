@@ -9,7 +9,7 @@ import CheckoutStepDialog from "$lib/review/CheckoutStepDialog.svelte";
 import { expectPrThread } from "$lib/review/prLinks.svelte";
 import { commands } from "$lib/services/homeRouting";
 import { toastError, toaster, toastProgress, toastUndo } from "$lib/toaster";
-import type { CheckoutTarget, DeskAction, PrCheckout } from "$lib/types";
+import type { CheckoutTarget, DeskAction, PrCheckout, StackCheckout, StackInput } from "$lib/types";
 import { errorMessage } from "$lib/utils/errors";
 import { basename } from "$lib/utils/path";
 
@@ -42,6 +42,7 @@ export async function stepUpFor(request: StepRequest): Promise<PrCheckout | null
         target,
         repoName,
         worktreePath: plan.worktreePath,
+        fromBranch: plan.current.gitBranch,
       });
     if (plan.confirm) {
       const choice = await ask(plan.confirm);
@@ -54,6 +55,11 @@ export async function stepUpFor(request: StepRequest): Promise<PrCheckout | null
     if (plan.stepUp === "worktree") {
       // An editor can open before dependencies finish; an agent shouldn't start.
       return await createPrWorktree(repoDir, target, { awaitSetup: action !== "openInEditor" });
+    }
+    if (plan.switchBranch) {
+      const checkout = await commands.reviewEnsurePrWorktree(repoDir, target);
+      toaster.success({ title: `Switched ${basename(plan.worktreePath)} to ${target.headRef}` });
+      return checkout;
     }
     return plan.current;
   } catch (cause) {
@@ -99,6 +105,64 @@ export async function workOnPr(request: StepRequest): Promise<PrCheckout | null>
   expectPrThread(checkout.path, request.repoDir, request.target);
   newThreadInDir(checkout.path);
   return checkout;
+}
+
+export interface StackCheckoutRequest {
+  repoDir: string;
+  repoName: string;
+  input: StackInput;
+  /** The stack's top PR. */
+  target: CheckoutTarget;
+}
+
+/**
+ * A worktree for the whole stack on its top PR's git branch, and a local git
+ * branch for each open PR. Asks only when a worktree will be made; a stack that
+ * has one just gets what is missing. Resolves with `null` when cancelled or
+ * refused.
+ */
+export async function checkOutStack(request: StackCheckoutRequest): Promise<StackCheckout | null> {
+  const { repoDir, repoName, input, target } = request;
+  const open = input.prs.filter((pr) => pr.open && !pr.merged).length;
+  try {
+    const plan = await commands.reviewPlanStep(repoDir, target, "workOnPr");
+    if (plan.stepUp === "worktree") {
+      const choice = await openDialog(CheckoutStepDialog, {
+        confirm: "createWorktree" as const,
+        action: "workOnPr" as const,
+        target,
+        repoName,
+        worktreePath: plan.worktreePath,
+        stackSize: open,
+      });
+      if (!choice) return null;
+    }
+    const result = await commands.reviewEnsureStackWorktree(repoDir, input);
+    announceStackCheckout(repoDir, result, open);
+    if (result.checkout.setupPending) {
+      await runSetup(repoDir, target.number, basename(result.checkout.path ?? ""), result.checkout.setupPending);
+    }
+    return result;
+  } catch (cause) {
+    toastError(errorMessage(cause));
+    return null;
+  }
+}
+
+function announceStackCheckout(repoDir: string, result: StackCheckout, open: number): void {
+  const path = result.checkout.path ?? "";
+  const title = `Checked out ${open} PR${open === 1 ? "" : "s"} in ${basename(path)}`;
+  const made = result.createdBranches.length;
+  const description = made > 0 ? `${made} new local branch${made === 1 ? "" : "es"}` : undefined;
+  if (result.created) {
+    // The local branches stay: they hold nothing GitHub doesn't.
+    toastUndo(title, () => undo(commands.gitWorktreeRemove(repoDir, path, false)), description);
+  } else {
+    toaster.success({ title, description });
+  }
+  for (const { branch, reason } of result.kept) {
+    toaster.warning({ title: `${branch} left as it is`, description: reason });
+  }
 }
 
 /** The setup command, with a toast while it runs. */

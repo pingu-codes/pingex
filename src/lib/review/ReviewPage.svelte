@@ -21,7 +21,7 @@
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import Segmented from "$lib/components/Segmented.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
-  import { STEP_LABELS, stepHint } from "$lib/review/actions";
+  import { stepHint } from "$lib/review/actions";
   import CommentBody from "$lib/review/CommentBody.svelte";
   import FileDiff, { type Composer, type LineSlot } from "$lib/review/FileDiff.svelte";
   import FindBar from "$lib/review/FindBar.svelte";
@@ -67,6 +67,7 @@
   import { loadReviewCollapsed, saveReviewCollapsed } from "$lib/review/reviewPrefs";
   import ThreadContext from "$lib/review/ThreadContext.svelte";
   import WholeFileDialog from "$lib/review/WholeFileDialog.svelte";
+  import WorktreeBadge from "$lib/review/WorktreeBadge.svelte";
   import YourReview from "$lib/review/YourReview.svelte";
   import { commands } from "$lib/services/homeRouting";
   import { prefetch, query } from "$lib/services/queryCache.svelte";
@@ -77,6 +78,7 @@
     CheckoutStep,
     Inbox,
     PendingEntry,
+    PrCheckout,
     PrComment,
     PrDetail,
     PrFile,
@@ -95,6 +97,8 @@
     headerActions,
     onDetail,
     step = "noCheckout",
+    checkout = null,
+    checkoutKnown = false,
     seenAt = null,
     findingCounts,
     lineAnnotations,
@@ -121,6 +125,10 @@
     /** The PR's detail, each time it loads. */
     onDetail?: (detail: PrDetail) => void;
     step?: CheckoutStep;
+    /** Where the PR is on disk, for the header's badge. */
+    checkout?: PrCheckout | null;
+    /** `checkout` has been read: `null` then means no worktree. */
+    checkoutKnown?: boolean;
     /** When the reviewer last looked: the "N new since" divider. */
     seenAt?: string | null;
     /** Agent Findings per path; shows the Agent findings filter. */
@@ -147,12 +155,6 @@
   const HOLD_SLOP = 20;
   /** Room kept around the highlighted rail row: its folder's label fits. */
   const RAIL_MARGIN = 32;
-
-  /** The checkout step's dot, as the Model board draws it. */
-  const STEP_DOT: Record<CheckoutStep, string> = {
-    noCheckout: "border-[1.5px] border-current",
-    worktree: "bg-success-500",
-  };
 
   // Cached: a remount (j/k, back from a thread, a branch click on the Stack
   // page) shows the PR at once and refreshes it behind. A write through
@@ -868,12 +870,7 @@
           {/if}
         </div>
         <div class="ml-auto flex shrink-0 items-center gap-2">
-          <span
-            class="inline-flex items-center gap-1.5 rounded-full border border-surface-300-700 px-2 py-0.5 text-[11px]"
-            title="Code for this PR on disk"
-          >
-            <span class="size-2 shrink-0 rounded-full {STEP_DOT[step]}" aria-hidden="true"></span>{STEP_LABELS[step]}
-          </span>
+          <WorktreeBadge variant="chip" {checkout} known={checkoutKnown} />
           {@render headerActions?.()}
           <button
             type="button"

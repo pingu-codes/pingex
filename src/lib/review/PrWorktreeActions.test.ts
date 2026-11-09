@@ -15,6 +15,8 @@ const worktree = (overrides: Partial<PrCheckout> = {}): PrCheckout => ({
   behind: 0,
   dirty: false,
   managed: true,
+  onPrBranch: true,
+  mainCheckout: false,
   ...overrides,
 });
 

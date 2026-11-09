@@ -109,7 +109,7 @@ fn codex_worktree_root(
 /// How many worktree statuses run at once. Each is a full untracked scan (a
 /// `wsl.exe` spawn on WSL), so a repository with many worktrees is read in
 /// parallel without starting them all together.
-const STATUS_PARALLELISM: usize = 4;
+pub(crate) const STATUS_PARALLELISM: usize = 4;
 
 /// Every worktree's path and checked-out git branch, without the status
 /// reads `read_worktrees` adds.

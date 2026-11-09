@@ -290,6 +290,7 @@ impl ReviewDesk {
                             &layer.tip,
                         )?,
                         unpushed: layer.local && layer.tip != pr.head_sha,
+                        local: layer.local,
                         commit_lines: git::commits_between(
                             &desk.host,
                             desk.dir(),

@@ -1,27 +1,31 @@
 <!--
   A stack as one card: its name, base and PRs bottom first, numbered from the
-  base and joined by a rail, so it is plain which PR builds on which. My stacks show their worktree and
-  thread count, with Restack, and a click on the header opens the Stack page
-  when it is wired; another author's stack shows who wrote it, and sits in its
-  section's list without a card of its own.
+  base and joined by a rail, so it is plain which PR builds on which. Every
+  stack says where it is on disk, with Check out stack when it isn't. My stacks
+  add their thread count and Restack, and a click on the header opens the Stack
+  page when it is wired; another author's stack shows who wrote it, and sits in
+  its section's list without a card of its own.
 -->
 <script lang="ts">
-  import { Folder, GitBranch } from "@lucide/svelte";
+  import { GitBranch } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
   import type { InboxRow, People, StackGroup } from "$lib/inbox/inbox";
   import LoginAvatar from "$lib/inbox/LoginAvatar.svelte";
+  import WorktreeBadge from "$lib/review/WorktreeBadge.svelte";
   import { behindLabel } from "$lib/stack/stack";
-  import type { WorktreeEntry } from "$lib/types";
+  import type { PrCheckout } from "$lib/types";
 
   let {
     group,
     people = new Map(),
     mine,
-    worktree = null,
+    checkout = null,
+    checkoutKnown = false,
     threadCount = 0,
     onOpenStack,
     onRestack,
+    onCheckOut,
     behind = null,
     onCompare,
     row,
@@ -29,11 +33,15 @@
     group: StackGroup;
     people?: People;
     mine: boolean;
-    /** The worktree one of the stack's git branches is checked out in. */
-    worktree?: WorktreeEntry | null;
+    /** Where the stack is on disk: one of its PRs, at the stack's worktree. */
+    checkout?: PrCheckout | null;
+    /** `checkout` has been read: `null` then means no worktree. */
+    checkoutKnown?: boolean;
     threadCount?: number;
     onOpenStack?: () => void;
     onRestack?: () => void;
+    /** A worktree for the stack, and a local git branch for each PR. */
+    onCheckOut?: () => void;
     /** Commits the base has that the stack doesn't; `null` when unknown. */
     behind?: number | null;
     /** What the base gained since the stack forked. */
@@ -42,7 +50,6 @@
   } = $props();
 
   const count = $derived(group.stack.prs.filter((entry) => entry.state === "open").length);
-  const worktreeName = $derived(worktree?.path.split("/").pop() ?? "");
   const behindText = $derived(behindLabel(group.stack.baseRef, behind));
   const opens = $derived(mine && !!onOpenStack);
 
@@ -61,6 +68,13 @@
     onOpenStack?.();
   }
 </script>
+
+{#snippet onDisk()}
+  <WorktreeBadge variant="chip" {checkout} known={checkoutKnown} noneHint="Check out stack creates one." />
+  {#if checkoutKnown && !checkout && onCheckOut}
+    <button type="button" class="btn btn-sm text-xs hover:preset-tonal" onclick={onCheckOut}>Check out stack</button>
+  {/if}
+{/snippet}
 
 <section class={mine ? "panel-card overflow-hidden" : ""} aria-label="Stack {group.name}">
   <!-- The role is dynamic, so the a11y checks cannot see it is a button. -->
@@ -103,11 +117,9 @@
         </ActionMenu>
       {/if}
       <span class="grow"></span>
-      {#if worktree}
-        <span class="status-badge preset-tonal" title="Worktree for this stack">
-          <Folder size={9} aria-hidden="true" />{worktreeName}
-          · {threadCount} thread{threadCount === 1 ? "" : "s"}
-        </span>
+      {@render onDisk()}
+      {#if checkout}
+        <span class="text-surface-500">{threadCount} thread{threadCount === 1 ? "" : "s"}</span>
       {/if}
       {#if onRestack}
         <button type="button" class="btn btn-sm text-xs hover:preset-tonal" onclick={onRestack}>Restack</button>
@@ -115,6 +127,8 @@
     {:else}
       <LoginAvatar login={group.author} person={people.get(group.author)} role="Author" />
       <span class="text-surface-500">{group.author} · {count} PR{count === 1 ? "" : "s"}</span>
+      <span class="grow"></span>
+      {@render onDisk()}
     {/if}
   </div>
   <div role="list" class="divide-y divide-surface-200-800">

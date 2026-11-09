@@ -24,4 +24,6 @@ export type InboxHandlers = {
   /** The Stack page for a stack card. */
   openStack?: (repoDir: string, group: StackGroup) => void;
   restack?: (repoDir: string, group: StackGroup) => void;
+  /** A worktree for the stack, and a local git branch for each of its PRs. */
+  checkOutStack?: (repoDir: string, group: StackGroup) => void;
 };

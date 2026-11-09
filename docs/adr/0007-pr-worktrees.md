@@ -75,6 +75,30 @@ separate answers.
    change, so threads keep their cwd. Stored `review_checkout` and
    `reviewCheckout` values read as Worktree.
 
+9. **A stack shares one worktree.** A stack's worktree sits on one of its git
+   branches, and every open PR has a local branch tracking GitHub's. Checking out
+   a stack (`ReviewDesk::ensure_stack_worktree`) makes those branches and, if the
+   stack has no worktree, one on the top PR's branch. One per PR isn't an option:
+   a restack rebases each branch inside one directory, and git refuses a branch
+   checked out in another worktree. It also moves no work: a branch that has
+   diverged from GitHub, or is checked out and behind it, stays put and is
+   reported.
+
+   A stack's PR is therefore often in a worktree that isn't on its own branch,
+   which `PrCheckout.on_pr_branch` reports. An action that needs the PR's code
+   switches the worktree first, after asking (`StepConfirm::SwitchBranch`), and
+   refuses when it has uncommitted changes or a rebase going on. A thread started
+   without that step, such as Ask agent, gets a read-only sandbox there. Fast-forwarding
+   and Push to PR refuse a worktree on another branch: either would otherwise
+   move a PR's branch onto its neighbour's commits.
+
+10. **A same-repository PR's branch, checked out anywhere, is that PR's worktree,
+    whoever wrote the PR.** The location rule is one function,
+    `pr_checkouts::locate`, which the inbox, PR page and Stack page all read
+    through. A branch you checked out by hand on a colleague's PR used to read as
+    No checkout, so the indicator would have been wrong. A fork's branch name still
+    says nothing about a local branch of that name.
+
 ## Considered options
 
 - **Keep the step and just lift read-only on my own PRs.** Leaves detached HEAD,
@@ -83,6 +107,8 @@ separate answers.
   colleague's branch one `git push` away and brings back the fork collisions.
 - **Queued reviews inherit the composer's mode.** A batch from the inbox could
   then run under Full Access without anyone choosing that.
+- **One worktree per stack PR.** Lets several PRs be open side by side, but
+  restack, reorder and every other stack edit need the branches free.
 
 ## Consequences
 
@@ -105,3 +131,7 @@ separate answers.
 - `ReviewCheckoutPolicy` and the `review_checkouts` table keep their names to
   avoid a migration. The setting is shown as "PR worktrees".
 - `git worktree add --lock --reason` needs git 2.33 or newer.
+- A stack PR already in a worktree of its own stays there and is shown as such,
+  but a restack can't rebase its branch until that worktree moves off it.
+- Switching a stack's worktree changes the files under any thread running there.
+  The confirmation says so; nothing stops it.

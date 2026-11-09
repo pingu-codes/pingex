@@ -3,6 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::checkout_types::PrCheckout;
+
 /// A stack as the inbox has it: GitHub's native stack joined with each PR's
 /// inbox facts. Bottom first, merged PRs included (GitHub keeps them in the
 /// listing).
@@ -70,6 +72,8 @@ pub(crate) struct StackBranch {
     pub(crate) commits: i64,
     /// The local git branch has commits GitHub does not, or differs from it.
     pub(crate) unpushed: bool,
+    /// A local git branch exists.
+    pub(crate) local: bool,
     pub(crate) commit_lines: Vec<CommitLine>,
 }
 
@@ -89,6 +93,26 @@ pub(crate) struct StackOverview {
     pub(crate) merged_branches: Vec<i64>,
     /// A restack stopped at a conflict, waiting to continue or abort.
     pub(crate) restack: Option<RestackProgress>,
+}
+
+/// A git branch that checking out a stack left where it was.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct KeptBranch {
+    pub(crate) branch: String,
+    pub(crate) reason: String,
+}
+
+/// What checking out a stack did.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StackCheckout {
+    /// The stack's top PR, as its checkout now stands.
+    pub(crate) checkout: PrCheckout,
+    /// A new worktree was made; otherwise the stack already had one.
+    pub(crate) created: bool,
+    pub(crate) created_branches: Vec<String>,
+    pub(crate) kept: Vec<KeptBranch>,
 }
 
 /// One PR as GitHub has it, for counting how far behind its base it is.

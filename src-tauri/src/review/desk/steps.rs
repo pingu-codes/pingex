@@ -2,9 +2,10 @@
 //! keeping it level with the PR without ever discarding work.
 //!
 //! A PR's worktree is stored per (repository, PR) in `review_checkouts`; No
-//! checkout is the absence of a row. Two facts on disk override the store: my
-//! own PR whose git branch is already checked out somewhere is at the Worktree
-//! step, and a stored worktree whose directory is gone is not one.
+//! checkout is the absence of a row. Facts on disk override the store: a
+//! same-repository PR whose git branch is already checked out somewhere is at
+//! the Worktree step, a stack's PR is at it when the stack has a worktree, and
+//! a stored worktree whose directory is gone is not one (`pr_checkouts::locate`).
 //!
 //! Who owns the PR decides the branch and who looks after the worktree, never
 //! what an agent may do there:
@@ -23,8 +24,10 @@
 
 use std::path::Path;
 
+use super::pr_checkouts::{self, candidates, locate, Source};
 use super::ReviewDesk;
-use crate::git::{checkouts as git, objects, worktrees};
+use crate::git::stack::{self as stack_git};
+use crate::git::{checkouts as git, objects};
 use crate::review::checkout_types::{CheckoutTarget, PrCheckout, StepConfirm, StepPlan};
 use crate::review::requirements::{CheckoutStep, DeskAction};
 use crate::storage::{self, ReviewCheckoutPolicy, StoredCheckout};
@@ -91,7 +94,7 @@ impl ReviewDesk {
     }
 
     /// Whether `target`'s head is in the repository the desk is for.
-    fn same_repo(&self, target: &CheckoutTarget) -> Result<bool, String> {
+    pub(super) fn same_repo(&self, target: &CheckoutTarget) -> Result<bool, String> {
         let Some(head_repo) = &target.head_repo else {
             return Ok(false);
         };
@@ -154,37 +157,42 @@ impl ReviewDesk {
             }
             storage::delete_checkout(&self.database, &key, target.number).await?;
         }
-        if !target.mine {
-            return Ok(PrCheckout::none(target.number));
-        }
-        // My PR whose git branch already lives on my disk starts at Worktree.
-        // A fork's branch name says nothing about my local branch of that name.
-        let branch = target.head_ref.clone();
+        let rows = if target.stack.is_some() {
+            storage::read_checkouts(&self.database, &key).await?
+        } else {
+            Vec::new()
+        };
         let moving = target.clone();
         let found = self
             .blocking("Reading worktrees failed", move |desk| {
-                if !desk.same_repo(&moving).unwrap_or(false) {
+                let same_repo = desk.same_repo(&moving).unwrap_or(false);
+                if !same_repo && moving.stack.is_none() {
                     return Ok(None);
                 }
-                Ok(worktrees::worktree_branches(&desk.host, desk.dir())?
-                    .into_iter()
-                    .find(|(_, checked_out)| checked_out.as_deref() == Some(branch.as_str()))
-                    .map(|(path, _)| path))
+                let listed = desk.listed_worktrees()?;
+                let places = candidates(&moving, rows.iter(), &listed, &desk.host);
+                Ok(locate(&moving, None, &places, same_repo)
+                    .map(|(path, source)| (path.to_string(), source)))
             })
             .await?;
-        let Some(path) = found else {
+        let Some((path, source)) = found else {
             return Ok(PrCheckout::none(target.number));
         };
+        // A PR's branch checked out by hand is its worktree from now on. A
+        // neighbouring branch is only where the PR is for now, so no row: the
+        // stack's worktree can move on.
         let stored = StoredCheckout {
             pr_number: target.number,
             step: WORKTREE.to_string(),
             path,
             head_sha: Some(target.head_sha.clone()),
-            git_branch: Some(target.head_ref.clone()),
+            git_branch: (source == Source::OwnBranch).then(|| target.head_ref.clone()),
             setup_done: true,
             closed_at: None,
         };
-        storage::write_checkout(&self.database, &key, &stored).await?;
+        if source == Source::OwnBranch {
+            storage::write_checkout(&self.database, &key, &stored).await?;
+        }
         self.describe(&target, stored).await
     }
 
@@ -243,26 +251,14 @@ impl ReviewDesk {
         target: &CheckoutTarget,
         stored: StoredCheckout,
     ) -> Result<PrCheckout, String> {
-        let path = stored.path.clone();
-        let sha = target.head_sha.clone();
-        let (head, branch, dirty, managed, (ahead, behind)) = self
+        let (path, moving) = (stored.path.clone(), target.clone());
+        let stored_branch = stored.git_branch.clone();
+        let (facts, counts) = self
             .blocking("Reading the checkout failed", move |desk| {
                 let dir = Path::new(&path);
-                let head = git::head_of(&desk.host, dir)?;
-                // A PR head not fetched yet can't be counted against.
-                let counts = match &head {
-                    Some(head) if git::has_commit(&desk.host, dir, &sha)? => {
-                        git::ahead_behind(&desk.host, dir, &sha, head).unwrap_or((0, 0))
-                    }
-                    _ => (0, 0),
-                };
-                Ok((
-                    head,
-                    git::branch_of(&desk.host, dir)?,
-                    !git::is_clean(&desk.host, dir).unwrap_or(true),
-                    git::is_managed(&desk.host, dir).unwrap_or(false),
-                    counts,
-                ))
+                let facts = pr_checkouts::read_facts(&desk.host, dir)?;
+                let counts = desk.counts(&moving, dir, &facts, stored_branch.as_deref())?;
+                Ok((facts, counts))
             })
             .await?;
         let setup_pending = if stored.setup_done {
@@ -272,18 +268,14 @@ impl ReviewDesk {
                 .await?
                 .setup_command
         };
-        Ok(PrCheckout {
-            number: target.number,
-            step: CheckoutStep::Worktree,
-            path: Some(stored.path),
-            head_sha: head,
-            git_branch: branch.or(stored.git_branch),
+        Ok(pr_checkouts::checkout_at(
+            target,
+            stored.path,
+            facts,
+            counts,
+            stored.git_branch,
             setup_pending,
-            ahead,
-            behind,
-            dirty,
-            managed,
-        })
+        ))
     }
 
     /// Make sure the PR head commit is in the repository, fetching its ref.
@@ -304,17 +296,19 @@ impl ReviewDesk {
     }
 
     /// Bring the worktree at `path` level with the PR by fast-forwarding, when
-    /// nothing can be lost by it: a linked worktree, on a branch, with no local
-    /// changes, whose HEAD the new head contains. Otherwise it stays where it
-    /// is, and `PrCheckout` reports how it differs.
+    /// nothing can be lost by it: a linked worktree, on the PR's own branch,
+    /// with no local changes, whose HEAD the new head contains. Otherwise it
+    /// stays where it is, and `PrCheckout` reports how it differs.
     fn follow_head(&self, path: &str, target: &CheckoutTarget) -> Result<(), String> {
         let dir = Path::new(path);
         let Some(head) = git::head_of(&self.host, dir)? else {
             return Ok(());
         };
+        let branch = git::branch_of(&self.host, dir)?;
         if head == target.head_sha
             || !git::is_linked_worktree(&self.host, dir)?
-            || git::branch_of(&self.host, dir)?.is_none()
+            || branch.is_none()
+            || !self.is_own_branch(target, branch.as_deref())
             || !git::is_clean(&self.host, dir)?
         {
             return Ok(());
@@ -346,13 +340,19 @@ impl ReviewDesk {
     }
 
     /// Give `target` a worktree at its head, unless it already has one, which
-    /// then follows the head where it safely can.
+    /// then follows the head where it safely can. A stack's worktree on another
+    /// of its git branches switches to this PR's.
     pub(crate) async fn ensure_pr_worktree(
         &self,
         target: CheckoutTarget,
     ) -> Result<PrCheckout, String> {
         let key = self.repo_key();
-        if self.checkout_state(target.clone()).await?.path.is_some() {
+        let current = self.checkout_state(target.clone()).await?;
+        if let Some(path) = current.path.as_deref() {
+            if Self::needs_switch(&target, &current) {
+                self.switch_stack_worktree(&target, path.to_string())
+                    .await?;
+            }
             return self.synced_checkout(target).await;
         }
         let path = self.new_worktree_path(&target).await?;
@@ -397,6 +397,55 @@ impl ReviewDesk {
         };
         storage::write_checkout(&self.database, &key, &stored).await?;
         self.describe(&target, stored).await
+    }
+
+    /// Whether `target` is a stack's PR whose worktree is on another git branch.
+    fn needs_switch(target: &CheckoutTarget, current: &PrCheckout) -> bool {
+        target.stack.is_some() && current.path.is_some() && !current.on_pr_branch
+    }
+
+    /// Put the stack's worktree at `path` on `target`'s git branch and record
+    /// it as the PR's. Refuses to touch one with changes or a rebase going on.
+    async fn switch_stack_worktree(
+        &self,
+        target: &CheckoutTarget,
+        path: String,
+    ) -> Result<(), String> {
+        let (moving, moving_path) = (target.clone(), path.clone());
+        self.blocking("Switching the worktree failed", move |desk| {
+            let dir = Path::new(&moving_path);
+            if stack_git::rebase_in_progress(&desk.host, dir) {
+                return Err(format!("A rebase is going on in {moving_path}"));
+            }
+            if !git::is_clean(&desk.host, dir)? {
+                return Err(format!(
+                    "{moving_path} has uncommitted changes. Commit or stash them, then switch"
+                ));
+            }
+            stack_git::locked(&desk.host, desk.dir(), || {
+                if stack_git::branch_tip(&desk.host, desk.dir(), &moving.head_ref)?.is_none() {
+                    desk.ensure_commit(&moving)?;
+                    stack_git::create_branch(
+                        &desk.host,
+                        desk.dir(),
+                        &moving.head_ref,
+                        &moving.head_sha,
+                    )?;
+                }
+                stack_git::switch(&desk.host, dir, &moving.head_ref)
+            })
+        })
+        .await?;
+        let stored = StoredCheckout {
+            pr_number: target.number,
+            step: WORKTREE.to_string(),
+            path,
+            head_sha: Some(target.head_sha.clone()),
+            git_branch: Some(target.head_ref.clone()),
+            setup_done: true,
+            closed_at: None,
+        };
+        storage::write_checkout(&self.database, &self.repo_key(), &stored).await
     }
 
     /// Run the repository's setup command in PR `number`'s new worktree. Does
@@ -512,6 +561,8 @@ impl ReviewDesk {
         let settings = storage::read_repository_settings(&self.database, &self.repo_key()).await?;
         let needed = action.needs();
         let step_up = (needed > current.step).then_some(needed);
+        let switch_branch =
+            needed == CheckoutStep::Worktree && Self::needs_switch(&target, &current);
         let mut confirm = None;
         let mut refused = None;
         match step_up {
@@ -527,6 +578,7 @@ impl ReviewDesk {
                 }
             }
             Some(CheckoutStep::Worktree) => confirm = Some(StepConfirm::CreateWorktree),
+            _ if switch_branch => confirm = Some(StepConfirm::SwitchBranch),
             _ if action == DeskAction::Push && !target.mine => {
                 confirm = Some(StepConfirm::PushToTheirBranch);
             }
@@ -545,13 +597,14 @@ impl ReviewDesk {
             confirm,
             confirm_push,
             refused,
+            switch_branch,
         })
     }
 }
 
 /// Whether `branch` is one Pingex made for PR `number`: `pr/<n>`, or the
 /// fallback adoption uses when that name was taken.
-fn is_managed_branch(branch: &str, number: i64) -> bool {
+pub(super) fn is_managed_branch(branch: &str, number: i64) -> bool {
     let name = git::managed_branch(number);
     branch == name || branch == format!("{name}-local")
 }
@@ -576,6 +629,7 @@ mod tests {
             mine,
             stack: None,
             head_repo: Some(SLUG.to_string()),
+            stack_branches: Vec::new(),
         }
     }
 

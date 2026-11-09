@@ -9,6 +9,7 @@ import type { PreviewCommands } from "./commands";
 import { DESK_VIEWER, deskInbox } from "./desk";
 import { previewPrs } from "./fixtures";
 import { repositoryCommands } from "./repositories";
+import { previewStackWorktree, setPreviewStackWorktree } from "./stack";
 
 const HOME = "/Users/ciaran/.codex";
 const RANK: Record<CheckoutStep, number> = { noCheckout: 0, worktree: 1 };
@@ -55,8 +56,28 @@ function checkoutOf(repoDir: string, number: number): PrCheckout {
       behind: 0,
       dirty: false,
       managed: false,
+      onPrBranch: false,
+      mainCheckout: false,
     }
   );
+}
+
+/** Where `target` is, as `pr_checkouts::locate` finds it: its own worktree, or
+ *  its stack's, which may be on another of the stack's git branches. */
+function located(repoDir: string, target: CheckoutTarget): PrCheckout {
+  const own = checkoutOf(repoDir, target.number);
+  const stackWorktree = target.stack === null ? null : previewStackWorktree(repoDir, target.number);
+  if (!stackWorktree) return own;
+  if (own.path && own.path !== stackWorktree.path) return own;
+  return {
+    ...own,
+    step: "worktree",
+    path: stackWorktree.path,
+    headSha: target.headSha,
+    gitBranch: stackWorktree.branch,
+    dirty: !stackWorktree.clean,
+    onPrBranch: stackWorktree.branch === target.headRef,
+  };
 }
 
 function put(repoDir: string, checkout: PrCheckout): PrCheckout {
@@ -80,12 +101,38 @@ export function resetPreviewCheckouts(): void {
 }
 
 export const previewCheckoutCommands: PreviewCommands = {
-  reviewCheckoutState: (repoDir, target) => ({ ...checkoutOf(repoDir, target.number) }),
+  reviewCheckoutState: (repoDir, target) => located(repoDir, target),
+  reviewPrCheckouts: (repoDir, targets) =>
+    targets.map((target) => located(repoDir, target)).filter((checkout) => checkout.path !== null),
+  reviewEnsureStackWorktree(repoDir, input) {
+    const open = input.prs.filter((pr) => pr.open && !pr.merged);
+    const top = open.at(-1);
+    if (!top) throw new Error("This stack has no open pull requests");
+    const created = previewStackWorktree(repoDir, top.number) === null;
+    const path = `${HOME}/worktrees/${repoName(repoDir)}/${slug(top.headRef)}`;
+    if (created) setPreviewStackWorktree(repoDir, top.number, { path, branch: top.headRef, clean: true });
+    const target: CheckoutTarget = {
+      number: top.number,
+      headRef: top.headRef,
+      headSha: top.headSha,
+      mine: false,
+      stack: input.name,
+      headRepo: null,
+      stackBranches: open.map((pr) => pr.headRef),
+    };
+    return {
+      checkout: located(repoDir, target),
+      created,
+      createdBranches: created ? open.map((pr) => pr.headRef) : [],
+      kept: [],
+    };
+  },
   reviewPlanStep(repoDir, target, action): StepPlan {
-    const current = checkoutOf(repoDir, target.number);
+    const current = located(repoDir, target);
     const settings = settingsFor(repoDir);
     const needed = DESK_ACTION_STEPS[action];
     const stepUp = RANK[needed] > RANK[current.step] ? needed : null;
+    const switchBranch = needed === "worktree" && target.stack !== null && current.path !== null && !current.onPrBranch;
     const plan: StepPlan = {
       current: { ...current },
       stepUp,
@@ -93,6 +140,7 @@ export const previewCheckoutCommands: PreviewCommands = {
       confirmPush: action === "push" && !target.mine,
       refused: null,
       worktreePath: current.path ?? worktreePath(repoDir, target),
+      switchBranch,
     };
     const followsPolicy = action === "agentReviewWithTests" || action === "runLocally" || action === "openInEditor";
     if (stepUp === "worktree" && followsPolicy) {
@@ -101,13 +149,20 @@ export const previewCheckoutCommands: PreviewCommands = {
         plan.confirm = "createWorktree";
     } else if (stepUp === "worktree") {
       plan.confirm = "createWorktree";
+    } else if (switchBranch) {
+      plan.confirm = "switchBranch";
     } else if (action === "push" && !target.mine) {
       plan.confirm = "pushToTheirBranch";
     }
     return plan;
   },
   reviewEnsurePrWorktree(repoDir, target) {
-    const current = checkoutOf(repoDir, target.number);
+    const current = located(repoDir, target);
+    if (current.path && target.stack !== null && !current.onPrBranch) {
+      if (current.dirty) throw new Error(`${current.path} has uncommitted changes. Commit or stash them, then switch`);
+      setPreviewStackWorktree(repoDir, target.number, { path: current.path, branch: target.headRef, clean: true });
+      return put(repoDir, { ...current, gitBranch: target.headRef, onPrBranch: true });
+    }
     if (current.step !== "noCheckout") return { ...current };
     return put(repoDir, {
       number: target.number,
@@ -120,6 +175,8 @@ export const previewCheckoutCommands: PreviewCommands = {
       behind: 0,
       dirty: false,
       managed: !ownBranch(repoDir, target),
+      onPrBranch: true,
+      mainCheckout: false,
     });
   },
   reviewRunCheckoutSetup(repoDir, number) {

@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { checkoutTarget } from "$lib/review/checkoutTarget";
 import StartReviewDialog from "$lib/review/StartReviewDialog.svelte";
 import { inboxPr } from "$lib/services/preview/factories";
 import type { HarnessKind } from "$lib/types";
@@ -18,13 +19,15 @@ const pr = inboxPr({
 function open(harnesses: HarnessKind[] = ["codex", "claude"], refusedCheckout: string | null = null) {
   const close = vi.fn();
   render(StartReviewDialog, {
-    refusedCheckout,
-    pr,
-    viewer: "ciaran",
-    worktreePath: "~/.pingex/pr-worktrees/pingex/pr-399",
-    setupCommand: "bun install",
-    harnesses,
-    close,
+    props: {
+      refusedCheckout,
+      pr,
+      target: checkoutTarget(pr, pr.author === "ciaran"),
+      worktreePath: "~/.pingex/pr-worktrees/pingex/pr-399",
+      setupCommand: "bun install",
+      harnesses,
+      close,
+    },
   });
   return close;
 }

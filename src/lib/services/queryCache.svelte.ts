@@ -67,6 +67,7 @@ export const READS = {
   // Keyed by thread id, not a directory.
   reviewBranchProgress: { fresh: 2 * SECOND, expire: 10 * MINUTE, kind: "local" },
   reviewCheckoutState: LOCAL,
+  reviewPrCheckouts: LOCAL,
   reviewPrDetail: GITHUB,
   reviewListPrs: GITHUB,
   reviewStackOverview: GITHUB,
@@ -420,7 +421,7 @@ const NARROW: Partial<Record<string, "local" | readonly ReadName[]>> = {
   // Hidden PR refs only; nothing on screen reads them directly.
   reviewFetchPrs: [],
   // Runs after every inbox sync: closed PRs' refs and checkouts.
-  reviewPruneClosed: ["reviewCheckoutState"],
+  reviewPruneClosed: ["reviewCheckoutState", "reviewPrCheckouts"],
   // Thread links and the branches they follow.
   reviewLinkThread: ["reviewBranchProgress"],
   reviewMoveThreadToPr: ["reviewBranchProgress"],

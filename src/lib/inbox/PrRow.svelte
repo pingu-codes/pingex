@@ -26,6 +26,8 @@
     stateTone,
   } from "$lib/inbox/inbox";
   import LoginAvatar from "$lib/inbox/LoginAvatar.svelte";
+  import WorktreeBadge from "$lib/review/WorktreeBadge.svelte";
+  import type { PrCheckout } from "$lib/types";
 
   let {
     row,
@@ -40,6 +42,8 @@
     ciEntries,
     stack = null,
     drift = null,
+    checkout = null,
+    checkoutKnown = false,
     onAction,
     onPick,
   }: {
@@ -60,6 +64,10 @@
     stack?: { position: number; total: number; first: boolean; last: boolean } | null;
     /** "Behind main by 3" or "Behind #12": the base has commits GitHub's head lacks. */
     drift?: string | null;
+    /** Where the PR is on disk. */
+    checkout?: PrCheckout | null;
+    /** `checkout` has been read: `null` then means no worktree. */
+    checkoutKnown?: boolean;
     onAction: (id: string) => void;
     onPick: (mode: "toggle" | "range") => void;
   } = $props();
@@ -155,6 +163,10 @@
         class="flex min-w-0 flex-1 flex-col gap-1 @5xl/inbox:flex-row @5xl/inbox:flex-wrap @5xl/inbox:items-center @5xl/inbox:gap-x-2.5"
       >
         <span class="flex min-w-0 items-center gap-2.5 @5xl/inbox:flex-[1_1_14rem]">
+          <!-- A slot of its own, so the icons read as a column whatever the state. -->
+          <span class="flex size-3.5 shrink-0 items-center justify-center">
+            <WorktreeBadge variant="icon" {checkout} known={checkoutKnown} />
+          </span>
           <span class="font-mono text-[11px] text-surface-500">#{pr.number}</span>
           <span
             class="min-w-0 truncate {unseen ? "font-semibold" : "font-medium"} {pr.isDraft

@@ -11,8 +11,8 @@
 //   rerunAgentReview(review, targets)     "Re-run on new commits"
 
 import { HARNESS_INFO, HARNESS_KINDS } from "$lib/bindings";
-import { checkoutTarget } from "$lib/review/checkoutTarget";
 import { acceptedEntry } from "$lib/review/findingText";
+import { prTarget } from "$lib/review/prTarget";
 import { startPrThread } from "$lib/review/prThreads";
 import { readThread } from "$lib/services/api";
 import { activeTurns, setThreadHandler } from "$lib/services/codexEvents.svelte";
@@ -61,8 +61,8 @@ export function defaultReviewHarness(installed = installedHarnesses()): HarnessK
 }
 
 /** The checkout target for an inbox row. */
-export function reviewTarget(pr: InboxPr, viewer: string | null | undefined): CheckoutTarget {
-  return checkoutTarget(pr, pr.author === viewer);
+export function reviewTarget(repoDir: string, pr: InboxPr, viewer: string | null | undefined): CheckoutTarget {
+  return prTarget(repoDir, pr, pr.author === viewer);
 }
 
 /** A diff review of `targets` with the defaults: no checkout, drafts only. */
@@ -100,7 +100,7 @@ export async function startStackReview(
   prs: InboxPr[],
   options: { viewer?: string | null; harness?: HarnessKind } = {},
 ): Promise<AgentReview> {
-  const targets = prs.map((pr) => reviewTarget(pr, options.viewer));
+  const targets = prs.map((pr) => reviewTarget(repoDir, pr, options.viewer));
   return enqueueAgentReview(repoDir, defaultRequest(targets, options.harness));
 }
 

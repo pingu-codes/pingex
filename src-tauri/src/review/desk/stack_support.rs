@@ -5,8 +5,9 @@
 
 use std::path::{Path, PathBuf};
 
-use super::test_support::{fixture, Fixture, VIEWER};
+use super::test_support::{fixture, Fixture, SLUG, VIEWER};
 use super::ReviewDesk;
+use crate::review::checkout_types::CheckoutTarget;
 use crate::review::stack_types::{StackInput, StackInputPr};
 use crate::review::types::InboxPr;
 
@@ -154,6 +155,26 @@ impl StackFixture {
                     open: !merged.contains(number),
                     merged: merged.contains(number),
                 })
+                .collect(),
+        }
+    }
+
+    /// PR `number` as a member of this stack, at GitHub's head.
+    pub(super) fn target(&self, number: i64) -> CheckoutTarget {
+        let (_, branch, _) = STACK
+            .iter()
+            .find(|(entry, _, _)| *entry == number)
+            .expect("a PR in the stack");
+        CheckoutTarget {
+            number,
+            head_ref: branch.to_string(),
+            head_sha: self.remote_tip(branch),
+            mine: true,
+            stack: Some("driver".to_string()),
+            head_repo: Some(SLUG.to_string()),
+            stack_branches: STACK
+                .iter()
+                .map(|(_, branch, _)| branch.to_string())
                 .collect(),
         }
     }

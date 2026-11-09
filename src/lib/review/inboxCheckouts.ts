@@ -5,11 +5,13 @@
 import { newThreadInDir, openThreadInCwd } from "$lib/app/navigation.svelte";
 import type { InboxHandlers } from "$lib/inbox/handlers";
 import { inboxes } from "$lib/inbox/inboxStore.svelte";
-import { stepUpFor, workOnPr } from "$lib/review/checkoutSteps";
+import { checkOutStack, stepUpFor, workOnPr } from "$lib/review/checkoutSteps";
 import { checkoutTarget } from "$lib/review/checkoutTarget";
 import { expectPrThread } from "$lib/review/prLinks.svelte";
+import { prTarget, stackOfPr } from "$lib/review/prTarget";
 import { startPrThread } from "$lib/review/prThreads";
 import { commands } from "$lib/services/homeRouting";
+import { stackInputFor } from "$lib/stack/stack";
 import { toastError, toaster } from "$lib/toaster";
 import type { CheckoutTarget, InboxPr } from "$lib/types";
 import { errorMessage } from "$lib/utils/errors";
@@ -18,7 +20,7 @@ import { basename } from "$lib/utils/path";
 /** The checkout target for an inbox row. */
 export function targetFor(repoDir: string, pr: InboxPr): CheckoutTarget {
   const viewer = inboxes[repoDir]?.inbox?.viewer;
-  return checkoutTarget(pr, pr.author === viewer);
+  return prTarget(repoDir, pr, pr.author === viewer);
 }
 
 /** The first message of a "Fix CI in thread" thread: the failing checks' logs. */
@@ -34,7 +36,7 @@ export function fixCiPrompt(pr: InboxPr, logs: { name: string; log: string; trun
 
 export function checkoutHandlers(
   repoName: (repoDir: string) => string,
-): Required<Pick<InboxHandlers, "fixCi" | "createWorktrees" | "openInWorktree" | "newThread">> {
+): Required<Pick<InboxHandlers, "fixCi" | "createWorktrees" | "openInWorktree" | "newThread" | "checkOutStack">> {
   return {
     async newThread(repoDir, pr) {
       await workOnPr({ repoDir, repoName: repoName(repoDir), target: targetFor(repoDir, pr), action: "workOnPr" });
@@ -68,6 +70,21 @@ export function checkoutHandlers(
           toastError(`#${pr.number}: ${errorMessage(cause)}`);
         }
       }
+    },
+    async checkOutStack(repoDir, group) {
+      const inbox = inboxes[repoDir]?.inbox;
+      if (!inbox) return;
+      const input = stackInputFor(group.stack, inbox);
+      const top = input.prs.filter((pr) => pr.open && !pr.merged).at(-1);
+      if (!top) return;
+      const stack = stackOfPr(inboxes[repoDir]?.stacks, top.number);
+      const mine = group.author === inbox.viewer;
+      await checkOutStack({
+        repoDir,
+        repoName: repoName(repoDir),
+        input,
+        target: checkoutTarget(top, mine, stack),
+      });
     },
     async openInWorktree(repoDir, pr, worktreePath) {
       const target = targetFor(repoDir, pr);

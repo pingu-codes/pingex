@@ -39,7 +39,9 @@ export async function startPrThread(
 ): Promise<{ thread: StartedThread; turn: Turn; link: PrLink }> {
   const { repoDir, target, input, harness, options } = request;
   const checkout = await commands.reviewCheckoutState(repoDir, target);
-  const inWorktree = checkout.path !== null;
+  // A stack's worktree on another PR's branch is somewhere to read, not to write:
+  // anything committed there would land on that PR.
+  const inWorktree = checkout.path !== null && (target.stack === null || checkout.onPrBranch);
   if (!inWorktree && !can(harness, "readOnlySandbox")) {
     throw new Error(`${harnessLabel(harness)} has no read-only sandbox, so it can't work on #${target.number} here`);
   }

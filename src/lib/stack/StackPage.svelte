@@ -23,13 +23,14 @@
   import { inboxes, syncInbox } from "$lib/inbox/inboxStore.svelte";
   import { startStackReview } from "$lib/review/agentReviews.svelte";
   import CheckoutStepDialog from "$lib/review/CheckoutStepDialog.svelte";
-  import { stepUpFor } from "$lib/review/checkoutSteps";
+  import { checkOutStack, stepUpFor } from "$lib/review/checkoutSteps";
   import { checkoutTarget } from "$lib/review/checkoutTarget";
   import { ensurePrLinks, prLinks, rememberPrLink } from "$lib/review/prLinks.svelte";
   import ReviewView from "$lib/review/ReviewView.svelte";
+  import WorktreeBadge from "$lib/review/WorktreeBadge.svelte";
   import { startThreadWithTurn } from "$lib/services/api";
   import { commands } from "$lib/services/homeRouting";
-  import { peekQuery, prefetch, readFresh } from "$lib/services/queryCache.svelte";
+  import { peekQuery, prefetch, query, readFresh } from "$lib/services/queryCache.svelte";
   import BranchNameDialog from "$lib/stack/BranchNameDialog.svelte";
   import { followUps, putOffFollowUp } from "$lib/stack/followUps.svelte";
   import RestackDialog from "$lib/stack/RestackDialog.svelte";
@@ -237,7 +238,28 @@
   const theirs = $derived(openPrs.length > 0 && !openPrs.some(isMine));
 
   function targetFor(pr: StackInputPr): CheckoutTarget {
-    return checkoutTarget(pr, isMine(pr), input?.name ?? null);
+    return checkoutTarget(
+      pr,
+      isMine(pr),
+      input ? { name: input.name, branches: openPrs.map((open) => open.headRef) } : null,
+    );
+  }
+
+  // Where each open PR is on disk, for the tree's worktree icons.
+  const checkoutsQuery = query("reviewPrCheckouts", () =>
+    openPrs.length > 0 ? [repoDir, openPrs.map(targetFor)] : null,
+  );
+  const checkouts = $derived(new Map((checkoutsQuery.value ?? []).map((checkout) => [checkout.number, checkout])));
+  /** Open PRs with no local git branch yet. */
+  const missingBranches = $derived((overview?.branches ?? []).filter((branch) => !branch.local).length);
+
+  /** A worktree for the whole stack and a local git branch for each PR, or just
+   *  what is missing. */
+  async function checkOutWholeStack() {
+    const top = openPrs.at(-1);
+    if (!input || !top) return;
+    const stackInput = input;
+    await work("checkout", () => checkOutStack({ repoDir, repoName, input: stackInput, target: targetFor(top) }));
   }
 
   /** The stack's worktree, creating one on `pr`'s git branch if it has none. */
@@ -623,7 +645,15 @@
               >
               {#if checkedOut}
                 <span class="status-badge preset-tonal-primary">Checked out</span>
+              {:else if branch && !branch.local}
+                <span class="shrink-0 text-[10px] text-surface-500">No local branch</span>
               {/if}
+              <WorktreeBadge
+                variant="icon"
+                checkout={checkouts.get(pr.number) ?? null}
+                known={checkoutsQuery.value !== undefined}
+                noneHint="Check out stack creates one."
+              />
               <span class="grow"></span>
               <button {...buttonProps} type="button" class="btn-icon btn-icon-sm hover:preset-tonal shrink-0">
                 <Ellipsis size={14} aria-hidden="true" />
@@ -967,16 +997,39 @@
                 >{worktree.clean ? "Clean" : "Uncommitted changes"}</span
               >
             </div>
-            <div class="truncate font-mono text-[11px] text-surface-500">{worktree.path}</div>
+            <div class="truncate font-mono text-[11px] text-surface-500" title={worktree.path}>{worktree.path}</div>
+            <div class="text-surface-500">
+              On <span class="font-mono text-[11px]">{worktree.branch ?? "a detached HEAD"}</span>
+            </div>
             <div class="text-surface-500">
               {threadCountForPath(projects(), worktree.path)}
               thread{threadCountForPath(projects(), worktree.path) === 1 ? "" : "s"}
               here. Switching PR checks out its git branch; threads stay with the PR they were started on.
             </div>
+            {#if missingBranches > 0}
+              <div>
+                <button
+                  type="button"
+                  class="btn btn-sm text-xs preset-tonal"
+                  disabled={busy !== null}
+                  onclick={checkOutWholeStack}
+                >
+                  Create local branches ({missingBranches})
+                </button>
+              </div>
+            {/if}
           </div>
         {:else if overview}
-          <div class="empty-state">
-            No worktree has this stack's git branches yet. Restacking or pushing creates one.
+          <div class="empty-state flex flex-col items-start gap-2">
+            <span>No worktree has this stack's git branches yet.</span>
+            <button
+              type="button"
+              class="btn btn-sm text-xs preset-filled-primary-500"
+              disabled={busy !== null || restacking}
+              onclick={checkOutWholeStack}
+            >
+              Check out stack
+            </button>
           </div>
         {/if}
       </section>

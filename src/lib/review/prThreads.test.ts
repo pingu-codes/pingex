@@ -52,6 +52,33 @@ describe("startPrThread", () => {
     expect(prLinks.byThread[thread.id]?.prNumber).toBe(409);
   });
 
+  it("only reads in a stack's worktree that is on another PR's branch", async () => {
+    setPreviewCheckout(repoDir, {
+      number: 409,
+      step: "worktree",
+      path: "/wt/stack",
+      headSha: target.headSha,
+      gitBranch: "feat/top",
+      setupPending: null,
+      ahead: 0,
+      behind: 0,
+      dirty: false,
+      managed: false,
+      onPrBranch: false,
+      mainCheckout: false,
+    });
+
+    await startPrThread({
+      repoDir,
+      target: { ...target, stack: "focus", stackBranches: ["jo-r/usage-meter", "feat/top"] },
+      input,
+      options: { sandboxMode: "danger-full-access" },
+    });
+
+    expect(commands.startThread).toHaveBeenCalledWith("/wt/stack", null, null);
+    expect(vi.mocked(commands.startTurn).mock.calls[0][2]).toMatchObject({ sandboxMode: "read-only" });
+  });
+
   it("runs in the worktree with the caller's permissions once the PR has one", async () => {
     setPreviewCheckout(repoDir, {
       number: 409,
@@ -64,6 +91,8 @@ describe("startPrThread", () => {
       behind: 0,
       dirty: false,
       managed: false,
+      onPrBranch: true,
+      mainCheckout: false,
     });
     await startPrThread({ repoDir, target, input, options: { sandboxMode: "danger-full-access" } });
 
@@ -83,6 +112,8 @@ describe("startPrThread", () => {
       behind: 0,
       dirty: false,
       managed: true,
+      onPrBranch: true,
+      mainCheckout: false,
     });
     await startPrThread({ repoDir, target, input, harness: "maki" });
 

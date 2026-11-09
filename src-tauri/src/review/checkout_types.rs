@@ -20,6 +20,10 @@ pub(crate) struct CheckoutTarget {
     /// The `owner/name` the PR's head lives in; `None` when it was deleted.
     #[serde(default)]
     pub(crate) head_repo: Option<String>,
+    /// The git branches of the stack's open PRs, bottom first. A stack shares
+    /// one worktree, so this PR may be there on one of its neighbours.
+    #[serde(default)]
+    pub(crate) stack_branches: Vec<String>,
 }
 
 /// Where a PR's code is now.
@@ -45,6 +49,13 @@ pub(crate) struct PrCheckout {
     /// Pingex looks after this worktree and removes it once its PR has closed
     /// and it holds no work. Otherwise it is the user's.
     pub(crate) managed: bool,
+    /// The worktree is on this PR's own git branch. False when it is on
+    /// another branch, as a stack's worktree is for all but one of its PRs;
+    /// `ahead` and `behind` then count from this PR's local branch, and
+    /// `git_branch` names the one checked out.
+    pub(crate) on_pr_branch: bool,
+    /// The directory is the repository's main clone, not a linked worktree.
+    pub(crate) main_checkout: bool,
 }
 
 impl PrCheckout {
@@ -60,6 +71,8 @@ impl PrCheckout {
             behind: 0,
             dirty: false,
             managed: false,
+            on_pr_branch: false,
+            main_checkout: false,
         }
     }
 }
@@ -72,6 +85,8 @@ pub(crate) enum StepConfirm {
     CreateWorktree,
     /// Pushing to a git branch someone else owns. Asked every time.
     PushToTheirBranch,
+    /// The stack's worktree is on another of its git branches: switch it.
+    SwitchBranch,
 }
 
 /// How to get a PR to the step an action needs.
@@ -91,6 +106,9 @@ pub(crate) struct StepPlan {
     pub(crate) refused: Option<String>,
     /// Where a new worktree would go, for the confirmation.
     pub(crate) worktree_path: String,
+    /// The action needs the stack's worktree switched to this PR's git branch
+    /// from `current.git_branch`. `review_ensure_pr_worktree` does the switch.
+    pub(crate) switch_branch: bool,
 }
 
 /// The PR a Pingex-managed worktree belongs to, found from its directory.

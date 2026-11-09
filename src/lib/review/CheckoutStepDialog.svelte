@@ -1,8 +1,8 @@
 <script lang="ts">
   /**
-   * The confirmation a step plan asks for before a PR gets a worktree, or
-   * before pushing to someone else's git branch. Resolves with the choice, or
-   * `null` on Cancel.
+   * The confirmation a step plan asks for before a PR gets a worktree, before
+   * pushing to someone else's git branch, or before switching a stack's worktree
+   * to this PR's git branch. Resolves with the choice, or `null` on Cancel.
    */
   import { GitBranch, Upload } from "@lucide/svelte";
   import type { DialogClose } from "$lib/app/dialogs.svelte";
@@ -10,6 +10,7 @@
   import Toggle from "$lib/components/Toggle.svelte";
   import { ACTION_LABELS } from "$lib/review/actions";
   import type { CheckoutTarget, DeskAction, StepConfirm } from "$lib/types";
+  import { basename } from "$lib/utils/path";
 
   export type StepChoice = {
     /** Make the worktree, or just go ahead (pushing). */
@@ -24,6 +25,8 @@
     target,
     repoName,
     worktreePath,
+    fromBranch = null,
+    stackSize = null,
     close,
   }: {
     confirm: StepConfirm;
@@ -32,6 +35,10 @@
     repoName: string;
     /** Where the worktree goes or already is. */
     worktreePath: string;
+    /** Switching: the git branch the worktree is on now. */
+    fromBranch?: string | null;
+    /** Checking out a whole stack: how many PRs are in it. */
+    stackSize?: number | null;
     close: DialogClose<StepChoice>;
   } = $props();
 
@@ -45,8 +52,9 @@
 
   const title = $derived(
     {
-      createWorktree: `Create a worktree for #${target.number}?`,
+      createWorktree: stackSize === null ? `Create a worktree for #${target.number}?` : "Check out this stack?",
       pushToTheirBranch: `Push to ${target.headRef}?`,
+      switchBranch: `Switch ${basename(worktreePath)} to ${target.headRef}?`,
     }[confirm],
   );
 </script>
@@ -60,7 +68,24 @@
     {/if}
   {/snippet}
 
-  {#if confirm === "createWorktree"}
+  {#if confirm === "switchBranch"}
+    <p class="mt-3 text-sm leading-6 text-surface-600-400">
+      This stack shares one worktree, which is on
+      <span class="font-mono">{fromBranch ?? "a detached HEAD"}</span>. {actionLabel}
+      needs it on <span class="font-mono">{target.headRef}</span>. Threads running in this worktree will see the change.
+    </p>
+    <p class="mt-2 rounded-md bg-surface-100-900 px-2 py-1 font-mono text-[11px] text-surface-700-300">
+      {worktreePath}
+    </p>
+  {:else if confirm === "createWorktree" && stackSize !== null}
+    <p class="mt-3 text-sm leading-6 text-surface-600-400">
+      One worktree on <span class="font-mono">{target.headRef}</span>, the top of the stack, and a local git branch for
+      each of its {stackSize} open PRs. Switching PR switches the worktree's branch.
+    </p>
+    <p class="mt-2 rounded-md bg-surface-100-900 px-2 py-1 font-mono text-[11px] text-surface-700-300">
+      {worktreePath}
+    </p>
+  {:else if confirm === "createWorktree"}
     <p class="mt-3 text-sm leading-6 text-surface-600-400">
       {actionLabel}
       needs a worktree.
@@ -89,9 +114,13 @@
 
   {#snippet footer()}
     <button type="button" class="btn btn-sm preset-tonal" onclick={() => close()}>Cancel</button>
-    {#if confirm === "createWorktree"}
+    {#if confirm === "switchBranch"}
+      <button type="button" class="btn btn-sm preset-filled-primary-500" onclick={() => choose("proceed")}>
+        Switch worktree
+      </button>
+    {:else if confirm === "createWorktree"}
       <button type="button" class="btn btn-sm preset-filled-primary-500" onclick={() => choose("worktree")}>
-        Create worktree
+        {stackSize === null ? "Create worktree" : "Check out stack"}
       </button>
     {:else}
       <button type="button" class="btn btn-sm preset-filled-warning-500" onclick={() => choose("proceed")}>

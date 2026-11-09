@@ -21,7 +21,7 @@ desk**, **Inbox**, **Seen head**, **Stack**, **PR worktree**) is in
 | Board | What it shows |
 | --- | --- |
 | Pull requests | The inbox, grouped by repository and by stack. Filters are Needs me, Mine, Review requested, Everyone, Drafts, CI failing and Unresolved. It also shows the "Since you last looked" feed and the agent reviews that are queued or running. |
-| Stack | The stack tree from the base up. Each branch shows its PR, state, commit count and threads. The stack's worktree, the selected PR's conversation and reviewers, and "Threads on this PR" sit alongside. |
+| Stack | The stack tree from the base up. Each branch shows its PR, state, commit count and threads. The stack's worktree (with Check out stack when it has none), the selected PR's conversation and reviewers, and "Threads on this PR" sit alongside. |
 | Review | Collapsible files, viewed state, inline human comments and agent findings (drafts only you see), the pending review, and the next PRs up. |
 | Start review | Code (no checkout, or a PR worktree), the agent harness and focus, drafts on or off, and re-run on new commits. |
 | Context menus | Menus for a PR row, a stack branch, a sidebar worktree, a thread, a review comment, an agent finding, a changed file, a branch chip and a status badge. |
@@ -37,7 +37,7 @@ button names the step it would create.
 | Step | On disk | Adds | Implemented by |
 | --- | --- | --- | --- |
 | No checkout | Hidden refs only | Read, comment, approve, merge, diff review, stack tree | `review_fetch_prs`, `review_diff`, `review_file`, `review_changes_since` |
-| Worktree | A real worktree on a local branch (ADR 0007) | Build, run, test, measure, edit and commit; push, restack, agents fixing review comments | `review_ensure_pr_worktree`, `review_push_to_pr` |
+| Worktree | A real worktree on a local branch (ADR 0007) | Build, run, test, measure, edit and commit; push, restack, agents fixing review comments | `review_ensure_pr_worktree`, `review_ensure_stack_worktree`, `review_push_to_pr`; where each PR is: `review_pr_checkouts` |
 
 ## Where the code goes
 
@@ -49,6 +49,7 @@ button names the step it would create.
 | What each action needs | `src-tauri/src/review/requirements.rs`, exported as `DESK_ACTION_STEPS`; labels and tooltips in `src/lib/review/actions.ts` | A `DeskAction` variant, then `bun run typegen` and its label. |
 | Context menus | `src/lib/components/ActionMenu.svelte`, entries in `actionMenu.ts` | Passing entries (items, separators, submenus) with accelerator shortcuts. |
 | Inbox classification | `src-tauri/src/review/desk/sync.rs` (Needs me, Mine, Review requested, commits since my review) and `desk/activity.rs` (feed and seen state, muting), stored in `review_seen` and `review_feed` | Reading `inbox.triage` and `inbox.counts`; the frontend never re-derives them. |
+| Worktree indicators | `WorktreeBadge` on inbox rows, stack cards, the PR page and the stack tree, its words in `worktreeBadge.ts`; `desk/pr_checkouts.rs` holds the one rule for where a PR is | A new place: read `reviewPrCheckouts` (or `reviewCheckoutState` for one PR) and pass `known`, so nothing claims there's no worktree before the read answers. |
 | Pull requests inbox | `src/lib/inbox/`: `PullRequestsView`, pure helpers in `inbox.ts`, the sync cadence in `inboxStore.svelte.ts`, menus in `menus.ts` | Passing an `InboxHandlers` entry from `App.svelte` (agent reviews, worktrees, Stack page, Fix CI); without one its buttons show disabled. |
 | Preview data | `src/lib/services/preview/desk.ts` | Extending its repositories and PRs rather than adding parallel fixtures. |
 | Stack page | `src/lib/stack/`: `StackPage`, pure helpers in `stack.ts` (the `StackInput` the backend takes, reorder, the git branch menu, the merge follow-up), the worktree menu in `worktreeActions.ts`; backend `desk/stack.rs` (overview, PRs behind their base, plan), `desk/restack.rs` (per-branch rebases, snapshot, continue, abort; a stopped run is stored in `review_restacks`) and `desk/stack_edits.rs` (push with leases, reorder, fold, remove, split, rename, add, merged clean-up); commands in `review/stack_commands.rs`; preview fakes in `preview/stack.ts` | A new stack edit: a desk operation in `stack_edits.rs` driving a `restack::Run`, a command, a fake in `preview/stack.ts`, and a git branch menu entry. Review whole stack calls `startStackReview`. |

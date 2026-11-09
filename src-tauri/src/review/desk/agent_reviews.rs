@@ -510,6 +510,7 @@ mod tests {
             head_sha: pr.head_sha.clone(),
             mine: false,
             stack: None,
+            stack_branches: Vec::new(),
             head_repo: Some(super::super::test_support::SLUG.to_string()),
         }
     }

@@ -49,7 +49,7 @@
   import { query } from "$lib/services/queryCache.svelte";
   import { driftLabel, myBaseInputs, stackInputFor } from "$lib/stack/stack";
   import { toastError } from "$lib/toaster";
-  import type { InboxPr, PrBaseInput } from "$lib/types";
+  import type { CheckoutTarget, InboxPr, PrBaseInput, PrCheckout } from "$lib/types";
   import { errorMessage } from "$lib/utils/errors";
   import { ensureWorktrees, worktreeMap } from "$lib/worktrees/worktreeMap.svelte";
   import { threadCountForPath } from "$lib/worktrees/worktrees";
@@ -121,6 +121,21 @@
   });
   const behindQuery = query("reviewPrsBehind", () => behindArgs);
   const behind = $derived(new Map((behindQuery.value ?? []).map((row) => [row.number, row.behind])));
+  // Where each open PR is on disk, for the rows' worktree icons. Over the whole
+  // inbox, not the filtered rows, so changing a filter doesn't read again.
+  const checkoutArgs = $derived.by((): [string, CheckoutTarget[]] | null => {
+    if (!inbox || inbox.prs.length === 0) return null;
+    const viewer = inbox.viewer;
+    return [repoPath, inbox.prs.map((pr) => reviewTarget(repoPath, pr, viewer))];
+  });
+  const checkoutQuery = query("reviewPrCheckouts", () => checkoutArgs);
+  const checkouts = $derived(new Map((checkoutQuery.value ?? []).map((checkout) => [checkout.number, checkout])));
+  const checkoutsKnown = $derived(checkoutQuery.value !== undefined);
+  /** The stack's worktree, as one of its open PRs has it: the one on its own branch if any. */
+  function stackCheckout(group: StackGroup): PrCheckout | null {
+    const members = group.stack.prs.flatMap((entry) => checkouts.get(entry.number) ?? []);
+    return members.find((checkout) => checkout.onPrBranch) ?? members[0] ?? null;
+  }
   /** The stack's lead: how far its bottom open PR is behind the stack base. */
   function stackBehind(group: StackGroup): number | null {
     const open = new Set(
@@ -162,7 +177,7 @@
     if (synced)
       void rerunOnNewCommits(
         repoPath,
-        synced.prs.map((pr) => reviewTarget(pr, synced.viewer)),
+        synced.prs.map((pr) => reviewTarget(repoPath, pr, synced.viewer)),
       );
   }
 
@@ -344,6 +359,8 @@
       ? { ...stackPosition(group, row.pr.number), first: depth === 0, last: depth === group.rows.length - 1 }
       : null}
     drift={rowDrift(row.pr, group)}
+    checkout={checkouts.get(row.pr.number) ?? null}
+    checkoutKnown={checkoutsKnown}
     onAction={(id) => run(id, row, group)}
     onPick={(mode) => pick(row.pr.number, mode)}
   />
@@ -432,14 +449,15 @@
             : item.row.pr.number)}
             {#if item.kind === "stack"}
               {@const group = item.group}
-              {@const worktree =
-                worktrees.find((entry) => group.stack.prs.some((pr) => pr.headRef === entry.branch)) ?? null}
+              {@const checkout = stackCheckout(group)}
               <StackCard
                 {group}
                 {people}
                 mine={true}
-                {worktree}
-                threadCount={worktree ? threadCountForPath(projects(), worktree.path) : 0}
+                {checkout}
+                checkoutKnown={checkoutsKnown}
+                threadCount={checkout?.path ? threadCountForPath(projects(), checkout.path) : 0}
+                onCheckOut={handlers.checkOutStack ? () => handlers.checkOutStack?.(repoPath, group) : undefined}
                 onOpenStack={handlers.openStack ? () => handlers.openStack?.(repoPath, group) : undefined}
                 onRestack={handlers.restack ? () => handlers.restack?.(repoPath, group) : undefined}
                 behind={stackBehind(group)}
@@ -460,7 +478,14 @@
                 {#if item.kind === "stack"}
                   {@const group = item.group}
                   <div role="listitem" aria-label="Stack {group.name}" class="contents">
-                    <StackCard {group} {people} mine={false}>
+                    <StackCard
+                      {group}
+                      {people}
+                      mine={false}
+                      checkout={stackCheckout(group)}
+                      checkoutKnown={checkoutsKnown}
+                      onCheckOut={handlers.checkOutStack ? () => handlers.checkOutStack?.(repoPath, group) : undefined}
+                    >
                       {#snippet row(entry, index)}
                         {@render prRow(entry, index, group)}
                       {/snippet}

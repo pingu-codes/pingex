@@ -232,6 +232,12 @@ and it holds no work. Commits reach someone else's PR only through a confirmed
 push. Replaces the detached, read-only review checkout (ADR 0007).
 _Avoid_: review checkout, temp worktree
 
+**Stack worktree**:
+The one worktree a **Stack** lives in, on one of its git branches, with a local
+branch for each open PR. Switching PR switches its branch. A stack's PR counts as
+at the Worktree step even when the worktree is on a neighbouring branch.
+_Avoid_: stack checkout (that's the action), per-PR stack worktree
+
 **Agent review**:
 A review of a pull request by an agent, run as its own thread on any
 harness and filed under the PR. Its results come back as Findings.

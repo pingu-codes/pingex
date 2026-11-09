@@ -49,6 +49,19 @@ pub(crate) async fn review_checkout_state(
     desk(&window, &state, repo_dir).checkout_state(target).await
 }
 
+/// Where each of `targets` is on disk, for the inbox and the Stack page. PRs
+/// with no location are left out. Changes nothing.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_pr_checkouts(
+    repo_dir: String,
+    targets: Vec<CheckoutTarget>,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<Vec<PrCheckout>, String> {
+    desk(&window, &state, repo_dir).pr_checkouts(targets).await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn review_plan_step(

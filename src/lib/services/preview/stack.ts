@@ -111,6 +111,7 @@ function overview(repoDir: string, input: StackInput): StackOverview {
       tip: pr.headSha,
       commits: COMMITS[index] ?? 1,
       unpushed: false,
+      local: entry.worktree !== null,
       // Newest first, as `git log` gives them.
       commitLines: Array.from({ length: COMMITS[index] ?? 1 }, (_, commit) => ({
         sha: `${pr.number}${commit}`.padEnd(40, "a"),
@@ -166,6 +167,28 @@ function prBehind(repoDir: string, pr: PrBaseInput): number {
   const entry = fake(repoDir, stack.number);
   if (pr.baseRef === stack.baseRef) return entry.behind;
   return entry.drifted.includes(pr.number) ? 1 : 0;
+}
+
+/** The stack PR `number` is an open member of, by GitHub's number. */
+function stackNumberOf(repoDir: string, number: number): number | null {
+  const stack = deskLiveRepo(repoDir).stacks.stacks.find(
+    (candidate) =>
+      candidate.open &&
+      candidate.prs.some((entry) => entry.number === number && entry.state === "open" && !entry.merged),
+  );
+  return stack?.number ?? null;
+}
+
+/** The worktree of the stack PR `number` is in, if it has one. */
+export function previewStackWorktree(repoDir: string, number: number): StackWorktree | null {
+  const stack = stackNumberOf(repoDir, number);
+  return stack === null ? null : fake(repoDir, stack).worktree;
+}
+
+/** Put the stack PR `number` is in at `worktree`. */
+export function setPreviewStackWorktree(repoDir: string, number: number, worktree: StackWorktree | null): void {
+  const stack = stackNumberOf(repoDir, number);
+  if (stack !== null) fake(repoDir, stack).worktree = worktree;
 }
 
 /** For tests: set how far stack `number` is behind, and which PRs drifted. */

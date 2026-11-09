@@ -5,6 +5,7 @@
 
 use std::path::Path;
 
+use super::steps::is_managed_branch;
 use super::ReviewDesk;
 use crate::git::run::{redact_git_error, run_git_network};
 use crate::git::{checkouts as git, objects};
@@ -46,8 +47,16 @@ impl ReviewDesk {
                 summary.author
             ));
         }
-        if git::branch_of(&self.host, dir)?.is_none() {
+        let Some(branch) = git::branch_of(&self.host, dir)? else {
             return Err("Check out a branch before pushing".to_string());
+        };
+        // `HEAD` is what gets pushed: another branch's commits don't belong on
+        // this PR, however cleanly they would fast-forward.
+        if branch != summary.head_ref && !is_managed_branch(&branch, number) {
+            return Err(format!(
+                "This worktree is on {branch}, not this pull request's branch. Switch to {}, then push",
+                summary.head_ref
+            ));
         }
         let head = git::head_of(&self.host, dir)?
             .ok_or_else(|| "This worktree has no commits to push".to_string())?;

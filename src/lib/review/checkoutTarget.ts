@@ -10,13 +10,20 @@ export interface TargetPr {
   headRepo?: string | null;
 }
 
-export function checkoutTarget(pr: TargetPr, mine: boolean, stack: string | null = null): CheckoutTarget {
+/** A PR's stack: its name and the git branches of its open PRs, bottom first. */
+export interface TargetStack {
+  name: string;
+  branches: string[];
+}
+
+export function checkoutTarget(pr: TargetPr, mine: boolean, stack: TargetStack | null = null): CheckoutTarget {
   return {
     number: pr.number,
     headRef: pr.headRef,
     headSha: pr.headSha,
     mine,
-    stack,
+    stack: stack?.name ?? null,
     headRepo: pr.headRepo ?? null,
+    stackBranches: stack?.branches ?? [],
   };
 }

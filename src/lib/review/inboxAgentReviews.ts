@@ -24,7 +24,7 @@ export function agentReviewHandlers(
         let queued = 0;
         for (const pr of prs) {
           try {
-            await enqueueAgentReview(repoDir, defaultRequest([reviewTarget(pr, viewer)]));
+            await enqueueAgentReview(repoDir, defaultRequest([reviewTarget(repoDir, pr, viewer)]));
             queued++;
           } catch (cause) {
             toastError(`#${pr.number}: ${errorMessage(cause)}`);
@@ -34,7 +34,7 @@ export function agentReviewHandlers(
         return;
       }
       const [pr] = prs;
-      const target = reviewTarget(pr, viewer);
+      const target = reviewTarget(repoDir, pr, viewer);
       try {
         const [plan, settings] = await Promise.all([
           commands.reviewPlanStep(repoDir, target, "agentReviewWithTests").catch(() => null),
@@ -42,7 +42,7 @@ export function agentReviewHandlers(
         ]);
         const result = await openDialog(StartReviewDialog, {
           pr,
-          viewer,
+          target,
           worktreePath: plan?.worktreePath ?? "",
           setupCommand: settings?.setupCommand ?? null,
           refusedCheckout: plan?.refused ?? null,
@@ -55,6 +55,9 @@ export function agentReviewHandlers(
         const { request } = result;
         if (request.step === "worktree" && plan?.current.step !== "worktree") {
           await createPrWorktree(repoDir, target);
+        } else if (request.step === "worktree" && plan?.switchBranch) {
+          // The review has to run on this PR's branch, not the stack's current one.
+          await commands.reviewEnsurePrWorktree(repoDir, target);
         }
         await enqueueAgentReview(repoDir, request);
         toaster.success({ title: `Agent review queued on #${pr.number}` });

@@ -9,13 +9,13 @@
   import { threadById } from "$lib/app/appData.svelte";
   import { openThreadInCwd } from "$lib/app/navigation.svelte";
   import { defaultReviewHarness, refreshAgentReviews, rerunAgentReview } from "$lib/review/agentReviews.svelte";
-  import { checkoutTarget } from "$lib/review/checkoutTarget";
   import type { LineSlot } from "$lib/review/FileDiff.svelte";
   import FindingCard from "$lib/review/FindingCard.svelte";
   import { FindingsStore } from "$lib/review/findings.svelte";
   import PrWorktreeActions from "$lib/review/PrWorktreeActions.svelte";
   import { PendingReviewStore } from "$lib/review/pendingReview.svelte";
   import { ensurePrLinks, prLinks } from "$lib/review/prLinks.svelte";
+  import { prTarget } from "$lib/review/prTarget";
   import { readOnly, startPrThread } from "$lib/review/prThreads";
   import ReviewPage from "$lib/review/ReviewPage.svelte";
   import type { HandTarget } from "$lib/review/ReviewThread.svelte";
@@ -39,7 +39,7 @@
     onOpenPr,
     onRunLocally,
     onDetail,
-    checkout = null,
+    checkout,
     onWorkOnPr,
     onPushToPr,
     seenAt = null,
@@ -55,6 +55,7 @@
     onRunLocally?: (detail: PrDetail, action: "runLocally" | "openInEditor") => void;
     onDetail?: (detail: PrDetail) => void;
     /** The PR's worktree, if it has one. */
+    /** The PR's checkout; `undefined` until it has been read. */
     checkout?: PrCheckout | null;
     /** Work on this PR: a thread in its worktree, making one if needed. */
     onWorkOnPr?: (detail: PrDetail) => void;
@@ -120,7 +121,7 @@
   });
 
   function targetOf(pr: PrDetail): CheckoutTarget {
-    return checkoutTarget({ ...pr.summary, headSha: pr.headSha }, !!viewer && pr.summary.author === viewer);
+    return prTarget(repoDir, { ...pr.summary, headSha: pr.headSha }, !!viewer && pr.summary.author === viewer);
   }
 
   function openThread(threadId: string) {
@@ -232,6 +233,8 @@
     onDetail?.(next);
   }}
   step={checkout?.step ?? "noCheckout"}
+  {checkout}
+  checkoutKnown={checkout !== undefined}
   {headerActions}
   {seenAt}
   {pending}

@@ -43,6 +43,7 @@ mod cleanup;
 mod links;
 mod pending;
 mod pr;
+mod pr_checkouts;
 mod pr_push;
 mod repositories;
 mod restack;
@@ -52,6 +53,7 @@ mod stack;
 mod stack_edits;
 #[cfg(test)]
 mod stack_support;
+mod stack_worktree;
 mod steps;
 mod sync;
 #[cfg(test)]

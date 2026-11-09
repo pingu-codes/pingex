@@ -19,13 +19,12 @@
   import Segmented from "$lib/components/Segmented.svelte";
   import Toggle from "$lib/components/Toggle.svelte";
   import { DEFAULT_FOCUS, defaultReviewHarness, installedHarnesses } from "$lib/review/agentReviews.svelte";
-  import { checkoutTarget } from "$lib/review/checkoutTarget";
-  import type { CheckoutStep, FocusArea, HarnessKind, InboxPr } from "$lib/types";
+  import type { CheckoutStep, CheckoutTarget, FocusArea, HarnessKind, InboxPr } from "$lib/types";
   import { can, harnessLabel } from "$lib/utils/capabilities";
 
   let {
     pr,
-    viewer = null,
+    target,
     worktreePath,
     setupCommand = null,
     harnesses = installedHarnesses(),
@@ -33,7 +32,8 @@
     close,
   }: {
     pr: InboxPr;
-    viewer?: string | null;
+    /** The PR as what the review runs on. */
+    target: CheckoutTarget;
     /** Where the PR's worktree goes, or already is. */
     worktreePath: string;
     /** The repository's setup command, run once in a new checkout. */
@@ -98,7 +98,7 @@
     close({
       kind: "start",
       request: {
-        targets: [checkoutTarget(pr, pr.author === viewer)],
+        targets: [target],
         harness,
         step,
         focus,
@@ -219,7 +219,7 @@
               , then <span class="font-mono">{setupCommand}</span>
             {/if}
             . The agent can build, run tests and measure.
-            {#if pr.author !== viewer}
+            {#if !target.mine}
               Nothing reaches their branch until you push.
             {/if}
           {/if}
