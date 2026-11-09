@@ -13,7 +13,7 @@
 <script lang="ts">
   import { ArrowUp, Check, ChevronLeft, Ellipsis, Keyboard, PanelRight, PanelRightOpen } from "@lucide/svelte";
   import { Avatar } from "@skeletonlabs/skeleton-svelte";
-  import { type Snippet, untrack } from "svelte";
+  import { type Snippet, tick, untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { dialogStack, openDialog } from "$lib/app/dialogs.svelte";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
@@ -45,6 +45,7 @@
     fileBlob,
     fileCounts,
     fileGroups,
+    fileInView,
     fileName,
     groupBy,
     initials,
@@ -142,6 +143,10 @@
   const NO_THREADS: CommentThread[] = [];
   const NO_PENDING: PendingEntry[] = [];
   const NO_COUNTS: FileCounts = { comments: 0, unresolved: 0, findings: 0 };
+  /** A chosen current file survives scrolling by less than a diff row. */
+  const HOLD_SLOP = 20;
+  /** Room kept around the highlighted rail row: its folder's label fits. */
+  const RAIL_MARGIN = 32;
 
   /** The checkout step's dot, as the Model board draws it. */
   const STEP_DOT: Record<CheckoutStep, string> = {
@@ -181,6 +186,7 @@
    *  page remounts per PR, so the choice is stored to carry between them. */
   let reviewCollapsed = $state(loadReviewCollapsed());
   let scroller = $state<HTMLElement>();
+  let rail = $state<HTMLElement>();
   /** The topbar has scrolled fully out of the page. */
   let topbarHidden = $state(false);
   let topbarHeight = $state(0);
@@ -293,6 +299,103 @@
    *  on the half-swapped page, and the scroll position clamps upward. */
   function onPageScroll() {
     if (scroller) topbarHidden = topbarHeight > 0 && scroller.scrollTop >= topbarHeight;
+    scheduleCurrentFile();
+  }
+
+  // The current file follows the page. Measured in a frame, where a read costs
+  // no layout the frame would not do anyway and no Svelte flush is half done.
+  let currentFileFrame = 0;
+  /** Where the page was when the reader chose the current file, or null. */
+  let heldAt: number | null = null;
+  let lastScrollTop = 0;
+
+  function scheduleCurrentFile() {
+    currentFileFrame ||= requestAnimationFrame(updateCurrentFile);
+  }
+
+  function updateCurrentFile() {
+    currentFileFrame = 0;
+    if (!scroller) return;
+    const top = scroller.scrollTop;
+    const movedDown = top > lastScrollTop;
+    lastScrollTop = top;
+    if (heldAt !== null && Math.abs(top - heldAt) <= HOLD_SLOP && !(currentPath && collapsed.has(currentPath))) return;
+    heldAt = null;
+    const elements = scroller.querySelectorAll<HTMLElement>("[data-file]");
+    const view = scroller.getBoundingClientRect();
+    // Short files at the end never reach the top: the end of the page is theirs.
+    const atEnd = movedDown && top + scroller.clientHeight >= scroller.scrollHeight - 1;
+    const index = atEnd
+      ? elements.length - 1
+      : fileInView(
+          elements.length,
+          (at) => {
+            const box = elements[at].getBoundingClientRect();
+            return { top: box.top, bottom: box.bottom, open: !collapsed.has(elements[at].dataset.file ?? "") };
+          },
+          view.top,
+          view.bottom,
+        );
+    const path = elements[index]?.dataset.file;
+    if (path) currentPath = path;
+  }
+
+  // What is in view also changes when a file folds or the list changes.
+  $effect(() => {
+    void files;
+    void tab;
+    void collapsed.size;
+    untrack(scheduleCurrentFile);
+    return () => {
+      cancelAnimationFrame(currentFileFrame);
+      currentFileFrame = 0;
+    };
+  });
+
+  // Keep the highlighted row, and the folder above it, in the rail's view. By
+  // hand: `scrollIntoView` would also move the page.
+  $effect(() => {
+    void currentPath;
+    const nav = rail;
+    if (!nav) return;
+    const frame = requestAnimationFrame(() => {
+      const row = nav.querySelector('[aria-current="true"]')?.getBoundingClientRect();
+      if (!row) return;
+      const box = nav.getBoundingClientRect();
+      if (row.top - RAIL_MARGIN < box.top) nav.scrollTop -= box.top - row.top + RAIL_MARGIN;
+      else if (row.bottom + RAIL_MARGIN > box.bottom) nav.scrollTop += row.bottom - box.bottom + RAIL_MARGIN;
+    });
+    return () => cancelAnimationFrame(frame);
+  });
+
+  /** The reader chose this file: it stays current until the page moves on. */
+  function holdCurrent(path: string) {
+    currentPath = path;
+    heldAt = scroller?.scrollTop ?? 0;
+  }
+
+  /** Where a file's top sits from the top of the view. Forces layout: call it
+   *  from an event or after `tick`, not on scroll. */
+  function fileOffset(path: string): number | null {
+    const element = scroller?.querySelector(`[data-file="${CSS.escape(path)}"]`);
+    if (!scroller || !element) return null;
+    return element.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+  }
+
+  /** Fold or unfold files and keep the reader's place. WebKit has no scroll
+   *  anchoring, so otherwise folding a file whose header is above the view
+   *  drops the reader files further down. That file's header comes back to the
+   *  top of the view; any other file stays where it is on screen. */
+  async function keepingPlace(change: () => void) {
+    const path = currentPath;
+    const before = path ? fileOffset(path) : null;
+    change();
+    if (path === null || before === null) return;
+    await tick();
+    const after = fileOffset(path);
+    if (scroller && after !== null) {
+      scroller.scrollTop += after - (before < 0 && collapsed.has(path) ? 0 : before);
+    }
   }
 
   /** At once, not smoothly: a smooth scroll would mount every file it passes. */
@@ -314,12 +417,14 @@
   }
 
   function setViewed(targets: PrFile[], value: boolean) {
-    for (const file of targets) {
-      if (value) viewed.add(file.path);
-      else viewed.delete(file.path);
-      // Marking viewed collapses; unmarking opens it again.
-      setOpen(file.path, !value);
-    }
+    void keepingPlace(() => {
+      for (const file of targets) {
+        if (value) viewed.add(file.path);
+        else viewed.delete(file.path);
+        // Marking viewed collapses; unmarking opens it again.
+        setOpen(file.path, !value);
+      }
+    });
     if (targets.length > 0) {
       commands.reviewSetViewed(repoDir, number, targets.map(fileBlob), value).catch((cause) => {
         action.error = errorMessage(cause);
@@ -328,21 +433,25 @@
   }
 
   function toggle(file: PrFile, event: MouseEvent) {
-    currentPath = file.path;
-    if (event.altKey) {
-      for (const other of files) setOpen(other.path, other.path === file.path);
-      return;
-    }
-    setOpen(file.path, collapsed.has(file.path));
+    holdCurrent(file.path);
+    void keepingPlace(() => {
+      if (event.altKey) {
+        for (const other of files) setOpen(other.path, other.path === file.path);
+      } else {
+        setOpen(file.path, collapsed.has(file.path));
+      }
+    });
   }
 
   function jumpTo(path: string) {
     currentPath = path;
     setOpen(path, true);
     tab = "files";
-    queueMicrotask(() =>
-      document.querySelector(`[data-file="${CSS.escape(path)}"]`)?.scrollIntoView?.({ block: "start" }),
-    );
+    queueMicrotask(() => {
+      document.querySelector(`[data-file="${CSS.escape(path)}"]`)?.scrollIntoView?.({ block: "start" });
+      // After the scroll: a file near the end can't reach the top of the view.
+      holdCurrent(path);
+    });
   }
 
   // Every file's menu is one of two, so marking one file viewed rebuilds none.
@@ -369,7 +478,7 @@
   }
 
   function onFileMenu(file: PrFile, id: string) {
-    currentPath = file.path;
+    holdCurrent(file.path);
     const index = files.indexOf(file);
     switch (id) {
       case "ask":
@@ -382,7 +491,9 @@
         setViewed(files.slice(0, index + 1), true);
         break;
       case "others":
-        for (const other of files) setOpen(other.path, other.path === file.path);
+        void keepingPlace(() => {
+          for (const other of files) setOpen(other.path, other.path === file.path);
+        });
         break;
       case "whole":
         if (detail) {
@@ -420,7 +531,7 @@
   // --- lines and the pending review ----------------------------------------
 
   function onSelectLine(file: PrFile, side: DiffSide, line: number, extend: boolean) {
-    currentPath = file.path;
+    holdCurrent(file.path);
     composer = null;
     selection = selectLine(selection, file.path, side, line, extend);
   }
@@ -627,7 +738,7 @@
   function revealFindMatch(match: FindMatch) {
     const { path, id, row } = match.unit;
     if (!path) return;
-    currentPath = path;
+    holdCurrent(path);
     if (id !== PATH_UNIT) setOpen(path, true);
     findRow = row ? { path, row } : null;
   }
@@ -642,7 +753,10 @@
     lastUnresolved = (lastUnresolved + 1) % unresolved.length;
     const thread = unresolved[lastUnresolved];
     jumpTo(thread.path);
-    queueMicrotask(() => document.getElementById(`thread-${thread.key}`)?.scrollIntoView?.({ block: "center" }));
+    queueMicrotask(() => {
+      document.getElementById(`thread-${thread.key}`)?.scrollIntoView?.({ block: "center" });
+      holdCurrent(thread.path);
+    });
   }
 
   function onKeydown(event: KeyboardEvent) {
@@ -829,15 +943,20 @@
           />
           <span class="grow"></span>
           <span class="text-surface-500">Viewed {viewedCount} of {files.length}</span>
-          <button type="button" class="btn btn-sm hover:preset-tonal text-[11px]" onclick={() => collapsed.clear()}>
+          <button
+            type="button"
+            class="btn btn-sm hover:preset-tonal text-[11px]"
+            onclick={() => keepingPlace(() => collapsed.clear())}
+          >
             Expand all
           </button>
           <button
             type="button"
             class="btn btn-sm hover:preset-tonal text-[11px]"
-            onclick={() => {
-              for (const file of files) collapsed.add(file.path);
-            }}
+            onclick={() =>
+              keepingPlace(() => {
+                for (const file of files) collapsed.add(file.path);
+              })}
           >
             Collapse all
           </button>
@@ -907,12 +1026,14 @@
         {#if tab === "files"}
           <div class="hidden w-56 shrink-0 @5xl/review:block border-r border-surface-200-800 bg-surface-100-900">
             <nav
+              bind:this={rail}
               aria-label="Changed files"
               class="sticky top-0 flex max-h-[100cqh] flex-col gap-0.5 overflow-y-auto px-2 py-3"
             >
               {#each fileGroups(files) as group (group.dir)}
                 {#if group.dir}
-                  <div class="eyebrow px-2 pt-2 pb-1.5">{group.dir}</div>
+                  <!-- Wraps at a slash when it can: WebKit won't break there on its own. -->
+                  <div class="eyebrow px-2 pt-2 pb-1.5 wrap-anywhere">{group.dir.replaceAll("/", "/\u200b")}</div>
                 {/if}
                 {#each group.files as file (file.path)}
                   {@const counts = countsByPath.get(file.path) ?? NO_COUNTS}

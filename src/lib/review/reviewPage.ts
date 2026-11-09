@@ -178,6 +178,33 @@ export function fileCounts(threads: CommentThread[], path: string, findings = 0)
   };
 }
 
+/** A file's place on the page, in the same coordinates as the view. */
+export type FileBox = { top: number; bottom: number; open: boolean };
+
+/** A file with less than this still showing is finished: about two diff rows. */
+const READ_MARGIN = 40;
+
+/**
+ * The file being read, as an index into `count` files in page order: the first
+ * open file showing, or the first file showing when all of those are collapsed.
+ * -1 when none is. `box` reads layout, so a binary search asks about few files.
+ */
+export function fileInView(count: number, box: (index: number) => FileBox, viewTop: number, viewBottom: number) {
+  let first = 0;
+  let end = count;
+  while (first < end) {
+    const middle = (first + end) >> 1;
+    if (box(middle).bottom > viewTop + READ_MARGIN) end = middle;
+    else first = middle + 1;
+  }
+  for (let index = first; index < count; index += 1) {
+    const at = box(index);
+    if (at.top >= viewBottom) break;
+    if (at.open) return index;
+  }
+  return first < count && box(first).top < viewBottom ? first : -1;
+}
+
 /** Changed files grouped by folder, folders in the order files first name
  *  them. */
 export function fileGroups(files: PrFile[]): { dir: string; files: PrFile[] }[] {
