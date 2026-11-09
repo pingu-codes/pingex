@@ -150,7 +150,6 @@
     prThreads?: HandTarget[];
   } = $props();
 
-
   const NO_THREADS: CommentThread[] = [];
   const NO_PENDING: PendingEntry[] = [];
   const NO_COUNTS: FileCounts = { comments: 0, unresolved: 0, findings: 0 };

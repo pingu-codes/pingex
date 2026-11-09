@@ -559,7 +559,12 @@ describe("ReviewPage", () => {
 
       const restore = await pushTo("src/lib/loader.ts");
       await waitFor(() =>
-        expect(commands.reviewChangesSince).toHaveBeenLastCalledWith(repoDir, THREADED_PR, expect.anything(), "pushedhead"),
+        expect(commands.reviewChangesSince).toHaveBeenLastCalledWith(
+          repoDir,
+          THREADED_PR,
+          expect.anything(),
+          "pushedhead",
+        ),
       );
       restore();
     });

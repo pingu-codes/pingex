@@ -25,6 +25,17 @@ export function toastUndo(title: string, undo: () => void | Promise<void>, descr
 }
 
 /** A toast for background work that stays until `toaster.dismiss(id)`. */
-export function toastProgress(title: string, description?: string): string {
-  return toaster.create({ type: "info", title, description, duration: Number.POSITIVE_INFINITY, closable: true });
+export function toastProgress(
+  title: string,
+  description?: string,
+  action?: { label: string; onClick: () => void },
+): string {
+  return toaster.create({
+    type: "info",
+    title,
+    description,
+    duration: Number.POSITIVE_INFINITY,
+    closable: true,
+    action,
+  });
 }

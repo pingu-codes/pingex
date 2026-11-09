@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { inboxes, resyncInbox, syncInbox } from "$lib/inbox/inboxStore.svelte";
+import { inboxes, onInboxSynced, resyncInbox, syncInbox } from "$lib/inbox/inboxStore.svelte";
 import { commands } from "$lib/services/homeRouting";
 import type { Inbox } from "$lib/types";
 
@@ -28,13 +28,37 @@ describe("syncing after the account changes", () => {
       .mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)))
       .mockResolvedValue(inbox("new-account"));
 
-    const running = syncInbox(MAIN);
-    await resyncInbox(MAIN);
+    void syncInbox(MAIN);
+    const resynced = resyncInbox(MAIN);
     finish(inbox("old-account"));
-    await running;
+    await resynced;
 
-    await vi.waitFor(() => expect(inboxes[MAIN]?.inbox?.viewer).toBe("new-account"));
+    expect(inboxes[MAIN]?.inbox?.viewer).toBe("new-account");
     expect(commands.reviewInbox).toHaveBeenCalledTimes(2);
+  });
+
+  it("lets a second caller wait for the sync already running", async () => {
+    let finish: (inbox: Inbox) => void = () => {};
+    vi.mocked(commands.reviewInbox).mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+
+    void syncInbox(MAIN);
+    let joined = false;
+    const second = syncInbox(MAIN).then(() => (joined = true));
+    await Promise.resolve();
+    expect(joined).toBe(false);
+
+    finish(inbox("me"));
+    await second;
+    expect(inboxes[MAIN]?.inbox?.viewer).toBe("me");
+    expect(commands.reviewInbox).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells listeners about every sync that read an inbox", async () => {
+    const heard = vi.fn();
+    onInboxSynced(heard);
+    vi.mocked(commands.reviewInbox).mockResolvedValue(inbox("me"));
+    await syncInbox(MAIN);
+    expect(heard).toHaveBeenCalledWith(MAIN, expect.objectContaining({ viewer: "me" }));
   });
 
   it("syncs once when nothing is running", async () => {

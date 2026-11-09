@@ -24,7 +24,7 @@
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import { RING_CLASS, TONE_CLASS } from "$lib/inbox/badges";
   import { ciBadge, reviewBadge, stateTone } from "$lib/inbox/inbox";
-  import { inboxes, syncInbox } from "$lib/inbox/inboxStore.svelte";
+  import { inboxes, resyncInbox, syncInbox } from "$lib/inbox/inboxStore.svelte";
   import { startStackReview } from "$lib/review/agentReviews.svelte";
   import CheckoutStepDialog from "$lib/review/CheckoutStepDialog.svelte";
   import { checkOutStack, stepUpFor } from "$lib/review/checkoutSteps";
@@ -198,12 +198,18 @@
    *  this waits for a new read. */
   async function loadOverview() {
     if (!input) return;
+    const asked = input;
     try {
       const [next, counts] = await Promise.all([
         readFresh("reviewStackOverview", repoDir, input),
         readFresh("reviewPrsBehind", repoDir, behindInputs).catch(() => []),
       ]);
       applyOverview(next);
+      // Merged PRs with nothing left to offer (restacked, or cleaned up
+      // elsewhere) are settled, or the sidebar's dot stays with no card to
+      // clear it from. Only from a read of these PRs: an older overview
+      // hasn't seen the merge.
+      if (input === asked && asked.prs.some((pr) => pr.merged) && !followUp && !restacking) later();
       behind = countsByNumber(counts);
       preview = needsRestack(next, behind)
         ? await readFresh("reviewRestackPlan", repoDir, input, null).catch(() => null)
@@ -243,7 +249,7 @@
 
   /** Re-read GitHub's stack and the inbox, then what is on disk. */
   async function refresh() {
-    await syncInbox(repoDir);
+    await resyncInbox(repoDir);
     await loadOverview();
   }
 
@@ -254,7 +260,7 @@
       if (page) page.scrollTop = left.pageScrollTop;
       if (tree) tree.scrollTop = left.treeScrollTop;
     });
-    const loading = inboxes[repoDir]?.inbox ? loadOverview() : refresh();
+    const loading = inboxes[repoDir]?.inbox ? loadOverview() : syncInbox(repoDir).then(loadOverview);
     if (restackOnOpen) void loading.then(() => (progress ? undefined : restack()));
   });
 

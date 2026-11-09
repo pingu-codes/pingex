@@ -6,6 +6,7 @@ import { inboxes, syncInbox } from "$lib/inbox/inboxStore.svelte";
 import { commands } from "$lib/services/homeRouting";
 import { worktreeEntry } from "$lib/services/preview/factories";
 import { worktreeAction } from "$lib/stack/worktreeActions";
+import { toaster } from "$lib/toaster";
 import type { Project } from "$lib/types";
 import { worktreeMap } from "$lib/worktrees/worktreeMap.svelte";
 
@@ -48,6 +49,41 @@ describe("the sidebar worktree menu", () => {
     await done;
 
     await waitFor(() => expect(commands.gitCheckoutBranch).toHaveBeenCalledWith(PATH, "feat/maki-acp", false));
+  });
+
+  describe("waiting for running threads", () => {
+    async function chooseSwitch() {
+      render(DialogHost);
+      const user = userEvent.setup();
+      const done = worktreeAction("switchToPr", project);
+      const dialog = await screen.findByRole("dialog");
+      await user.click(within(dialog).getByRole("radio", { name: /#418 feat\/maki-acp/ }));
+      await user.click(within(dialog).getByRole("button", { name: "Switch" }));
+      return { done };
+    }
+
+    it("doesn't check out when it can't tell what's running, and stops when asked", async () => {
+      vi.mocked(commands.threadsWithActiveTurns).mockResolvedValueOnce([]).mockRejectedValue("no answer");
+      vi.mocked(commands.gitCheckoutBranch).mockClear();
+      const create = vi.spyOn(toaster, "create");
+      const { done } = await chooseSwitch();
+
+      const stop = await waitFor(
+        () => {
+          const action = create.mock.calls.map(([toast]) => toast.action).find(Boolean);
+          if (!action) throw new Error("no waiting toast yet");
+          return action;
+        },
+        { timeout: 5000 },
+      );
+      expect(commands.gitCheckoutBranch).not.toHaveBeenCalled();
+
+      vi.mocked(commands.threadsWithActiveTurns).mockReset().mockResolvedValue([]);
+      stop.onClick?.();
+      await done;
+      expect(commands.gitCheckoutBranch).not.toHaveBeenCalled();
+      create.mockRestore();
+    }, 10_000);
   });
 
   it("copies the worktree's path", async () => {

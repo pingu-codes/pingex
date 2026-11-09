@@ -19,9 +19,9 @@
   import { readOnly, startPrThread } from "$lib/review/prThreads";
   import ReviewPage from "$lib/review/ReviewPage.svelte";
   import type { HandTarget } from "$lib/review/ReviewThread.svelte";
-  import ThreadBranchChip from "$lib/review/ThreadBranchChip.svelte";
   import { findingTexts } from "$lib/review/reviewFind";
   import { type AskAgentRequest, askAgentPrompt, diffRows, fileName } from "$lib/review/reviewPage";
+  import ThreadBranchChip from "$lib/review/ThreadBranchChip.svelte";
   import { startTurn } from "$lib/services/api";
   import { activeTurns } from "$lib/services/codexEvents.svelte";
   import { commands } from "$lib/services/homeRouting";
@@ -220,7 +220,9 @@
       <div class="flex items-center gap-2">
         <button type="button" class="menu-row min-w-0 grow" onclick={() => openThread(thread.id)}>
           <span class="min-w-0 grow truncate">{thread.label}</span>
-          {#if thread.hint}<span class="text-xs text-surface-500">{thread.hint}</span>{/if}
+          {#if thread.hint}
+            <span class="text-xs text-surface-500">{thread.hint}</span>
+          {/if}
         </button>
         <ThreadBranchChip link={threadLinks[index]} />
       </div>

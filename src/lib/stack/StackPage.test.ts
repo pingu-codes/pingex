@@ -8,8 +8,9 @@ import { resetPrLinks } from "$lib/review/prLinks.svelte";
 import { commands } from "$lib/services/homeRouting";
 import { deskLiveRepo, resetDeskActivity } from "$lib/services/preview/desk";
 import { resetPreviewStacks, setPreviewStackDrift } from "$lib/services/preview/stack";
-import { resetFollowUps } from "$lib/stack/followUps.svelte";
+import { followUps, resetFollowUps } from "$lib/stack/followUps.svelte";
 import StackPage from "$lib/stack/StackPage.svelte";
+import { followUpKey } from "$lib/stack/stack";
 
 vi.mock("$lib/services/homeRouting", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
@@ -22,6 +23,7 @@ vi.mock("$lib/services/homeRouting", async (importOriginal) => {
       reviewReorderStack: vi.fn(actual.commands.reviewReorderStack),
       reviewPushStack: vi.fn(actual.commands.reviewPushStack),
       reviewPrDetail: vi.fn(actual.commands.reviewPrDetail),
+      reviewStackOverview: vi.fn(actual.commands.reviewStackOverview),
     },
   };
 });
@@ -239,6 +241,28 @@ describe("Stack page", () => {
       expect(screen.queryByText("#412 merged into main")).toBeNull();
     } finally {
       stack.prs = saved;
+    }
+  });
+});
+
+describe("the sidebar's follow-up dot", () => {
+  it("settles when a merged PR leaves nothing to offer", async () => {
+    const stack = deskLiveRepo(MAIN).stacks.stacks.find((candidate) => candidate.number === 7);
+    if (!stack) throw new Error("fixture stack missing");
+    const saved = structuredClone(stack.prs);
+    stack.prs[0] = { ...stack.prs[0], merged: true, state: "closed" };
+    const original = vi.mocked(commands.reviewStackOverview).getMockImplementation();
+    vi.mocked(commands.reviewStackOverview).mockImplementation(async (...args) => ({
+      ...(await (original as NonNullable<typeof original>)(...args)),
+      mergedBranches: [],
+    }));
+    try {
+      setup();
+      await waitFor(() => expect(followUps.later).toContain(followUpKey(stack)));
+      expect(screen.queryByText(/merged into main/)).toBeNull();
+    } finally {
+      stack.prs = saved;
+      vi.mocked(commands.reviewStackOverview).mockImplementation(original as never);
     }
   });
 });

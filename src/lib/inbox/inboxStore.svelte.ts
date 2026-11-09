@@ -31,13 +31,36 @@ function entry(repoDir: string): RepoInbox {
  *  skipped when the writer already synced. */
 const syncStartedAt = new Map<string, number>();
 
-/** Repositories whose running sync may answer for the wrong GitHub account. */
-const staleSyncs = new Set<string>();
+/** Each repository's running sync, which a second caller joins. */
+const running = new Map<string, Promise<void>>();
 
-/** Sync one repository's inbox and its stacks. */
-export async function syncInbox(repoDir: string): Promise<void> {
+type SyncListener = (repoDir: string, inbox: Inbox) => void;
+const syncListeners = new Set<SyncListener>();
+
+/** Run `listener` after each sync that read an inbox, however it started. */
+export function onInboxSynced(listener: SyncListener): void {
+  syncListeners.add(listener);
+}
+
+/** Sync one repository's inbox and its stacks, or join the sync running now,
+ *  which may have started before a write: `resyncInbox` waits for news. */
+export function syncInbox(repoDir: string): Promise<void> {
+  const inFlight = running.get(repoDir);
+  if (inFlight) return inFlight;
+  const run = readInbox(repoDir).finally(() => running.delete(repoDir));
+  running.set(repoDir, run);
+  return run;
+}
+
+/** Sync from now: after a write, or a change of GitHub account. A sync already
+ *  running may answer for what came before, so a new one follows it. */
+export async function resyncInbox(repoDir: string): Promise<void> {
+  await running.get(repoDir);
+  await syncInbox(repoDir);
+}
+
+async function readInbox(repoDir: string): Promise<void> {
   const state = entry(repoDir);
-  if (state.syncing) return;
   state.syncing = true;
   syncStartedAt.set(repoDir, Date.now());
   try {
@@ -51,6 +74,7 @@ export async function syncInbox(repoDir: string): Promise<void> {
     state.stacks = stacks;
     if (viewerChanged) void reloadPrLinks();
     state.error = null;
+    for (const listener of syncListeners) listener(repoDir, inbox);
     // What closed PRs left behind: refs now, managed worktrees after 7 days,
     // and their threads leave the Reviews group. It works from this sync's
     // PR list, and a partial read cannot say which PRs closed.
@@ -69,15 +93,7 @@ export async function syncInbox(repoDir: string): Promise<void> {
     state.error = errorMessage(cause);
   } finally {
     state.syncing = false;
-    if (staleSyncs.delete(repoDir)) void syncInbox(repoDir);
   }
-}
-
-/** Sync with the repository's current GitHub account. A sync already running
- *  may have started with the old one, so one more follows it. */
-export async function resyncInbox(repoDir: string): Promise<void> {
-  if (entry(repoDir).syncing) staleSyncs.add(repoDir);
-  else await syncInbox(repoDir);
 }
 
 /** The stack an open PR sits in, from the last sync. */
@@ -108,7 +124,7 @@ export async function markActivitySeen(repoDir: string, numbers: number[]): Prom
 
 export async function mutePr(repoDir: string, number: number, headSha: string): Promise<void> {
   await commands.reviewMutePr(repoDir, number, headSha);
-  await syncInbox(repoDir);
+  await resyncInbox(repoDir);
 }
 
 /**
@@ -202,7 +218,7 @@ onCommandSettled((command) => {
       pendingSyncs.delete(repoDir);
       // The page that wrote may have synced already (the Stack page does).
       if ((syncStartedAt.get(repoDir) ?? 0) >= wroteAt) return;
-      void syncInbox(repoDir);
+      void resyncInbox(repoDir);
     }, SYNC_AFTER_WRITE_MS),
   );
 });

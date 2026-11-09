@@ -124,9 +124,9 @@ export function mergeFollowUp(
 
 /** The key a "Later" on the follow-up is remembered by: it comes back when
  *  another PR merges. */
-export function followUpKey(input: StackInput): string {
-  const merged = input.prs.filter((pr) => pr.merged).map((pr) => pr.number);
-  return `${input.number}:${merged.join(",")}`;
+export function followUpKey(stack: { number: number; prs: { number: number; merged: boolean }[] }): string {
+  const merged = stack.prs.filter((pr) => pr.merged).map((pr) => pr.number);
+  return `${stack.number}:${merged.join(",")}`;
 }
 
 /** Worktrees that hold a stack with a merged PR still to follow up: the
@@ -135,8 +135,7 @@ export function followUpWorktrees(stacks: StackListing, worktrees: WorktreeEntry
   if (!stacks.supported) return [];
   const paths: string[] = [];
   for (const stack of stacks.stacks) {
-    const merged = stack.prs.filter((pr) => pr.merged).map((pr) => pr.number);
-    if (merged.length === 0 || dismissed.has(`${stack.number}:${merged.join(",")}`)) continue;
+    if (!stack.prs.some((pr) => pr.merged) || dismissed.has(followUpKey(stack))) continue;
     const branches = new Set(stack.prs.map((pr) => pr.headRef));
     for (const worktree of worktrees) {
       if (worktree.branch && branches.has(worktree.branch) && !paths.includes(worktree.path)) paths.push(worktree.path);

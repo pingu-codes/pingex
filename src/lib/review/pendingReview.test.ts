@@ -37,9 +37,15 @@ async function loaded(head = "a") {
 
 beforeEach(() => {
   vi.mocked(commands.reviewPendingReview).mockReset().mockResolvedValue(null);
-  vi.mocked(commands.reviewSavePendingReview).mockReset().mockResolvedValue(undefined as never);
-  vi.mocked(commands.reviewSubmitPendingReview).mockReset().mockResolvedValue(undefined as never);
-  vi.mocked(commands.reviewDiscardPendingReview).mockReset().mockResolvedValue(undefined as never);
+  vi.mocked(commands.reviewSavePendingReview)
+    .mockReset()
+    .mockResolvedValue(undefined as never);
+  vi.mocked(commands.reviewSubmitPendingReview)
+    .mockReset()
+    .mockResolvedValue(undefined as never);
+  vi.mocked(commands.reviewDiscardPendingReview)
+    .mockReset()
+    .mockResolvedValue(undefined as never);
 });
 
 describe("the head a review posts against", () => {

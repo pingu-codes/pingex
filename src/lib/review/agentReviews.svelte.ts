@@ -11,6 +11,7 @@
 //   rerunAgentReview(review, targets)     "Re-run on new commits"
 
 import { HARNESS_INFO, HARNESS_KINDS } from "$lib/bindings";
+import { onInboxSynced } from "$lib/inbox/inboxStore.svelte";
 import { acceptedEntry } from "$lib/review/findingText";
 import { prTarget } from "$lib/review/prTarget";
 import { startPrThread } from "$lib/review/prThreads";
@@ -123,6 +124,13 @@ export async function rerunOnNewCommits(repoDir: string, heads: CheckoutTarget[]
   await refreshAgentReviews(repoDir).catch(() => []);
   void pumpAgentReviews();
 }
+
+onInboxSynced((repoDir, inbox) => {
+  void rerunOnNewCommits(
+    repoDir,
+    inbox.prs.map((pr) => reviewTarget(repoDir, pr, inbox.viewer)),
+  );
+});
 
 /** Start every run the desk lets start now. Calls run one after another. */
 export function pumpAgentReviews(): Promise<void> {

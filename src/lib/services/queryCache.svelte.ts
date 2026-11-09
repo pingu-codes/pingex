@@ -70,7 +70,8 @@ export const READS = {
   reviewPrCheckouts: LOCAL,
   reviewPrDetail: GITHUB,
   reviewListPrs: GITHUB,
-  reviewStackOverview: GITHUB,
+  // What is on disk: git branches, the base's lead, the worktree.
+  reviewStackOverview: LOCAL,
   reviewRestackPlan: GITHUB,
   reviewPrsBehind: GITHUB,
   reviewProviderStatus: { fresh: 5 * MINUTE, expire: 60 * MINUTE, kind: "provider", repoArg: 0 },

@@ -44,7 +44,7 @@
   import RepoPicker from "$lib/inbox/RepoPicker.svelte";
   import SinceYouLooked from "$lib/inbox/SinceYouLooked.svelte";
   import StackCard from "$lib/inbox/StackCard.svelte";
-  import { rerunOnNewCommits, reviewTarget } from "$lib/review/agentReviews.svelte";
+  import { reviewTarget } from "$lib/review/agentReviews.svelte";
   import CompareCommitsDialog from "$lib/review/CompareCommitsDialog.svelte";
   import { commands } from "$lib/services/homeRouting";
   import { query } from "$lib/services/queryCache.svelte";
@@ -190,15 +190,16 @@
 
   async function sync() {
     await syncInbox(repoPath);
-    now = Date.now();
     await loadAgentReviews(repoPath);
-    const synced = inboxes[repoPath]?.inbox;
-    if (synced)
-      void rerunOnNewCommits(
-        repoPath,
-        synced.prs.map((pr) => reviewTarget(repoPath, pr, synced.viewer)),
-      );
   }
+
+  // "Synced 3m ago" and the feed's times: after each sync, and as time passes.
+  $effect(() => {
+    void inbox?.syncedAt;
+    now = Date.now();
+    const timer = setInterval(() => (now = Date.now()), 60_000);
+    return () => clearInterval(timer);
+  });
 
   onMount(() => {
     ensureWorktrees([repoPath]);
@@ -359,7 +360,7 @@
 
 {#snippet prRow(row: InboxRow, depth: number, group: StackGroup | null)}
   {@const action = primaryAction(row, {
-    stackAbove: group !== null && depth > 0 && !row.triage.mine,
+    stackAbove: group !== null && stackPosition(group, row.pr.number).position > 1 && !row.triage.mine,
     agentReview: agentState(row.pr.number),
   })}
   <PrRow
@@ -534,13 +535,13 @@
       </div>
     {/if}
 
-    {#if selected.size > 0}
+    {#if selectedPrs.length > 0}
       <div
         class="popover-card sticky bottom-4 flex flex-wrap items-center gap-1.5 self-center px-2 py-1.5 text-xs"
         role="toolbar"
         aria-label="Selected pull requests"
       >
-        <span class="px-1 font-medium">{selected.size} selected</span>
+        <span class="px-1 font-medium">{selectedPrs.length} selected</span>
         <button
           type="button"
           class="btn btn-sm text-[11px] preset-tonal"

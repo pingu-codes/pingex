@@ -86,6 +86,30 @@ describe("Pull requests inbox", () => {
     expect(onSelectRepo).toHaveBeenCalledWith("/Users/ciaran/Projects/arctic-explorer");
   });
 
+  it("offers Review stack on an upper PR even when the one below it is filtered out", async () => {
+    const { user } = setup();
+    await loaded();
+    await user.click(filter(/^Everyone/));
+    expect(within(row(403)).getByRole("button", { name: "Review stack" })).toBeInTheDocument();
+
+    await user.type(screen.getByRole("textbox", { name: "Filter pull requests" }), "#403");
+    expect(queryRow(402)).toBeNull();
+    expect(within(row(403)).getByRole("button", { name: "Review stack" })).toBeInTheDocument();
+  });
+
+  it("counts only the selected PRs it would act on once a filter hides some", async () => {
+    const { user } = setup();
+    await loaded();
+    await user.keyboard("{Meta>}");
+    await user.click(within(row(412)).getByText("Harness driver trait"));
+    await user.click(within(row(418)).getByText("maki over ACP"));
+    await user.keyboard("{/Meta}");
+    expect(screen.getByText("2 selected")).toBeInTheDocument();
+
+    await user.type(screen.getByRole("textbox", { name: "Filter pull requests" }), "maki");
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+  });
+
   it("narrows with the chips and the text filter", async () => {
     const { user } = setup();
     await loaded();

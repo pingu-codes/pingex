@@ -52,7 +52,7 @@ export function stackAt(repo: string, branch: string | null): StackInputPr[] {
 }
 
 async function runningIn(project: Project): Promise<string[]> {
-  const active = new Set(await commands.threadsWithActiveTurns().catch(() => [] as string[]));
+  const active = new Set(await commands.threadsWithActiveTurns());
   return project.threads.filter((thread) => active.has(thread.id)).map((thread) => thread.id);
 }
 
@@ -63,7 +63,7 @@ async function switchToPr(project: Project) {
     toastError("This worktree isn't on a stack's git branch");
     return;
   }
-  const running = await runningIn(project);
+  const running = await runningIn(project).catch(() => [] as string[]);
   const branch = await openDialog(SwitchToPrDialog, {
     name: basename(project.path),
     prs,
@@ -72,11 +72,18 @@ async function switchToPr(project: Project) {
   });
   if (!branch) return;
   let waiting: string | null = null;
-  while ((await runningIn(project)).length > 0) {
-    waiting ??= toastProgress(`Waiting to switch ${basename(project.path)}`, "Threads are still running here");
+  let stopped = false;
+  // A failed read says nothing, so it keeps waiting: switching under a running
+  // thread is what this is here to avoid.
+  while (!stopped && (await runningIn(project).catch(() => ["unknown"])).length > 0) {
+    waiting ??= toastProgress(`Waiting to switch ${basename(project.path)}`, "Threads are still running here", {
+      label: "Stop waiting",
+      onClick: () => (stopped = true),
+    });
     await new Promise((resolve) => setTimeout(resolve, WAIT_MS));
   }
   if (waiting) toaster.dismiss(waiting);
+  if (stopped) return;
   try {
     await commands.gitCheckoutBranch(project.path, branch, false);
     toaster.success({ title: `${basename(project.path)} is on ${branch}` });
