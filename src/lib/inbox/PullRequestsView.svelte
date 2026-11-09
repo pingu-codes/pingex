@@ -13,6 +13,7 @@
   import { onMount } from "svelte";
   import { projects } from "$lib/app/appData.svelte";
   import { openDialog } from "$lib/app/dialogs.svelte";
+  import { place } from "$lib/app/places";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import RefreshIcon from "$lib/components/RefreshIcon.svelte";
   import Segmented from "$lib/components/Segmented.svelte";
@@ -76,13 +77,31 @@
     }
   }
 
-  let filter = $state<InboxFilter>("needsMe");
-  let chips = $state<InboxChips>({ drafts: false, ciFailing: false, unresolved: false });
-  let text = $state("");
+  // svelte-ignore state_referenced_locally -- the view is keyed by repository.
+  const left = place(`inbox:${repoPath}`, () => ({
+    filter: "needsMe" as InboxFilter,
+    chips: { drafts: false, ciFailing: false, unresolved: false } as InboxChips,
+    text: "",
+    selected: new Set<number>(),
+    anchor: null as number | null,
+    scrollTop: 0,
+  }));
+
+  let filter = $state(left.filter);
+  let chips = $state(left.chips);
+  let text = $state(left.text);
   let groupByStack = $state(loadGroupByStack());
-  let selected = $state<Set<number>>(new Set());
-  let anchor = $state<number | null>(null);
+  // svelte-ignore state_referenced_locally -- a PR that closed while away is no longer selected.
+  let selected = $state(
+    new Set([...left.selected].filter((number) => inboxes[repoPath]?.inbox?.prs.some((pr) => pr.number === number))),
+  );
+  let anchor = $state(left.anchor);
   let now = $state(Date.now());
+  let scroller = $state<HTMLElement>();
+
+  $effect(() => {
+    Object.assign(left, { filter, chips: $state.snapshot(chips), text, selected, anchor });
+  });
 
   const repoState = $derived(inboxes[repoPath]);
   const inbox = $derived(repoState?.inbox ?? null);
@@ -184,7 +203,10 @@
   onMount(() => {
     ensureWorktrees([repoPath]);
     if (!inboxes[repoPath]?.inbox) void sync();
-    else void loadAgentReviews(repoPath);
+    else {
+      if (scroller) scroller.scrollTop = left.scrollTop;
+      void loadAgentReviews(repoPath);
+    }
   });
 
   function setGroupByStack(on: boolean) {
@@ -368,10 +390,12 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
+  bind:this={scroller}
   class="@container/desk flex h-full min-h-0 flex-wrap content-start overflow-y-auto"
   role="region"
   aria-label="Pull requests"
   onkeydown={onKeydown}
+  onscroll={(event) => (left.scrollTop = event.currentTarget.scrollTop)}
 >
   <section class="@container/inbox flex min-w-0 flex-[999_1_560px] flex-col gap-4 px-6 py-5">
     <header class="flex flex-wrap items-center gap-3">

@@ -8,7 +8,7 @@ import { syncDelay } from "$lib/inbox/inbox";
 import { reloadPrLinks } from "$lib/review/prLinks.svelte";
 import { argNamed, onCommandSettled } from "$lib/services/commandEvents";
 import { commands } from "$lib/services/homeRouting";
-import type { Inbox, StackListing } from "$lib/types";
+import type { Inbox, PrStack, StackListing } from "$lib/types";
 import { errorMessage } from "$lib/utils/errors";
 
 export type RepoInbox = {
@@ -78,6 +78,13 @@ export async function syncInbox(repoDir: string): Promise<void> {
 export async function resyncInbox(repoDir: string): Promise<void> {
   if (entry(repoDir).syncing) staleSyncs.add(repoDir);
   else await syncInbox(repoDir);
+}
+
+/** The stack an open PR sits in, from the last sync. */
+export function stackHolding(repoDir: string, number: number): PrStack | null {
+  const isOpenHere = (entry: PrStack["prs"][number]) =>
+    entry.number === number && entry.state === "open" && !entry.merged;
+  return inboxes[repoDir]?.stacks?.stacks.find((stack) => stack.prs.some(isOpenHere)) ?? null;
 }
 
 /** The "N need you" count per repository folder, from the last sync. */

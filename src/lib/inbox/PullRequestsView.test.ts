@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/svelte";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { InboxHandlers } from "$lib/inbox/handlers";
@@ -257,5 +257,45 @@ describe("the repository's GitHub account", () => {
     await user.click(screen.getByRole("button", { name: "GitHub account: ciaran-work" }));
     await user.click(await screen.findByRole("menuitem", { name: /Automatic/ }));
     expect(await screen.findByRole("button", { name: "GitHub account: ciaran" })).toBeInTheDocument();
+  });
+});
+
+describe("coming back to the inbox", () => {
+  it("opens as it was left: the filter, the chips, the text and the scroll", async () => {
+    const { user } = setup();
+    await loaded();
+    await user.click(filter(/Everyone 9/));
+    await user.click(screen.getByRole("button", { name: "Drafts" }));
+    await user.type(screen.getByRole("textbox", { name: "Filter pull requests" }), "a");
+    const region = screen.getByRole("region", { name: "Pull requests" });
+    region.scrollTop = 240;
+    fireEvent.scroll(region);
+
+    cleanup();
+    setup();
+
+    expect(filter(/Everyone 9/)).toBeChecked();
+    expect(screen.getByRole("button", { name: "Drafts" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("textbox", { name: "Filter pull requests" })).toHaveValue("a");
+    await waitFor(() => expect(screen.getByRole("region", { name: "Pull requests" }).scrollTop).toBe(240));
+  });
+
+  it("keeps its selection across a visit, without PRs that have since closed", async () => {
+    const { user } = setup();
+    await loaded();
+    await user.keyboard("{Meta>}");
+    await user.click(within(row(412)).getByText("Harness driver trait"));
+    await user.keyboard("{/Meta}");
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+
+    cleanup();
+    setup();
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+
+    cleanup();
+    const inbox = inboxes[MAIN].inbox;
+    if (inbox) inbox.prs = inbox.prs.filter((pr) => pr.number !== 412);
+    setup();
+    expect(screen.queryByText("1 selected")).toBeNull();
   });
 });

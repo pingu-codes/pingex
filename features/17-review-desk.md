@@ -29,6 +29,27 @@ desk**, **Inbox**, **Seen head**, **Stack**, **PR worktree**) is in
 | Model | The three checkout steps, what each action needs, and where threads are grouped. |
 | Adding repositories | From GitHub (PRs only, clone, or link an existing clone), from a local folder (which remote PRs come from, plus per-repository defaults), and the sidebar states. |
 
+## Getting around
+
+Back retraces the way a page was reached, from the inbox, a Stack page, another
+PR, a thread or a project. Each step is a view on the trail in
+`navigation.svelte.ts`. Going to another PR from Up next or a list leaves a step;
+j/k through the queue replaces the PR being read, so Back leaves the queue at
+once. Any other navigation (the sidebar, opening a thread) starts the trail
+again. Where the page's Back has scrolled away with the topbar, a floating one
+replaces it, so going back doesn't lose the place in the diff.
+
+Each page keeps what it had open in `app/places.ts`, in memory, by repository
+and PR or stack number, and opens as it was left however it is reached: the
+inbox its filter, chips, text, selection and scroll; a PR its tab, comment
+filter, folded files and scroll; a Stack page its selected PR, tree view and
+scroll.
+
+A PR open in a stack always shows on the Stack page, selected, so the stack is
+beside it however it was opened. `openReview` decides from the last sync; with
+none yet, the PR opens on its own page. The tree folds to a strip of the stack's
+PRs, and the choice is stored. A restack unfolds it to show its progress.
+
 ## Checkout steps
 
 A PR moves up one step at a time, and only when an action needs it. Each

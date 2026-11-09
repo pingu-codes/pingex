@@ -7,7 +7,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { threadById } from "$lib/app/appData.svelte";
-  import { openThreadInCwd } from "$lib/app/navigation.svelte";
+  import { openThreadInCwd, type PrMove } from "$lib/app/navigation.svelte";
   import { defaultReviewHarness, refreshAgentReviews, rerunAgentReview } from "$lib/review/agentReviews.svelte";
   import type { LineSlot } from "$lib/review/FileDiff.svelte";
   import FindingCard from "$lib/review/FindingCard.svelte";
@@ -34,6 +34,7 @@
     repoDir,
     number,
     onBack,
+    backLabel,
     inbox = null,
     viewer = null,
     onOpenPr,
@@ -48,10 +49,12 @@
     number: number;
     /** The breadcrumb's way back; without it the page shows no breadcrumb. */
     onBack?: () => void;
+    /** Names where `onBack` leads. */
+    backLabel?: string;
     inbox?: Inbox | null;
     /** Who is reviewing: whether the PR is mine. */
     viewer?: string | null;
-    onOpenPr?: (number: number) => void;
+    onOpenPr?: (number: number, move?: PrMove) => void;
     onRunLocally?: (detail: PrDetail, action: "runLocally" | "openInEditor") => void;
     onDetail?: (detail: PrDetail) => void;
     /** The PR's worktree, if it has one. */
@@ -224,6 +227,7 @@
   {repoDir}
   {number}
   {onBack}
+  {backLabel}
   {inbox}
   {onOpenPr}
   onAskAgent={askAgent}

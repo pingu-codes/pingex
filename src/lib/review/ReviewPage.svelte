@@ -16,6 +16,8 @@
   import { type Snippet, tick, untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { dialogStack, openDialog } from "$lib/app/dialogs.svelte";
+  import type { PrMove } from "$lib/app/navigation.svelte";
+  import { place } from "$lib/app/places";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
   import type { MenuEntry } from "$lib/components/actionMenu";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
@@ -90,6 +92,7 @@
     repoDir,
     number,
     onBack,
+    backLabel = "Pull requests",
     inbox = null,
     onOpenPr,
     onAskAgent,
@@ -113,9 +116,11 @@
     /** The breadcrumb's way back; without it (inside the Stack page, which
      *  has its own) there is no breadcrumb. */
     onBack?: () => void;
+    /** Names where `onBack` leads. */
+    backLabel?: string;
     /** The repository's last inbox sync: the viewer, Up next and j/k. */
     inbox?: Inbox | null;
-    onOpenPr?: (number: number) => void;
+    onOpenPr?: (number: number, move?: PrMove) => void;
     onAskAgent?: (request: AskAgentRequest) => void;
     /** Run locally or Open in editor: creates a worktree when the PR has none.
      *  Without it both are unavailable. */
@@ -174,9 +179,26 @@
     detail ? driftLabel({ number, baseRef: detail.summary.baseRef }, behindQuery.value?.[0]?.behind, inbox) : null,
   );
   const error = $derived(detail ? null : detailQuery.error);
-  let tab = $state<Tab>("files");
-  let filter = $state<ReviewFilter>("all");
-  const collapsed = new SvelteSet<string>();
+  // svelte-ignore state_referenced_locally -- the page is keyed by PR.
+  const left = place(`pr:${repoDir}#${number}`, () => ({
+    tab: "files" as Tab,
+    filter: "all" as ReviewFilter,
+    scrollTop: 0,
+    /** `null` until the page has read the viewed marks, which collapse their files. */
+    collapsed: null as string[] | null,
+  }));
+  /** Where to land: the scroll position recorded as the page loads may be clamped. */
+  const landAt = left.scrollTop;
+  const hadCollapsed = left.collapsed !== null;
+  let tab = $state(left.tab);
+  let filter = $state(left.filter);
+  const collapsed = new SvelteSet<string>(left.collapsed ?? []);
+  let collapsedKnown = $state(hadCollapsed);
+  $effect(() => {
+    left.tab = tab;
+    left.filter = filter;
+    if (collapsedKnown) left.collapsed = [...collapsed];
+  });
   const viewed = new SvelteSet<string>();
   let selection = $state<LineRange | null>(null);
   let composer = $state<Composer | null>(null);
@@ -261,10 +283,16 @@
       currentPath ??= next.files[0]?.path ?? null;
       if (reviewStateLoaded) return;
       reviewStateLoaded = true;
+      land();
       void loadReviewState(next);
       prefetchNext();
     });
   });
+
+  /** Back to where the page was left. */
+  function land() {
+    if (scroller && landAt > 0) scroller.scrollTop = landAt;
+  }
 
   /** The stored pending review and the viewed marks, read side by side. */
   async function loadReviewState(next: PrDetail) {
@@ -275,8 +303,12 @@
     viewed.clear();
     for (const path of marked) {
       viewed.add(path);
-      collapsed.add(path);
+      // A page coming back keeps what the reviewer had folded and unfolded.
+      if (!hadCollapsed) collapsed.add(path);
     }
+    collapsedKnown = true;
+    // The pending review's cards and the folds above change the page's height.
+    land();
   }
 
   /** Warm the next PR in the queue, so j/k opens it at once. Only one: each
@@ -300,7 +332,10 @@
    *  WebKit that splits `nearViewport`'s row swap across frames, a layout lands
    *  on the half-swapped page, and the scroll position clamps upward. */
   function onPageScroll() {
-    if (scroller) topbarHidden = topbarHeight > 0 && scroller.scrollTop >= topbarHeight;
+    if (!scroller) return;
+    topbarHidden = topbarHeight > 0 && scroller.scrollTop >= topbarHeight;
+    // "Changes since" is a different, shorter page and doesn't come back.
+    if (changes === "all") left.scrollTop = scroller.scrollTop;
     scheduleCurrentFile();
   }
 
@@ -772,7 +807,7 @@
       case "nextPr":
       case "previousPr": {
         const next = queueNeighbour(queue, number, command === "nextPr" ? 1 : -1);
-        if (next) onOpenPr?.(next.number);
+        if (next) onOpenPr?.(next.number, "walk");
         break;
       }
       case "nextFile":
@@ -842,7 +877,7 @@
         <div class="flex min-w-64 flex-1 items-center gap-2">
           {#if onBack}
             <button type="button" class="btn btn-sm hover:preset-tonal px-1 text-surface-500" onclick={onBack}>
-              <ChevronLeft size={14} aria-hidden="true" />Pull requests
+              <ChevronLeft size={14} aria-hidden="true" />{backLabel}
             </button>
             <span class="text-surface-500">/</span>
             <span class="text-surface-500">{repoName}</span>
@@ -1190,13 +1225,22 @@
   {/if}
 
   {#if topbarHidden}
-    <button
-      type="button"
-      class="btn btn-sm preset-filled-surface-950-50 absolute bottom-4 left-1/2 z-20 -translate-x-1/2 text-xs shadow-lg"
-      onclick={scrollToTop}
-    >
-      <ArrowUp size={14} aria-hidden="true" />Back to top
-    </button>
+    <!-- With the topbar gone, a way back that doesn't lose the place in the diff. -->
+    <div class="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 gap-2 whitespace-nowrap">
+      {#if onBack}
+        <button
+          type="button"
+          class="btn btn-sm preset-filled-surface-950-50 text-xs shadow-lg"
+          aria-label="Back to {backLabel}"
+          onclick={onBack}
+        >
+          <ChevronLeft size={14} aria-hidden="true" />{backLabel}
+        </button>
+      {/if}
+      <button type="button" class="btn btn-sm preset-filled-surface-950-50 text-xs shadow-lg" onclick={scrollToTop}>
+        <ArrowUp size={14} aria-hidden="true" />Back to top
+      </button>
+    </div>
   {/if}
 </div>
 

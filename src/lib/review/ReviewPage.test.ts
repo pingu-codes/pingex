@@ -40,6 +40,49 @@ beforeEach(() => {
 });
 
 describe("ReviewPage", () => {
+  it("comes back as it was left: the tab, the filter, the folds and the scroll", async () => {
+    const user = userEvent.setup();
+    const first = renderPage();
+    await opened();
+    await user.click(screen.getByRole("button", { name: /^Unresolved/ }));
+    const pane = document.querySelector<HTMLElement>("[data-diff-pane]") as HTMLElement;
+    pane.scrollTop = 300;
+    fireEvent.scroll(pane);
+    await user.click(screen.getByRole("radio", { name: /^Checks/ }));
+    await user.click(screen.getByRole("radio", { name: /^Files/ }));
+    pane.scrollTop = 300;
+    fireEvent.scroll(pane);
+    first.unmount();
+
+    renderPage();
+    await opened();
+
+    expect(screen.getByRole("button", { name: /^Unresolved/ })).toHaveAttribute("aria-pressed", "true");
+    const again = document.querySelector<HTMLElement>("[data-diff-pane]") as HTMLElement;
+    await waitFor(() => expect(again.scrollTop).toBe(300));
+  });
+
+  it("comes back on the tab it was left on", async () => {
+    const user = userEvent.setup();
+    const first = renderPage();
+    await opened();
+    await user.click(screen.getByRole("radio", { name: /^Conversation/ }));
+    first.unmount();
+
+    renderPage();
+    await screen.findByRole("heading", { name: "Retry the app-server handshake" });
+
+    expect(screen.getByRole("radio", { name: /^Conversation/ })).toBeChecked();
+  });
+
+  it("starts a PR it hasn't shown at the top, on Files", async () => {
+    renderPage();
+    await opened();
+
+    expect(screen.getByRole("radio", { name: /^Files/ })).toBeChecked();
+    expect((document.querySelector("[data-diff-pane]") as HTMLElement).scrollTop).toBe(0);
+  });
+
   it("a collapsed Your review stays collapsed on the next PR, and still counts its entries", async () => {
     const user = userEvent.setup();
     const first = renderPage();
@@ -457,7 +500,7 @@ describe("ReviewPage", () => {
 
     expect(within(yourReview()).getByRole("button", { name: /#403 Trap focus in dialogs/ })).toBeInTheDocument();
     await user.keyboard("k");
-    expect(onOpenPr).toHaveBeenCalledWith(403);
+    expect(onOpenPr).toHaveBeenCalledWith(403, "walk");
   });
 
   it("offers only a comment on the viewer's own PR, which GitHub takes from its author", async () => {

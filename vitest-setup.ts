@@ -1,8 +1,12 @@
 import { afterAll, beforeEach } from "vitest";
+import { forgetPlaces } from "./src/lib/app/places";
 
 // The query cache outlives components, so a test would otherwise see answers
 // an earlier test in the same file read. It registers its reset when loaded.
 beforeEach(() => (globalThis as { __resetQueryCache?: () => void }).__resetQueryCache?.());
+
+// Likewise what each page had open when it was left.
+beforeEach(forgetPlaces);
 
 // Pure-logic test files opt into `// @vitest-environment node`, which skips
 // booting jsdom. Everything below is a DOM shim, so only install it there.

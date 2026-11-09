@@ -30,11 +30,8 @@ describe("ReviewView", () => {
     expect(commands.reviewProviderStatus).not.toHaveBeenCalled();
   });
 
-  it("lists open PRs and opens one onto the review page", async () => {
-    const user = userEvent.setup();
-    render(ReviewView, { repoDir: "/repo", repoName: "repo", onBack: vi.fn(), onAskCodex: vi.fn() });
-
-    await user.click(await screen.findByText(/Add pull-request review view/));
+  it("shows a PR's review page", async () => {
+    render(ReviewView, { repoDir: "/repo", repoName: "repo", initialPr: 128, onBack: vi.fn(), onAskCodex: vi.fn() });
 
     await screen.findByRole("heading", { name: "Add pull-request review view" });
     expect(screen.getByRole("region", { name: "src/lib/loader.ts" })).toBeInTheDocument();
@@ -63,16 +60,27 @@ describe("ReviewView", () => {
     expect(options).toMatchObject({ sandboxMode: "read-only" });
   });
 
-  it("goes back from a PR picked in the list to the list", async () => {
+  it("asks to go to a PR picked in the list", async () => {
     const user = userEvent.setup();
-    const onBack = vi.fn();
-    render(ReviewView, { repoDir: "/repo", repoName: "repo", onBack, onAskCodex: vi.fn() });
+    const onOpenPr = vi.fn();
+    render(ReviewView, { repoDir: "/repo", repoName: "repo", onBack: vi.fn(), onOpenPr, onAskCodex: vi.fn() });
 
     await user.click(await screen.findByText(/Add pull-request review view/));
+    expect(onOpenPr).toHaveBeenCalledWith(128);
+  });
+
+  it("names where its way back leads", async () => {
+    render(ReviewView, {
+      repoDir: "/repo",
+      repoName: "repo",
+      initialPr: 128,
+      onBack: vi.fn(),
+      backLabel: "#99",
+      onAskCodex: vi.fn(),
+    });
+
     await screen.findByRole("heading", { name: "Add pull-request review view" });
-    await user.click(screen.getByRole("button", { name: "Pull requests" }));
-    await waitFor(() => expect(screen.getByText(/Native git worktree service/)).toBeInTheDocument());
-    expect(onBack).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "#99" })).toBeInTheDocument();
   });
 
   it("goes back from a PR it opened on to wherever it was opened from", async () => {

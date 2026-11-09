@@ -38,9 +38,11 @@
   } from "$lib/app/launch.svelte";
   import { startApp } from "$lib/app/listeners.svelte";
   import {
+    backLabel,
     currentProject,
     detailProject,
     focusProjectPath,
+    goBack,
     goHome,
     newThread,
     newThreadInDir,
@@ -154,7 +156,7 @@
         onOpenMemories={openMemories}
         memoriesOpen={view.memories}
         onOpenPullRequests={(path) => openPullRequests(path ?? null)}
-        pullRequestsOpen={view.pullRequests || view.stackRepo !== null}
+        pullRequestsOpen={view.pullRequests || view.stackRepo !== null || view.reviewPr !== null}
         needsYou={needsYouByRepo()}
         onMenuAction={menuAction}
         sidebarLayout={appData.data?.sidebarLayout}
@@ -213,7 +215,7 @@
                 {:else}
                   {view.memories
                     ? "Memories"
-                    : view.pullRequests || view.stackRepo
+                    : view.pullRequests || view.stackRepo || view.reviewPr !== null
                       ? "Pull requests"
                       : (thread?.title ?? project?.name ?? "Home")}
                 {/if}
@@ -310,20 +312,24 @@
               repoDir={view.stackRepo}
               repoName={projectForCwd(view.stackRepo)?.name ?? view.stackRepo}
               stackNumber={view.stackNumber}
+              initialPr={view.stackPr}
               restackOnOpen={view.stackRestack}
-              onBack={() => openPullRequests(view.stackRepo)}
+              onBack={goBack}
+              backLabel={backLabel()}
               onAskCodex={askCodexReview}
             />
           {/key}
         </div>
       {:else if review}
         <div class="min-h-0 flex-1">
-          {#key review.path}
+          {#key view.epoch}
             <ReviewView
               repoDir={review.path}
               repoName={review.name}
               initialPr={view.reviewPr}
-              onBack={view.reviewPr !== null ? () => openPullRequests(review.path) : goHome}
+              onBack={goBack}
+              backLabel={backLabel()}
+              onOpenPr={(number, move) => openReview(review, number, move)}
               onAskCodex={askCodexReview}
             />
           {/key}

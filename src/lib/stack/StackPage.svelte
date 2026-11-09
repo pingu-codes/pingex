@@ -1,23 +1,27 @@
 <!--
   The Stack page (the canvas's "Stack" board): the git branch tree from the
   top PR down to the base, the stack's worktree, and the selected PR's review
-  page beside it. Restack onto the base, push the stack, and every stack edit
-  (add, insert, reorder by drag or ⌥↑/⌥↓, the git branch menu) run here over
-  the backend's stack operations; after a PR merges it offers the follow-up.
+  page beside it. A PR in a stack opens here too, however it was reached. The
+  tree folds to a strip of its PRs. Restack onto the base, push the stack, and
+  every stack edit (add, insert, reorder by drag or ⌥↑/⌥↓, the git branch menu)
+  run here over the backend's stack operations; after a PR merges it offers the
+  follow-up.
 
   The stack is GitHub's, read from the inbox store; what is on disk comes
   from `reviewStackOverview`.
 -->
 <script lang="ts">
-  import { Ellipsis, Folder, Sparkles } from "@lucide/svelte";
-  import { onMount } from "svelte";
-  import { projects } from "$lib/app/appData.svelte";
+  import { ChevronLeft, Ellipsis, Folder, PanelLeftClose, PanelLeftOpen, Sparkles } from "@lucide/svelte";
+  import { onMount, tick } from "svelte";
+  import { projectForCwd, projects } from "$lib/app/appData.svelte";
   import { openDialog } from "$lib/app/dialogs.svelte";
-  import { openThreadInCwd } from "$lib/app/navigation.svelte";
+  import { openReview, openThreadInCwd, type PrMove } from "$lib/app/navigation.svelte";
+  import { place } from "$lib/app/places";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import RefreshIcon from "$lib/components/RefreshIcon.svelte";
   import Segmented from "$lib/components/Segmented.svelte";
+  import TooltipButton from "$lib/components/TooltipButton.svelte";
   import { RING_CLASS, TONE_CLASS } from "$lib/inbox/badges";
   import { ciBadge, reviewBadge, stateTone } from "$lib/inbox/inbox";
   import { inboxes, syncInbox } from "$lib/inbox/inboxStore.svelte";
@@ -27,6 +31,7 @@
   import { checkoutTarget } from "$lib/review/checkoutTarget";
   import { ensurePrLinks, prLinks, rememberPrLink } from "$lib/review/prLinks.svelte";
   import ReviewView from "$lib/review/ReviewView.svelte";
+  import { loadStackTreeCollapsed, saveStackTreeCollapsed } from "$lib/review/reviewPrefs";
   import WorktreeBadge from "$lib/review/WorktreeBadge.svelte";
   import { startThreadWithTurn } from "$lib/services/api";
   import { commands } from "$lib/services/homeRouting";
@@ -65,15 +70,20 @@
     repoDir,
     repoName,
     stackNumber,
+    initialPr = null,
     onBack,
+    backLabel = "Pull requests",
     onAskCodex,
     restackOnOpen = false,
   }: {
     repoDir: string;
     repoName: string;
     stackNumber: number;
-    /** Back to the Pull requests inbox. */
+    /** The PR to open on; else the one shown last, or the checked-out one. */
+    initialPr?: number | null;
     onBack: () => void;
+    /** Names where `onBack` leads. */
+    backLabel?: string;
     onAskCodex: (cwd: string, prompt: string) => void;
     /** Start a restack once the stack has loaded (the inbox's Restack). */
     restackOnOpen?: boolean;
@@ -85,9 +95,20 @@
   /** A restack that has not finished blocks other stack edits; a finished one only shows its result. */
   const restacking = $derived(progress !== null && !progress.done);
   let preview = $state<RestackPlan | null>(null);
-  let selected = $state<number | null>(null);
+  // svelte-ignore state_referenced_locally -- the page remounts per navigation.
+  const left = place(`stack:${repoDir}#${stackNumber}`, () => ({
+    selected: null as number | null,
+    view: "stack" as "stack" | "commits",
+    pageScrollTop: 0,
+    treeScrollTop: 0,
+  }));
+  // svelte-ignore state_referenced_locally -- likewise.
+  let selected = $state<number | null>(initialPr);
   let busy = $state<string | null>(null);
-  let view = $state<"stack" | "commits">("stack");
+  let view = $state(left.view);
+  let treeCollapsed = $state(loadStackTreeCollapsed());
+  let page = $state<HTMLElement>();
+  let tree = $state<HTMLElement>();
   let dragging = $state<number | null>(null);
   let dropTarget = $state<number | "base" | null>(null);
 
@@ -119,6 +140,40 @@
       : null,
   );
   const conflict = $derived(progress?.branches.find((branch) => branch.status === "conflict") ?? null);
+
+  // Unless opened for a PR, back on the one shown last, while it is still open.
+  // svelte-ignore state_referenced_locally -- once, as the page opens.
+  if (selected === null && openPrs.some((pr) => pr.number === left.selected)) selected = left.selected;
+
+  $effect(() => {
+    left.selected = selected;
+    left.view = view;
+  });
+
+  // A restack started from the header has its progress and conflicts in the tree.
+  $effect(() => {
+    if (restacking) treeCollapsed = false;
+  });
+
+  function setTreeCollapsed(value: boolean) {
+    treeCollapsed = value;
+    saveStackTreeCollapsed(value);
+  }
+
+  function select(number: number) {
+    selected = number;
+    prefetchAround(number);
+  }
+
+  /** Another PR, from Up next or j/k: within the stack it is a selection. */
+  function openPr(number: number, move?: PrMove) {
+    if (openPrs.some((pr) => pr.number === number)) {
+      select(number);
+      return;
+    }
+    const project = projectForCwd(repoDir);
+    if (project) openReview(project, number, move);
+  }
 
   function threadsOn(number: number): number {
     return Object.values(prLinks.byThread).filter(
@@ -195,6 +250,10 @@
   onMount(() => {
     void ensurePrLinks();
     showCached();
+    void tick().then(() => {
+      if (page) page.scrollTop = left.pageScrollTop;
+      if (tree) tree.scrollTop = left.treeScrollTop;
+    });
     const loading = inboxes[repoDir]?.inbox ? loadOverview() : refresh();
     if (restackOnOpen) void loading.then(() => (progress ? undefined : restack()));
   });
@@ -634,10 +693,7 @@
             ondragover={(event) => onDragOver(event, pr.number)}
             ondrop={(event) => onDrop(event, pr.number)}
             ondragend={onDragEnd}
-            onclick={() => {
-              selected = pr.number;
-              prefetchAround(pr.number);
-            }}
+            onclick={() => select(pr.number)}
           >
             <div class="flex items-center gap-2">
               <span class="min-w-0 truncate font-mono text-[11px]" class:font-semibold={checkedOut} title={pr.headRef}
@@ -704,7 +760,9 @@
 
 <div class="flex h-full min-h-0 flex-col text-xs">
   <header class="flex flex-wrap items-center gap-2 border-b border-surface-200-800 px-5 py-3">
-    <button type="button" class="text-surface-500 hover:underline" onclick={onBack}>Pull requests</button>
+    <button type="button" class="btn btn-sm hover:preset-tonal px-1 text-surface-500" onclick={onBack}>
+      <ChevronLeft size={14} aria-hidden="true" />{backLabel}
+    </button>
     <span class="text-surface-500">/</span>
     <span class="text-surface-500">{repoName}</span>
     <span class="text-surface-500">/</span>
@@ -758,281 +816,342 @@
   {:else}
     <!-- Side by side (400 + 560px) each pane scrolls on its own; stacked, the
          page scrolls and the PR pane takes the full height under the tree. -->
-    <div class="@container/stack flex min-h-0 grow flex-wrap items-stretch overflow-y-auto">
-      <section
-        aria-label="Stack tree"
-        class="flex min-w-0 flex-[1_1_400px] flex-col gap-3 border-r border-surface-200-800 bg-surface-100-900 p-5 @min-[960px]/stack:h-full @min-[960px]/stack:overflow-y-auto"
-      >
-        {#if followUp?.kind === "restack"}
-          <div class="card flex flex-col gap-2 preset-tonal-success px-3 py-2.5" role="status">
-            <div class="font-medium">
-              {followUp.merged.map((number) => `#${number}`).join(", ")}
-              merged into {input.baseRef}
-            </div>
-            <div>
-              Restack {followUp.rest.map((number) => `#${number}`).join(" and ")} onto {input.baseRef} and delete
-              {followUp.branches.join(", ")}?
-            </div>
-            <div class="flex gap-1.5">
-              <button
-                type="button"
-                class="btn btn-sm text-[11px] preset-filled-primary-500"
-                disabled={busy !== null}
-                onclick={() => void restackAndCleanUp()}
-              >
-                Restack and clean up
-              </button>
-              <button type="button" class="btn btn-sm text-[11px] hover:preset-tonal" onclick={later}>Later</button>
-            </div>
-          </div>
-        {:else if followUp?.kind === "cleanup"}
-          <div class="card flex flex-col gap-2 preset-tonal-success px-3 py-2.5" role="status">
-            <div class="font-medium">Every PR in this stack merged</div>
-            <div>Remove {worktreeName} and archive its threads?</div>
-            <div class="flex gap-1.5">
-              <button
-                type="button"
-                class="btn btn-sm text-[11px] preset-filled-primary-500"
-                disabled={busy !== null}
-                onclick={() => void removeWorktree()}
-              >
-                Remove worktree
-              </button>
-              <button type="button" class="btn btn-sm text-[11px] hover:preset-tonal" onclick={later}>Later</button>
-            </div>
-          </div>
-        {/if}
-
-        {#if progress}
-          <div class="panel-card flex flex-col gap-2 px-3 py-2.5" aria-label="Restack progress">
-            <div class="flex items-center gap-2">
-              <span class="grow font-medium">{progress.done ? "Restacked" : "Restacking"} onto {progress.ontoRef}</span>
-              <span class="text-surface-500">{basename(progress.worktree)}</span>
-            </div>
-            {#each progress.branches as entry (entry.number)}
-              <div class="flex items-center gap-2" class:text-surface-500={entry.status === "waiting"}>
-                {#if entry.status === "conflict"}
-                  <span class="size-3 rounded-full bg-warning-500" aria-hidden="true"></span>
-                {:else if entry.status === "waiting"}
-                  <span
-                    class="size-3 rounded-full border-2 border-dashed border-surface-400-600"
-                    aria-hidden="true"
-                  ></span>
-                {:else}
-                  <span class="size-3 rounded-full bg-success-500" aria-hidden="true"></span>
-                {/if}
-                <span class="grow font-mono text-[11px]">{entry.headRef}</span>
-                {#if entry.status === "conflict"}
-                  <span class="status-badge preset-tonal-warning"
-                    >Conflict in {entry.conflicts.map(basename).join(", ")}</span
-                  >
-                {:else if entry.status === "waiting"}
-                  <span>Waiting</span>
-                {:else if entry.status === "unchanged"}
-                  <span class="text-surface-500">Already in place</span>
-                {:else}
-                  <span class="text-surface-500">{entry.commits} commit{entry.commits === 1 ? "" : "s"} replayed</span>
-                {/if}
-              </div>
-            {/each}
-            {#if conflict}
-              <div class="flex flex-wrap gap-1.5 border-t border-surface-200-800 pt-1.5">
-                <button
-                  type="button"
-                  class="btn btn-sm text-[11px] preset-tonal"
-                  onclick={() => void resolveInThread()}
-                >
-                  Resolve in a thread
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-sm text-[11px] hover:preset-tonal"
-                  onclick={() => progress && void commands.openInZed(progress.worktree).catch(fail)}
-                >
-                  Open in editor
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-sm text-[11px] hover:preset-tonal"
-                  disabled={busy !== null}
-                  onclick={() => void continueRestack()}
-                >
-                  Continue
-                </button>
-                <span class="grow"></span>
-                <button
-                  type="button"
-                  class="btn btn-sm text-[11px] text-error-600-400 hover:preset-tonal"
-                  disabled={busy !== null}
-                  onclick={() => void abortRestack()}
-                >
-                  Abort restack
-                </button>
-              </div>
-            {:else if progress.done}
-              <div class="flex gap-1.5 border-t border-surface-200-800 pt-1.5">
-                <button type="button" class="btn btn-sm text-[11px] preset-tonal" onclick={() => void pushStack()}>
-                  Push stack
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-sm text-[11px] hover:preset-tonal"
-                  onclick={() => (progress = null)}
-                >
-                  Dismiss
-                </button>
-              </div>
-            {/if}
-          </div>
-        {/if}
-
-        <div class="flex items-center gap-2">
-          <h2 class="eyebrow grow">Branches</h2>
-          <Segmented
-            label="Tree view"
-            value={view}
-            options={[
-              { value: "stack", label: "Stack" },
-              { value: "commits", label: "Commits" },
-            ]}
-            onChange={(value) => (view = value)}
-          />
-        </div>
-
-        {#if overviewError}
-          <div class="error-note">{overviewError}</div>
-        {/if}
-
-        <div class="flex flex-col" role="list" aria-label="Git branches, top first">
-          {#each topDown as pr, index (pr.number)}
-            <div role="listitem">{@render node(pr, index)}</div>
-          {/each}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div
-            class="flex gap-3"
-            ondragover={(event) => onDragOver(event, "base")}
-            ondrop={(event) => onDrop(event, "base")}
+    <div
+      bind:this={page}
+      class="@container/stack flex min-h-0 grow flex-wrap items-stretch overflow-y-auto"
+      onscroll={(event) => (left.pageScrollTop = event.currentTarget.scrollTop)}
+    >
+      {#if treeCollapsed}
+        <!-- Beside the PR, or a row above it when the two don't fit. -->
+        <nav
+          aria-label="Stack branches"
+          class="flex w-14 shrink-0 flex-col items-center gap-1 overflow-y-auto border-r border-surface-200-800 bg-surface-100-900 py-3 @min-[620px]/stack:h-full @max-[619px]/stack:w-full @max-[619px]/stack:flex-row @max-[619px]/stack:overflow-x-auto @max-[619px]/stack:border-r-0 @max-[619px]/stack:border-b @max-[619px]/stack:px-3 @max-[619px]/stack:py-1.5"
+        >
+          <TooltipButton
+            type="button"
+            label="Expand stack"
+            class="btn-icon btn-icon-sm hover:preset-tonal shrink-0 text-surface-500"
+            aria-expanded={false}
+            onclick={() => setTreeCollapsed(false)}
           >
-            <div class="relative w-10 shrink-0" aria-hidden="true">
-              <div class="absolute top-0 left-[27px] h-3.5 w-0.5 bg-surface-300-700"></div>
-              <div class="absolute top-3 left-[21px] size-3.5 rounded-full bg-surface-500"></div>
-            </div>
-            <div class="flex min-w-0 grow flex-col gap-2 py-2.5" aria-label="Base {input.baseRef}">
-              {#if dropTarget === "base" && dropHint}
-                <div class="drop-line" aria-live="polite">{dropHint}</div>
-              {/if}
-              <div class="flex items-center gap-2">
-                <span class="font-mono text-[11px] font-semibold">{input.baseRef}</span>
-                {#if overview && overview.baseAhead > 0}
-                  <span class="status-badge preset-tonal-warning"
-                    >{overview.baseAhead}
-                    commit{overview.baseAhead === 1 ? "" : "s"}
-                    ahead of stack base</span
-                  >
-                {:else if overview}
-                  <span class="text-surface-500">The stack is on its tip</span>
-                {/if}
+            <PanelLeftOpen size={14} aria-hidden="true" />
+          </TooltipButton>
+          {#if followUp}
+            <span
+              class="size-2 shrink-0 rounded-full bg-success-500"
+              role="img"
+              aria-label="A PR merged: the stack has a follow-up"
+              title="A PR merged: the stack has a follow-up"
+            ></span>
+          {/if}
+          {#each topDown as pr (pr.number)}
+            <button
+              type="button"
+              class="shrink-0 rounded px-1 py-0.5 font-mono text-[11px] {selected === pr.number
+                ? "preset-tonal-primary font-semibold"
+                : "hover:preset-tonal text-surface-500"}"
+              aria-current={selected === pr.number}
+              title="#{pr.number} {pr.title}"
+              onclick={() => select(pr.number)}
+            >
+              #{pr.number}
+            </button>
+          {/each}
+        </nav>
+      {:else}
+        <section
+          bind:this={tree}
+          aria-label="Stack tree"
+          class="flex min-w-0 flex-[1_1_400px] flex-col gap-3 border-r border-surface-200-800 bg-surface-100-900 p-5 @min-[960px]/stack:h-full @min-[960px]/stack:overflow-y-auto"
+          onscroll={(event) => (left.treeScrollTop = event.currentTarget.scrollTop)}
+        >
+          <div class="flex items-center gap-2">
+            <h2 class="eyebrow grow">Branches</h2>
+            <Segmented
+              label="Tree view"
+              value={view}
+              options={[
+                { value: "stack", label: "Stack" },
+                { value: "commits", label: "Commits" },
+              ]}
+              onChange={(value) => (view = value)}
+            />
+            <TooltipButton
+              type="button"
+              label="Collapse stack"
+              class="btn-icon btn-icon-sm hover:preset-tonal shrink-0 text-surface-500"
+              aria-expanded={true}
+              onclick={() => setTreeCollapsed(true)}
+            >
+              <PanelLeftClose size={14} aria-hidden="true" />
+            </TooltipButton>
+          </div>
+
+          {#if followUp?.kind === "restack"}
+            <div class="card flex flex-col gap-2 preset-tonal-success px-3 py-2.5" role="status">
+              <div class="font-medium">
+                {followUp.merged.map((number) => `#${number}`).join(", ")}
+                merged into {input.baseRef}
               </div>
-              {#if overview && (overview.baseCommits.length > 0 || preview)}
-                <div class="panel-card flex flex-col gap-1.5 bg-surface-50-950 px-3 py-2.5">
-                  {#each overview.baseCommits as commit (commit.sha)}
-                    <div class="flex gap-2">
-                      <span class="font-mono text-[11px] text-surface-500">{commit.sha.slice(0, 7)}</span>
-                      <span class="truncate">{commit.subject}</span>
-                    </div>
-                  {/each}
-                  {#if preview}
-                    {@const expected = preview.steps.flatMap((step) => step.conflicts)}
-                    <div class="border-t border-surface-200-800 pt-1 text-surface-500">
-                      Restack rebases all {preview.steps.filter((step) => !step.unchanged).length} git branches in the
-                      worktree.
-                      {#if expected.length === 1}
-                        One conflict expected in <span class="font-mono">{basename(expected[0])}</span>.
-                      {:else if expected.length > 1}
-                        {expected.length}
-                        conflicts expected.
-                      {:else if preview.predicted}
-                        No conflicts expected.
-                      {/if}
-                    </div>
+              <div>
+                Restack {followUp.rest.map((number) => `#${number}`).join(" and ")} onto {input.baseRef} and delete
+                {followUp.branches.join(", ")}?
+              </div>
+              <div class="flex gap-1.5">
+                <button
+                  type="button"
+                  class="btn btn-sm text-[11px] preset-filled-primary-500"
+                  disabled={busy !== null}
+                  onclick={() => void restackAndCleanUp()}
+                >
+                  Restack and clean up
+                </button>
+                <button type="button" class="btn btn-sm text-[11px] hover:preset-tonal" onclick={later}>Later</button>
+              </div>
+            </div>
+          {:else if followUp?.kind === "cleanup"}
+            <div class="card flex flex-col gap-2 preset-tonal-success px-3 py-2.5" role="status">
+              <div class="font-medium">Every PR in this stack merged</div>
+              <div>Remove {worktreeName} and archive its threads?</div>
+              <div class="flex gap-1.5">
+                <button
+                  type="button"
+                  class="btn btn-sm text-[11px] preset-filled-primary-500"
+                  disabled={busy !== null}
+                  onclick={() => void removeWorktree()}
+                >
+                  Remove worktree
+                </button>
+                <button type="button" class="btn btn-sm text-[11px] hover:preset-tonal" onclick={later}>Later</button>
+              </div>
+            </div>
+          {/if}
+
+          {#if progress}
+            <div class="panel-card flex flex-col gap-2 px-3 py-2.5" aria-label="Restack progress">
+              <div class="flex items-center gap-2">
+                <span class="grow font-medium"
+                  >{progress.done ? "Restacked" : "Restacking"}
+                  onto {progress.ontoRef}</span
+                >
+                <span class="text-surface-500">{basename(progress.worktree)}</span>
+              </div>
+              {#each progress.branches as entry (entry.number)}
+                <div class="flex items-center gap-2" class:text-surface-500={entry.status === "waiting"}>
+                  {#if entry.status === "conflict"}
+                    <span class="size-3 rounded-full bg-warning-500" aria-hidden="true"></span>
+                  {:else if entry.status === "waiting"}
+                    <span
+                      class="size-3 rounded-full border-2 border-dashed border-surface-400-600"
+                      aria-hidden="true"
+                    ></span>
+                  {:else}
+                    <span class="size-3 rounded-full bg-success-500" aria-hidden="true"></span>
                   {/if}
+                  <span class="grow font-mono text-[11px]">{entry.headRef}</span>
+                  {#if entry.status === "conflict"}
+                    <span class="status-badge preset-tonal-warning"
+                      >Conflict in {entry.conflicts.map(basename).join(", ")}</span
+                    >
+                  {:else if entry.status === "waiting"}
+                    <span>Waiting</span>
+                  {:else if entry.status === "unchanged"}
+                    <span class="text-surface-500">Already in place</span>
+                  {:else}
+                    <span class="text-surface-500"
+                      >{entry.commits}
+                      commit{entry.commits === 1 ? "" : "s"}
+                      replayed</span
+                    >
+                  {/if}
+                </div>
+              {/each}
+              {#if conflict}
+                <div class="flex flex-wrap gap-1.5 border-t border-surface-200-800 pt-1.5">
+                  <button
+                    type="button"
+                    class="btn btn-sm text-[11px] preset-tonal"
+                    onclick={() => void resolveInThread()}
+                  >
+                    Resolve in a thread
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-sm text-[11px] hover:preset-tonal"
+                    onclick={() => progress && void commands.openInZed(progress.worktree).catch(fail)}
+                  >
+                    Open in editor
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-sm text-[11px] hover:preset-tonal"
+                    disabled={busy !== null}
+                    onclick={() => void continueRestack()}
+                  >
+                    Continue
+                  </button>
+                  <span class="grow"></span>
+                  <button
+                    type="button"
+                    class="btn btn-sm text-[11px] text-error-600-400 hover:preset-tonal"
+                    disabled={busy !== null}
+                    onclick={() => void abortRestack()}
+                  >
+                    Abort restack
+                  </button>
+                </div>
+              {:else if progress.done}
+                <div class="flex gap-1.5 border-t border-surface-200-800 pt-1.5">
+                  <button type="button" class="btn btn-sm text-[11px] preset-tonal" onclick={() => void pushStack()}>
+                    Push stack
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-sm text-[11px] hover:preset-tonal"
+                    onclick={() => (progress = null)}
+                  >
+                    Dismiss
+                  </button>
                 </div>
               {/if}
             </div>
-          </div>
-        </div>
+          {/if}
 
-        <div class="flex flex-wrap gap-2">
-          <button
-            type="button"
-            class="btn btn-sm text-xs hover:preset-tonal"
-            disabled={busy !== null || restacking}
-            onclick={() => void addBranch(null)}
-          >
-            Add branch on top
-          </button>
-          {#if selected !== null && order.includes(selected)}
+          {#if overviewError}
+            <div class="error-note">{overviewError}</div>
+          {/if}
+
+          <div class="flex flex-col" role="list" aria-label="Git branches, top first">
+            {#each topDown as pr, index (pr.number)}
+              <div role="listitem">{@render node(pr, index)}</div>
+            {/each}
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="flex gap-3"
+              ondragover={(event) => onDragOver(event, "base")}
+              ondrop={(event) => onDrop(event, "base")}
+            >
+              <div class="relative w-10 shrink-0" aria-hidden="true">
+                <div class="absolute top-0 left-[27px] h-3.5 w-0.5 bg-surface-300-700"></div>
+                <div class="absolute top-3 left-[21px] size-3.5 rounded-full bg-surface-500"></div>
+              </div>
+              <div class="flex min-w-0 grow flex-col gap-2 py-2.5" aria-label="Base {input.baseRef}">
+                {#if dropTarget === "base" && dropHint}
+                  <div class="drop-line" aria-live="polite">{dropHint}</div>
+                {/if}
+                <div class="flex items-center gap-2">
+                  <span class="font-mono text-[11px] font-semibold">{input.baseRef}</span>
+                  {#if overview && overview.baseAhead > 0}
+                    <span class="status-badge preset-tonal-warning"
+                      >{overview.baseAhead}
+                      commit{overview.baseAhead === 1 ? "" : "s"}
+                      ahead of stack base</span
+                    >
+                  {:else if overview}
+                    <span class="text-surface-500">The stack is on its tip</span>
+                  {/if}
+                </div>
+                {#if overview && (overview.baseCommits.length > 0 || preview)}
+                  <div class="panel-card flex flex-col gap-1.5 bg-surface-50-950 px-3 py-2.5">
+                    {#each overview.baseCommits as commit (commit.sha)}
+                      <div class="flex gap-2">
+                        <span class="font-mono text-[11px] text-surface-500">{commit.sha.slice(0, 7)}</span>
+                        <span class="truncate">{commit.subject}</span>
+                      </div>
+                    {/each}
+                    {#if preview}
+                      {@const expected = preview.steps.flatMap((step) => step.conflicts)}
+                      <div class="border-t border-surface-200-800 pt-1 text-surface-500">
+                        Restack rebases all {preview.steps.filter((step) => !step.unchanged).length} git branches in the
+                        worktree.
+                        {#if expected.length === 1}
+                          One conflict expected in <span class="font-mono">{basename(expected[0])}</span>.
+                        {:else if expected.length > 1}
+                          {expected.length}
+                          conflicts expected.
+                        {:else if preview.predicted}
+                          No conflicts expected.
+                        {/if}
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap gap-2">
             <button
               type="button"
               class="btn btn-sm text-xs hover:preset-tonal"
               disabled={busy !== null || restacking}
-              onclick={() => selected !== null && void addBranch(selected)}
+              onclick={() => void addBranch(null)}
             >
-              Insert below #{selected}
+              Add branch on top
             </button>
-          {/if}
-        </div>
-
-        <h2 class="eyebrow mt-2">Worktree</h2>
-        {#if worktree}
-          <div
-            class="panel-card flex flex-col gap-1.5 bg-surface-50-950 px-3 py-2.5"
-            aria-label="Worktree {worktreeName}"
-          >
-            <div class="flex items-center gap-2">
-              <Folder size={14} class="text-surface-500" aria-hidden="true" />
-              <span class="font-semibold">{worktreeName}</span>
-              <span class="grow"></span>
-              <span class="status-badge {worktree.clean ? "preset-tonal-success" : "preset-tonal-warning"}"
-                >{worktree.clean ? "Clean" : "Uncommitted changes"}</span
+            {#if selected !== null && order.includes(selected)}
+              <button
+                type="button"
+                class="btn btn-sm text-xs hover:preset-tonal"
+                disabled={busy !== null || restacking}
+                onclick={() => selected !== null && void addBranch(selected)}
               >
-            </div>
-            <div class="truncate font-mono text-[11px] text-surface-500" title={worktree.path}>{worktree.path}</div>
-            <div class="text-surface-500">
-              On <span class="font-mono text-[11px]">{worktree.branch ?? "a detached HEAD"}</span>
-            </div>
-            <div class="text-surface-500">
-              {threadCountForPath(projects(), worktree.path)}
-              thread{threadCountForPath(projects(), worktree.path) === 1 ? "" : "s"}
-              here. Switching PR checks out its git branch; threads stay with the PR they were started on.
-            </div>
-            {#if missingBranches > 0}
-              <div>
-                <button
-                  type="button"
-                  class="btn btn-sm text-xs preset-tonal"
-                  disabled={busy !== null}
-                  onclick={checkOutWholeStack}
-                >
-                  Create local branches ({missingBranches})
-                </button>
-              </div>
+                Insert below #{selected}
+              </button>
             {/if}
           </div>
-        {:else if overview}
-          <div class="empty-state flex flex-col items-start gap-2">
-            <span>No worktree has this stack's git branches yet.</span>
-            <button
-              type="button"
-              class="btn btn-sm text-xs preset-filled-primary-500"
-              disabled={busy !== null || restacking}
-              onclick={checkOutWholeStack}
+
+          <h2 class="eyebrow mt-2">Worktree</h2>
+          {#if worktree}
+            <div
+              class="panel-card flex flex-col gap-1.5 bg-surface-50-950 px-3 py-2.5"
+              aria-label="Worktree {worktreeName}"
             >
-              Check out stack
-            </button>
-          </div>
-        {/if}
-      </section>
+              <div class="flex items-center gap-2">
+                <Folder size={14} class="text-surface-500" aria-hidden="true" />
+                <span class="font-semibold">{worktreeName}</span>
+                <span class="grow"></span>
+                <span class="status-badge {worktree.clean ? "preset-tonal-success" : "preset-tonal-warning"}"
+                  >{worktree.clean ? "Clean" : "Uncommitted changes"}</span
+                >
+              </div>
+              <div class="truncate font-mono text-[11px] text-surface-500" title={worktree.path}>{worktree.path}</div>
+              <div class="text-surface-500">
+                On <span class="font-mono text-[11px]">{worktree.branch ?? "a detached HEAD"}</span>
+              </div>
+              <div class="text-surface-500">
+                {threadCountForPath(projects(), worktree.path)}
+                thread{threadCountForPath(projects(), worktree.path) === 1 ? "" : "s"}
+                here. Switching PR checks out its git branch; threads stay with the PR they were started on.
+              </div>
+              {#if missingBranches > 0}
+                <div>
+                  <button
+                    type="button"
+                    class="btn btn-sm text-xs preset-tonal"
+                    disabled={busy !== null}
+                    onclick={checkOutWholeStack}
+                  >
+                    Create local branches ({missingBranches})
+                  </button>
+                </div>
+              {/if}
+            </div>
+          {:else if overview}
+            <div class="empty-state flex flex-col items-start gap-2">
+              <span>No worktree has this stack's git branches yet.</span>
+              <button
+                type="button"
+                class="btn btn-sm text-xs preset-filled-primary-500"
+                disabled={busy !== null || restacking}
+                onclick={checkOutWholeStack}
+              >
+                Check out stack
+              </button>
+            </div>
+          {/if}
+        </section>
+      {/if}
 
       <section
         aria-label="Pull request {selected ?? ""}"
@@ -1040,7 +1159,7 @@
       >
         {#if selected !== null}
           {#key selected}
-            <ReviewView {repoDir} {repoName} initialPr={selected} {onAskCodex} />
+            <ReviewView {repoDir} {repoName} initialPr={selected} onOpenPr={openPr} {onAskCodex} />
           {/key}
         {:else}
           <div class="p-6"><div class="empty-state">Pick a git branch to see its PR.</div></div>

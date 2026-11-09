@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ArrowLeft, Bot, FileDiff, GitBranch, GitPullRequest, LogIn } from "@lucide/svelte";
   import { onMount } from "svelte";
+  import type { PrMove } from "$lib/app/navigation.svelte";
   import DiffBlock from "$lib/components/DiffBlock.svelte";
   import RefreshIcon from "$lib/components/RefreshIcon.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
@@ -20,24 +21,25 @@
     repoName,
     initialPr = null,
     onBack,
+    backLabel,
+    onOpenPr,
     onAskCodex,
   }: {
     repoDir: string;
     repoName: string;
-    /** Open straight onto this PR's review page. */
+    /** The PR whose review page to show; else the list of PRs. */
     initialPr?: number | null;
-    /** Leaves the view. A PR opened as `initialPr` goes straight back here;
-     *  one picked from the list goes back to the list. Without it (the
-     *  Stack page) the PR shows no breadcrumb. */
+    /** Leaves the view. Without it (the Stack page) the PR shows no breadcrumb. */
     onBack?: () => void;
+    /** Names where `onBack` leads. */
+    backLabel?: string;
+    /** Go to another PR: from the list, Up next or j/k. */
+    onOpenPr?: (number: number, move?: PrMove) => void;
     onAskCodex: (cwd: string, prompt: string) => void;
   } = $props();
 
-  // picker → choosing a PR or a local base; pr → the review page; local → branch diff.
-  // svelte-ignore state_referenced_locally -- the starting PR only.
-  let prNumber = $state<number | null>(initialPr);
-  // svelte-ignore state_referenced_locally -- likewise.
-  let mode = $state<"picker" | "pr" | "local">(prNumber === null ? "picker" : "pr");
+  // Without a PR: picker → choosing a PR or a local base; local → branch diff.
+  let mode = $state<"picker" | "local">("picker");
   let provider = $state<ProviderStatus | null>(null);
   let prs = $state<PrSummary[]>([]);
   let loading = $state(true);
@@ -60,7 +62,7 @@
   let shownDetail = $state<PrDetail | null>(null);
   const checkoutQuery = query("reviewCheckoutState", () =>
     // The last PR's details stay until the next one's load: don't name its worktree.
-    shownDetail?.summary.number === prNumber ? [repoDir, targetOf(shownDetail)] : null,
+    shownDetail?.summary.number === initialPr ? [repoDir, targetOf(shownDetail)] : null,
   );
   // Undefined until answered, and when the read fails: the page then says
   // nothing about a worktree rather than that there isn't one.
@@ -122,14 +124,9 @@
   // Opened straight onto a PR, the list is never shown: read it only when
   // the reviewer goes back to it.
   onMount(() => {
-    if (mode === "picker") void loadProvider();
+    if (initialPr === null) void loadProvider();
     else loading = false;
   });
-
-  function openPr(number: number) {
-    prNumber = number;
-    mode = "pr";
-  }
 
   async function openLocal() {
     loading = true;
@@ -151,20 +148,20 @@
 
   function backToPicker() {
     mode = "picker";
-    prNumber = null;
     localFiles = [];
     selectedPath = null;
     if (!provider) void loadProvider();
   }
 </script>
 
-{#if mode === "pr" && prNumber !== null}
-  {#key prNumber}
+{#if initialPr !== null}
+  {#key initialPr}
     <AgentReviewPage
       {repoDir}
-      number={prNumber}
-      onBack={initialPr !== null ? onBack : backToPicker}
-      onOpenPr={openPr}
+      number={initialPr}
+      {onBack}
+      {backLabel}
+      {onOpenPr}
       viewer={inboxes[repoDir]?.inbox?.viewer ?? null}
       inbox={inboxes[repoDir]?.inbox ?? null}
       checkout={prCheckout}
@@ -241,7 +238,7 @@
           {#each prs as pr (pr.number)}
             <li>
               <button
-                onclick={() => openPr(pr.number)}
+                onclick={() => onOpenPr?.(pr.number)}
                 class="flex w-full items-start gap-3 panel-card p-3 text-left hover:border-primary-500/40"
               >
                 <GitPullRequest size={15} class="mt-0.5 shrink-0 text-primary-500" />

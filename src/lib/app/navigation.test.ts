@@ -2,13 +2,16 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { appData } from "$lib/app/appData.svelte";
 import {
   adoptThread,
+  backLabel,
   currentProject,
+  goBack,
   goHome,
   newThreadInDir,
   openGit,
   openProjectDetail,
   openPullRequests,
   openReview,
+  openStackPage,
   openThread,
   openThreadInCwd,
   openWorktrees,
@@ -16,6 +19,7 @@ import {
   setView,
   view,
 } from "$lib/app/navigation.svelte";
+import { inboxes } from "$lib/inbox/inboxStore.svelte";
 import { isTouched, resetTouched } from "$lib/layout/sessionFocus.svelte";
 import type { BootstrapData, Project } from "$lib/types";
 
@@ -170,5 +174,145 @@ describe("navigation", () => {
 
     openReview(api, 412);
     expect([view.pullRequests, view.reviewPath, view.reviewPr]).toEqual([false, "/projects/api", 412]);
+  });
+
+  describe("going back", () => {
+    const stacked = (number: number, state = "open", merged = false) => ({
+      number,
+      state,
+      merged,
+      isDraft: false,
+      headRef: `branch-${number}`,
+      headSha: `sha-${number}`,
+    });
+
+    beforeEach(() => {
+      delete inboxes["/projects/api"];
+    });
+
+    function withStack() {
+      inboxes["/projects/api"] = {
+        inbox: null,
+        error: null,
+        syncing: false,
+        stacks: {
+          supported: true,
+          stacks: [{ number: 7, baseRef: "main", prs: [stacked(10), stacked(11), stacked(12, "closed", true)] }],
+        },
+      } as (typeof inboxes)[string];
+    }
+
+    it("returns from a PR to the inbox it was opened from", () => {
+      openPullRequests("/projects/api");
+      openReview(api, 412);
+      expect(backLabel()).toBe("Pull requests");
+
+      goBack();
+      expect([view.pullRequests, view.inboxPath, view.reviewPr]).toEqual([true, "/projects/api", null]);
+    });
+
+    it("retraces a path through several pages, a step at a time", () => {
+      openPullRequests("/projects/api");
+      openStackPage("/projects/api", 7);
+      openReview(api, 412);
+      openReview(api, 413);
+      expect(backLabel()).toBe("#412");
+
+      goBack();
+      expect(view.reviewPr).toBe(412);
+      expect(backLabel()).toBe("Stack");
+
+      goBack();
+      expect([view.stackRepo, view.stackNumber, view.reviewPr]).toEqual(["/projects/api", 7, null]);
+      expect(backLabel()).toBe("Pull requests");
+
+      goBack();
+      expect(view.pullRequests).toBe(true);
+    });
+
+    it("remounts the page it goes back to", () => {
+      openPullRequests("/projects/api");
+      openReview(api, 412);
+      const before = view.epoch;
+      goBack();
+      expect(view.epoch).toBeGreaterThan(before);
+      openReview(api, 412);
+      expect(view.epoch).toBeGreaterThan(before + 1);
+    });
+
+    it("leaves no step behind for j/k through the queue", () => {
+      openPullRequests("/projects/api");
+      openReview(api, 412);
+      openReview(api, 413, "walk");
+      openReview(api, 414, "walk");
+      expect(view.reviewPr).toBe(414);
+
+      goBack();
+      expect(view.pullRequests).toBe(true);
+    });
+
+    it("returns to a thread a PR was opened from", () => {
+      openThread(api, "thread-1");
+      openReview(api, 412);
+      expect(backLabel()).toBe("Thread");
+
+      goBack();
+      expect(view.threadId).toBe("thread-1");
+    });
+
+    it("returns to the project a list of PRs was opened from", () => {
+      openProjectDetail(api);
+      openReview(api);
+      expect(backLabel()).toBe("API");
+
+      goBack();
+      expect(view.detailPath).toBe("/projects/api");
+    });
+
+    it("opens a PR in a stack on the Stack page, on that PR", () => {
+      withStack();
+      openPullRequests("/projects/api");
+      openReview(api, 11);
+      expect([view.stackRepo, view.stackNumber, view.stackPr, view.reviewPath]).toEqual(["/projects/api", 7, 11, null]);
+
+      goBack();
+      expect(view.pullRequests).toBe(true);
+    });
+
+    it("opens a PR on its own page when it isn't open in a stack", () => {
+      withStack();
+      openReview(api, 12);
+      expect([view.stackRepo, view.reviewPr]).toEqual([null, 12]);
+      openReview(api, 412);
+      expect([view.stackRepo, view.reviewPr]).toEqual([null, 412]);
+    });
+
+    it("comes back to a Stack page without restarting its restack", () => {
+      openStackPage("/projects/api", 7, { restack: true });
+      expect(view.stackRestack).toBe(true);
+      openReview(api, 412);
+
+      goBack();
+      expect([view.stackNumber, view.stackRestack]).toEqual([7, false]);
+    });
+
+    it("starts again after going somewhere new", () => {
+      openPullRequests("/projects/api");
+      openReview(api, 412);
+      openThread(api, "thread-1");
+      openReview(api, 413);
+
+      goBack();
+      expect(view.threadId).toBe("thread-1");
+      expect(backLabel()).toBe("Home");
+    });
+
+    it("falls back to the inbox with nothing to retrace", () => {
+      setView({ projectPath: "/projects/api", reviewPath: "/projects/api", reviewPr: 412 });
+      expect(backLabel()).toBe("Pull requests");
+
+      goBack();
+      expect([view.pullRequests, view.inboxPath]).toEqual([true, "/projects/api"]);
+    });
   });
 });

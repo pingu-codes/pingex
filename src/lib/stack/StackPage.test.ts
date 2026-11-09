@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DialogHost from "$lib/components/DialogHost.svelte";
@@ -33,7 +33,7 @@ vi.mock("$lib/review/agentReviews.svelte", async (importOriginal) => {
 
 const MAIN = "/Users/ciaran/Projects/codex-custom";
 
-function setup() {
+function setup(props: { initialPr?: number } = {}) {
   render(DialogHost);
   render(StackPage, {
     repoDir: MAIN,
@@ -41,6 +41,7 @@ function setup() {
     stackNumber: 7,
     onBack: vi.fn(),
     onAskCodex: vi.fn(),
+    ...props,
   });
   return userEvent.setup();
 }
@@ -239,6 +240,76 @@ describe("Stack page", () => {
     } finally {
       stack.prs = saved;
     }
+  });
+});
+
+describe("opening on a PR", () => {
+  it("opens on the PR it was asked for, with the stack beside it", async () => {
+    setup({ initialPr: 412 });
+    await loaded();
+
+    expect(node(412)).toHaveAttribute("aria-pressed", "true");
+    expect(node(415)).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("comes back to the PR shown last when not asked for one", async () => {
+    const user = setup();
+    await loaded();
+    await user.click(node(418));
+
+    cleanup();
+    setup();
+    await loaded();
+
+    expect(node(418)).toHaveAttribute("aria-pressed", "true");
+  });
+});
+
+describe("collapsing the stack", () => {
+  it("folds the tree to a strip of its PRs, and back", async () => {
+    const user = setup();
+    await loaded();
+
+    await user.click(screen.getByRole("button", { name: "Collapse stack" }));
+    expect(screen.queryByRole("region", { name: "Stack tree" })).toBeNull();
+    const strip = screen.getByRole("navigation", { name: "Stack branches" });
+    expect(
+      within(strip)
+        .getAllByRole("button", { name: /^#\d+$/ })
+        .map((button) => button.textContent?.trim()),
+    ).toEqual(["#418", "#415", "#412"]);
+
+    await user.click(within(strip).getByRole("button", { name: "#412" }));
+    expect(within(strip).getByRole("button", { name: "#412" })).toHaveAttribute("aria-current", "true");
+    await screen.findByRole("region", { name: "Pull request 412" });
+
+    await user.click(screen.getByRole("button", { name: "Expand stack" }));
+    expect(screen.queryByRole("navigation", { name: "Stack branches" })).toBeNull();
+    expect(node(412)).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("stays folded on the next page that shows a stack", async () => {
+    const user = setup();
+    await loaded();
+    await user.click(screen.getByRole("button", { name: "Collapse stack" }));
+
+    cleanup();
+    setup({ initialPr: 412 });
+
+    expect(await screen.findByRole("navigation", { name: "Stack branches" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Stack tree" })).toBeNull();
+  });
+
+  it("unfolds for a restack started from the header, whose progress is in the tree", async () => {
+    const user = setup();
+    await loaded();
+    await user.click(screen.getByRole("button", { name: "Collapse stack" }));
+
+    await user.click(screen.getByRole("button", { name: /Restack onto/ }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Restack" }));
+
+    expect(await screen.findByLabelText("Restack progress")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Stack tree" })).toBeInTheDocument();
   });
 });
 
