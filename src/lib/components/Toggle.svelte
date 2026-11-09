@@ -1,6 +1,7 @@
-<script lang="ts">
+<script lang="ts">  // desk-test edit
   import { Switch } from "@skeletonlabs/skeleton-svelte";
 
+// desk-test inserted line
   // An on/off switch whose label is only read by screen readers; the visible
   // title and description sit beside it in the caller's row. Skeleton renders a
   // visually hidden checkbox, which gets `role="switch"` so it reads as one.
