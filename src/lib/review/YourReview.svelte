@@ -62,7 +62,7 @@
     count === 0 ? "Submit review" : `Submit review with ${count} ${count === 1 ? "comment" : "comments"}`,
   );
   const canSubmit = $derived(
-    count > 0 || pending.summary.trim().length > 0 || (!ownPr && pending.verdict === "approve"),
+    !pending.loadError && (count > 0 || pending.summary.trim().length > 0 || (!ownPr && pending.verdict === "approve")),
   );
 </script>
 
@@ -120,7 +120,7 @@
     class="field w-full resize-none text-[13px]"
     value={pending.summary}
     oninput={(event) => pending.setSummary(event.currentTarget.value)}
-    onblur={() => void pending.save()}
+    onblur={() => void pending.save().catch(() => {})}
   ></textarea>
 
   {#if !ownPr}
@@ -131,6 +131,16 @@
       options={VERDICTS}
       onChange={(verdict: ReviewVerdict) => pending.setVerdict(verdict)}
     />
+  {/if}
+  {#if pending.loadError}
+    <div class="error-note flex flex-col items-start gap-1">
+      <span>Couldn't read your saved review, so nothing here is being saved: {pending.loadError}</span>
+      <button type="button" class="btn btn-sm hover:preset-tonal text-[11px]" onclick={() => pending.retryLoad()}>
+        Try again
+      </button>
+    </div>
+  {:else if pending.saveError}
+    <div class="error-note">Your latest changes aren't saved: {pending.saveError}</div>
   {/if}
   {#if error}
     <div class="error-note">{error}</div>

@@ -1,7 +1,8 @@
 // Pure helpers for the one-page review (`ReviewPage.svelte`): the rows a
 // file's diff renders, line-range selection, the file tree and its counts,
-// "N new since", Up next, and the keyboard map.
+// where the page was left, Up next, and the keyboard map.
 
+import { place } from "$lib/app/places";
 import type { CommentThread } from "$lib/review/review";
 import type { DiffAnchor, DiffLine, FileBlob, Inbox, InboxPr, PendingEntry, PrFile } from "$lib/types";
 
@@ -243,17 +244,24 @@ export function threadShown(thread: CommentThread, filter: ReviewFilter): boolea
   return true;
 }
 
-// --- the conversation and Up next -------------------------------------------
+// --- what the page had open ---------------------------------------------------
 
-/** Where "N new since" goes in the conversation (oldest first): the first
- *  row after `seenAt`, and how many follow. `null` when nothing is new or the
- *  reviewer has never looked. */
-export function newSince(rows: { at: string }[], seenAt: string | null): { index: number; count: number } | null {
-  if (!seenAt) return null;
-  const seen = Date.parse(seenAt);
-  const index = rows.findIndex((row) => Date.parse(row.at) > seen);
-  return index < 0 ? null : { index, count: rows.length - index };
+export type ReviewTab = "conversation" | "files" | "checks" | "threads";
+
+/** A PR's page as it was left, and how it next opens: asking for `changes:
+ *  "since"` here opens it on the changes since the reviewer's last review. */
+export function prPlace(repoDir: string, number: number) {
+  return place(`pr:${repoDir}#${number}`, () => ({
+    tab: "files" as ReviewTab,
+    filter: "all" as ReviewFilter,
+    changes: "all" as "all" | "since",
+    scrollTop: 0,
+    /** `null` until the page has read the viewed marks, which collapse their files. */
+    collapsed: null as string[] | null,
+  }));
 }
+
+// --- the conversation and Up next -------------------------------------------
 
 /** PRs asking the viewer for review (re-requests included, as the inbox
  *  triages them), other than `current`, lowest number first. */

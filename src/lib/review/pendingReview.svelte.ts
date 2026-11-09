@@ -10,6 +10,7 @@
 
 import { commands } from "$lib/services/homeRouting";
 import type { PendingEntry, PendingReview, ReviewVerdict } from "$lib/types";
+import { errorMessage } from "$lib/utils/errors";
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
@@ -31,11 +32,18 @@ export class PendingReviewStore {
    *  since: its line anchors may be off. */
   writtenAt = $state<string | null>(null);
   loaded = $state(false);
+  /** The stored review couldn't be read. Saves and Submit hold off until
+   *  `retryLoad` succeeds, so what is stored isn't overwritten unseen. */
+  loadError = $state<string | null>(null);
+  /** The last save failed: what's on screen isn't stored yet. */
+  saveError = $state<string | null>(null);
   /** Called when the reviewer takes an accepted Finding back out of the
    *  review (removed, or the review discarded), not when it is submitted. */
   onRemoveFinding: ((findingId: string) => void) | null = null;
 
   #saving: Promise<unknown> = Promise.resolve();
+  /** The PR's head as the page last showed it. */
+  #latestHead = "";
 
   constructor(
     readonly repoDir: string,
@@ -50,21 +58,52 @@ export class PendingReviewStore {
   /** Restore the stored review, if any, for a PR now at `headSha`. */
   async load(headSha: string): Promise<void> {
     this.headSha = headSha;
-    const stored = await commands.reviewPendingReview(this.repoDir, this.number).catch(() => null);
-    if (stored) {
-      this.entries = stored.entries;
-      this.summary = stored.summary;
-      this.verdict = stored.verdict;
-      if (stored.headSha && stored.headSha !== headSha) this.writtenAt = stored.headSha;
-      this.headSha = stored.headSha || headSha;
-    }
+    this.#latestHead = headSha;
+    await this.#readStored();
     this.loaded = true;
+  }
+
+  /** Read the stored review again after `loadError`. What was written in the
+   *  meantime stays, after what was stored. */
+  async retryLoad(): Promise<void> {
+    await this.#readStored();
+    if (!this.loadError && !this.#isBlank) this.#autosave();
+  }
+
+  /** The PR's head as the page now shows it. A review with nothing in it
+   *  follows; one with content stays on the commit it was written against. */
+  syncHead(head: string): void {
+    this.#latestHead = head;
+    if (!this.loaded || !this.#isBlank) return;
+    this.headSha = head;
+    this.writtenAt = null;
+  }
+
+  get #isBlank(): boolean {
+    return this.entries.length === 0 && !this.summary.trim();
+  }
+
+  async #readStored(): Promise<void> {
+    let stored: PendingReview | null;
+    try {
+      stored = await commands.reviewPendingReview(this.repoDir, this.number);
+      this.loadError = null;
+    } catch (cause) {
+      this.loadError = errorMessage(cause);
+      return;
+    }
+    if (!stored) return;
+    this.entries = [...stored.entries, ...this.entries];
+    this.summary ||= stored.summary;
+    this.verdict = stored.verdict;
+    if (stored.headSha && stored.headSha !== this.#latestHead) this.writtenAt = stored.headSha;
+    this.headSha = stored.headSha || this.#latestHead;
   }
 
   add(entry: NewPendingEntry): string {
     const id = `${entry.kind}-${Date.now().toString(36)}-${nextId++}`;
     this.entries = [...this.entries, { ...entry, id } as PendingEntry];
-    void this.save();
+    this.#autosave();
     return id;
   }
 
@@ -75,13 +114,13 @@ export class PendingReviewStore {
       if (next.kind === "suggestion" && edit.replacement !== undefined) next.replacement = edit.replacement;
       return next;
     });
-    void this.save();
+    this.#autosave();
   }
 
   remove(id: string): void {
     const removed = this.entries.find((entry) => entry.id === id);
     this.entries = this.entries.filter((entry) => entry.id !== id);
-    void this.save();
+    this.#autosave();
     if (removed?.kind === "acceptedFinding") this.onRemoveFinding?.(removed.findingId);
   }
 
@@ -92,15 +131,21 @@ export class PendingReviewStore {
 
   setVerdict(verdict: ReviewVerdict): void {
     this.verdict = verdict;
-    void this.save();
+    this.#autosave();
   }
 
   hasFinding(findingId: string): boolean {
     return this.entries.some((entry) => entry.kind === "acceptedFinding" && entry.findingId === findingId);
   }
 
+  /** Save without a caller waiting: a failure shows through `saveError`. */
+  #autosave(): void {
+    this.save().catch(() => {});
+  }
+
   /** Write the review as it is now. Saves run one after another. */
   save(): Promise<unknown> {
+    if (this.loadError) return Promise.resolve();
     const review: PendingReview = $state.snapshot({
       headSha: this.headSha,
       entries: this.entries,
@@ -110,13 +155,23 @@ export class PendingReviewStore {
     }) as PendingReview;
     this.#saving = this.#saving
       .catch(() => {})
-      .then(() => commands.reviewSavePendingReview(this.repoDir, this.number, review));
+      .then(() => commands.reviewSavePendingReview(this.repoDir, this.number, review))
+      .then(
+        () => {
+          this.saveError = null;
+        },
+        (cause) => {
+          this.saveError = errorMessage(cause);
+          throw cause;
+        },
+      );
     return this.#saving;
   }
 
   /** Post the review as one GitHub review and start afresh. Throws, keeping
    *  every entry, when GitHub refuses it. */
   async submit(): Promise<void> {
+    if (this.loadError) throw new Error(this.loadError);
     await this.save();
     await commands.reviewSubmitPendingReview(this.repoDir, this.number);
     this.clear();
@@ -135,5 +190,6 @@ export class PendingReviewStore {
     this.summary = "";
     this.verdict = "comment";
     this.writtenAt = null;
+    this.headSha = this.#latestHead;
   }
 }

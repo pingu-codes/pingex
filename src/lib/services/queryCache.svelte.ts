@@ -76,7 +76,6 @@ export const READS = {
   reviewProviderStatus: { fresh: 5 * MINUTE, expire: 60 * MINUTE, kind: "provider", repoArg: 0 },
   reviewDiff: BY_SHA,
   reviewFile: BY_SHA,
-  reviewChangesSince: BY_SHA,
 } as const satisfies Partial<Record<keyof Commands, Policy>>;
 
 export type ReadName = keyof typeof READS;
@@ -367,6 +366,8 @@ const UNCACHED_READS = new Set<string>([
   "reviewAgentReviews",
   "reviewActiveAgentReviews",
   "reviewAgentReviewPrompt",
+  // Measured from the reviewer's seen head, which no argument names.
+  "reviewChangesSince",
   "reviewPrLinks",
   "reviewManagedWorktreeAt",
   "reviewRepository",

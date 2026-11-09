@@ -581,7 +581,7 @@ export function deskPendingReview(repoDir: string, number: number): PendingRevie
 
 export function deskSavePendingReview(repoDir: string, number: number, review: PendingReview) {
   const key = prKey(repoDir, number);
-  if (review.entries.length === 0 && !review.summary.trim()) pendingReviews.delete(key);
+  if (review.entries.length === 0 && !review.summary.trim() && review.verdict !== "approve") pendingReviews.delete(key);
   else pendingReviews.set(key, { ...structuredClone(review), updatedAt: Math.floor(Date.now() / 1000) });
 }
 

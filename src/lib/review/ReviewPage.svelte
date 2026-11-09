@@ -17,7 +17,6 @@
   import { SvelteSet } from "svelte/reactivity";
   import { dialogStack, openDialog } from "$lib/app/dialogs.svelte";
   import type { PrMove } from "$lib/app/navigation.svelte";
-  import { place } from "$lib/app/places";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
   import type { MenuEntry } from "$lib/components/actionMenu";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
@@ -52,7 +51,7 @@
     groupBy,
     initials,
     type LineRange,
-    newSince,
+    prPlace,
     queueNeighbour,
     REVIEW_SHORTCUTS,
     type ReviewFilter,
@@ -102,12 +101,12 @@
     step = "noCheckout",
     checkout = null,
     checkoutKnown = false,
-    seenAt = null,
     findingCounts,
     lineAnnotations,
     annotatedLines,
     annotationText,
     agentReview,
+    threadsTab,
     pending: pendingReview,
     prThreads = [],
   }: {
@@ -134,8 +133,6 @@
     checkout?: PrCheckout | null;
     /** `checkout` has been read: `null` then means no worktree. */
     checkoutKnown?: boolean;
-    /** When the reviewer last looked: the "N new since" divider. */
-    seenAt?: string | null;
     /** Agent Findings per path; shows the Agent findings filter. */
     findingCounts?: Record<string, number>;
     lineAnnotations?: Snippet<[LineSlot]>;
@@ -144,6 +141,8 @@
     /** The text `lineAnnotations` shows at a line, for Cmd+F. */
     annotationText?: (slot: LineSlot) => FindText[];
     agentReview?: Snippet;
+    /** The Threads tab: the threads started on this PR. */
+    threadsTab?: Snippet;
     /** The pending review, when the caller adds to it too (agent
      *  Findings); else the page keeps its own. */
     pending?: PendingReviewStore;
@@ -151,7 +150,6 @@
     prThreads?: HandTarget[];
   } = $props();
 
-  type Tab = "conversation" | "files" | "checks" | "threads";
 
   const NO_THREADS: CommentThread[] = [];
   const NO_PENDING: PendingEntry[] = [];
@@ -180,13 +178,9 @@
   );
   const error = $derived(detail ? null : detailQuery.error);
   // svelte-ignore state_referenced_locally -- the page is keyed by PR.
-  const left = place(`pr:${repoDir}#${number}`, () => ({
-    tab: "files" as Tab,
-    filter: "all" as ReviewFilter,
-    scrollTop: 0,
-    /** `null` until the page has read the viewed marks, which collapse their files. */
-    collapsed: null as string[] | null,
-  }));
+  const left = prPlace(repoDir, number);
+  /** The page opens on "since", as it was left or because the inbox asked. */
+  const opensOnSince = left.changes === "since";
   /** Where to land: the scroll position recorded as the page loads may be clamped. */
   const landAt = left.scrollTop;
   const hadCollapsed = left.collapsed !== null;
@@ -197,6 +191,7 @@
   $effect(() => {
     left.tab = tab;
     left.filter = filter;
+    left.changes = changes;
     if (collapsedKnown) left.collapsed = [...collapsed];
   });
   const viewed = new SvelteSet<string>();
@@ -233,7 +228,6 @@
   const shownThreads = $derived(threads.filter((thread) => threadShown(thread, filter)));
   // Shares `threads` with the Files tab, so a reply or resolve shows in both.
   const conversation = $derived(conversationTimeline(detail?.comments ?? [], detail?.reviews ?? [], threads));
-  const divider = $derived(newSince(conversation, seenAt));
   // Per path, keeping a path's array or counts when they did not change, so a
   // comment or pending entry re-renders only its own file's rows.
   let lastThreads = new Map<string, CommentThread[]>();
@@ -272,7 +266,8 @@
   const unresolvedCount = $derived(threads.filter((thread) => !thread.resolved).length);
   const stale = $derived(!!detail && !!pending.headSha && pending.headSha !== detail.headSha);
 
-  let reviewStateLoaded = false;
+  /** The head the viewed marks were last read at. */
+  let readHead: string | null = null;
 
   // Each time the detail lands (first read, a refresh, after a write).
   $effect(() => {
@@ -281,11 +276,14 @@
     untrack(() => {
       onDetail?.(next);
       currentPath ??= next.files[0]?.path ?? null;
-      if (reviewStateLoaded) return;
-      reviewStateLoaded = true;
-      land();
-      void loadReviewState(next);
-      prefetchNext();
+      pending.syncHead(next.headSha);
+      if (readHead === next.headSha) return;
+      const first = readHead === null;
+      readHead = next.headSha;
+      if (first && !opensOnSince) land();
+      void loadReviewState(next, first);
+      if (first) prefetchNext();
+      if (first ? opensOnSince : changes === "since") void showChanges("since");
     });
   });
 
@@ -295,11 +293,15 @@
   }
 
   /** The stored pending review and the viewed marks, read side by side. */
-  async function loadReviewState(next: PrDetail) {
+  async function loadReviewState(next: PrDetail, first: boolean) {
     const [, marked] = await Promise.all([
       pending.loaded ? Promise.resolve() : pending.load(next.headSha),
-      commands.reviewViewedFiles(repoDir, number, next.files.map(fileBlob)).catch(() => []),
+      commands.reviewViewedFiles(repoDir, number, next.files.map(fileBlob)).catch(() => [] as string[]),
     ]);
+    if (detail) pending.syncHead(detail.headSha);
+    if (readHead !== next.headSha) return;
+    // Marks follow the file's content: one that changed is unread again.
+    for (const path of viewed) if (!marked.includes(path)) collapsed.delete(path);
     viewed.clear();
     for (const path of marked) {
       viewed.add(path);
@@ -308,7 +310,7 @@
     }
     collapsedKnown = true;
     // The pending review's cards and the folds above change the page's height.
-    land();
+    if (first && !opensOnSince) land();
   }
 
   /** Warm the next PR in the queue, so j/k opens it at once. Only one: each
@@ -560,7 +562,9 @@
     const at = detail;
     await action.run(async () => {
       await commands.reviewFetchPrs(repoDir, [number]);
-      since = await commands.reviewChangesSince(repoDir, number, at.baseSha, at.headSha);
+      const read = await commands.reviewChangesSince(repoDir, number, at.baseSha, at.headSha);
+      if (detail?.headSha !== at.headSha) return;
+      since = read;
       changes = "since";
     });
   }
@@ -1158,7 +1162,7 @@
             {:else if tab === "checks"}
               {@render checksTab(detail)}
             {:else}
-              <p class="empty-state">Threads started on this PR show here, with their git branch and commit.</p>
+              {@render threadsTab?.()}
             {/if}
           </section>
         {/if}
@@ -1284,17 +1288,7 @@
     {#if pr.body.trim()}
       <CommentBody class="panel-card p-3" body={pr.body} />
     {/if}
-    {#each conversation as entry, index (entry.key)}
-      {#if divider && index === divider.index}
-        <div class="flex items-center gap-2 text-primary-500" role="separator">
-          <span class="h-px grow bg-primary-500"></span>
-          <span class="text-[10px] font-semibold">
-            {divider.count}
-            new since {new Date(seenAt ?? "").toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-          </span>
-          <span class="h-px grow bg-primary-500"></span>
-        </div>
-      {/if}
+    {#each conversation as entry (entry.key)}
       {#if entry.kind === "comment"}
         <div class="panel-card flex flex-col gap-1 p-2.5">
           <div class="flex items-center gap-1.5">

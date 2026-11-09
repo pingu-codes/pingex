@@ -77,6 +77,7 @@
   import { agentReviewHandlers } from "$lib/review/inboxAgentReviews";
   import { checkoutHandlers } from "$lib/review/inboxCheckouts";
   import ReviewView from "$lib/review/ReviewView.svelte";
+  import { prPlace } from "$lib/review/reviewPage";
   import { commands } from "$lib/services/homeRouting";
   import { closeSettings, openSettings, settingsNav } from "$lib/services/settingsNav.svelte";
   import StackPage from "$lib/stack/StackPage.svelte";
@@ -285,9 +286,11 @@
                 repoPath={inboxPath}
                 onSelectRepo={(path) => openPullRequests(path)}
                 handlers={{
-                  openPr: (repoDir, pr) => {
+                  openPr: (repoDir, pr, options) => {
                     const target = projectForCwd(repoDir);
-                    if (target) openReview(target, pr.number);
+                    if (!target) return;
+                    if (options.changesSince) prPlace(repoDir, pr.number).changes = "since";
+                    openReview(target, pr.number);
                   },
                   ...checkoutHandlers((repoDir) => projectForCwd(repoDir)?.name ?? repoDir),
                   openStack: (repoDir, group) => openStackPage(repoDir, group.stack.number),

@@ -82,9 +82,12 @@ pub(crate) struct PendingReview {
 }
 
 impl PendingReview {
-    /// Nothing worth keeping: no entries and no summary.
+    /// Nothing worth keeping: no entries, no summary and no approval. A bare
+    /// approval is a whole review, which `submission` posts.
     pub(crate) fn is_empty(&self) -> bool {
-        self.entries.is_empty() && self.summary.trim().is_empty()
+        self.entries.is_empty()
+            && self.summary.trim().is_empty()
+            && self.verdict != ReviewVerdict::Approve
     }
 
     /// The one GitHub review this pending review posts.
@@ -190,6 +193,16 @@ fn suggestion_body(body: &str, replacement: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_bare_approval_is_worth_keeping_so_submit_can_find_it() {
+        assert!(PendingReview::default().is_empty());
+        let approval = PendingReview {
+            verdict: ReviewVerdict::Approve,
+            ..PendingReview::default()
+        };
+        assert!(!approval.is_empty());
+    }
 
     #[test]
     fn an_empty_comment_review_is_refused_but_a_bare_approval_is_not() {

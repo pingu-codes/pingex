@@ -19,6 +19,7 @@
   import { readOnly, startPrThread } from "$lib/review/prThreads";
   import ReviewPage from "$lib/review/ReviewPage.svelte";
   import type { HandTarget } from "$lib/review/ReviewThread.svelte";
+  import ThreadBranchChip from "$lib/review/ThreadBranchChip.svelte";
   import { findingTexts } from "$lib/review/reviewFind";
   import { type AskAgentRequest, askAgentPrompt, diffRows, fileName } from "$lib/review/reviewPage";
   import { startTurn } from "$lib/services/api";
@@ -43,7 +44,6 @@
     checkout,
     onWorkOnPr,
     onPushToPr,
-    seenAt = null,
   }: {
     repoDir: string;
     number: number;
@@ -64,7 +64,6 @@
     onWorkOnPr?: (detail: PrDetail) => void;
     /** Push the worktree's commits to the PR. */
     onPushToPr?: (detail: PrDetail) => void;
-    seenAt?: string | null;
   } = $props();
 
   // svelte-ignore state_referenced_locally -- the page is keyed by PR.
@@ -96,14 +95,15 @@
       : [],
   );
 
+  const threadLinks = $derived(
+    Object.values(prLinks.byThread).filter((link) => link.prNumber === number && link.repoKey === repoDir),
+  );
   const prThreads = $derived<HandTarget[]>(
-    Object.values(prLinks.byThread)
-      .filter((link) => link.prNumber === number && link.repoKey === repoDir)
-      .map((link) => ({
-        id: link.threadId,
-        label: threadById(link.threadId)?.title || `Thread ${link.threadId.slice(0, 8)}`,
-        hint: activeTurns.list.includes(link.threadId) ? "running" : undefined,
-      })),
+    threadLinks.map((link) => ({
+      id: link.threadId,
+      label: threadById(link.threadId)?.title || `Thread ${link.threadId.slice(0, 8)}`,
+      hint: activeTurns.list.includes(link.threadId) ? "running" : undefined,
+    })),
   );
 
   onMount(() => {
@@ -214,6 +214,22 @@
   }
 </script>
 
+{#snippet threadsTab()}
+  <div class="flex flex-col gap-1">
+    {#each prThreads as thread, index (thread.id)}
+      <div class="flex items-center gap-2">
+        <button type="button" class="menu-row min-w-0 grow" onclick={() => openThread(thread.id)}>
+          <span class="min-w-0 grow truncate">{thread.label}</span>
+          {#if thread.hint}<span class="text-xs text-surface-500">{thread.hint}</span>{/if}
+        </button>
+        <ThreadBranchChip link={threadLinks[index]} />
+      </div>
+    {:else}
+      <p class="empty-state">Threads started on this PR show here, with their git branch and commit.</p>
+    {/each}
+  </div>
+{/snippet}
+
 {#snippet headerActions()}
   <PrWorktreeActions
     {checkout}
@@ -240,9 +256,9 @@
   {checkout}
   checkoutKnown={checkout !== undefined}
   {headerActions}
-  {seenAt}
   {pending}
   {prThreads}
+  {threadsTab}
   findingCounts={anyRun ? findings.counts : undefined}
   lineAnnotations={annotations}
   annotatedLines={findings.linesByPath}

@@ -3,9 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DialogHost from "$lib/components/DialogHost.svelte";
 import AgentReviewPage from "$lib/review/AgentReviewPage.svelte";
+import { ensurePrLinks, prLinks } from "$lib/review/prLinks.svelte";
 import { commands } from "$lib/services/homeRouting";
 import { resetPreviewAgentReviews } from "$lib/services/preview/agentReviews";
 import { DESK_REPOS, resetDeskReviewState, THREADED_PR } from "$lib/services/preview/desk";
+import type { PrLink } from "$lib/types";
 
 vi.mock("$lib/services/homeRouting", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
@@ -35,6 +37,16 @@ beforeEach(() => {
 });
 
 describe("agent findings on the review page", () => {
+  it("lists the threads started on the PR in the Threads tab", async () => {
+    const user = userEvent.setup();
+    await ensurePrLinks();
+    prLinks.byThread["thread-on-pr"] = { threadId: "thread-on-pr", repoKey: repoDir, prNumber: THREADED_PR } as PrLink;
+    renderPage();
+    await user.click(await screen.findByRole("radio", { name: "Threads" }));
+    expect(await screen.findByRole("button", { name: /Thread thread-o/ })).toBeInTheDocument();
+    delete prLinks.byThread["thread-on-pr"];
+  });
+
   it("shows a finding inline as a draft only I can see, and counts it in the file tree", async () => {
     renderPage();
     const finding = await card("Read errors lose the path");

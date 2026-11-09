@@ -2,8 +2,11 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/sve
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ReviewPage from "$lib/review/ReviewPage.svelte";
+import { prPlace } from "$lib/review/reviewPage";
 import { commands } from "$lib/services/homeRouting";
 import { DESK_REPOS, deskInbox, resetDeskReviewState, THREADED_PR } from "$lib/services/preview/desk";
+import { invalidate } from "$lib/services/queryCache.svelte";
+import type { PrDetail } from "$lib/types";
 
 vi.mock("$lib/services/homeRouting", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
@@ -14,6 +17,7 @@ vi.mock("$lib/services/homeRouting", async (importOriginal) => {
       reviewReply: vi.fn(actual.commands.reviewReply),
       reviewSubmitPendingReview: vi.fn(actual.commands.reviewSubmitPendingReview),
       reviewPrDetail: vi.fn(actual.commands.reviewPrDetail),
+      reviewChangesSince: vi.fn(actual.commands.reviewChangesSince),
     },
   };
 });
@@ -37,6 +41,7 @@ beforeEach(() => {
   vi.mocked(commands.reviewReply).mockClear();
   vi.mocked(commands.reviewSubmitPendingReview).mockClear();
   vi.mocked(commands.reviewPrDetail).mockClear();
+  vi.mocked(commands.reviewChangesSince).mockClear();
 });
 
 describe("ReviewPage", () => {
@@ -425,15 +430,6 @@ describe("ReviewPage", () => {
     });
   });
 
-  it("marks where new conversation comments start", async () => {
-    const user = userEvent.setup();
-    renderPage({ seenAt: "2026-11-04T12:00:00Z" });
-    await opened();
-
-    await user.click(screen.getByRole("radio", { name: /^Conversation/ }));
-    expect(screen.getByRole("separator")).toHaveTextContent(/1 new since/);
-  });
-
   it("shows reviews in the conversation, each with the threads it started", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -509,6 +505,71 @@ describe("ReviewPage", () => {
 
     expect(within(yourReview()).queryByRole("radiogroup", { name: "Verdict" })).toBeNull();
     expect(within(yourReview()).getByRole("button", { name: "Submit review" })).toBeDisabled();
+  });
+
+  it("submits a bare approval, with no comment or summary", async () => {
+    const user = userEvent.setup();
+    renderPage({ inbox: deskInbox(repoDir) });
+    await opened();
+
+    await user.click(within(yourReview()).getByRole("radio", { name: "Approve" }));
+    await user.click(within(yourReview()).getByRole("button", { name: "Submit review" }));
+
+    await waitFor(() => expect(commands.reviewSubmitPendingReview).toHaveBeenCalledTimes(1));
+    expect(await commands.reviewPendingReview(repoDir, THREADED_PR)).toBeNull();
+    expect(within(yourReview()).queryByText(/no pending review/)).toBeNull();
+  });
+
+  describe("when the PR moves to a new head", () => {
+    /** The next read of the PR answers with a new head, `path` changed in it. */
+    async function pushTo(path: string) {
+      const original = vi.mocked(commands.reviewPrDetail).getMockImplementation();
+      vi.mocked(commands.reviewPrDetail).mockImplementation(async (...args) => {
+        const read = (await original?.(...args)) as PrDetail;
+        return {
+          ...read,
+          headSha: "pushedhead",
+          files: read.files.map((file) => (file.path === path ? { ...file, blobSha: "changed" } : file)),
+        };
+      });
+      invalidate({ names: ["reviewPrDetail"] });
+      return () => vi.mocked(commands.reviewPrDetail).mockImplementation(original as never);
+    }
+
+    it("unmarks and unfolds a viewed file that changed, and keeps one that didn't", async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await opened();
+      await user.click(screen.getByRole("checkbox", { name: "Viewed src/lib/loader.ts" }));
+      await user.click(screen.getByRole("checkbox", { name: "Viewed docs/review.md" }));
+      expect(screen.getByText("Viewed 2 of 2")).toBeInTheDocument();
+
+      const restore = await pushTo("src/lib/loader.ts");
+      await waitFor(() => expect(screen.getByText("Viewed 1 of 2")).toBeInTheDocument());
+      expect(screen.getByRole("checkbox", { name: "Viewed src/lib/loader.ts" })).not.toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "Viewed docs/review.md" })).toBeChecked();
+      expect(screen.getByRole("button", { name: /src\/lib\/loader\.ts/ })).toHaveAttribute("aria-expanded", "true");
+      restore();
+    });
+
+    it("re-reads the changes since my review at the new head", async () => {
+      prPlace(repoDir, THREADED_PR).changes = "since";
+      renderPage();
+      await waitFor(() => expect(commands.reviewChangesSince).toHaveBeenCalledTimes(1));
+
+      const restore = await pushTo("src/lib/loader.ts");
+      await waitFor(() =>
+        expect(commands.reviewChangesSince).toHaveBeenLastCalledWith(repoDir, THREADED_PR, expect.anything(), "pushedhead"),
+      );
+      restore();
+    });
+  });
+
+  it("opens on the changes since my review when the inbox asks", async () => {
+    prPlace(repoDir, THREADED_PR).changes = "since";
+    renderPage();
+    await waitFor(() => expect(commands.reviewChangesSince).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("radio", { name: /since/i, checked: true })).toBeInTheDocument();
   });
 
   it("offers every verdict on someone else's PR", async () => {
