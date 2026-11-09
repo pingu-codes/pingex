@@ -6,11 +6,16 @@
 import { agentReviews } from "$lib/review/agentReviews.svelte";
 import { findingAnchor, findingBody } from "$lib/review/findingText";
 import type { PendingReviewStore } from "$lib/review/pendingReview.svelte";
-import type { DiffSide } from "$lib/review/reviewPage";
+import { type DiffSide, groupBy } from "$lib/review/reviewPage";
 import { commands } from "$lib/services/homeRouting";
 import type { AgentReview, DismissReason, Finding, PendingEntry } from "$lib/types";
 
 export { findingAnchor, findingBody };
+
+const NONE: Finding[] = [];
+const lineKey = (path: string, side: string, line: number) => `${path}:${side}:${line}`;
+/** A Finding sits under its last line. */
+const anchorLine = (finding: Finding) => finding.endLine ?? finding.line;
 
 export const DISMISS_LABELS: Record<DismissReason, string> = {
   notAProblem: "Not a problem",
@@ -57,16 +62,30 @@ export class FindingsStore {
   }
 
   /** Findings still in play: drafts, added and merged, not dismissed. */
-  get shown(): Finding[] {
-    return this.findings.filter((finding) => finding.state !== "dismissed");
-  }
+  readonly shown = $derived(this.findings.filter((finding) => finding.state !== "dismissed"));
+
+  /** `shown` by the line each one sits under, `path:side:line`: every diff
+   *  row asks `at`, so it is a lookup, not a scan. */
+  readonly #byLine = $derived(
+    groupBy(this.shown, (finding) => lineKey(finding.path, finding.side, anchorLine(finding))),
+  );
 
   /** The Findings to show under one diff line: anchored at its last line. */
   at(path: string, side: DiffSide, line: number): Finding[] {
-    return this.shown.filter(
-      (finding) => finding.path === path && finding.side === side && (finding.endLine ?? finding.line) === line,
-    );
+    return this.#byLine.get(lineKey(path, side, line)) ?? NONE;
   }
+
+  /** Per path, the lines (`side:line`) a shown Finding sits under. */
+  readonly linesByPath = $derived.by(() => {
+    const lines = new Map<string, Set<string>>();
+    for (const finding of this.shown) {
+      const key = `${finding.side}:${anchorLine(finding)}`;
+      const own = lines.get(finding.path);
+      if (own) own.add(key);
+      else lines.set(finding.path, new Set([key]));
+    }
+    return lines;
+  });
 
   /** Open Findings per path, for the file tree and the Agent findings
    *  filter: drafts and added ones, not merged or dismissed. */

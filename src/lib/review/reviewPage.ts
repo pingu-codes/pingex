@@ -28,6 +28,56 @@ export function diffRows(file: PrFile): DiffRow[] {
   return rows;
 }
 
+/** A run of a file's diff rows that mounts as one (`DiffChunk.svelte`). */
+export type RowChunk = { key: string; rows: DiffRow[]; columns: number };
+
+/** Rows per chunk: about a screen. Small enough to mount within a frame. */
+export const CHUNK_ROWS = 60;
+
+/** `rows` in runs of `size`, each with its longest line in columns (a tab
+ *  counted as 8). */
+export function chunkRows(rows: DiffRow[], size = CHUNK_ROWS): RowChunk[] {
+  const chunks: RowChunk[] = [];
+  for (let start = 0; start < rows.length; start += size) {
+    const slice = rows.slice(start, start + size);
+    let columns = 0;
+    for (const row of slice) {
+      const text = row.kind === "hunk" ? row.header : row.line.content;
+      let width = text.length;
+      for (let at = text.indexOf("\t"); at >= 0; at = text.indexOf("\t", at + 1)) width += 7;
+      columns = Math.max(columns, width);
+    }
+    chunks.push({ key: slice[0].key, rows: slice, columns });
+  }
+  return chunks;
+}
+
+/** `next`, keeping `previous`'s value for each key whose value is equal by
+ *  `same`: a file whose threads or pending entries did not change keeps the
+ *  same array, so its rows don't re-render when another file's change. */
+export function reuseUnchanged<T>(
+  previous: Map<string, T>,
+  next: Map<string, T>,
+  same: (a: T, b: T) => boolean,
+): Map<string, T> {
+  for (const [key, value] of next) {
+    const old = previous.get(key);
+    if (old !== undefined && old !== value && same(old, value)) next.set(key, old);
+  }
+  return next;
+}
+
+/** Same length and the same items in order. */
+export function sameItems<T>(a: readonly T[], b: readonly T[]): boolean {
+  return a.length === b.length && a.every((item, index) => item === b[index]);
+}
+
+/** Same keys with the same values. */
+export function sameFields<T extends object>(a: T, b: T): boolean {
+  const keys = Object.keys(a) as (keyof T)[];
+  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
+}
+
 /** Group items by key, keeping their order within each group: what sits
  *  under each diff line, looked up once per row. */
 export function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {

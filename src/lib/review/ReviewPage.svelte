@@ -6,7 +6,8 @@
 
   Slots for agent reviews: `findingCounts` (per path) shows the Agent
   findings filter and the finding counts, `lineAnnotations` renders under
-  each diff line (finding cards), `agentReview` goes in the Your review
+  each diff line (finding cards) and `annotatedLines` says which lines it
+  fills, `agentReview` goes in the Your review
   panel, and Findings join the review through `PendingReviewStore.add`.
 -->
 <script lang="ts">
@@ -37,10 +38,12 @@
     type AskAgentRequest,
     type DiffSide,
     entryLocation,
+    type FileCounts,
     fileBlob,
     fileCounts,
     fileGroups,
     fileName,
+    groupBy,
     initials,
     type LineRange,
     newSince,
@@ -49,7 +52,10 @@
     type ReviewFilter,
     rangeAnchor,
     rangeText,
+    reuseUnchanged,
     reviewKey,
+    sameFields,
+    sameItems,
     selectLine,
     threadShown,
     upNext,
@@ -86,6 +92,7 @@
     seenAt = null,
     findingCounts,
     lineAnnotations,
+    annotatedLines,
     agentReview,
     pending: pendingReview,
     prThreads = [],
@@ -110,6 +117,8 @@
     /** Agent Findings per path; shows the Agent findings filter. */
     findingCounts?: Record<string, number>;
     lineAnnotations?: Snippet<[LineSlot]>;
+    /** Per path, the lines (`side:line`) `lineAnnotations` fills. */
+    annotatedLines?: ReadonlyMap<string, ReadonlySet<string>>;
     agentReview?: Snippet;
     /** The pending review, when the caller adds to it too (agent
      *  Findings); else the page keeps its own. */
@@ -119,6 +128,10 @@
   } = $props();
 
   type Tab = "conversation" | "files" | "checks" | "threads";
+
+  const NO_THREADS: CommentThread[] = [];
+  const NO_PENDING: PendingEntry[] = [];
+  const NO_COUNTS: FileCounts = { comments: 0, unresolved: 0, findings: 0 };
 
   /** The checkout step's dot, as the Model board draws it. */
   const STEP_DOT: Record<CheckoutStep, string> = {
@@ -175,6 +188,40 @@
   // Shares `threads` with the Files tab, so a reply or resolve shows in both.
   const conversation = $derived(conversationTimeline(detail?.comments ?? [], detail?.reviews ?? [], threads));
   const divider = $derived(newSince(conversation, seenAt));
+  // Per path, keeping a path's array or counts when they did not change, so a
+  // comment or pending entry re-renders only its own file's rows.
+  let lastThreads = new Map<string, CommentThread[]>();
+  const threadsByPath = $derived.by(
+    () =>
+      (lastThreads = reuseUnchanged(
+        lastThreads,
+        groupBy(shownThreads, (thread) => thread.path),
+        sameItems,
+      )),
+  );
+  let lastPending = new Map<string, PendingEntry[]>();
+  const pendingByPath = $derived.by(() => {
+    // With finding cards in the diff, an added Finding shows on its card.
+    const inline = pending.entries.filter((entry) => !(lineAnnotations && entry.kind === "acceptedFinding"));
+    lastPending = reuseUnchanged(
+      lastPending,
+      groupBy(inline, (entry) => entryLocation(entry).path),
+      sameItems,
+    );
+    return lastPending;
+  });
+  let lastCounts = new Map<string, FileCounts>();
+  const countsByPath = $derived.by(() => {
+    const own = groupBy(threads, (thread) => thread.path);
+    const next = new Map(
+      files.map((file) => [
+        file.path,
+        fileCounts(own.get(file.path) ?? [], file.path, findingCounts?.[file.path] ?? 0),
+      ]),
+    );
+    lastCounts = reuseUnchanged(lastCounts, next, sameFields);
+    return lastCounts;
+  });
   const viewedCount = $derived(files.filter((file) => viewed.has(file.path)).length);
   const unresolvedCount = $derived(threads.filter((thread) => !thread.resolved).length);
   const stale = $derived(!!detail && !!pending.headSha && pending.headSha !== detail.headSha);
@@ -261,11 +308,14 @@
     );
   }
 
-  function fileMenu(file: PrFile): MenuEntry[] {
+  // Every file's menu is one of two, so marking one file viewed rebuilds none.
+  const fileMenus = $derived({ viewed: fileMenu(true), unviewed: fileMenu(false) });
+
+  function fileMenu(isViewed: boolean): MenuEntry[] {
     return [
       { id: "ask", label: "Ask agent about this file", disabled: !onAskAgent },
       { kind: "separator" },
-      { id: "viewed", label: viewed.has(file.path) ? "Mark not viewed" : "Mark viewed", shortcut: "V" },
+      { id: "viewed", label: isViewed ? "Mark not viewed" : "Mark viewed", shortcut: "V" },
       { id: "above", label: "Mark this and above viewed", shortcut: "Shift+V" },
       { id: "others", label: "Collapse all others", hint: "⌥click" },
       { kind: "separator" },
@@ -365,13 +415,6 @@
       text: rangeText(file, selection),
       askOnly: false,
     });
-  }
-
-  function pendingIn(path: string): PendingEntry[] {
-    // With finding cards in the diff, an added Finding shows on its card.
-    return pending.entries.filter(
-      (entry) => entryLocation(entry).path === path && !(lineAnnotations && entry.kind === "acceptedFinding"),
-    );
   }
 
   async function submit() {
@@ -742,7 +785,7 @@
               <div class="eyebrow px-2 pt-2 pb-1.5">{group.dir}</div>
             {/if}
             {#each group.files as file (file.path)}
-              {@const counts = fileCounts(threads, file.path, findingCounts?.[file.path] ?? 0)}
+              {@const counts = countsByPath.get(file.path) ?? NO_COUNTS}
               <button
                 type="button"
                 class="menu-row {currentPath === file.path ? "bg-surface-200-800" : ""}"
@@ -771,7 +814,11 @@
           </div>
         </nav>
 
-        <section aria-label="Diffs" class="flex min-w-0 flex-1 flex-col gap-2.5 overflow-y-auto px-5 py-4">
+        <section
+          aria-label="Diffs"
+          data-diff-pane
+          class="flex min-w-0 flex-1 flex-col gap-2.5 overflow-y-auto px-5 py-4"
+        >
           {#if changes === "since" && since}
             <div class="rounded-md preset-tonal p-2 text-surface-600-400">
               {#if !since.seenSha}
@@ -794,12 +841,12 @@
               {file}
               open={!collapsed.has(file.path)}
               viewed={viewed.has(file.path)}
-              counts={fileCounts(threads, file.path, findingCounts?.[file.path] ?? 0)}
-              threads={shownThreads.filter((thread) => thread.path === file.path)}
-              pending={pendingIn(file.path)}
+              counts={countsByPath.get(file.path) ?? NO_COUNTS}
+              threads={threadsByPath.get(file.path) ?? NO_THREADS}
+              pending={pendingByPath.get(file.path) ?? NO_PENDING}
               {selection}
               {composer}
-              menuEntries={fileMenu(file)}
+              menuEntries={viewed.has(file.path) ? fileMenus.viewed : fileMenus.unviewed}
               onMenu={(id) => onFileMenu(file, id)}
               onToggle={(event) => toggle(file, event)}
               onViewed={(value) => setViewed([file], value)}
@@ -810,6 +857,7 @@
               onCancelComposer={() => (composer = null)}
               onRemoveEntry={(id) => pending.remove(id)}
               afterLine={lineAnnotations}
+              annotated={annotatedLines?.get(file.path)}
             >
               {#snippet thread(found)}
                 {@render threadCard(found)}

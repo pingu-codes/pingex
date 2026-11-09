@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { diffRows } from "$lib/review/reviewPage";
 import type { DiffLine, PrFile } from "$lib/types";
-import { splitHighlighted } from "$lib/utils/markdown";
+import { onlyHljsMarkup, splitHighlighted } from "$lib/utils/highlightLines";
 import { highlightedRows } from "./diffHighlight";
 
 function file(path: string, lines: Array<[DiffLine["kind"], string]>, overrides: Partial<PrFile> = {}): PrFile {
@@ -107,5 +107,18 @@ describe("highlightedRows", () => {
   it("memoises per file", () => {
     const changed = file("src/a.ts", [["add", "const a = 1;"]]);
     expect(highlightedRows(changed)).toBe(highlightedRows(changed));
+  });
+});
+
+describe("onlyHljsMarkup", () => {
+  it("accepts highlight.js's classed spans and escaped text", () => {
+    expect(onlyHljsMarkup('<span class="hljs-title class_">A</span> &lt;b&gt;')).toBe(true);
+    expect(onlyHljsMarkup('<span class="language-xml"><span class="hljs-tag">x</span></span>')).toBe(true);
+  });
+
+  it("refuses any other markup", () => {
+    expect(onlyHljsMarkup("<img src=x onerror=alert(1)>")).toBe(false);
+    expect(onlyHljsMarkup('<span class="a" onclick="x">a</span>')).toBe(false);
+    expect(onlyHljsMarkup('<span style="color:red">a</span>')).toBe(false);
   });
 });

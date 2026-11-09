@@ -225,6 +225,7 @@
   {prThreads}
   findingCounts={anyRun ? findings.counts : undefined}
   lineAnnotations={annotations}
+  annotatedLines={findings.linesByPath}
   agentReview={summary}
 />
 

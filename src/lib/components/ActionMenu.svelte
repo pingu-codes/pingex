@@ -15,28 +15,35 @@
 
   Two Skeleton menus sit behind it, since zag anchors a menu at the pointer
   only for context triggers (the sidebar does the same).
+
+  Without `row`, it renders only the menus and hands the props to `onProps`,
+  so a row that exists before its menu keeps its DOM node when the menu
+  mounts (the review page's file headers mount theirs lazily; replacing the
+  node near the viewport makes WebKit jump the scroll).
 -->
 <script lang="ts">
   import { Check, ChevronRight } from "@lucide/svelte";
   import { Menu, Portal, useMenu } from "@skeletonlabs/skeleton-svelte";
   import type { Snippet } from "svelte";
   import { formatAccelerator } from "$lib/utils/accelerator";
+  import type { RowArgs } from "./actionMenu";
   import { type MenuEntry, shortcutTarget } from "./actionMenu";
-
-  type RowArgs = { rowProps: Record<string, unknown>; buttonProps: Record<string, unknown> };
 
   let {
     entries,
     label,
     onSelect,
     row,
+    onProps,
     buttonLabel = "More actions",
   }: {
     entries: MenuEntry[];
     /** The menu's accessible name, e.g. "Pull request 415". */
     label: string;
     onSelect: (id: string) => void;
-    row: Snippet<[RowArgs]>;
+    row?: Snippet<[RowArgs]>;
+    /** Without `row`: where the row's props go. */
+    onProps?: (props: RowArgs) => void;
     buttonLabel?: string;
   } = $props();
 
@@ -71,6 +78,10 @@
     ...buttonMenu().getTriggerProps(),
     "aria-label": buttonLabel,
     title: buttonLabel,
+  });
+
+  $effect.pre(() => {
+    onProps?.({ rowProps, buttonProps });
   });
 </script>
 
@@ -134,6 +145,6 @@
   </Menu.Provider>
 {/snippet}
 
-{@render row({ rowProps, buttonProps })}
+{@render row?.({ rowProps, buttonProps })}
 {@render content(contextMenu)}
 {@render content(buttonMenu)}

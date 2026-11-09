@@ -16,12 +16,16 @@
   import { ChevronDown, ChevronRight, Ellipsis, Plus, Sparkles, X } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
-  import type { MenuEntry } from "$lib/components/actionMenu";
+  import type { MenuEntry, RowArgs } from "$lib/components/actionMenu";
   import CommentBody from "$lib/review/CommentBody.svelte";
-  import { highlightedRows } from "$lib/review/diffHighlight";
+  import DiffChunk from "$lib/review/DiffChunk.svelte";
+  import { highlightFor } from "$lib/review/diffHighlighter.svelte";
   import LineComposer from "$lib/review/LineComposer.svelte";
+  import { nearViewport, scrolling } from "$lib/review/nearViewport";
   import type { CommentThread } from "$lib/review/review";
   import {
+    chunkRows,
+    type DiffRow,
     type DiffSide,
     diffRows,
     entryLabel,
@@ -57,6 +61,7 @@
     onRemoveEntry,
     thread,
     afterLine,
+    annotated,
   }: {
     file: PrFile;
     open: boolean;
@@ -82,12 +87,22 @@
     onRemoveEntry: (id: string) => void;
     thread: Snippet<[CommentThread]>;
     afterLine?: Snippet<[LineSlot]>;
+    /** The lines (`side:line`) `afterLine` renders something under. */
+    annotated?: ReadonlySet<string>;
   } = $props();
 
   const rows = $derived(diffRows(file));
-  // Only read while the file is open, so collapsed files are never highlighted.
-  const highlighted = $derived(highlightedRows(file));
-  const lineKeys = $derived(new Set(rows.flatMap((row) => (row.kind === "line" ? [`${row.side}:${row.number}`] : []))));
+  const chunks = $derived(chunkRows(rows));
+  // Only mounted rows read it, so a file is highlighted as it nears the viewport.
+  const highlighted = $derived(highlightFor(file));
+  /** The chunk each line is in, by `side:line`. */
+  const chunkOf = $derived.by(() => {
+    const at = new Map<string, string>();
+    for (const chunk of chunks) {
+      for (const row of chunk.rows) if (row.kind === "line") at.set(`${row.side}:${row.number}`, chunk.key);
+    }
+    return at;
+  });
   const threadKey = (candidate: CommentThread) => `${candidate.side ?? "RIGHT"}:${candidate.line}`;
   const threadsByLine = $derived(groupBy(threads, threadKey));
   const pendingByLine = $derived(
@@ -96,9 +111,27 @@
       return `${at.side}:${at.line}`;
     }),
   );
-  const outside = $derived(threads.filter((candidate) => !lineKeys.has(threadKey(candidate))));
+  // Most files have no threads: skip building their rows just to check.
+  const outside = $derived(
+    threads.length === 0 ? threads : threads.filter((candidate) => !chunkOf.has(threadKey(candidate))),
+  );
   const mine = $derived(selection?.path === file.path ? selection : null);
   const composing = $derived(composer?.range.path === file.path ? composer : null);
+  /** Chunks that stay mounted off screen: they hold something whose height a
+   *  placeholder can't know, or a draft that must survive scrolling away. */
+  const eagerChunks = $derived.by(() => {
+    const keys = new Set<string>();
+    const hold = (line: string) => {
+      const chunk = chunkOf.get(line);
+      if (chunk) keys.add(chunk);
+    };
+    for (const line of threadsByLine.keys()) hold(line);
+    for (const line of pendingByLine.keys()) hold(line);
+    for (const line of annotated ?? []) hold(line);
+    if (mine) hold(`${mine.side}:${mine.end}`);
+    if (composing) hold(`${composing.range.side}:${composing.range.end}`);
+    return keys;
+  });
   const toggleLabel = $derived(`Toggle ${file.path}`);
 
   // A drag down the line numbers extends the selection row by row.
@@ -116,12 +149,15 @@
   type Hovered = { side: DiffSide; line: number; top: number };
   let hovered = $state<Hovered | null>(null);
   function pointerOver(event: PointerEvent) {
+    // Rows slide under a still pointer as the pane scrolls: wait until it stops.
+    if (!dragging && scrolling()) return;
     const row = (event.target as Element).closest<HTMLElement>(".ln[data-line]");
     if (!row) return;
     const side = row.dataset.side as DiffSide;
     const line = Number(row.dataset.line);
     if (hovered?.side === side && hovered.line === line) return;
-    hovered = { side, line, top: row.offsetTop };
+    const body = event.currentTarget as HTMLElement;
+    hovered = { side, line, top: row.getBoundingClientRect().top - body.getBoundingClientRect().top - body.clientTop };
     if (dragging) onSelectLine(side, line, true);
   }
   const lineLabel = (side: DiffSide, line: number) => (side === "LEFT" ? `removed line ${line}` : `line ${line}`);
@@ -131,59 +167,101 @@
   }
 
   const badgeCount = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+
+  // A long PR's far-off files go without their row chunks until they first
+  // near the viewport, then keep them. A file with threads or cards builds
+  // its rows at once, so jumping to one works.
+  let seen = $state(false);
+  const rowsReady = $derived(
+    seen || threads.length > 0 || pending.length > 0 || (annotated?.size ?? 0) > 0 || !!mine || !!composing,
+  );
+  /** `rows.length` without building them: a hunk header and its lines. */
+  const rowCount = $derived(file.hunks.reduce((sum, hunk) => sum + 1 + hunk.lines.length, 0));
+  // The menu mounts when the header is first pointed at or focused, never on
+  // scroll: mounting it while rows swap in near the end of the pane forces a
+  // layout mid-update that clamps the scroll (a WebKit jump). The header
+  // keeps its node throughout; the menu's props spread onto it.
+  let menuReady = $state(false);
+  let menuProps = $state.raw<RowArgs>({ rowProps: {}, buttonProps: {} });
+  function wakeMenu(event: Event) {
+    // Rows sliding under a still pointer move it too: not while scrolling.
+    if (event.type === "pointermove" && scrolling()) return;
+    menuReady = true;
+  }
 </script>
 
-<section class="panel-card shrink-0 overflow-hidden bg-surface-50-950" aria-label={file.path} data-file={file.path}>
-  <ActionMenu entries={menuEntries} label="File {file.path}" onSelect={onMenu} buttonLabel="File actions">
-    {#snippet row({ rowProps, buttonProps })}
-      <div {...rowProps} class="file-head outline-none focus-visible:ring-1 focus-visible:ring-primary-500">
-        <button
-          type="button"
-          class="btn-icon btn-icon-sm hover:preset-tonal"
-          aria-label={toggleLabel}
-          aria-expanded={open}
-          onclick={onToggle}
-        >
-          {#if open}
-            <ChevronDown size={14} aria-hidden="true" />
-          {:else}
-            <ChevronRight size={14} aria-hidden="true" />
-          {/if}
+<section
+  class="panel-card shrink-0 overflow-hidden bg-surface-50-950"
+  aria-label={file.path}
+  data-file={file.path}
+  {@attach nearViewport((near) => {
+    if (near) seen = true;
+  })}
+>
+  {#if menuReady}
+    <ActionMenu
+      entries={menuEntries}
+      label="File {file.path}"
+      onSelect={onMenu}
+      buttonLabel="File actions"
+      onProps={(props) => (menuProps = props)}
+    />
+  {/if}
+  {@render head(menuProps)}
+
+  {#snippet head({ rowProps, buttonProps }: RowArgs)}
+    <div
+      onpointermove={menuReady ? undefined : wakeMenu}
+      onpointerdown={menuReady ? undefined : wakeMenu}
+      onfocusin={menuReady ? undefined : wakeMenu}
+      {...rowProps}
+      class="file-head outline-none focus-visible:ring-1 focus-visible:ring-primary-500"
+    >
+      <button
+        type="button"
+        class="btn-icon btn-icon-sm hover:preset-tonal"
+        aria-label={toggleLabel}
+        aria-expanded={open}
+        onclick={onToggle}
+      >
+        {#if open}
+          <ChevronDown size={14} aria-hidden="true" />
+        {:else}
+          <ChevronRight size={14} aria-hidden="true" />
+        {/if}
+      </button>
+      <span class="min-w-0 truncate font-mono text-[11px] font-semibold" title={file.path}>{file.path}</span>
+      <span class="text-success-500">+{file.additions}</span><span class="text-error-500">−{file.deletions}</span>
+      {#if counts.findings > 0}
+        <span class="status-badge preset-tonal-primary">{badgeCount(counts.findings, "finding", "findings")}</span>
+      {/if}
+      {#if counts.comments > 0}
+        <span class="status-badge preset-tonal">{badgeCount(counts.comments, "comment", "comments")}</span>
+      {/if}
+      <!-- Viewed and the menu wrap together, never apart. -->
+      <span class="ml-auto flex items-center gap-2">
+        <label class="inline-flex items-center gap-1.5 text-surface-500">
+          <input
+            type="checkbox"
+            class="checkbox checkbox-sm"
+            checked={viewed}
+            aria-label="Viewed {file.path}"
+            onchange={(event) => onViewed(event.currentTarget.checked)}
+          >
+          Viewed
+        </label>
+        <button {...buttonProps} type="button" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
+          <Ellipsis size={14} aria-hidden="true" />
         </button>
-        <span class="min-w-0 truncate font-mono text-[11px] font-semibold" title={file.path}>{file.path}</span>
-        <span class="text-success-500">+{file.additions}</span><span class="text-error-500">−{file.deletions}</span>
-        {#if counts.findings > 0}
-          <span class="status-badge preset-tonal-primary">{badgeCount(counts.findings, "finding", "findings")}</span>
-        {/if}
-        {#if counts.comments > 0}
-          <span class="status-badge preset-tonal">{badgeCount(counts.comments, "comment", "comments")}</span>
-        {/if}
-        <!-- Viewed and the menu wrap together, never apart. -->
-        <span class="ml-auto flex items-center gap-2">
-          <label class="inline-flex items-center gap-1.5 text-surface-500">
-            <input
-              type="checkbox"
-              class="checkbox checkbox-sm"
-              checked={viewed}
-              aria-label="Viewed {file.path}"
-              onchange={(event) => onViewed(event.currentTarget.checked)}
-            >
-            Viewed
-          </label>
-          <button {...buttonProps} type="button" class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500">
-            <Ellipsis size={14} aria-hidden="true" />
-          </button>
-        </span>
-      </div>
-    {/snippet}
-  </ActionMenu>
+      </span>
+    </div>
+  {/snippet}
 
   {#if open}
-    <!-- Off screen, the diff skips layout and paint and holds its estimated
-         height (`.ln` rows are 20px), so long PRs scroll smoothly. -->
+    <!-- Rows mount in chunks near the viewport (`DiffChunk`), so long PRs
+         scroll smoothly and keep a few screens of rows in the DOM. -->
     <div
-      class="relative overflow-x-auto border-t border-surface-200-800 [content-visibility:auto]"
-      style:contain-intrinsic-block-size="auto {rows.length * 20}px"
+      class="relative overflow-x-auto border-t border-surface-200-800"
       role="presentation"
       onpointerover={pointerOver}
       onpointerleave={() => (hovered = null)}
@@ -207,104 +285,21 @@
       {#if file.patchTruncated}
         <div class="p-4 text-center text-xs text-surface-500">No text diff for this file (binary, or too large).</div>
       {/if}
-      {#each rows as row (row.key)}
-        {#if row.kind === "hunk"}
-          <div class="ln bg-surface-100-900 text-surface-500">
-            <span></span><span></span><span></span><span>{row.header}</span>
-          </div>
+      <!-- One stable wrapper: WebKit jumps the scroll when a node near the
+           viewport is replaced, but not when what is inside one changes. -->
+      <div>
+        {#if rowsReady}
+          {#each chunks as chunk (chunk.key)}
+            <DiffChunk rows={chunk.rows.length} columns={chunk.columns} eager={eagerChunks.has(chunk.key)}>
+              {#each chunk.rows as row (row.key)}
+                {@render diffRow(row)}
+              {/each}
+            </DiffChunk>
+          {/each}
         {:else}
-          {@const selected = inRange(mine, file.path, row.side, row.number)}
-          {@const html = highlighted?.get(row.key)}
-          <div
-            data-side={row.side}
-            data-line={row.number}
-            class="ln {selected
-              ? "ln-sel"
-              : row.line.kind === "add"
-                ? "ln-add"
-                : row.line.kind === "del"
-                  ? "ln-del"
-                  : ""}"
-          >
-            {#each [row.line.oldLine, row.line.newLine] as number, column (column)}
-              {#if (column === 0) === (row.side === "LEFT")}
-                <button
-                  type="button"
-                  class="text-right {selected ? "font-semibold text-surface-900-100" : ""}"
-                  aria-label="Select {lineLabel(row.side, row.number)}"
-                  aria-pressed={selected}
-                  disabled={!canComment}
-                  onpointerdown={(event) => startDrag(event, row.side, row.number)}
-                  onclick={(event) => keySelect(event, row.side, row.number)}
-                >
-                  {number}
-                </button>
-              {:else}
-                <span>{number ?? ""}</span>
-              {/if}
-            {/each}
-            <span>{row.line.kind === "add" ? "+" : row.line.kind === "del" ? "−" : ""}</span>
-            <span
-              >{#if html !== undefined}
-                {@html html}
-              {:else}
-                {row.line.content}
-              {/if}</span
-            >
-          </div>
-
-          {#if mine && !composing && mine.side === row.side && mine.end === row.number}
-            <div class="relative h-0">
-              <div
-                role="toolbar"
-                aria-label={rangeLabel(mine)}
-                class="popover-card absolute -top-1 right-3 z-10 flex gap-0.5 p-1"
-              >
-                <button
-                  type="button"
-                  class="btn btn-sm hover:preset-tonal text-[11px]"
-                  onclick={() => onCompose("comment")}
-                >
-                  Comment <kbd class="kbd">C</kbd>
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-sm hover:preset-tonal text-[11px]"
-                  onclick={() => onCompose("suggestion")}
-                >
-                  Suggest change
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-sm hover:preset-tonal text-[11px] text-primary-500"
-                  onclick={onAskAgent}
-                >
-                  <Sparkles size={12} aria-hidden="true" />Ask agent
-                </button>
-              </div>
-            </div>
-          {/if}
-
-          {#each threadsByLine.get(`${row.side}:${row.number}`) ?? [] as found (found.key)}
-            {@render thread(found)}
-          {/each}
-          {#each pendingByLine.get(`${row.side}:${row.number}`) ?? [] as entry (entry.id)}
-            {@render pendingCard(entry)}
-          {/each}
-          {#if composing && composing.range.side === row.side && composing.range.end === row.number}
-            {#key `${composing.range.start}-${composing.range.end}-${composing.mode}`}
-              <LineComposer
-                label={rangeLabel(composing.range)}
-                mode={composing.mode}
-                initialReplacement={composing.mode === "suggestion" ? rangeText(file, composing.range) : ""}
-                onAdd={onAddEntry}
-                onCancel={onCancelComposer}
-              />
-            {/key}
-          {/if}
-          {@render afterLine?.({ path: file.path, side: row.side, line: row.number })}
+          <div style:height="{rowCount * 20}px"></div>
         {/if}
-      {/each}
+      </div>
       {#if outside.length > 0}
         <div class="eyebrow px-3 pt-2">Outside the diff</div>
         {#each outside as found (found.key)}
@@ -314,6 +309,93 @@
     </div>
   {/if}
 </section>
+
+{#snippet diffRow(row: DiffRow)}
+  {#if row.kind === "hunk"}
+    <div class="ln bg-surface-100-900 text-surface-500">
+      <span></span><span></span><span></span><span>{row.header}</span>
+    </div>
+  {:else}
+    {@const selected = inRange(mine, file.path, row.side, row.number)}
+    {@const html = highlighted?.get(row.key)}
+    <div
+      data-side={row.side}
+      data-line={row.number}
+      class="ln {selected ? "ln-sel" : row.line.kind === "add" ? "ln-add" : row.line.kind === "del" ? "ln-del" : ""}"
+    >
+      {#if row.side === "LEFT"}
+        {@render lineNumber(row, selected)}<span>{row.line.newLine ?? ""}</span>
+      {:else}
+        <span>{row.line.oldLine ?? ""}</span>{@render lineNumber(row, selected)}
+      {/if}
+      <span>{row.line.kind === "add" ? "+" : row.line.kind === "del" ? "−" : ""}</span>
+      <span
+        >{#if html !== undefined}
+          {@html html}
+        {:else}
+          {row.line.content}
+        {/if}</span
+      >
+    </div>
+
+    {#if mine && !composing && mine.side === row.side && mine.end === row.number}
+      <div class="relative h-0">
+        <div
+          role="toolbar"
+          aria-label={rangeLabel(mine)}
+          class="popover-card absolute -top-1 right-3 z-10 flex gap-0.5 p-1"
+        >
+          <button type="button" class="btn btn-sm hover:preset-tonal text-[11px]" onclick={() => onCompose("comment")}>
+            Comment <kbd class="kbd">C</kbd>
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm hover:preset-tonal text-[11px]"
+            onclick={() => onCompose("suggestion")}
+          >
+            Suggest change
+          </button>
+          <button type="button" class="btn btn-sm hover:preset-tonal text-[11px] text-primary-500" onclick={onAskAgent}>
+            <Sparkles size={12} aria-hidden="true" />Ask agent
+          </button>
+        </div>
+      </div>
+    {/if}
+
+    {#each threadsByLine.get(`${row.side}:${row.number}`) ?? [] as found (found.key)}
+      {@render thread(found)}
+    {/each}
+    {#each pendingByLine.get(`${row.side}:${row.number}`) ?? [] as entry (entry.id)}
+      {@render pendingCard(entry)}
+    {/each}
+    {#if composing && composing.range.side === row.side && composing.range.end === row.number}
+      {#key `${composing.range.start}-${composing.range.end}-${composing.mode}`}
+        <LineComposer
+          label={rangeLabel(composing.range)}
+          mode={composing.mode}
+          initialReplacement={composing.mode === "suggestion" ? rangeText(file, composing.range) : ""}
+          onAdd={onAddEntry}
+          onCancel={onCancelComposer}
+        />
+      {/key}
+    {/if}
+    {@render afterLine?.({ path: file.path, side: row.side, line: row.number })}
+  {/if}
+{/snippet}
+
+{#snippet lineNumber(row: Extract<DiffRow, { kind: "line" }>, selected: boolean)}
+  <button
+    type="button"
+    class="text-right {selected ? "font-semibold text-surface-900-100" : ""}"
+    aria-label="Select {lineLabel(row.side, row.number)}"
+    aria-pressed={selected}
+    disabled={!canComment}
+    onpointerdown={(event) => startDrag(event, row.side, row.number)}
+    onclick={(event) => keySelect(event, row.side, row.number)}
+  >
+    {row.side === "LEFT" ? row.line.oldLine : row.line.newLine}
+  </button>
+{/snippet}
 
 {#snippet pendingCard(entry: PendingEntry)}
   <div

@@ -1,6 +1,7 @@
 import DOMPurify from "dompurify";
 import hljs from "highlight.js/lib/common";
 import { Marked, Renderer, type Tokens } from "marked";
+import { DIFF_HIGHLIGHT_BYTES } from "$lib/utils/highlightLines";
 import "highlight.js/styles/github-dark.css";
 
 const COPY_BUTTON = `<button type="button" class="code-copy" aria-label="Copy code" title="Copy code"><svg class="icon-copy" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><svg class="icon-check" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></button>`;
@@ -59,44 +60,6 @@ export function highlightAs(code: string, language: string): string {
   const value = hljs.getLanguage(language) ? hljs.highlight(code, { language }).value : hljs.highlightAuto(code).value;
   return DOMPurify.sanitize(value);
 }
-
-/**
- * `code` highlighted as `language`, one balanced HTML fragment per line.
- *
- * highlight.js spans cross newlines (a block comment, a template literal), so
- * a plain split on `\n` leaves unbalanced tags (see `CodeView.svelte`). Here
- * every span still open at a newline is closed there and reopened on the next
- * line, so each fragment stands alone and keeps the colour it is inside.
- */
-export function highlightLines(code: string, language: string): string[] {
-  return splitHighlighted(highlightAs(code, language));
-}
-
-/** Split highlight.js HTML on newlines, closing and reopening open spans. */
-export function splitHighlighted(html: string): string[] {
-  const lines: string[] = [];
-  const open: string[] = [];
-  let line = "";
-  let last = 0;
-  for (const match of html.matchAll(/<span[^>]*>|<\/span>|\n/g)) {
-    line += html.slice(last, match.index);
-    last = match.index + match[0].length;
-    const token = match[0];
-    if (token === "\n") {
-      lines.push(line + "</span>".repeat(open.length));
-      line = open.join("");
-    } else {
-      if (token === "</span>") open.pop();
-      else open.push(token);
-      line += token;
-    }
-  }
-  lines.push(line + html.slice(last));
-  return lines;
-}
-
-/** Above this a diff is only escaped: highlight.js on a megabyte of generated text lags the UI. */
-export const DIFF_HIGHLIGHT_BYTES = 100_000;
 
 /** A patch highlighted as `diff`, or escaped as plain text when longer than `maxBytes`. */
 export function highlightDiff(patch: string, maxBytes = DIFF_HIGHLIGHT_BYTES): string {

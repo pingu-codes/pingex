@@ -45,3 +45,7 @@ export function shortcutTarget(entries: MenuEntry[], event: KeyboardEvent): Menu
   if (!pressed) return null;
   return entries.find((entry): entry is MenuItem => isItem(entry) && entry.shortcut === pressed) ?? null;
 }
+
+/** What `ActionMenu` gives its row: spread `rowProps` on the row and
+ *  `buttonProps` on its ⋯ button. */
+export type RowArgs = { rowProps: Record<string, unknown>; buttonProps: Record<string, unknown> };
