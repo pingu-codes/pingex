@@ -8,11 +8,11 @@
   import { inboxes } from "$lib/inbox/inboxStore.svelte";
   import AgentReviewPage from "$lib/review/AgentReviewPage.svelte";
   import { stepUpFor, workOnPr } from "$lib/review/checkoutSteps";
-  import { prTarget } from "$lib/review/prTarget";
+  import { detailTarget } from "$lib/review/prTarget";
   import { changeStat, fileChange, reviewPrompt } from "$lib/review/review";
   import { commands } from "$lib/services/homeRouting";
   import { fetchQuery, invalidate, query } from "$lib/services/queryCache.svelte";
-  import { toastError, toaster } from "$lib/toaster";
+  import { toaster, toastFailure } from "$lib/toaster";
   import type { CheckoutTarget, PrDetail, PrFile, ProviderStatus, PrSummary } from "$lib/types";
   import { errorMessage } from "$lib/utils/errors";
 
@@ -52,10 +52,7 @@
     localFiles.find((file) => file.path === selectedPath) ?? localFiles[0] ?? null,
   );
 
-  function targetOf(detail: PrDetail): CheckoutTarget {
-    const viewer = inboxes[repoDir]?.inbox?.viewer;
-    return prTarget(repoDir, { ...detail.summary, headSha: detail.headSha }, detail.summary.author === viewer);
-  }
+  const targetOf = (detail: PrDetail): CheckoutTarget => detailTarget(repoDir, detail);
 
   // The PR's checkout, for the page's badge, local state and button tooltips.
   // A query, so work done in a terminal or by an agent shows when it re-reads.
@@ -81,7 +78,7 @@
         : await stepUpFor({ repoDir, repoName, target: targetOf(detail), action });
     if (!checkout?.path) return;
     if (action === "openInEditor") {
-      await commands.openInZed(checkout.path).catch((cause) => toastError(errorMessage(cause)));
+      await commands.openInZed(checkout.path).catch(toastFailure);
     }
   }
 
@@ -99,7 +96,7 @@
       await commands.reviewPushToPr(repoDir, detail.summary.number);
       toaster.success({ title: `Pushed to #${detail.summary.number}` });
     } catch (cause) {
-      toastError(errorMessage(cause));
+      toastFailure(cause);
     }
   }
 
@@ -251,7 +248,7 @@
                       → {pr.baseRef}</span
                     >
                     {#if pr.isDraft}
-                      <span class="rounded-full bg-surface-200-800 px-1.5 py-0.5 text-[10px]">draft</span>
+                      <span class="status-badge preset-tonal">Draft</span>
                     {/if}
                   </div>
                 </div>

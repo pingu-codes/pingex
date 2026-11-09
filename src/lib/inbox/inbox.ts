@@ -7,6 +7,7 @@
 // re-derives it, so the filter counts and the sidebar badge agree.
 
 import { ACTION_LABELS } from "$lib/review/actions";
+import { stackName } from "$lib/stack/stack";
 import type { FeedEntry, GitHubPerson, Inbox, InboxPr, PrStack, PrTriage, StackListing } from "$lib/types";
 
 export type InboxFilter = "needsMe" | "mine" | "reviewRequested" | "everyone";
@@ -109,11 +110,6 @@ export type InboxSection = {
   title: string;
   items: InboxItem[];
 };
-
-function stackName(stack: PrStack): string {
-  const bottom = stack.prs[0]?.headRef ?? "";
-  return bottom.split("/").pop() || `Stack ${stack.number}`;
-}
 
 /** The open stacks whose PRs are all by one author, with their visible rows. */
 function stackGroups(inbox: Inbox, listing: StackListing, rows: InboxRow[]): StackGroup[] {
@@ -343,14 +339,9 @@ export function feedText(entry: FeedEntry): { actor: string | null; text: string
   }
 }
 
-/** "now", "12m", "3h", "2d". */
-export function ago(at: number, now: number): string {
-  const minutes = Math.max(0, Math.round((now - at) / 60_000));
-  if (minutes < 1) return "now";
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  return `${Math.round(hours / 24)}d`;
+/** A click on a row's own control, which must not also open the row. */
+export function isRowControl(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest("button, a, input, [role=menuitem]") !== null;
 }
 
 // --- Selection and sync -----------------------------------------------------

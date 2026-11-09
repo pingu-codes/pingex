@@ -52,7 +52,7 @@
     openOrder,
     stackInputFor,
   } from "$lib/stack/stack";
-  import { toastError, toaster } from "$lib/toaster";
+  import { toastError, toaster, toastFailure } from "$lib/toaster";
   import type {
     CheckoutTarget,
     PrBehind,
@@ -63,6 +63,7 @@
     StackOverview,
   } from "$lib/types";
   import { errorMessage } from "$lib/utils/errors";
+  import { plural, shortSha } from "$lib/utils/format";
   import { basename } from "$lib/utils/path";
   import { threadCountForPath } from "$lib/worktrees/worktrees";
 
@@ -181,10 +182,6 @@
     ).length;
   }
 
-  function fail(cause: unknown) {
-    toastError(errorMessage(cause));
-  }
-
   function applyOverview(next: StackOverview) {
     overview = next;
     overviewError = null;
@@ -275,7 +272,7 @@
         description: `One agent review over ${prs.map((pr) => `#${pr.number}`).join(", ")}, filed under #${prs.at(-1)?.number}.`,
       });
     } catch (cause) {
-      fail(cause);
+      toastFailure(cause);
     }
   }
 
@@ -286,7 +283,7 @@
       await task();
       return true;
     } catch (cause) {
-      fail(cause);
+      toastFailure(cause);
       return false;
     } finally {
       busy = null;
@@ -379,7 +376,7 @@
       }
       return progress.done;
     } catch (cause) {
-      fail(cause);
+      toastFailure(cause);
       return false;
     } finally {
       busy = null;
@@ -396,7 +393,7 @@
       else if (progress.done)
         toaster.success({ title: "Restack finished", description: "Push the stack to update GitHub." });
     } catch (cause) {
-      fail(cause);
+      toastFailure(cause);
     } finally {
       busy = null;
       await loadOverview();
@@ -410,7 +407,7 @@
       progress = null;
       toaster.info({ title: "Restack aborted", description: "Every git branch is back where it was." });
     } catch (cause) {
-      fail(cause);
+      toastFailure(cause);
     } finally {
       busy = null;
       await loadOverview();
@@ -433,7 +430,7 @@
       );
       openThreadInCwd(thread.id, progress.worktree);
     } catch (cause) {
-      fail(cause);
+      toastFailure(cause);
     }
   }
 
@@ -609,7 +606,7 @@
       .filter((thread) => thread.cwd === path || thread.cwd.startsWith(`${path}/`));
     const ok = await openDialog(ConfirmDialog, {
       title: `Remove ${basename(path)}`,
-      body: `Every PR in this stack has merged. Remove the worktree and archive its ${threads.length} thread${threads.length === 1 ? "" : "s"}?`,
+      body: `Every PR in this stack has merged. Remove the worktree and archive its ${plural(threads.length, "thread")}?`,
       detail: path,
       confirmLabel: "Remove and archive",
     });
@@ -730,7 +727,7 @@
                 <span class="status-badge {TONE_CLASS[review.tone]}">{review.label}</span>
               {/if}
               {#if branch}
-                <span>{branch.commits} commit{branch.commits === 1 ? "" : "s"}</span>
+                <span>{plural(branch.commits, "commit")}</span>
               {/if}
               {#if inboxPr && inboxPr.unresolvedThreads > 0}
                 <span>·</span><span class="text-surface-950-50">{inboxPr.unresolvedThreads} unresolved</span>
@@ -738,7 +735,7 @@
                 <span>·</span><span>{ci.label}</span>
               {/if}
               {#if threads > 0}
-                <span>·</span><span>{threads} thread{threads === 1 ? "" : "s"}</span>
+                <span>·</span><span>{plural(threads, "thread")}</span>
               {/if}
               {#if branch?.unpushed}
                 <span>·</span><span class="text-warning-600-400">Not pushed</span>
@@ -751,7 +748,7 @@
               <div class="flex flex-col gap-1 border-t border-surface-200-800 pt-1.5">
                 {#each branch.commitLines as commit (commit.sha)}
                   <div class="flex gap-2">
-                    <span class="font-mono text-[11px] text-surface-500">{commit.sha.slice(0, 7)}</span>
+                    <span class="font-mono text-[11px] text-surface-500">{shortSha(commit.sha)}</span>
                     <span class="truncate">{commit.subject}</span>
                   </div>
                 {/each}
@@ -775,8 +772,7 @@
     <h1 class="text-sm font-semibold">{input?.name ?? `Stack ${stackNumber}`}</h1>
     {#if input}
       <span class="status-badge preset-tonal"
-        >{openPrs.length}
-        PR{openPrs.length === 1 ? "" : "s"}{overview ? ` · ${totalCommits} commits` : ""}</span
+        >{plural(openPrs.length, "PR")}{overview ? ` · ${plural(totalCommits, "commit")}` : ""}</span
       >
     {/if}
     <!-- The stack's actions wrap as one group. -->
@@ -965,8 +961,7 @@
                     <span class="text-surface-500">Already in place</span>
                   {:else}
                     <span class="text-surface-500"
-                      >{entry.commits}
-                      commit{entry.commits === 1 ? "" : "s"}
+                      >{plural(entry.commits, "commit")}
                       replayed</span
                     >
                   {/if}
@@ -984,7 +979,7 @@
                   <button
                     type="button"
                     class="btn btn-sm text-[11px] hover:preset-tonal"
-                    onclick={() => progress && void commands.openInZed(progress.worktree).catch(fail)}
+                    onclick={() => progress && void commands.openInZed(progress.worktree).catch(toastFailure)}
                   >
                     Open in editor
                   </button>
@@ -1049,8 +1044,7 @@
                   <span class="font-mono text-[11px] font-semibold">{input.baseRef}</span>
                   {#if overview && overview.baseAhead > 0}
                     <span class="status-badge preset-tonal-warning"
-                      >{overview.baseAhead}
-                      commit{overview.baseAhead === 1 ? "" : "s"}
+                      >{plural(overview.baseAhead, "commit")}
                       ahead of stack base</span
                     >
                   {:else if overview}
@@ -1061,7 +1055,7 @@
                   <div class="panel-card flex flex-col gap-1.5 bg-surface-50-950 px-3 py-2.5">
                     {#each overview.baseCommits as commit (commit.sha)}
                       <div class="flex gap-2">
-                        <span class="font-mono text-[11px] text-surface-500">{commit.sha.slice(0, 7)}</span>
+                        <span class="font-mono text-[11px] text-surface-500">{shortSha(commit.sha)}</span>
                         <span class="truncate">{commit.subject}</span>
                       </div>
                     {/each}
@@ -1126,8 +1120,7 @@
                 On <span class="font-mono text-[11px]">{worktree.branch ?? "a detached HEAD"}</span>
               </div>
               <div class="text-surface-500">
-                {threadCountForPath(projects(), worktree.path)}
-                thread{threadCountForPath(projects(), worktree.path) === 1 ? "" : "s"}
+                {plural(threadCountForPath(projects(), worktree.path), "thread")}
                 here. Switching PR checks out its git branch; threads stay with the PR they were started on.
               </div>
               {#if missingBranches > 0}

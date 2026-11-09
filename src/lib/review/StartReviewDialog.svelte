@@ -6,6 +6,13 @@
 </script>
 
 <script lang="ts">
+  import type { DialogClose } from "$lib/app/dialogs.svelte";
+  import DialogShell from "$lib/components/DialogShell.svelte";
+  import Segmented from "$lib/components/Segmented.svelte";
+  import Toggle from "$lib/components/Toggle.svelte";
+  import { DEFAULT_FOCUS, defaultReviewHarness, installedHarnesses } from "$lib/review/agentReviews.svelte";
+  import type { CheckoutStep, CheckoutTarget, FocusArea, HarnessKind, InboxPr } from "$lib/types";
+  import { can, harnessLabel } from "$lib/utils/capabilities";
   /**
    * Start review on someone else's PR: the code step (no checkout, review
    * checkout, worktree on their git branch), the harness, focus areas and
@@ -14,13 +21,7 @@
    * review in a worktree, so it can't run tests. Capabilities come from
    * `can()`, never the harness kind.
    */
-  import type { DialogClose } from "$lib/app/dialogs.svelte";
-  import DialogShell from "$lib/components/DialogShell.svelte";
-  import Segmented from "$lib/components/Segmented.svelte";
-  import Toggle from "$lib/components/Toggle.svelte";
-  import { DEFAULT_FOCUS, defaultReviewHarness, installedHarnesses } from "$lib/review/agentReviews.svelte";
-  import type { CheckoutStep, CheckoutTarget, FocusArea, HarnessKind, InboxPr } from "$lib/types";
-  import { can, harnessLabel } from "$lib/utils/capabilities";
+  import { shortSha } from "$lib/utils/format";
 
   let {
     pr,
@@ -63,7 +64,7 @@
 
   const readOnly = $derived(can(harness, "readOnlySandbox"));
   const runTests = $derived(focus.includes("runTests"));
-  const shortSha = $derived(pr.headSha.slice(0, 7));
+  const shortHead = $derived(shortSha(pr.headSha));
   const subtitle = $derived(`${pr.author} · ${pr.title} · +${pr.additions} −${pr.deletions}`);
 
   /** Steps the harness can work at: No checkout runs in the user's own clone,
@@ -204,7 +205,7 @@
       {#if value === "noCheckout"}
         <span>No checkout</span>
         <span class="text-surface-500"
-          >Diff review. The agent reads the patch and files at <span class="font-mono">{shortSha}</span>, and runs
+          >Diff review. The agent reads the patch and files at <span class="font-mono">{shortHead}</span>, and runs
           nothing.</span
         >
       {:else}

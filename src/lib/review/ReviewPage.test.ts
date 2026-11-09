@@ -1,12 +1,13 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import CheckLogList from "$lib/inbox/CheckLogList.svelte";
 import ReviewPage from "$lib/review/ReviewPage.svelte";
 import { prPlace } from "$lib/review/reviewPage";
 import { commands } from "$lib/services/homeRouting";
 import { DESK_REPOS, deskInbox, resetDeskReviewState, THREADED_PR } from "$lib/services/preview/desk";
 import { invalidate } from "$lib/services/queryCache.svelte";
-import type { PrDetail } from "$lib/types";
+import type { CheckLog, PrDetail } from "$lib/types";
 
 vi.mock("$lib/services/homeRouting", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
@@ -575,6 +576,11 @@ describe("ReviewPage", () => {
     renderPage();
     await waitFor(() => expect(commands.reviewChangesSince).toHaveBeenCalledTimes(1));
     expect(await screen.findByRole("radio", { name: /since/i, checked: true })).toBeInTheDocument();
+  });
+
+  it("says when a check log shows only its end", async () => {
+    render(CheckLogList, { logs: [{ name: "ci", log: "tail", truncated: true } as CheckLog] });
+    expect(screen.getByText("Only the end of this log is shown.")).toBeInTheDocument();
   });
 
   it("offers every verdict on someone else's PR", async () => {

@@ -7,23 +7,16 @@
   import { GitPullRequest, X } from "@lucide/svelte";
   import type { DialogClose } from "$lib/app/dialogs.svelte";
   import DialogShell from "$lib/components/DialogShell.svelte";
-  import { commands } from "$lib/services/homeRouting";
+  import { query } from "$lib/services/queryCache.svelte";
   import type { PrLink, PrSummary } from "$lib/types";
-  import { errorMessage } from "$lib/utils/errors";
 
   export type MoveToPrChoice = { number: number | null };
 
   let { link, close }: { link: PrLink; close: DialogClose<MoveToPrChoice> } = $props();
 
-  let prs = $state<PrSummary[] | null>(null);
-  let error = $state<string | null>(null);
-
-  $effect(() => {
-    commands
-      .reviewListPrs(link.repoKey)
-      .then((list) => (prs = list ?? []))
-      .catch((cause) => (error = errorMessage(cause)));
-  });
+  const prsQuery = query("reviewListPrs", () => [link.repoKey]);
+  const error = $derived(prsQuery.error);
+  const prs = $derived<PrSummary[] | null>(prsQuery.loading ? null : (prsQuery.value ?? []));
 </script>
 
 <DialogShell

@@ -8,9 +8,10 @@
   import CodeView from "$lib/components/CodeView.svelte";
   import DialogShell from "$lib/components/DialogShell.svelte";
   import { commands } from "$lib/services/homeRouting";
+  import { query } from "$lib/services/queryCache.svelte";
   import type { PrCommit, PrFileContents } from "$lib/types";
   import { languageForPath } from "$lib/utils/codeLanguage";
-  import { errorMessage } from "$lib/utils/errors";
+  import { shortSha } from "$lib/utils/format";
 
   let {
     repoDir,
@@ -30,25 +31,15 @@
 
   // svelte-ignore state_referenced_locally -- opens at the head.
   let sha = $state(headSha);
-  let contents = $state<PrFileContents | null>(null);
-  let error = $state<string | null>(null);
-  let run = 0;
-
-  async function read(at: string) {
-    const current = ++run;
-    contents = null;
-    error = null;
-    try {
-      const file = await commands.reviewFile(repoDir, at, path);
-      if (current === run) contents = file;
-    } catch (cause) {
-      if (current === run) error = errorMessage(cause);
-    }
-  }
+  /** The commits are in the hidden PR refs once this has fetched them. */
+  let fetched = $state(false);
+  const fileQuery = query("reviewFile", () => (fetched ? [repoDir, sha, path] : null));
+  const contents = $derived<PrFileContents | null>(fileQuery.value ?? null);
+  const error = $derived(fileQuery.error);
 
   onMount(async () => {
     await commands.reviewFetchPrs(repoDir, [number]).catch(() => {});
-    await read(sha);
+    fetched = true;
   });
 </script>
 
@@ -56,8 +47,8 @@
   <div class="flex flex-col gap-2 text-xs">
     <label class="flex items-center gap-2">
       <span class="text-surface-500">At</span>
-      <select class="field font-mono text-[11px]" bind:value={sha} onchange={() => read(sha)} aria-label="Commit">
-        <option value={headSha}>Head · {headSha.slice(0, 7)}</option>
+      <select class="field font-mono text-[11px]" bind:value={sha} aria-label="Commit">
+        <option value={headSha}>Head · {shortSha(headSha)}</option>
         {#each commits.filter((commit) => commit.oid !== headSha) as commit (commit.oid)}
           <option value={commit.oid}>{commit.shortOid} · {commit.headline}</option>
         {/each}

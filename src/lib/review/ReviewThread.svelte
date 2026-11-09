@@ -10,17 +10,18 @@
 
 <script lang="ts">
   import { Ellipsis } from "@lucide/svelte";
-  import { Avatar } from "@skeletonlabs/skeleton-svelte";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
   import type { MenuEntry } from "$lib/components/actionMenu";
+  import type { People } from "$lib/inbox/inbox";
+  import LoginAvatar from "$lib/inbox/LoginAvatar.svelte";
   import CommentBody from "$lib/review/CommentBody.svelte";
   import type { CommentThread } from "$lib/review/review";
-  import { initials } from "$lib/review/reviewPage";
   import type { PrComment } from "$lib/types";
 
   let {
     thread,
     viewer,
+    people,
     prUrl,
     busy = false,
     onReplyNow,
@@ -35,6 +36,7 @@
   }: {
     thread: CommentThread;
     viewer: string;
+    people?: People;
     prUrl: string;
     busy?: boolean;
     /** Post a reply at once; resolves whether it was posted. */
@@ -176,7 +178,7 @@
           class="group/comment flex flex-col gap-1 border-surface-200-800 p-2.5 outline-none not-first:border-t focus-visible:bg-surface-200-800/40"
         >
           <div class="flex items-center gap-1.5">
-            <Avatar class="avatar"><Avatar.Fallback>{initials(comment.author)}</Avatar.Fallback></Avatar>
+            <LoginAvatar login={comment.author} person={people?.get(comment.author)} plain />
             <b class="font-medium">{comment.author}</b>
             {#if thread.resolved}
               <span class="status-badge preset-tonal-success">Resolved</span>

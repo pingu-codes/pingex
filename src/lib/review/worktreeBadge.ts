@@ -2,6 +2,7 @@
 // where the backend found the PR (`PrCheckout`).
 
 import type { PrCheckout } from "$lib/types";
+import { plural } from "$lib/utils/format";
 import { basename } from "$lib/utils/path";
 
 /** On the PR's own branch, in a worktree on another one, or not on disk. */
@@ -21,10 +22,6 @@ export type WorktreeBadgeFacts = {
 };
 
 const NO_WORKTREE = "No local worktree";
-
-function plural(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
-}
 
 export function worktreeBadge(checkout: PrCheckout | null, noneHint: string): WorktreeBadgeFacts {
   if (!checkout?.path) {

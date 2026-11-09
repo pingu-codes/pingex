@@ -8,6 +8,11 @@
 import type { MenuEntry } from "$lib/components/actionMenu";
 import type { Inbox, InboxPr, PrBaseInput, PrStack, StackInput, StackListing, WorktreeEntry } from "$lib/types";
 
+/** What a git branch can't be named: blank, with a space, or like an option. */
+export function validBranchName(name: string): boolean {
+  return name.length > 0 && !/\s/.test(name) && !name.startsWith("-");
+}
+
 /** A stack's name: its bottom PR's git branch without an `owner/` prefix. */
 export function stackName(stack: PrStack): string {
   const bottom = stack.prs[0]?.headRef ?? "";
@@ -79,7 +84,7 @@ export function branchMenu(
       shortcut: "C",
     },
     { id: "restackFrom", label: "Restack from here", disabled: !context.canRestack },
-    { id: "push", label: "Push this branch", shortcut: "P" },
+    { id: "push", label: "Push this branch", shortcut: "P", disabled: !context.canRestack },
     { kind: "separator" },
     { id: "moveUp", label: "Move up", shortcut: "Alt+Up", disabled: index === order.length - 1 },
     { id: "moveDown", label: "Move down", shortcut: "Alt+Down", disabled: index === 0 },

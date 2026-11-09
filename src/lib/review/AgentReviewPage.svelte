@@ -15,21 +15,21 @@
   import PrWorktreeActions from "$lib/review/PrWorktreeActions.svelte";
   import { PendingReviewStore } from "$lib/review/pendingReview.svelte";
   import { ensurePrLinks, prLinks } from "$lib/review/prLinks.svelte";
-  import { prTarget } from "$lib/review/prTarget";
+  import { detailTarget } from "$lib/review/prTarget";
   import { readOnly, startPrThread } from "$lib/review/prThreads";
   import ReviewPage from "$lib/review/ReviewPage.svelte";
   import type { HandTarget } from "$lib/review/ReviewThread.svelte";
   import { findingTexts } from "$lib/review/reviewFind";
-  import { type AskAgentRequest, askAgentPrompt, diffRows, fileName } from "$lib/review/reviewPage";
+  import { type AskAgentRequest, askAgentPrompt, diffRows } from "$lib/review/reviewPage";
   import ThreadBranchChip from "$lib/review/ThreadBranchChip.svelte";
   import { startTurn } from "$lib/services/api";
   import { activeTurns } from "$lib/services/codexEvents.svelte";
   import { commands } from "$lib/services/homeRouting";
-  import { toastError, toaster } from "$lib/toaster";
+  import { toaster, toastFailure } from "$lib/toaster";
   import type { AgentReview, CheckoutStep, CheckoutTarget, Finding, Inbox, PrCheckout, PrDetail } from "$lib/types";
   import { harnessName } from "$lib/utils/capabilities";
-  import { errorMessage } from "$lib/utils/errors";
-  import { relativeTime } from "$lib/utils/format";
+  import { plural, relativeTime } from "$lib/utils/format";
+  import { basename } from "$lib/utils/path";
 
   let {
     repoDir,
@@ -72,7 +72,7 @@
   const findings = new FindingsStore(repoDir, number, pending);
 
   let detail = $state<PrDetail | null>(null);
-  const repoName = $derived(repoDir.split(/[\\/]/).filter(Boolean).pop() ?? repoDir);
+  const repoName = $derived(basename(repoDir));
   const latest = $derived(findings.latest);
   const anyRun = $derived(findings.runs.length > 0 || findings.findings.length > 0);
 
@@ -123,9 +123,7 @@
     }
   });
 
-  function targetOf(pr: PrDetail): CheckoutTarget {
-    return prTarget(repoDir, { ...pr.summary, headSha: pr.headSha }, !!viewer && pr.summary.author === viewer);
-  }
+  const targetOf = (pr: PrDetail): CheckoutTarget => detailTarget(repoDir, pr, viewer);
 
   function openThread(threadId: string) {
     const link = prLinks.byThread[threadId];
@@ -154,7 +152,7 @@
       });
       openThread(thread.id);
     } catch (cause) {
-      toastError(errorMessage(cause));
+      toastFailure(cause);
     }
   }
 
@@ -172,16 +170,12 @@
       await startTurn(run.threadId, [{ type: "text", text }], editable ? undefined : readOnly(undefined));
       openThread(run.threadId);
     } catch (cause) {
-      toastError(errorMessage(cause));
+      toastFailure(cause);
     }
   }
 
   async function guard(work: () => Promise<unknown>) {
-    try {
-      await work();
-    } catch (cause) {
-      toastError(errorMessage(cause));
-    }
+    await work().catch(toastFailure);
   }
 
   async function skipKind(rule: string) {
@@ -194,7 +188,7 @@
   function sameAs(finding: Finding): string | null {
     const comment = detail?.comments.find((entry) => entry.id === finding.sameAsCommentId);
     if (!comment) return null;
-    const place = comment.path ? ` ${fileName(comment.path)}${comment.line ? `:${comment.line}` : ""}` : "";
+    const place = comment.path ? ` ${basename(comment.path)}${comment.line ? `:${comment.line}` : ""}` : "";
     return `${comment.author}'s${place}`;
   }
 
@@ -319,8 +313,7 @@
         {:else if latest.parseError}
           No findings parsed
         {:else}
-          {tally.total}
-          finding{tally.total === 1 ? "" : "s"}
+          {plural(tally.total, "finding")}
           · {tally.added} added to your review · {tally.dismissed} dismissed
         {/if}
       </div>

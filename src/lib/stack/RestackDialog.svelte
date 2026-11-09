@@ -7,6 +7,7 @@
   import type { DialogClose } from "$lib/app/dialogs.svelte";
   import DialogShell from "$lib/components/DialogShell.svelte";
   import type { RestackPlan } from "$lib/types";
+  import { plural } from "$lib/utils/format";
   import { basename } from "$lib/utils/path";
 
   let {
@@ -43,7 +44,7 @@
           {#if step.unchanged}
             <span class="text-surface-500">Already on {step.onto}</span>
           {:else}
-            <span class="text-surface-500">{step.commits} commit{step.commits === 1 ? "" : "s"} onto {step.onto}</span>
+            <span class="text-surface-500">{plural(step.commits, "commit")} onto {step.onto}</span>
           {/if}
           {#if step.conflicts.length > 0}
             <span class="status-badge preset-tonal-warning">Conflict in {step.conflicts.map(basename).join(", ")}</span>

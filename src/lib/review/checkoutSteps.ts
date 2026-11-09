@@ -8,9 +8,9 @@ import { newThreadInDir } from "$lib/app/navigation.svelte";
 import CheckoutStepDialog from "$lib/review/CheckoutStepDialog.svelte";
 import { expectPrThread } from "$lib/review/prLinks.svelte";
 import { commands } from "$lib/services/homeRouting";
-import { toastError, toaster, toastProgress, toastUndo } from "$lib/toaster";
+import { toastError, toaster, toastFailure, toastProgress, toastUndo } from "$lib/toaster";
 import type { CheckoutTarget, DeskAction, PrCheckout, StackCheckout, StackInput } from "$lib/types";
-import { errorMessage } from "$lib/utils/errors";
+import { plural, shortSha } from "$lib/utils/format";
 import { basename } from "$lib/utils/path";
 
 export interface StepRequest {
@@ -63,7 +63,7 @@ export async function stepUpFor(request: StepRequest): Promise<PrCheckout | null
     }
     return plan.current;
   } catch (cause) {
-    toastError(errorMessage(cause));
+    toastFailure(cause);
     return null;
   }
 }
@@ -88,7 +88,7 @@ export async function createPrWorktree(
           ? commands.reviewRemovePrWorktree(repoDir, target.number)
           : commands.gitWorktreeRemove(repoDir, path, false),
       ),
-    `#${target.number} at ${(checkout.headSha ?? target.headSha).slice(0, 7)}`,
+    `#${target.number} at ${shortSha(checkout.headSha ?? target.headSha)}`,
   );
   if (checkout.setupPending) {
     const setup = runSetup(repoDir, target.number, name, checkout.setupPending);
@@ -144,14 +144,14 @@ export async function checkOutStack(request: StackCheckoutRequest): Promise<Stac
     }
     return result;
   } catch (cause) {
-    toastError(errorMessage(cause));
+    toastFailure(cause);
     return null;
   }
 }
 
 function announceStackCheckout(repoDir: string, result: StackCheckout, open: number): void {
   const path = result.checkout.path ?? "";
-  const title = `Checked out ${open} PR${open === 1 ? "" : "s"} in ${basename(path)}`;
+  const title = `Checked out ${plural(open, "PR")} in ${basename(path)}`;
   const made = result.createdBranches.length;
   const description = made > 0 ? `${made} new local branch${made === 1 ? "" : "es"}` : undefined;
   if (result.created) {
@@ -171,7 +171,7 @@ async function runSetup(repoDir: string, number: number, name: string, command: 
   try {
     await commands.reviewRunCheckoutSetup(repoDir, number);
   } catch (cause) {
-    toastError(errorMessage(cause));
+    toastFailure(cause);
   } finally {
     toaster.dismiss(toast);
   }
@@ -181,6 +181,6 @@ async function undo(work: Promise<unknown>): Promise<void> {
   try {
     await work;
   } catch (cause) {
-    toastError(errorMessage(cause));
+    toastFailure(cause);
   }
 }

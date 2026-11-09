@@ -114,8 +114,3 @@ export function sourceOptions(remotes: readonly GitRemote[]): SourceOption[] {
   options.push({ value: "none", label: "None", slug: null, description: "Threads and worktrees only, no inbox" });
   return options;
 }
-
-/** `n thing` or `n things`. */
-export function plural(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
-}

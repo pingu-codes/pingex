@@ -11,10 +11,12 @@
   import type { Snippet } from "svelte";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
   import type { InboxRow, People, StackGroup } from "$lib/inbox/inbox";
+  import { isRowControl } from "$lib/inbox/inbox";
   import LoginAvatar from "$lib/inbox/LoginAvatar.svelte";
   import WorktreeBadge from "$lib/review/WorktreeBadge.svelte";
   import { behindLabel } from "$lib/stack/stack";
   import type { PrCheckout } from "$lib/types";
+  import { plural } from "$lib/utils/format";
 
   let {
     group,
@@ -53,12 +55,8 @@
   const behindText = $derived(behindLabel(group.stack.baseRef, behind));
   const opens = $derived(mine && !!onOpenStack);
 
-  function isControl(target: EventTarget | null): boolean {
-    return target instanceof Element && target.closest("button, a, input, [role=menuitem]") !== null;
-  }
-
   function onclick(event: MouseEvent) {
-    if (opens && !isControl(event.target)) onOpenStack?.();
+    if (opens && !isRowControl(event.target)) onOpenStack?.();
   }
 
   function onkeydown(event: KeyboardEvent) {
@@ -94,7 +92,7 @@
     <GitBranch size={mine ? 14 : 12} class="text-surface-500" aria-hidden="true" />
     <span class="font-semibold">{group.name}</span>
     {#if mine}
-      <span class="text-surface-500">{count} PR{count === 1 ? "" : "s"} onto</span>
+      <span class="text-surface-500">{plural(count, "PR")} onto</span>
       <span class="status-badge preset-tonal font-mono">{group.stack.baseRef}</span>
       {#if behindText}
         <ActionMenu
@@ -119,14 +117,14 @@
       <span class="grow"></span>
       {@render onDisk()}
       {#if checkout}
-        <span class="text-surface-500">{threadCount} thread{threadCount === 1 ? "" : "s"}</span>
+        <span class="text-surface-500">{plural(threadCount, "thread")}</span>
       {/if}
       {#if onRestack}
         <button type="button" class="btn btn-sm text-xs hover:preset-tonal" onclick={onRestack}>Restack</button>
       {/if}
     {:else}
       <LoginAvatar login={group.author} person={people.get(group.author)} role="Author" />
-      <span class="text-surface-500">{group.author} · {count} PR{count === 1 ? "" : "s"}</span>
+      <span class="text-surface-500">{group.author} · {plural(count, "PR")}</span>
       <span class="grow"></span>
       {@render onDisk()}
     {/if}

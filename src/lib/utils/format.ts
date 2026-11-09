@@ -26,6 +26,16 @@ export function formatTokensShort(tokens: number): string {
   return String(value);
 }
 
+/** "1 commit", "3 commits". */
+export function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+/** A commit SHA as it reads in the UI. */
+export function shortSha(sha: string): string {
+  return sha.slice(0, 7);
+}
+
 export interface RelativeTimeOptions {
   /** Appended to a count: `" ago"` turns `3d` into `3d ago`. */
   suffix?: string;

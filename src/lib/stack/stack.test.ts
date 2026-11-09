@@ -10,6 +10,7 @@ import {
   moved,
   myBaseInputs,
   stackInputFor,
+  validBranchName,
 } from "$lib/stack/stack";
 import type { StackInput } from "$lib/types";
 
@@ -160,4 +161,9 @@ describe("how far a PR is behind its base", () => {
       "Behind main by 2",
     );
   });
+});
+
+describe("validBranchName", () => {
+  it.each(["feat/x", "a-b", "v1.2"])("accepts %s", (name) => expect(validBranchName(name)).toBe(true));
+  it.each(["", "two words", "-rf"])("refuses %j", (name) => expect(validBranchName(name)).toBe(false));
 });

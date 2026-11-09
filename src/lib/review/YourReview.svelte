@@ -6,12 +6,13 @@
 -->
 <script lang="ts">
   import { AlertTriangle, PanelRightClose, X } from "@lucide/svelte";
-  import { Avatar } from "@skeletonlabs/skeleton-svelte";
   import type { Snippet } from "svelte";
   import Segmented from "$lib/components/Segmented.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
+  import type { People } from "$lib/inbox/inbox";
+  import LoginAvatar from "$lib/inbox/LoginAvatar.svelte";
   import type { PendingReviewStore } from "$lib/review/pendingReview.svelte";
-  import { entryLabel, initials } from "$lib/review/reviewPage";
+  import { entryLabel } from "$lib/review/reviewPage";
   import type { InboxPr, PendingEntry, ReviewVerdict } from "$lib/types";
 
   let {
@@ -25,6 +26,7 @@
     onOpenPr,
     agentReview,
     ownPr = false,
+    people,
     onCollapse,
   }: {
     pending: PendingReviewStore;
@@ -40,6 +42,7 @@
     agentReview?: Snippet;
     /** The viewer wrote the PR: GitHub only takes a comment from its author. */
     ownPr?: boolean;
+    people?: People;
     /** Fold the panel away; without it the panel has no collapse button. */
     onCollapse?: () => void;
   } = $props();
@@ -162,7 +165,7 @@
     <div class="flex flex-col">
       {#each upNext as pr (pr.number)}
         <button type="button" class="menu-row" onclick={() => onOpenPr?.(pr.number)} disabled={!onOpenPr}>
-          <Avatar class="avatar"><Avatar.Fallback>{initials(pr.author)}</Avatar.Fallback></Avatar>
+          <LoginAvatar login={pr.author} person={people?.get(pr.author)} />
           <span class="font-mono text-[11px] text-surface-500">#{pr.number}</span>
           <span class="min-w-0 grow truncate">{pr.title}</span>
         </button>

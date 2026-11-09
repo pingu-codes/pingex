@@ -23,7 +23,6 @@
   import CheckLogDialog from "$lib/inbox/CheckLogDialog.svelte";
   import type { InboxHandlers } from "$lib/inbox/handlers";
   import {
-    ago,
     FILTER_LABELS,
     type InboxChips,
     type InboxFilter,
@@ -44,14 +43,16 @@
   import RepoPicker from "$lib/inbox/RepoPicker.svelte";
   import SinceYouLooked from "$lib/inbox/SinceYouLooked.svelte";
   import StackCard from "$lib/inbox/StackCard.svelte";
-  import { reviewTarget } from "$lib/review/agentReviews.svelte";
   import CompareCommitsDialog from "$lib/review/CompareCommitsDialog.svelte";
+  import { inboxPrTarget } from "$lib/review/prTarget";
   import { commands } from "$lib/services/homeRouting";
   import { query } from "$lib/services/queryCache.svelte";
   import { driftLabel, myBaseInputs, stackInputFor } from "$lib/stack/stack";
-  import { toastError } from "$lib/toaster";
+  import { toastFailure } from "$lib/toaster";
   import type { CheckoutTarget, InboxPr, PrBaseInput, PrCheckout } from "$lib/types";
-  import { errorMessage } from "$lib/utils/errors";
+  import { relativeTime } from "$lib/utils/format";
+  import { basename } from "$lib/utils/path";
+  import { readFlag, writeFlag } from "$lib/utils/storedFlag";
   import { ensureWorktrees, worktreeMap } from "$lib/worktrees/worktreeMap.svelte";
   import { threadCountForPath } from "$lib/worktrees/worktrees";
 
@@ -69,13 +70,6 @@
   } = $props();
 
   const GROUP_KEY = "pingex.inbox.groupByStack";
-  function loadGroupByStack(): boolean {
-    try {
-      return localStorage.getItem(GROUP_KEY) !== "false";
-    } catch {
-      return true;
-    }
-  }
 
   // svelte-ignore state_referenced_locally -- the view is keyed by repository.
   const left = place(`inbox:${repoPath}`, () => ({
@@ -90,7 +84,7 @@
   let filter = $state(left.filter);
   let chips = $state(left.chips);
   let text = $state(left.text);
-  let groupByStack = $state(loadGroupByStack());
+  let groupByStack = $state(readFlag(GROUP_KEY, true));
   // svelte-ignore state_referenced_locally -- a PR that closed while away is no longer selected.
   let selected = $state(
     new Set([...left.selected].filter((number) => inboxes[repoPath]?.inbox?.prs.some((pr) => pr.number === number))),
@@ -107,7 +101,7 @@
   const inbox = $derived(repoState?.inbox ?? null);
   const stacks = $derived(repoState?.stacks ?? { supported: false, stacks: [] });
   const people = $derived<People>(inbox ? peopleByLogin(inbox) : new Map());
-  const repoName = $derived(repos.find((repo) => repo.path === repoPath)?.name ?? repoPath.split("/").pop());
+  const repoName = $derived(repos.find((repo) => repo.path === repoPath)?.name ?? basename(repoPath));
   const rows = $derived(inbox ? visibleRows(inbox, filter, chips, text) : []);
   const sections = $derived(inbox ? inboxSections(inbox, stacks, rows, groupByStack) : []);
   const order = $derived(sectionOrder(sections));
@@ -145,7 +139,7 @@
   const checkoutArgs = $derived.by((): [string, CheckoutTarget[]] | null => {
     if (!inbox || inbox.prs.length === 0) return null;
     const viewer = inbox.viewer;
-    return [repoPath, inbox.prs.map((pr) => reviewTarget(repoPath, pr, viewer))];
+    return [repoPath, inbox.prs.map((pr) => inboxPrTarget(repoPath, pr, viewer))];
   });
   const checkoutQuery = query("reviewPrCheckouts", () => checkoutArgs);
   const checkouts = $derived(new Map((checkoutQuery.value ?? []).map((checkout) => [checkout.number, checkout])));
@@ -212,11 +206,7 @@
 
   function setGroupByStack(on: boolean) {
     groupByStack = on;
-    try {
-      localStorage.setItem(GROUP_KEY, String(on));
-    } catch {
-      // A per-viewer convenience: fine to lose.
-    }
+    writeFlag(GROUP_KEY, on);
   }
 
   // --- Selection ---
@@ -246,12 +236,8 @@
 
   // --- Actions ---
 
-  function fail(cause: unknown) {
-    toastError(errorMessage(cause));
-  }
-
   function open(pr: InboxPr, options: { changesSince?: boolean } = {}) {
-    void markActivitySeen(repoPath, [pr.number]).catch(fail);
+    void markActivitySeen(repoPath, [pr.number]).catch(toastFailure);
     handlers.openPr(repoPath, pr, options);
   }
 
@@ -266,7 +252,7 @@
       await work();
       await sync();
     } catch (cause) {
-      fail(cause);
+      toastFailure(cause);
     }
   }
 
@@ -275,7 +261,7 @@
       const logs = await commands.reviewCheckLogs(repoPath, pr.number);
       await openDialog(CheckLogDialog, { title: `Failing checks on #${pr.number}`, logs });
     } catch (cause) {
-      fail(cause);
+      toastFailure(cause);
     }
   }
 
@@ -328,17 +314,17 @@
       case "newThread":
         return handlers.newThread(repoPath, pr);
       case "copyBranch":
-        return void commands.copyText(pr.headRef).catch(fail);
+        return void commands.copyText(pr.headRef).catch(toastFailure);
       case "copyLink":
-        return void commands.copyText(pr.url).catch(fail);
+        return void commands.copyText(pr.url).catch(toastFailure);
       case "openGitHub":
-        return void commands.openExternalUrl(pr.url).catch(fail);
+        return void commands.openExternalUrl(pr.url).catch(toastFailure);
       case "seen":
-        return void markActivitySeen(repoPath, [pr.number]).catch(fail);
+        return void markActivitySeen(repoPath, [pr.number]).catch(toastFailure);
       case "mute":
-        return void mutePr(repoPath, pr.number, pr.headSha).catch(fail);
+        return void mutePr(repoPath, pr.number, pr.headSha).catch(toastFailure);
       case "rerunChecks":
-        return void commands.reviewRerunFailedChecks(repoPath, pr.number).then(sync).catch(fail);
+        return void commands.reviewRerunFailedChecks(repoPath, pr.number).then(sync).catch(toastFailure);
       case "viewLog":
         return void viewLog(pr);
     }
@@ -355,7 +341,9 @@
     if (event.key === "Escape" && selected.size > 0) clearSelection();
   }
 
-  const syncedAgo = $derived(inbox ? ago(inbox.syncedAt, now) : "");
+  const syncedAgo = $derived(
+    inbox ? relativeTime(inbox.syncedAt / 1000, { granularity: "minute", suffix: " ago", now: now / 1000 }) : "",
+  );
 </script>
 
 {#snippet prRow(row: InboxRow, depth: number, group: StackGroup | null)}
@@ -410,12 +398,17 @@
         {/if}
         <div class="flex flex-wrap items-center gap-x-1.5 text-xs text-surface-500">
           {#if inbox}
-            <span>{inbox.repo} · synced {syncedAgo === "now" ? "just now" : `${syncedAgo} ago`}</span>
+            <span>{inbox.repo} · synced {syncedAgo}</span>
           {:else if repoState?.syncing}
             <span>Syncing…</span>
           {/if}
           <!-- Outside the inbox: a pin to an account that has gone is why there may not be one. -->
-          <AccountMenu {repoPath} viewer={inbox?.viewer ?? null} syncing={repoState?.syncing ?? false} onError={fail} />
+          <AccountMenu
+            {repoPath}
+            viewer={inbox?.viewer ?? null}
+            syncing={repoState?.syncing ?? false}
+            onError={toastFailure}
+          />
         </div>
       </div>
       <label class="relative flex items-center">
@@ -567,7 +560,7 @@
             void markActivitySeen(
               repoPath,
               selectedPrs.map((pr) => pr.number),
-            ).catch(fail);
+            ).catch(toastFailure);
             clearSelection();
           }}
         >
@@ -599,10 +592,10 @@
         onOpen={(number) => {
           const pr = inbox.prs.find((candidate) => candidate.number === number);
           if (pr) open(pr);
-          else void markActivitySeen(repoPath, [number]).catch(fail);
+          else void markActivitySeen(repoPath, [number]).catch(toastFailure);
         }}
         onMarkAllSeen={() =>
-          void markActivitySeen(repoPath, [...new Set(inbox.feed.map((entry) => entry.number))]).catch(fail)}
+          void markActivitySeen(repoPath, [...new Set(inbox.feed.map((entry) => entry.number))]).catch(toastFailure)}
       />
       <AgentReviewsPanel reviews={inFlight(agentRuns)} />
     {/if}

@@ -1,4 +1,5 @@
 import { createToaster } from "@skeletonlabs/skeleton-svelte";
+import { errorMessage } from "$lib/utils/errors";
 
 /** Singleton toaster; rendered by <ToastHost /> in App.svelte. */
 export const toaster = createToaster({
@@ -9,6 +10,11 @@ export const toaster = createToaster({
 
 export function toastError(message: string) {
   toaster.error({ description: message, closable: true });
+}
+
+/** The toast for a caught failure. */
+export function toastFailure(cause: unknown) {
+  toastError(errorMessage(cause));
 }
 
 /** A toast offering Undo, for a quick action that put something on disk.

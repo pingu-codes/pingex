@@ -12,7 +12,6 @@
 -->
 <script lang="ts">
   import { ArrowUp, Check, ChevronLeft, Ellipsis, Keyboard, PanelRight, PanelRightOpen } from "@lucide/svelte";
-  import { Avatar } from "@skeletonlabs/skeleton-svelte";
   import { type Snippet, tick, untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { dialogStack, openDialog } from "$lib/app/dialogs.svelte";
@@ -22,12 +21,14 @@
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import Segmented from "$lib/components/Segmented.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
+  import CheckLogList from "$lib/inbox/CheckLogList.svelte";
+  import { peopleByLogin } from "$lib/inbox/inbox";
+  import LoginAvatar from "$lib/inbox/LoginAvatar.svelte";
   import { stepHint } from "$lib/review/actions";
   import CommentBody from "$lib/review/CommentBody.svelte";
   import FileDiff, { type Composer, type LineSlot } from "$lib/review/FileDiff.svelte";
   import FindBar from "$lib/review/FindBar.svelte";
   import { PendingReviewStore } from "$lib/review/pendingReview.svelte";
-  import RetargetDialog from "$lib/review/RetargetDialog.svelte";
   import ReviewThread, { type HandTarget } from "$lib/review/ReviewThread.svelte";
   import {
     type CommentThread,
@@ -47,9 +48,7 @@
     fileCounts,
     fileGroups,
     fileInView,
-    fileName,
     groupBy,
-    initials,
     type LineRange,
     prPlace,
     queueNeighbour,
@@ -72,11 +71,13 @@
   import YourReview from "$lib/review/YourReview.svelte";
   import { commands } from "$lib/services/homeRouting";
   import { prefetch, query } from "$lib/services/queryCache.svelte";
+  import BranchNameDialog from "$lib/stack/BranchNameDialog.svelte";
   import { baseInput, driftLabel } from "$lib/stack/stack";
   import type {
     ChangesSince,
     CheckLog,
     CheckoutStep,
+    GitHubPerson,
     Inbox,
     PendingEntry,
     PrCheckout,
@@ -86,6 +87,8 @@
   } from "$lib/types";
   import { submitState } from "$lib/utils/actionState.svelte";
   import { errorMessage } from "$lib/utils/errors";
+  import { shortSha } from "$lib/utils/format";
+  import { basename } from "$lib/utils/path";
 
   let {
     repoDir,
@@ -221,7 +224,8 @@
   /** GitHub refuses Approve and Request changes from a PR's author. */
   const ownPr = $derived(!!detail && !!viewer && detail.summary.author === viewer);
   const queue = $derived(upNext(inbox, number));
-  const repoName = $derived(repoDir.split(/[\\/]/).filter(Boolean).pop() ?? repoDir);
+  const people = $derived(inbox ? peopleByLogin(inbox) : new Map<string, GitHubPerson>());
+  const repoName = $derived(basename(repoDir));
   const files = $derived<PrFile[]>(changes === "since" && since ? since.files : (detail?.files ?? []));
   const threads = $derived(commentThreads(detail?.comments ?? []));
   const shownThreads = $derived(threads.filter((thread) => threadShown(thread, filter)));
@@ -709,7 +713,13 @@
     } else if (id === "ready") {
       await action.run(() => commands.reviewMarkReady(repoDir, number).then(reload));
     } else if (id === "retarget") {
-      const base = await openDialog(RetargetDialog, { number, base: at.summary.baseRef });
+      const base = await openDialog(BranchNameDialog, {
+        title: `Retarget #${number}`,
+        subtitle: `Now into ${at.summary.baseRef}`,
+        initial: at.summary.baseRef,
+        label: "New base git branch",
+        confirmLabel: "Retarget",
+      });
       if (base) await action.run(() => commands.reviewRetarget(repoDir, number, base).then(reload));
     } else if (id === "close") {
       const confirmed = await openDialog(ConfirmDialog, {
@@ -891,7 +901,7 @@
               {detail.summary.title}
             </h1>
             <span class="font-mono text-surface-500">#{number}</span>
-            <Avatar class="avatar"><Avatar.Fallback>{initials(detail.summary.author)}</Avatar.Fallback></Avatar>
+            <LoginAvatar login={detail.summary.author} person={people.get(detail.summary.author)} role="Author" />
             <span class="whitespace-nowrap text-surface-500">{detail.summary.author}</span>
             {#if detail.summary.isDraft}
               <span class="status-badge preset-tonal">Draft</span>
@@ -1078,7 +1088,7 @@
                     aria-current={currentPath === file.path}
                     onclick={() => jumpTo(file.path)}
                   >
-                    <span class="min-w-0 grow truncate font-mono text-[11px]">{fileName(file.path)}</span>
+                    <span class="min-w-0 grow truncate font-mono text-[11px]">{basename(file.path)}</span>
                     {#if counts.findings > 0}
                       <span class="status-badge preset-tonal-primary" title="Agent findings">{counts.findings}</span>
                     {/if}
@@ -1106,9 +1116,9 @@
                 {#if !since.seenSha}
                   You have not reviewed this PR yet, so this is every change.
                 {:else if since.fastForward}
-                  Changes pushed since your review at {since.seenSha.slice(0, 7)}.
+                  Changes pushed since your review at {shortSha(since.seenSha)}.
                 {:else}
-                  The git branch was rewritten since your review at {since.seenSha.slice(0, 7)}. This compares the two
+                  The git branch was rewritten since your review at {shortSha(since.seenSha)}. This compares the two
                   heads, so it can include changes from the base.
                 {/if}
               </div>
@@ -1197,6 +1207,7 @@
           <div class="sticky top-0 max-h-[100cqh] overflow-y-auto p-4">
             <YourReview
               {ownPr}
+              {people}
               {pending}
               busy={action.busy}
               {stale}
@@ -1249,6 +1260,7 @@
 
 {#snippet threadCard(found: CommentThread)}
   <ReviewThread
+    {people}
     thread={found}
     {viewer}
     prUrl={detail?.summary.url ?? ""}
@@ -1291,7 +1303,7 @@
       {#if entry.kind === "comment"}
         <div class="panel-card flex flex-col gap-1 p-2.5">
           <div class="flex items-center gap-1.5">
-            <Avatar class="avatar"><Avatar.Fallback>{initials(entry.comment.author)}</Avatar.Fallback></Avatar>
+            <LoginAvatar login={entry.comment.author} person={people.get(entry.comment.author)} />
             <b class="font-medium">{entry.comment.author}</b>
             <span class="text-surface-500">{new Date(entry.comment.createdAt).toLocaleString()}</span>
           </div>
@@ -1301,12 +1313,12 @@
         {@const review = entry.review}
         <div class="panel-card flex flex-col gap-2 p-2.5">
           <div class="flex items-center gap-1.5">
-            <Avatar class="avatar"><Avatar.Fallback>{initials(review.author)}</Avatar.Fallback></Avatar>
+            <LoginAvatar login={review.author} person={people.get(review.author)} />
             <b class="font-medium">{review.author}</b>
             {#if review.state === "APPROVED"}
               <span class="status-badge preset-tonal-success">{reviewVerb(review.state)}</span>
             {:else if review.state === "CHANGES_REQUESTED"}
-              <span class="status-badge preset-tonal-error">{reviewVerb(review.state)}</span>
+              <span class="status-badge preset-tonal-warning">{reviewVerb(review.state)}</span>
             {:else}
               <span class="text-surface-500">{reviewVerb(review.state)}</span>
             {/if}
@@ -1364,11 +1376,8 @@
         </button>
       {/if}
     </div>
-    {#each checkLogs ?? [] as log (log.name)}
-      <div class="panel-card overflow-hidden">
-        <div class="file-head font-mono text-[11px] font-semibold">{log.name}</div>
-        <pre class="max-h-80 overflow-auto p-2 font-mono text-[11px] whitespace-pre-wrap">{log.log}</pre>
-      </div>
-    {/each}
+    {#if checkLogs}
+      <CheckLogList logs={checkLogs} />
+    {/if}
   </div>
 {/snippet}

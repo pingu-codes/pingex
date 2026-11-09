@@ -5,6 +5,7 @@
 import { place } from "$lib/app/places";
 import type { CommentThread } from "$lib/review/review";
 import type { DiffAnchor, DiffLine, FileBlob, Inbox, InboxPr, PendingEntry, PrFile } from "$lib/types";
+import { basename } from "$lib/utils/path";
 
 /** `RIGHT` is the head, `LEFT` the base. */
 export type DiffSide = "LEFT" | "RIGHT";
@@ -144,8 +145,6 @@ export function rangeText(file: PrFile, range: LineRange): string {
     .join("\n");
 }
 
-const basename = (path: string) => path.slice(path.lastIndexOf("/") + 1);
-
 /** "loader.ts:3–5" or "loader.ts:7". */
 export function anchorLabel(path: string, line: number | null, startLine?: number | null): string {
   if (line == null) return basename(path);
@@ -218,10 +217,6 @@ export function fileGroups(files: PrFile[]): { dir: string; files: PrFile[] }[] 
   return [...groups].map(([dir, files]) => ({ dir, files }));
 }
 
-export function fileName(path: string): string {
-  return basename(path);
-}
-
 /** A file's viewed key: its blob id at the head, or a hash of its patch when
  *  the provider gave none (a local diff), so a changed file still resets. */
 export function fileBlob(file: PrFile): FileBlob {
@@ -279,13 +274,6 @@ export function queueNeighbour(queue: InboxPr[], current: number, step: 1 | -1):
   const numbers = [...new Set([...queue.map((pr) => pr.number), current])].sort((a, b) => a - b);
   const at = numbers.indexOf(current) + step;
   return queue.find((pr) => pr.number === numbers[at]) ?? null;
-}
-
-/** Initials for an avatar: "mira-k" → "MK", "tomasz" → "TO". */
-export function initials(login: string): string {
-  const parts = login.split(/[-_.\s]+/).filter(Boolean);
-  const letters = parts.length > 1 ? parts[0][0] + parts[1][0] : login.slice(0, 2);
-  return letters.toUpperCase();
 }
 
 // --- the keyboard ------------------------------------------------------------

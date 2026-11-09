@@ -26,7 +26,6 @@
     defaultMode,
     githubChoices,
     parseRepositoryInput,
-    plural,
     type RepositoryChoice,
     sourceOptions,
   } from "$lib/repositories/repositories";
@@ -44,6 +43,7 @@
   } from "$lib/types";
   import { submitState } from "$lib/utils/actionState.svelte";
   import { errorMessage } from "$lib/utils/errors";
+  import { plural } from "$lib/utils/format";
 
   // Add repository: from the GitHub account's lists, from a local folder whose
   // remotes are read for you, or by URL. A GitHub repository is added PRs only

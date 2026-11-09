@@ -40,6 +40,7 @@
     threadLineKey,
   } from "$lib/review/reviewPage";
   import type { PendingEntry, PrFile } from "$lib/types";
+  import { plural } from "$lib/utils/format";
 
   let {
     file,
@@ -173,8 +174,6 @@
     if (event.detail === 0) onSelectLine(side, line, event.shiftKey);
   }
 
-  const badgeCount = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
-
   // A long PR's far-off files go without their row chunks until they first
   // near the viewport, then keep them. A file with threads or cards builds
   // its rows at once, so jumping to one works.
@@ -248,10 +247,10 @@
       >
       <span class="text-success-500">+{file.additions}</span><span class="text-error-500">−{file.deletions}</span>
       {#if counts.findings > 0}
-        <span class="status-badge preset-tonal-primary">{badgeCount(counts.findings, "finding", "findings")}</span>
+        <span class="status-badge preset-tonal-primary">{plural(counts.findings, "finding")}</span>
       {/if}
       {#if counts.comments > 0}
-        <span class="status-badge preset-tonal">{badgeCount(counts.comments, "comment", "comments")}</span>
+        <span class="status-badge preset-tonal">{plural(counts.comments, "comment")}</span>
       {/if}
       <!-- Viewed and the menu wrap together, never apart. -->
       <span class="ml-auto flex items-center gap-2">

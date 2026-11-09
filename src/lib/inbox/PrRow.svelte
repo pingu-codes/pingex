@@ -19,6 +19,7 @@
     type AgentReviewState,
     ciBadge,
     type InboxRow,
+    isRowControl,
     type People,
     type PrimaryAction,
     reviewBadge,
@@ -28,6 +29,7 @@
   import LoginAvatar from "$lib/inbox/LoginAvatar.svelte";
   import WorktreeBadge from "$lib/review/WorktreeBadge.svelte";
   import type { PrCheckout } from "$lib/types";
+  import { plural } from "$lib/utils/format";
 
   let {
     row,
@@ -83,12 +85,8 @@
     menu.some((entry) => entry.kind !== "separator" && entry.id === "agentReview" && entry.disabled),
   );
 
-  function isControl(target: EventTarget | null): boolean {
-    return target instanceof Element && target.closest("button, a, input, [role=menuitem]") !== null;
-  }
-
   function onclick(event: MouseEvent) {
-    if (isControl(event.target)) return;
+    if (isRowControl(event.target)) return;
     if (event.shiftKey) onPick("range");
     else if (event.metaKey || event.ctrlKey || selecting) onPick("toggle");
     else onAction("open");
@@ -212,15 +210,13 @@
           {/if}
           {#if since > 0}
             <span class="status-badge {TONE_CLASS.warning}"
-              >{since}
-              commit{since === 1 ? "" : "s"}
+              >{plural(since, "commit")}
               since your {triage.myReview === "APPROVED" ? "approval" : "review"}</span
             >
           {/if}
           {#if agentReview === "ready"}
             <span class="status-badge {TONE_CLASS.primary}">
-              <Sparkles size={10} aria-hidden="true" />Agent review ready · {agentFindings}
-              finding{agentFindings === 1 ? "" : "s"}
+              <Sparkles size={10} aria-hidden="true" />Agent review ready · {plural(agentFindings, "finding")}
             </span>
           {:else if agentReview}
             <span class="status-badge {agentReview === "running" ? TONE_CLASS.primary : TONE_CLASS.surface}">

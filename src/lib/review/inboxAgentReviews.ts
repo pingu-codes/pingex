@@ -6,11 +6,12 @@
 import { openDialog } from "$lib/app/dialogs.svelte";
 import type { InboxHandlers } from "$lib/inbox/handlers";
 import { inboxes } from "$lib/inbox/inboxStore.svelte";
-import { defaultRequest, enqueueAgentReview, reviewTarget } from "$lib/review/agentReviews.svelte";
+import { defaultRequest, enqueueAgentReview } from "$lib/review/agentReviews.svelte";
 import { createPrWorktree } from "$lib/review/checkoutSteps";
+import { inboxPrTarget } from "$lib/review/prTarget";
 import StartReviewDialog from "$lib/review/StartReviewDialog.svelte";
 import { commands } from "$lib/services/homeRouting";
-import { toastError, toaster } from "$lib/toaster";
+import { toastError, toaster, toastFailure } from "$lib/toaster";
 import type { InboxPr } from "$lib/types";
 import { errorMessage } from "$lib/utils/errors";
 
@@ -24,7 +25,7 @@ export function agentReviewHandlers(
         let queued = 0;
         for (const pr of prs) {
           try {
-            await enqueueAgentReview(repoDir, defaultRequest([reviewTarget(repoDir, pr, viewer)]));
+            await enqueueAgentReview(repoDir, defaultRequest([inboxPrTarget(repoDir, pr, viewer)]));
             queued++;
           } catch (cause) {
             toastError(`#${pr.number}: ${errorMessage(cause)}`);
@@ -34,7 +35,7 @@ export function agentReviewHandlers(
         return;
       }
       const [pr] = prs;
-      const target = reviewTarget(repoDir, pr, viewer);
+      const target = inboxPrTarget(repoDir, pr, viewer);
       try {
         const [plan, settings] = await Promise.all([
           commands.reviewPlanStep(repoDir, target, "agentReviewWithTests").catch(() => null),
@@ -63,7 +64,7 @@ export function agentReviewHandlers(
         toaster.success({ title: `Agent review queued on #${pr.number}` });
         openPr(repoDir, pr);
       } catch (cause) {
-        toastError(errorMessage(cause));
+        toastFailure(cause);
       }
     },
   };

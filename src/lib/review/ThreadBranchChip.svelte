@@ -1,10 +1,4 @@
 <script lang="ts">
-  /**
-   * A PR thread's git-branch chip: the git branch and the commit the thread
-   * started on, and how far the branch has moved since. Hovering shows the
-   * detail (after 500ms, no actions inside); its menu checks out the start
-   * or the tip, compares them, or copies the branch name or commit.
-   */
   import { GitBranch } from "@lucide/svelte";
   import { openDialog } from "$lib/app/dialogs.svelte";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
@@ -13,9 +7,15 @@
   import CompareCommitsDialog from "$lib/review/CompareCommitsDialog.svelte";
   import { commands } from "$lib/services/homeRouting";
   import { query } from "$lib/services/queryCache.svelte";
-  import { toastError, toaster } from "$lib/toaster";
+  import { toaster, toastFailure } from "$lib/toaster";
   import type { BranchProgress, PrLink } from "$lib/types";
-  import { errorMessage } from "$lib/utils/errors";
+  /**
+   * A PR thread's git-branch chip: the git branch and the commit the thread
+   * started on, and how far the branch has moved since. Hovering shows the
+   * detail (after 500ms, no actions inside); its menu checks out the start
+   * or the tip, compares them, or copies the branch name or commit.
+   */
+  import { plural, shortSha } from "$lib/utils/format";
 
   let { link }: { link: PrLink } = $props();
 
@@ -24,12 +24,12 @@
   const progress = $derived<BranchProgress | null>(progressQuery.error ? null : (progressQuery.value ?? null));
 
   const start = $derived(link.startSha ?? "");
-  const short = (sha: string | null | undefined) => (sha ?? "").slice(0, 7);
+  const short = (sha: string | null | undefined) => shortSha(sha ?? "");
   const moved = $derived.by(() => {
     if (!progress?.tipSha) return "the branch is gone";
     if (progress.behind > 0) return `the branch was rewritten (${progress.ahead} new, ${progress.behind} dropped)`;
     if (progress.ahead === 0) return "the branch has not moved";
-    return `the branch is now ${progress.ahead} commit${progress.ahead === 1 ? "" : "s"} ahead`;
+    return `the branch is now ${plural(progress.ahead, "commit")} ahead`;
   });
   const summary = $derived(`Thread started at ${short(start)} · ${moved}`);
   const noCheckout = $derived(link.step === "noCheckout" || !link.checkoutPath);
@@ -65,7 +65,7 @@
         await commands.copyText(start);
       }
     } catch (cause) {
-      toastError(errorMessage(cause));
+      toastFailure(cause);
     }
   }
 </script>

@@ -8,9 +8,8 @@
   import { Plus, X } from "@lucide/svelte";
   import { onMount } from "svelte";
   import { commands } from "$lib/services/homeRouting";
-  import { toastError } from "$lib/toaster";
+  import { toastFailure } from "$lib/toaster";
   import type { ReviewRule } from "$lib/types";
-  import { errorMessage } from "$lib/utils/errors";
 
   let { repoDir }: { repoDir: string } = $props();
 
@@ -33,7 +32,7 @@
       await work();
       await load();
     } catch (cause) {
-      toastError(errorMessage(cause));
+      toastFailure(cause);
     }
   }
 

@@ -14,6 +14,7 @@
   import type { SlashCommandId } from "$lib/composer/slashCommands";
   import RightPanel, { type PanelView } from "$lib/panels/RightPanel.svelte";
   import { linkExpectedThread } from "$lib/review/prLinks.svelte";
+  import { fileChange } from "$lib/review/review";
   import { forkThread, gitWorktreeAdd, isPromptPartsTextUnsupported, startThread, startTurn } from "$lib/services/api";
   import { approvals, elicitations, turnPlans, userInputRequests } from "$lib/services/codexEvents.svelte";
   import { commands } from "$lib/services/homeRouting";
@@ -579,22 +580,11 @@
     if (!dir) return;
     try {
       const files = await commands.reviewLocalDiff(dir, "HEAD", null);
-      workingDiff = files.map((file) => ({
-        path: file.path,
-        kind: { type: diffKind(file.status), movePath: file.oldPath },
-        diff: file.patch,
-      }));
+      workingDiff = files.map(fileChange);
       panelView = { kind: "diffs" };
     } catch (cause) {
       fail(cause);
     }
-  }
-
-  /** Map a review file status onto the panel's change kinds. */
-  function diffKind(status: string): string {
-    if (status === "added") return "add";
-    if (status === "removed") return "delete";
-    return "update";
   }
 
   /** Commands a draft can answer. `/review` and `/goal` are here deliberately:

@@ -12,19 +12,22 @@
     login,
     person = null,
     role = null,
+    plain = false,
     avatarClass = "",
     class: className = "",
   }: {
     login: string;
     person?: GitHubPerson | null;
     role?: string | null;
+    /** No hover card: for comments in a diff, where a machine per row costs scrolling. */
+    plain?: boolean;
     /** On the avatar itself, e.g. a reviewer's ring. */
     avatarClass?: string;
     class?: string;
   } = $props();
 </script>
 
-<TooltipAnchor label={personLabel(login, person, role)} openDelay={500} class="inline-flex shrink-0 {className}">
+{#snippet avatar()}
   <Avatar
     class="size-[18px] bg-surface-200-800 text-surface-700-300 {person?.isTeam ? "rounded-md" : ""} {avatarClass}"
   >
@@ -33,4 +36,12 @@
     {/if}
     <Avatar.Fallback class="text-[9px] font-semibold">{initials(login)}</Avatar.Fallback>
   </Avatar>
-</TooltipAnchor>
+{/snippet}
+
+{#if plain}
+  <span class="inline-flex shrink-0 {className}">{@render avatar()}</span>
+{:else}
+  <TooltipAnchor label={personLabel(login, person, role)} openDelay={500} class="inline-flex shrink-0 {className}">
+    {@render avatar()}
+  </TooltipAnchor>
+{/if}

@@ -1,11 +1,12 @@
 <script lang="ts">
+  import type { PrCheckout } from "$lib/types";
   /**
    * A PR page's worktree state and what to do with it: Work on this PR, what the
    * worktree holds that the PR doesn't, and pushing it back. Below it all sits the
    * point of a worktree: agents can change things here, and nothing reaches the
    * PR until someone pushes.
    */
-  import type { PrCheckout } from "$lib/types";
+  import { plural } from "$lib/utils/format";
 
   let {
     checkout = null,
@@ -19,13 +20,12 @@
     onPush?: () => void;
   } = $props();
 
-  const plural = (count: number) => (count === 1 ? "" : "s");
   const ahead = $derived(checkout?.ahead ?? 0);
   const behind = $derived(checkout?.behind ?? 0);
 </script>
 
 {#if ahead > 0}
-  <span class="status-badge preset-tonal">{ahead} local commit{plural(ahead)}</span>
+  <span class="status-badge preset-tonal">{plural(ahead, "local commit")}</span>
 {/if}
 {#if checkout?.dirty}
   <span class="status-badge preset-tonal">Uncommitted changes</span>

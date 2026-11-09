@@ -3,6 +3,7 @@
 
 import type { MenuEntry } from "$lib/components/actionMenu";
 import type { InboxPr, WorktreeEntry } from "$lib/types";
+import { basename } from "$lib/utils/path";
 
 const LATER = "Not available yet";
 
@@ -12,7 +13,7 @@ export function prMenu(
 ): MenuEntry[] {
   const worktrees: MenuEntry[] = context.worktrees.map((worktree) => ({
     id: `worktree:${worktree.path}`,
-    label: worktree.isMain ? "Main checkout" : (worktree.path.split("/").pop() ?? worktree.path),
+    label: worktree.isMain ? "Main checkout" : basename(worktree.path),
     hint: worktree.isMain && worktree.branch ? `on ${worktree.branch}` : undefined,
     checked: worktree.branch === pr.headRef,
   }));

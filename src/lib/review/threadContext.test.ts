@@ -56,6 +56,11 @@ describe("contextRows", () => {
     expect(rows?.every((row) => row.commented)).toBe(true);
   });
 
+  it("ends a file-level comment's rows at the hunk's end, not at a removed line", () => {
+    const rows = contextRows(thread({ originalLine: null, diffHunk: hunk(1, 1, [" a", "-b", " c"]) }));
+    expect(rows?.at(-1)?.line.content).toBe("c");
+  });
+
   it("numbers a LEFT comment on the base side", () => {
     const rows = contextRows(thread({ diffHunk: HUNK, side: "LEFT", originalLine: 11 }));
     expect(text(rows)).toEqual(["ten", "old eleven"]);

@@ -1,4 +1,5 @@
 import type { ChecksSummary, DiffHunk, FileUpdateChange, PrComment, PrFile, PrFreshness, PrReview } from "$lib/types";
+import { shortSha } from "$lib/utils/format";
 
 /**
  * Map a changed PR file to the `FileUpdateChange` shape `DiffBlock` renders.
@@ -12,7 +13,7 @@ export function fileChange(file: PrFile): FileUpdateChange {
       : file.status === "removed"
         ? "delete"
         : file.status === "renamed"
-          ? "rename"
+          ? "move"
           : "update";
   return {
     path: file.path,
@@ -202,7 +203,7 @@ export function checksFailing(checks: ChecksSummary | null): boolean {
  */
 export function staleBanner(freshness: PrFreshness | null): string | null {
   if (!freshness?.stale) return null;
-  const head = freshness.remoteHead ? freshness.remoteHead.slice(0, 7) : "unknown";
+  const head = freshness.remoteHead ? shortSha(freshness.remoteHead) : "unknown";
   return `This pull request changed on the remote (now at ${head}). Refresh to see the latest.`;
 }
 

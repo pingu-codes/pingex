@@ -44,8 +44,10 @@ export function contextRows(thread: Anchor): ContextRow[] | null {
 
   // The hunk ends on the commented line; search back in case it does not.
   let end = lines.length - 1;
-  while (end > 0 && numberOn(lines[end], side) !== thread.originalLine) end--;
-  if (numberOn(lines[end], side) !== thread.originalLine) end = lines.length - 1;
+  if (thread.originalLine != null) {
+    while (end > 0 && numberOn(lines[end], side) !== thread.originalLine) end--;
+    if (numberOn(lines[end], side) !== thread.originalLine) end = lines.length - 1;
+  }
   let commentedFrom = end;
   const start = thread.originalStartLine;
   if (start != null && thread.originalLine != null && start < thread.originalLine) {

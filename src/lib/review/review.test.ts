@@ -70,7 +70,7 @@ describe("review helpers", () => {
     expect(fileChange(file({ status: "added" })).kind.type).toBe("add");
     expect(fileChange(file({ status: "removed" })).kind.type).toBe("delete");
     expect(fileChange(file({ status: "renamed", oldPath: "old.ts" })).kind).toEqual({
-      type: "rename",
+      type: "move",
       movePath: "old.ts",
     });
   });

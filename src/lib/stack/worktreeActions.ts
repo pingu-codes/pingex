@@ -12,9 +12,9 @@ import { prLinks } from "$lib/review/prLinks.svelte";
 import { commands } from "$lib/services/homeRouting";
 import SwitchToPrDialog from "$lib/stack/SwitchToPrDialog.svelte";
 import { stackInputFor } from "$lib/stack/stack";
-import { toastError, toaster, toastProgress } from "$lib/toaster";
+import { toastError, toaster, toastFailure, toastProgress } from "$lib/toaster";
 import type { Project, StackInputPr, WorktreeEntry } from "$lib/types";
-import { errorMessage } from "$lib/utils/errors";
+import { plural } from "$lib/utils/format";
 import { basename, trimSlash } from "$lib/utils/path";
 import RemoveWorktreeDialog from "$lib/worktrees/RemoveWorktreeDialog.svelte";
 import { worktreeMap } from "$lib/worktrees/worktreeMap.svelte";
@@ -88,7 +88,7 @@ async function switchToPr(project: Project) {
     await commands.gitCheckoutBranch(project.path, branch, false);
     toaster.success({ title: `${basename(project.path)} is on ${branch}` });
   } catch (cause) {
-    toastError(errorMessage(cause));
+    toastFailure(cause);
   }
 }
 
@@ -110,7 +110,7 @@ export async function worktreeAction(action: WorktreeAction, project: Project): 
       const threads = project.threads;
       if (threads.length === 0) return;
       const ok = await openDialog(ConfirmDialog, {
-        title: `Archive ${threads.length} thread${threads.length === 1 ? "" : "s"}`,
+        title: `Archive ${plural(threads.length, "thread")}`,
         body: `Archive every thread in ${basename(project.path)}. They stay in the archive.`,
         confirmLabel: "Archive threads",
         tone: "warning" as const,

@@ -3,7 +3,9 @@
 <script lang="ts">
   import type { DialogClose } from "$lib/app/dialogs.svelte";
   import DialogShell from "$lib/components/DialogShell.svelte";
+  import { validBranchName } from "$lib/stack/stack";
   import type { CommitLine } from "$lib/types";
+  import { shortSha } from "$lib/utils/format";
 
   let {
     number,
@@ -24,7 +26,7 @@
   // svelte-ignore state_referenced_locally -- a suggestion only.
   let name = $state(`${headRef}-base`);
   let title = $state("");
-  const ready = $derived(at !== null && name.trim().length > 0 && !/\s/.test(name.trim()) && title.trim().length > 0);
+  const ready = $derived(at !== null && validBranchName(name.trim()) && title.trim().length > 0);
 </script>
 
 <DialogShell
@@ -49,7 +51,7 @@
         {#each choices as commit (commit.sha)}
           <label class="menu-row cursor-pointer">
             <input type="radio" name="split-at" value={commit.sha} bind:group={at}>
-            <span class="font-mono text-[11px] text-surface-500">{commit.sha.slice(0, 7)}</span>
+            <span class="font-mono text-[11px] text-surface-500">{shortSha(commit.sha)}</span>
             <span class="grow truncate">{commit.subject}</span>
           </label>
         {/each}

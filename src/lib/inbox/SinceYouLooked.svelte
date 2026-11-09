@@ -3,9 +3,11 @@
      collapses the list; the choice is remembered per viewer. -->
 <script lang="ts">
   import { ChevronDown, ChevronRight } from "@lucide/svelte";
-  import { ago, feedText, type People } from "$lib/inbox/inbox";
+  import { feedText, type People } from "$lib/inbox/inbox";
   import LoginAvatar from "$lib/inbox/LoginAvatar.svelte";
   import type { FeedEntry } from "$lib/types";
+  import { relativeTime } from "$lib/utils/format";
+  import { readFlag, writeFlag } from "$lib/utils/storedFlag";
 
   let {
     feed,
@@ -22,24 +24,13 @@
   } = $props();
 
   const OPEN_KEY = "pingex.inbox.sinceYouLookedOpen";
-  function loadOpen(): boolean {
-    try {
-      return localStorage.getItem(OPEN_KEY) !== "false";
-    } catch {
-      return true;
-    }
-  }
 
   const uid = $props.id();
-  let open = $state(loadOpen());
+  let open = $state(readFlag(OPEN_KEY, true));
 
   function toggle() {
     open = !open;
-    try {
-      localStorage.setItem(OPEN_KEY, String(open));
-    } catch {
-      // A per-viewer convenience: fine to lose.
-    }
+    writeFlag(OPEN_KEY, open);
   }
 </script>
 
@@ -100,7 +91,9 @@
             {/if}
             {line.text}</span
           >
-          <span class="text-surface-500">{ago(entry.at, now)}</span>
+          <span class="text-surface-500"
+            >{relativeTime(entry.at / 1000, { granularity: "minute", now: now / 1000 })}</span
+          >
         </span>
         <span class="unseen-dot mt-[5px]" aria-hidden="true"></span>
       </button>
