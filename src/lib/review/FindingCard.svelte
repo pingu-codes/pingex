@@ -12,6 +12,7 @@
   import type { MenuEntry } from "$lib/components/actionMenu";
   import FindingTextDialog from "$lib/review/FindingTextDialog.svelte";
   import { findingBody } from "$lib/review/findings.svelte";
+  import { mergedFindingLine } from "$lib/review/reviewFind";
   import type { DismissReason, Finding } from "$lib/types";
 
   let {
@@ -111,9 +112,8 @@
 {#if finding.state === "merged"}
   <div class="finding-card {place} flex items-center gap-2 px-2.5 py-1.5 text-surface-500" role="note">
     <Sparkles size={12} aria-hidden="true" class="text-primary-500" />
-    <span class="truncate"
-      >{agentLabel}
-      found this too: {finding.title}. Same as {sameAs ?? "an existing"} comment.</span
+    <span class="truncate" data-find="finding:{finding.id}:merged"
+      >{mergedFindingLine(agentLabel, finding, sameAs)}</span
     >
   </div>
 {:else}
@@ -144,11 +144,13 @@
         </div>
       {:else}
         {#if finding.title}
-          <div class="text-[13px] leading-5 font-medium">{finding.title}</div>
+          <div class="text-[13px] leading-5 font-medium" data-find="finding:{finding.id}:title">{finding.title}</div>
         {/if}
-        <div class="text-[13px] leading-5 whitespace-pre-wrap">{added && addedBody ? addedBody : finding.body}</div>
+        <div class="text-[13px] leading-5 whitespace-pre-wrap" data-find="finding:{finding.id}:body">
+          {added && addedBody ? addedBody : finding.body}
+        </div>
         {#if finding.evidence}
-          <div class="finding-evidence">{finding.evidence}</div>
+          <div class="finding-evidence" data-find="finding:{finding.id}:evidence">{finding.evidence}</div>
         {/if}
         <div class="flex flex-wrap items-center gap-1.5">
           {#if added}

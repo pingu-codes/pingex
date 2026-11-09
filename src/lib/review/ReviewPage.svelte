@@ -24,6 +24,7 @@
   import { STEP_LABELS, stepHint } from "$lib/review/actions";
   import CommentBody from "$lib/review/CommentBody.svelte";
   import FileDiff, { type Composer, type LineSlot } from "$lib/review/FileDiff.svelte";
+  import FindBar from "$lib/review/FindBar.svelte";
   import { PendingReviewStore } from "$lib/review/pendingReview.svelte";
   import RetargetDialog from "$lib/review/RetargetDialog.svelte";
   import ReviewThread, { type HandTarget } from "$lib/review/ReviewThread.svelte";
@@ -35,6 +36,7 @@
     conversationTimeline,
     reviewVerb,
   } from "$lib/review/review";
+  import { type FindMatch, type FindText, type FindUnit, fileFindUnits, PATH_UNIT } from "$lib/review/reviewFind";
   import {
     type AskAgentRequest,
     type DiffSide,
@@ -96,6 +98,7 @@
     findingCounts,
     lineAnnotations,
     annotatedLines,
+    annotationText,
     agentReview,
     pending: pendingReview,
     prThreads = [],
@@ -124,6 +127,8 @@
     lineAnnotations?: Snippet<[LineSlot]>;
     /** Per path, the lines (`side:line`) `lineAnnotations` fills. */
     annotatedLines?: ReadonlyMap<string, ReadonlySet<string>>;
+    /** The text `lineAnnotations` shows at a line, for Cmd+F. */
+    annotationText?: (slot: LineSlot) => FindText[];
     agentReview?: Snippet;
     /** The pending review, when the caller adds to it too (agent
      *  Findings); else the page keeps its own. */
@@ -571,6 +576,62 @@
     });
   }
 
+  // --- find on this tab -----------------------------------------------------
+
+  let findOpen = $state(false);
+  let findQuery = $state("");
+  let findBar = $state<FindBar>();
+  /** The row Cmd+F's current match is in, kept mounted. */
+  let findRow = $state<{ path: string; row: string } | null>(null);
+  /** Where focus goes back to when the bar closes. */
+  let findReturnFocus: Element | null = null;
+
+  /** What the bar searches. Files lists its text, including rows that aren't
+   *  mounted; the other tabs are all in the DOM, so `null` has it read that. */
+  const findUnits = $derived.by<FindUnit[] | null>(() => {
+    if (tab === "threads") return [];
+    if (tab !== "files") return null;
+    return files.flatMap((file) => {
+      const lines = annotatedLines?.get(file.path);
+      return fileFindUnits(
+        file,
+        threadsByPath.get(file.path) ?? NO_THREADS,
+        pendingByPath.get(file.path) ?? NO_PENDING,
+        annotationText &&
+          ((side, line) => (lines?.has(`${side}:${line}`) ? annotationText({ path: file.path, side, line }) : [])),
+      );
+    });
+  });
+
+  function openFind() {
+    const selected = window.getSelection()?.toString() ?? "";
+    if (selected && selected.length <= 200 && !selected.includes("\n")) findQuery = selected;
+    helpOpen = false;
+    if (findOpen) {
+      findBar?.focus();
+      return;
+    }
+    findReturnFocus = document.activeElement;
+    findOpen = true;
+  }
+
+  function closeFind() {
+    findOpen = false;
+    findRow = null;
+    if (findReturnFocus instanceof HTMLElement && findReturnFocus.isConnected) findReturnFocus.focus();
+    findReturnFocus = null;
+  }
+
+  /** Reaching a match opens its file, without touching its viewed mark. A match
+   *  on the path shows in the header, so that one needn't. */
+  function revealFindMatch(match: FindMatch) {
+    const { path, id, row } = match.unit;
+    if (!path) return;
+    currentPath = path;
+    if (id !== PATH_UNIT) setOpen(path, true);
+    findRow = row ? { path, row } : null;
+  }
+
   // --- the keyboard --------------------------------------------------------
 
   function nextUnresolved() {
@@ -615,6 +676,15 @@
         break;
       case "submit":
         void submit();
+        break;
+      case "find":
+        openFind();
+        break;
+      case "findNext":
+        findBar?.next();
+        break;
+      case "findPrevious":
+        findBar?.previous();
         break;
       case "help":
         helpOpen = !helpOpen;
@@ -874,7 +944,7 @@
             </nav>
           </div>
 
-          <section aria-label="Diffs" class="flex min-w-0 flex-1 flex-col gap-2.5 px-5 py-4">
+          <section aria-label="Diffs" data-find-root class="flex min-w-0 flex-1 flex-col gap-2.5 px-5 py-4">
             {#if changes === "since" && since}
               <div class="rounded-md preset-tonal p-2 text-surface-600-400">
                 {#if !since.seenSha}
@@ -914,6 +984,7 @@
                 onRemoveEntry={(id) => pending.remove(id)}
                 afterLine={lineAnnotations}
                 annotated={annotatedLines?.get(file.path)}
+                revealRow={findRow?.path === file.path ? findRow.row : null}
               >
                 {#snippet thread(found)}
                   {@render threadCard(found)}
@@ -922,7 +993,11 @@
             {/each}
           </section>
         {:else}
-          <section aria-label={TABS.find((option) => option.value === tab)?.label} class="min-w-0 flex-1 px-5 py-4">
+          <section
+            aria-label={TABS.find((option) => option.value === tab)?.label}
+            data-find-root
+            class="min-w-0 flex-1 px-5 py-4"
+          >
             {#if !detail}
               <div class="placeholder h-40 animate-pulse rounded-xl"></div>
             {:else if tab === "conversation"}
@@ -981,6 +1056,20 @@
       </div>
     {/if}
   </div>
+
+  {#if findOpen}
+    <!-- Beside the Your review rail at its width, so it hides neither the rail nor its strip. -->
+    <FindBar
+      bind:this={findBar}
+      bind:query={findQuery}
+      {scroller}
+      scope="{tab}:{filter}:{changes}"
+      units={findUnits}
+      class="right-4 {reviewCollapsed ? "@3xl/review:right-14" : "@3xl/review:right-[19rem]"}"
+      onReveal={revealFindMatch}
+      onClose={closeFind}
+    />
+  {/if}
 
   {#if topbarHidden}
     <button

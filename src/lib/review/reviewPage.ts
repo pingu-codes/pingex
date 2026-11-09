@@ -28,6 +28,9 @@ export function diffRows(file: PrFile): DiffRow[] {
   return rows;
 }
 
+/** The line (`side:line`) a thread sits under. */
+export const threadLineKey = (thread: CommentThread) => `${thread.side ?? "RIGHT"}:${thread.line}`;
+
 /** A run of a file's diff rows that mounts as one (`DiffChunk.svelte`). */
 export type RowChunk = { key: string; rows: DiffRow[]; columns: number };
 
@@ -262,6 +265,9 @@ export type ReviewKeyCommand =
   | "toggleViewed"
   | "comment"
   | "submit"
+  | "find"
+  | "findNext"
+  | "findPrevious"
   | "help";
 
 /** The review page's shortcuts, as the Shortcuts card lists them. */
@@ -272,6 +278,7 @@ export const REVIEW_SHORTCUTS: { keys: string[]; label: string }[] = [
   { keys: ["v"], label: "Viewed and collapse" },
   { keys: ["c"], label: "Comment on selected lines" },
   { keys: ["⌘↵"], label: "Submit review" },
+  { keys: ["⌘F"], label: "Find on this tab" },
   { keys: ["?"], label: "Shortcuts" },
 ];
 
@@ -279,6 +286,12 @@ export const REVIEW_SHORTCUTS: { keys: string[]; label: string }[] = [
  *  field's, except ⌘↵ which submits from anywhere. */
 export function reviewKey(event: KeyboardEvent): ReviewKeyCommand | null {
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") return "submit";
+  if ((event.metaKey || event.ctrlKey) && !event.altKey) {
+    const key = event.key.toLowerCase();
+    // With Shift, ⌘F is the sidebar's thread search.
+    if (key === "f" && !event.shiftKey) return "find";
+    if (key === "g") return event.shiftKey ? "findPrevious" : "findNext";
+  }
   if (event.metaKey || event.ctrlKey || event.altKey) return null;
   const target = event.target as HTMLElement | null;
   if (target?.closest?.("input, textarea, select, [contenteditable='true']")) return null;

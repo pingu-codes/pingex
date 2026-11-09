@@ -23,6 +23,7 @@
   import LineComposer from "$lib/review/LineComposer.svelte";
   import { nearViewport, scrolling } from "$lib/review/nearViewport";
   import type { CommentThread } from "$lib/review/review";
+  import { PATH_UNIT } from "$lib/review/reviewFind";
   import {
     chunkRows,
     type DiffRow,
@@ -36,6 +37,7 @@
     type LineRange,
     rangeLabel,
     rangeText,
+    threadLineKey,
   } from "$lib/review/reviewPage";
   import type { PendingEntry, PrFile } from "$lib/types";
 
@@ -62,6 +64,7 @@
     thread,
     afterLine,
     annotated,
+    revealRow = null,
   }: {
     file: PrFile;
     open: boolean;
@@ -89,6 +92,8 @@
     afterLine?: Snippet<[LineSlot]>;
     /** The lines (`side:line`) `afterLine` renders something under. */
     annotated?: ReadonlySet<string>;
+    /** A row (`DiffRow.key`) to keep mounted: Cmd+F's current match is in it. */
+    revealRow?: string | null;
   } = $props();
 
   const rows = $derived(diffRows(file));
@@ -103,8 +108,7 @@
     }
     return at;
   });
-  const threadKey = (candidate: CommentThread) => `${candidate.side ?? "RIGHT"}:${candidate.line}`;
-  const threadsByLine = $derived(groupBy(threads, threadKey));
+  const threadsByLine = $derived(groupBy(threads, threadLineKey));
   const pendingByLine = $derived(
     groupBy(pending, (entry) => {
       const at = entryLocation(entry);
@@ -113,7 +117,7 @@
   );
   // Most files have no threads: skip building their rows just to check.
   const outside = $derived(
-    threads.length === 0 ? threads : threads.filter((candidate) => !chunkOf.has(threadKey(candidate))),
+    threads.length === 0 ? threads : threads.filter((candidate) => !chunkOf.has(threadLineKey(candidate))),
   );
   const mine = $derived(selection?.path === file.path ? selection : null);
   const composing = $derived(composer?.range.path === file.path ? composer : null);
@@ -130,6 +134,9 @@
     for (const line of annotated ?? []) hold(line);
     if (mine) hold(`${mine.side}:${mine.end}`);
     if (composing) hold(`${composing.range.side}:${composing.range.end}`);
+    // By row key, not line: the row may be a hunk header.
+    const revealed = revealRow && chunks.find((chunk) => chunk.rows.some((row) => row.key === revealRow));
+    if (revealed) keys.add(revealed.key);
     return keys;
   });
   const toggleLabel = $derived(`Toggle ${file.path}`);
@@ -173,7 +180,13 @@
   // its rows at once, so jumping to one works.
   let seen = $state(false);
   const rowsReady = $derived(
-    seen || threads.length > 0 || pending.length > 0 || (annotated?.size ?? 0) > 0 || !!mine || !!composing,
+    seen ||
+      threads.length > 0 ||
+      pending.length > 0 ||
+      (annotated?.size ?? 0) > 0 ||
+      !!mine ||
+      !!composing ||
+      !!revealRow,
   );
   /** `rows.length` without building them: a hunk header and its lines. */
   const rowCount = $derived(file.hunks.reduce((sum, hunk) => sum + 1 + hunk.lines.length, 0));
@@ -230,7 +243,9 @@
           <ChevronRight size={14} aria-hidden="true" />
         {/if}
       </button>
-      <span class="min-w-0 truncate font-mono text-[11px] font-semibold" title={file.path}>{file.path}</span>
+      <span class="min-w-0 truncate font-mono text-[11px] font-semibold" title={file.path} data-find={PATH_UNIT}
+        >{file.path}</span
+      >
       <span class="text-success-500">+{file.additions}</span><span class="text-error-500">−{file.deletions}</span>
       {#if counts.findings > 0}
         <span class="status-badge preset-tonal-primary">{badgeCount(counts.findings, "finding", "findings")}</span>
@@ -313,7 +328,7 @@
 {#snippet diffRow(row: DiffRow)}
   {#if row.kind === "hunk"}
     <div class="ln bg-surface-100-900 text-surface-500">
-      <span></span><span></span><span></span><span>{row.header}</span>
+      <span></span><span></span><span></span><span data-find={row.key}>{row.header}</span>
     </div>
   {:else}
     {@const selected = inRange(mine, file.path, row.side, row.number)}
@@ -329,7 +344,7 @@
         <span>{row.line.oldLine ?? ""}</span>{@render lineNumber(row, selected)}
       {/if}
       <span>{row.line.kind === "add" ? "+" : row.line.kind === "del" ? "−" : ""}</span>
-      <span
+      <span data-find={row.key}
         >{#if html !== undefined}
           {@html html}
         {:else}
@@ -404,10 +419,11 @@
     <span class="status-badge preset-tonal">Pending</span>
     <div class="min-w-0 grow">
       <div class="font-mono text-[11px] text-surface-500">{entryLabel(entry)}</div>
-      <CommentBody body={entry.body} />
+      <CommentBody body={entry.body} findId="pending:{entry.id}" />
       {#if entry.kind === "suggestion"}
         <pre
           class="mt-1 rounded bg-surface-100-900 p-1.5 font-mono text-[11px] whitespace-pre-wrap"
+          data-find="pending:{entry.id}:replacement"
         >{entry.replacement}</pre>
       {/if}
     </div>

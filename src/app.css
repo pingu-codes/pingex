@@ -253,6 +253,20 @@ button {
   padding: 0;
 }
 
+/* Cmd+F's matches on the review page (`findPainter.ts`). Only colours are
+   allowed here. The attribute stands in where the Highlight API is missing. */
+::highlight(review-find) {
+  background-color: color-mix(in oklab, var(--color-warning-500) 35%, transparent);
+}
+::highlight(review-find-current) {
+  background-color: var(--color-warning-500);
+  color: var(--color-warning-contrast-500);
+}
+[data-find-current] {
+  outline: 2px solid var(--color-warning-500);
+  outline-offset: -2px;
+}
+
 /* Highlighted code in review diff rows (`.ln`). The rows sit on the theme's
    surface, not `.code-dark`, so in light mode the tokens take highlight.js's
    github (light) colours; in dark mode the global github-dark ones apply.

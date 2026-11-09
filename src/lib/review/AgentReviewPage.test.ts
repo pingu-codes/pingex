@@ -52,6 +52,24 @@ describe("agent findings on the review page", () => {
     expect(within(summary).getByText(/3 findings · 0 added to your review · 0 dismissed/)).toBeInTheDocument();
   });
 
+  it("⌘F finds a finding's text and paints it, on a card and on a merged line", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const finding = await card("Read errors lose the path");
+    await user.keyboard("{Meta>}f{/Meta}");
+    const input = screen.getByRole("textbox", { name: "Find on this tab" });
+
+    // Marked only if the element's text equals the unit's, which offsets rely on.
+    await user.type(input, "no try/catch");
+    await screen.findByText("1 of 1");
+    await waitFor(() => expect(finding.querySelector("[data-find-current]")).toHaveTextContent(/no try\/catch/));
+
+    await user.clear(input);
+    await user.type(input, "Same as tomasz's loader.ts:6 comment");
+    await screen.findByText("1 of 1");
+    await waitFor(() => expect(document.querySelector("[data-find-current]")).toHaveTextContent(/Same as tomasz/));
+  });
+
   it("adds a finding to my review, and lets me edit what it posts", async () => {
     const user = userEvent.setup();
     renderPage();

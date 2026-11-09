@@ -221,6 +221,167 @@ describe("ReviewPage", () => {
     expect(screen.getByText("Viewed 1 of 2")).toBeInTheDocument();
   });
 
+  describe("find on this tab", () => {
+    const findInput = () => screen.getByRole("textbox", { name: "Find on this tab" });
+    async function search(user: ReturnType<typeof userEvent.setup>, query: string) {
+      await user.keyboard("{Meta>}f{/Meta}");
+      await user.clear(findInput());
+      await user.type(findInput(), query);
+    }
+
+    it("opens with ⌘F or Ctrl+F, focused, and leaves ⌘⇧F to the sidebar", async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await opened();
+
+      await user.keyboard("{Meta>}{Shift>}f{/Shift}{/Meta}");
+      expect(screen.queryByRole("textbox", { name: "Find on this tab" })).not.toBeInTheDocument();
+
+      await user.keyboard("{Control>}f{/Control}");
+      expect(findInput()).toHaveFocus();
+    });
+
+    it("counts matches in code and comments, and steps through them, wrapping", async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await opened();
+
+      // The removed and added lines in the code, and THREAD_2's rendered comment.
+      await search(user, "path is required");
+      await screen.findByText("1 of 2");
+      await user.keyboard("{Enter}");
+      await screen.findByText("2 of 2");
+      await user.keyboard("{Enter}");
+      await screen.findByText("1 of 2");
+      await user.keyboard("{Shift>}{Enter}{/Shift}");
+      await screen.findByText("2 of 2");
+    });
+
+    it("searches what a comment shows, not its markdown", async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await opened();
+
+      await search(user, "feels arbitrary");
+      await screen.findByText("1 of 1");
+      await search(user, "**arbitrary**");
+      await screen.findByText("No results");
+    });
+
+    it("marks the current match's row, and ⌘G moves it", async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await opened();
+
+      await search(user, "readFileSync");
+      await screen.findByText(/^1 of \d+$/);
+      await waitFor(() => expect(document.querySelector("[data-find-current]")).toHaveTextContent("import"));
+      await user.keyboard("{Meta>}g{/Meta}");
+      await screen.findByText(/^2 of \d+$/);
+      await waitFor(() => expect(document.querySelector("[data-find-current]")).toHaveTextContent("return"));
+    });
+
+    it("reaching a match opens its collapsed file without unmarking it viewed", async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await opened();
+      await user.keyboard("]v");
+      expect(screen.queryByText("How to review a pull request.")).not.toBeInTheDocument();
+
+      await search(user, "How to review");
+      await screen.findByText("1 of 1");
+      expect(await screen.findByText("How to review a pull request.")).toBeInTheDocument();
+      expect(screen.getByRole("checkbox", { name: "Viewed docs/review.md" })).toBeChecked();
+    });
+
+    it("a match on a collapsed file's path leaves it collapsed", async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await opened();
+      await user.keyboard("]v");
+
+      await search(user, "docs/review");
+      await screen.findByText("1 of 1");
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      expect(screen.getByRole("button", { name: "Toggle docs/review.md" })).toHaveAttribute("aria-expanded", "false");
+    });
+
+    it("follows the comment filter, and re-runs on another tab", async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await opened();
+
+      await search(user, "Typo in the heading");
+      await screen.findByText("1 of 1");
+      await user.click(screen.getByRole("button", { name: /^Unresolved/ }));
+      await screen.findByText("No results");
+      await user.click(screen.getByRole("button", { name: /^All comments/ }));
+      await screen.findByText("1 of 1");
+
+      await user.click(screen.getByRole("radio", { name: /^Conversation/ }));
+      await waitFor(() => expect(findInput()).toHaveValue("Typo in the heading"));
+      await screen.findByText("1 of 1");
+      // Only the conversation's own text: nothing from the other tab's rows.
+      await search(user, "How to review");
+      await screen.findByText("No results");
+    });
+
+    it("finds a phrase across a bold word on the conversation tab", async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await opened();
+      await user.click(screen.getByRole("radio", { name: /^Conversation/ }));
+
+      await search(user, "feels arbitrary. Can");
+      await screen.findByText("1 of 1");
+    });
+
+    it("Esc closes it and hands focus back; ⌘F keeps the last query", async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await opened();
+      const viewed = screen.getByRole("checkbox", { name: "Viewed src/lib/loader.ts" });
+      viewed.focus();
+
+      await search(user, "readFileSync");
+      await screen.findByText(/^1 of \d+$/);
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("textbox", { name: "Find on this tab" })).not.toBeInTheDocument();
+      expect(viewed).toHaveFocus();
+      expect(document.querySelector("[data-find-current]")).toBeNull();
+
+      await user.keyboard("{Meta>}f{/Meta}");
+      expect(findInput()).toHaveValue("readFileSync");
+    });
+
+    it("Enter in the bar moves, and with ⌘ it does not submit the review", async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await opened();
+
+      await search(user, "readFileSync");
+      await screen.findByText(/^1 of \d+$/);
+      await user.keyboard("{Meta>}{Enter}{/Meta}");
+      await screen.findByText(/^2 of \d+$/);
+      expect(commands.reviewSubmitPendingReview).not.toHaveBeenCalled();
+
+      // Out of the bar, the same keys still submit.
+      await user.keyboard("{Escape}");
+      await user.keyboard("{Meta>}{Enter}{/Meta}");
+      await waitFor(() => expect(commands.reviewSubmitPendingReview).toHaveBeenCalled());
+    });
+
+    it("typing in the bar doesn't run the page's letter shortcuts", async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await opened();
+
+      await search(user, "v]");
+      expect(screen.getByRole("checkbox", { name: "Viewed src/lib/loader.ts" })).not.toBeChecked();
+      expect(screen.getByText("Viewed 0 of 2")).toBeInTheDocument();
+    });
+  });
+
   it("marks where new conversation comments start", async () => {
     const user = userEvent.setup();
     renderPage({ seenAt: "2026-11-04T12:00:00Z" });

@@ -200,6 +200,49 @@ test.describe("perf benchmark", () => {
     });
   }
 
+  // Every chunk that mounts or unmounts repaints the page's matches.
+  test("scrolling stays smooth with a common find query open", async ({ page }) => {
+    const diffs = await openLargeDiff(page, MANY_FILES);
+    await page.keyboard.press("ControlOrMeta+f");
+    await page.getByRole("textbox", { name: "Find on this tab" }).fill("value");
+    await expect(page.getByText(/^1 of /)).toBeVisible();
+    await scrollFrames(diffs, 0, 10);
+    const result = summarize(await scrollFrames(diffs, 80, 180));
+    report(
+      `scroll with find ${MANY_FILES}: p50 ${result.p50.toFixed(1)}ms, p95 ${result.p95.toFixed(1)}ms, ${result.long}/${result.frames} frames over 32ms`,
+    );
+    expect(result.p95).toBeLessThan(40);
+    expect(result.long).toBeLessThanOrEqual(result.frames * 0.05);
+  });
+
+  test("a search of a many-file PR answers within a few frames", async ({ page }) => {
+    await openLargeDiff(page, MANY_FILES);
+    await page.keyboard.press("ControlOrMeta+f");
+    const input = page.getByRole("textbox", { name: "Find on this tab" });
+    await input.fill("value");
+    await expect(page.getByText(/^1 of /)).toBeVisible();
+    // A word that stays unmatched: every one of the 30,000 lines gets searched.
+    const elapsed = await page.evaluate(
+      () =>
+        new Promise<number>((resolve) => {
+          const label = document.querySelector("[role=search] [aria-live]")!;
+          const box = document.querySelector<HTMLInputElement>("[role=search] input")!;
+          const observer = new MutationObserver(() => {
+            if (!label.textContent?.includes("No results")) return;
+            observer.disconnect();
+            resolve(performance.now() - start);
+          });
+          observer.observe(label, { childList: true, characterData: true, subtree: true });
+          const start = performance.now();
+          box.value = "nothing matches this";
+          box.dispatchEvent(new Event("input", { bubbles: true }));
+        }),
+    );
+    // The debounce, then the search itself.
+    report(`search ${MANY_FILES}: ${elapsed.toFixed(0)}ms including the 120ms debounce`);
+    expect(elapsed).toBeLessThan(120 + 100);
+  });
+
   test("opening a many-file PR never blocks for long", async ({ page }) => {
     await page.goto(`/?largeDiff=${MANY_FILES}`);
     await page.getByRole("button", { name: "Pull requests" }).first().click();

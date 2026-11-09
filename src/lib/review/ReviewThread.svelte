@@ -208,7 +208,7 @@
               </button>
             </div>
           {:else}
-            <CommentBody class="pl-6" body={comment.body} />
+            <CommentBody class="pl-6" body={comment.body} findId="comment:{comment.id}" />
           {/if}
         </div>
       {/snippet}

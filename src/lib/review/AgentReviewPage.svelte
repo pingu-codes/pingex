@@ -19,6 +19,7 @@
   import { readOnly, startPrThread } from "$lib/review/prThreads";
   import ReviewPage from "$lib/review/ReviewPage.svelte";
   import type { HandTarget } from "$lib/review/ReviewThread.svelte";
+  import { findingTexts } from "$lib/review/reviewFind";
   import { type AskAgentRequest, askAgentPrompt, diffRows, fileName } from "$lib/review/reviewPage";
   import { startTurn } from "$lib/services/api";
   import { activeTurns } from "$lib/services/codexEvents.svelte";
@@ -238,6 +239,15 @@
   findingCounts={anyRun ? findings.counts : undefined}
   lineAnnotations={annotations}
   annotatedLines={findings.linesByPath}
+  annotationText={(slot) =>
+    findings.at(slot.path, slot.side, slot.line).flatMap((finding) =>
+      findingTexts(finding, {
+        agentLabel: harnessName(runOf(finding)?.request.harness),
+        added: findings.isAdded(finding),
+        addedBody: findings.entryFor(finding)?.body ?? null,
+        sameAs: sameAs(finding),
+      }),
+    )}
   agentReview={summary}
 />
 
