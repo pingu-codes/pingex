@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR 0007
 ---
 
 # Review checkouts are Pingex-owned detached worktrees, promoted in place

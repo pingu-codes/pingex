@@ -89,7 +89,7 @@ describe("nestProjects", () => {
         "/repo": [
           main,
           worktreeEntry({ path: "/tmp/a", isTemp: true }),
-          worktreeEntry({ path: "/home/.codex/review-checkouts/repo/pr-9", isReviewCheckout: true }),
+          worktreeEntry({ path: "/home/.codex/pr-worktrees/repo/pr-9", isManagedPrWorktree: true }),
           worktreeEntry({ path: "/gone", missingDir: true }),
           worktreeEntry({ path: "/stale", prunable: true }),
         ],

@@ -9,9 +9,11 @@
   import { threadById } from "$lib/app/appData.svelte";
   import { openThreadInCwd } from "$lib/app/navigation.svelte";
   import { defaultReviewHarness, refreshAgentReviews, rerunAgentReview } from "$lib/review/agentReviews.svelte";
+  import { checkoutTarget } from "$lib/review/checkoutTarget";
   import type { LineSlot } from "$lib/review/FileDiff.svelte";
   import FindingCard from "$lib/review/FindingCard.svelte";
   import { FindingsStore } from "$lib/review/findings.svelte";
+  import PrWorktreeActions from "$lib/review/PrWorktreeActions.svelte";
   import { PendingReviewStore } from "$lib/review/pendingReview.svelte";
   import { ensurePrLinks, prLinks } from "$lib/review/prLinks.svelte";
   import { readOnly, startPrThread } from "$lib/review/prThreads";
@@ -22,7 +24,7 @@
   import { activeTurns } from "$lib/services/codexEvents.svelte";
   import { commands } from "$lib/services/homeRouting";
   import { toastError, toaster } from "$lib/toaster";
-  import type { AgentReview, CheckoutStep, CheckoutTarget, Finding, Inbox, PrDetail } from "$lib/types";
+  import type { AgentReview, CheckoutStep, CheckoutTarget, Finding, Inbox, PrCheckout, PrDetail } from "$lib/types";
   import { harnessName } from "$lib/utils/capabilities";
   import { errorMessage } from "$lib/utils/errors";
   import { relativeTime } from "$lib/utils/format";
@@ -36,7 +38,9 @@
     onOpenPr,
     onRunLocally,
     onDetail,
-    step = "noCheckout",
+    checkout = null,
+    onWorkOnPr,
+    onPushToPr,
     seenAt = null,
   }: {
     repoDir: string;
@@ -49,7 +53,12 @@
     onOpenPr?: (number: number) => void;
     onRunLocally?: (detail: PrDetail, action: "runLocally" | "openInEditor") => void;
     onDetail?: (detail: PrDetail) => void;
-    step?: CheckoutStep;
+    /** The PR's worktree, if it has one. */
+    checkout?: PrCheckout | null;
+    /** Work on this PR: a thread in its worktree, making one if needed. */
+    onWorkOnPr?: (detail: PrDetail) => void;
+    /** Push the worktree's commits to the PR. */
+    onPushToPr?: (detail: PrDetail) => void;
     seenAt?: string | null;
   } = $props();
 
@@ -110,13 +119,7 @@
   });
 
   function targetOf(pr: PrDetail): CheckoutTarget {
-    return {
-      number: pr.summary.number,
-      headRef: pr.summary.headRef,
-      headSha: pr.headSha,
-      mine: !!viewer && pr.summary.author === viewer,
-      stack: null,
-    };
+    return checkoutTarget({ ...pr.summary, headSha: pr.headSha }, !!viewer && pr.summary.author === viewer);
   }
 
   function openThread(threadId: string) {
@@ -197,7 +200,6 @@
 
   const STEP_MODE: Record<CheckoutStep, string> = {
     noCheckout: "diff review, no checkout",
-    reviewCheckout: "review checkout",
     worktree: "worktree",
   };
 
@@ -206,6 +208,15 @@
     return relativeTime(at / 1000, { granularity: "minute" });
   }
 </script>
+
+{#snippet headerActions()}
+  <PrWorktreeActions
+    {checkout}
+    mine={!!viewer && detail?.summary.author === viewer}
+    onWork={detail && onWorkOnPr ? () => detail && onWorkOnPr(detail) : undefined}
+    onPush={detail && onPushToPr ? () => detail && onPushToPr(detail) : undefined}
+  />
+{/snippet}
 
 <ReviewPage
   {repoDir}
@@ -219,7 +230,8 @@
     detail = next;
     onDetail?.(next);
   }}
-  {step}
+  step={checkout?.step ?? "noCheckout"}
+  {headerActions}
   {seenAt}
   {pending}
   {prThreads}

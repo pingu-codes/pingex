@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { closeAllDialogs } from "$lib/app/dialogs.svelte";
+import { view } from "$lib/app/navigation.svelte";
 import DialogHost from "$lib/components/DialogHost.svelte";
 import { resetPrLinks } from "$lib/review/prLinks.svelte";
 import { commands } from "$lib/services/homeRouting";
@@ -42,11 +43,20 @@ describe("inbox checkout handlers", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Create worktree" }));
     await done;
 
-    const path = "/Users/ciaran/.codex/worktrees/codex-custom/feat-maki-acp";
+    const path = "/Users/ciaran/.codex/pr-worktrees/codex-custom/pr-418";
     await waitFor(() => expect(commands.startThread).toHaveBeenCalledWith(path, null, null));
     const input = vi.mocked(commands.startTurn).mock.calls.at(-1)?.[1] as { text: string }[];
     expect(input[0].text).toContain("expected 2, got 3");
     expect((await commands.reviewPrLinks()).map((link) => link.prNumber)).toEqual([418]);
+  });
+
+  it("Work on this PR makes a worktree, then opens a draft there", async () => {
+    render(DialogHost);
+    const done = handlers.newThread(repoDir, pr);
+    await userEvent.click(await screen.findByRole("button", { name: "Create worktree" }));
+    await done;
+
+    expect(view.draftCwd).toBe("/Users/ciaran/.codex/pr-worktrees/codex-custom/pr-418");
   });
 
   it("Create worktrees skips a PR that already has one", async () => {

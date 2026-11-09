@@ -1035,6 +1035,8 @@ export const previewPrs: PrSummary[] = [
     headRef: "feature/pr-review",
     updatedAt: "2026-07-22T14:30:00Z",
     url: "https://github.com/ciaran/codex-custom/pull/128",
+    headRepo: "ciaran/codex-custom",
+    maintainerCanModify: false,
   },
   {
     number: 126,
@@ -1046,6 +1048,8 @@ export const previewPrs: PrSummary[] = [
     headRef: "feature/worktrees",
     updatedAt: "2026-07-21T09:10:00Z",
     url: "https://github.com/ciaran/codex-custom/pull/126",
+    headRepo: "ciaran/codex-custom",
+    maintainerCanModify: false,
   },
 ];
 

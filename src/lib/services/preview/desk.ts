@@ -227,6 +227,8 @@ const threadedDetail: PrDetail = withAnchors({
     headRef: "mira-k/handshake-retry",
     updatedAt: "2026-11-05T09:00:00Z",
     url: url("ciaran/codex-custom", THREADED_PR),
+    headRepo: "ciaran/codex-custom",
+    maintainerCanModify: false,
   },
   body: "The app-server sometimes answers `initialize` late on a cold start. Retry the handshake three times with backoff.",
   headSha: sha(THREADED_PR),
@@ -522,6 +524,8 @@ function basePrDetail(repoDir: string, number: number): PrDetail {
       headRef: pr.headRef,
       updatedAt: pr.updatedAt,
       url: pr.url,
+      headRepo: "ciaran/codex-custom",
+      maintainerCanModify: false,
     };
     detail.headSha = pr.headSha;
     detail.baseSha = pr.baseSha;
@@ -556,7 +560,7 @@ export const previewAgentReviews: PreviewAgentReview[] = [
     repo: "ciaran/codex-custom",
     number: 403,
     harness: "codex",
-    step: "reviewCheckout",
+    step: "worktree",
     status: "queued",
     startedAt: null,
   },

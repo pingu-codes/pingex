@@ -1,12 +1,9 @@
 //! What each desk action needs on disk: one table, shared with the frontend.
 //!
-//! A PR moves up the checkout steps (No checkout, Review checkout, Worktree)
-//! only when an action needs it, and only as far as that action needs. The
-//! table is the canvas's Model board, "What each action needs". It is
-//! exported into `bindings.ts` as `DESK_ACTION_STEPS`; `src/lib/review/
-//! actions.ts` reads it there, so the two cannot drift. Buttons read it to
-//! name the step they create; stepping a PR up goes only as far as
-//! `DeskAction::needs`.
+//! A PR is either not on disk (No checkout) or in a worktree, and moves up only
+//! when an action needs it. The table is exported into `bindings.ts` as
+//! `DESK_ACTION_STEPS`; `src/lib/review/actions.ts` reads it there, so the two
+//! cannot drift. Buttons read it to name the step they create.
 //!
 //! Adding an action: add a `DeskAction` variant, its row in `needs`, its row
 //! in the test below, and its label in `src/lib/review/actions.ts`.
@@ -15,18 +12,31 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-/// Where a PR's code lives, lowest first. Each step adds to the one below.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, specta::Type,
-)]
+/// Where a PR's code lives, lowest first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum CheckoutStep {
     /// The PR's commits as fetched refs; the working tree is untouched.
     NoCheckout,
-    /// A detached, Pingex-owned checkout at the PR head that can run code.
-    ReviewCheckout,
-    /// A named worktree on the PR's git branch, where commits and pushes go.
+    /// A worktree on a local branch at the PR's head, where agents and people
+    /// can build, run and commit.
     Worktree,
+}
+
+/// By hand because stored agent reviews may still say `reviewCheckout`, the
+/// detached step `Worktree` replaced, and the bindings exporter refuses
+/// `#[serde(alias)]`.
+impl<'de> Deserialize<'de> for CheckoutStep {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        match String::deserialize(deserializer)?.as_str() {
+            "noCheckout" => Ok(Self::NoCheckout),
+            "worktree" | "reviewCheckout" => Ok(Self::Worktree),
+            other => Err(serde::de::Error::unknown_variant(
+                other,
+                &["noCheckout", "worktree"],
+            )),
+        }
+    }
 }
 
 /// A desk action that touches a PR's code, or explicitly does not.
@@ -53,6 +63,8 @@ pub(crate) enum DeskAction {
     AgentReviewWithTests,
     RunLocally,
     OpenInEditor,
+    /// Start a thread in the PR's worktree, to build, run, measure or change it.
+    WorkOnPr,
     FixInThread,
     AddressReview,
     FixCi,
@@ -63,7 +75,7 @@ pub(crate) enum DeskAction {
 }
 
 impl DeskAction {
-    pub(crate) const ALL: [DeskAction; 21] = [
+    pub(crate) const ALL: [DeskAction; 22] = [
         Self::Read,
         Self::Comment,
         Self::SubmitReview,
@@ -79,6 +91,7 @@ impl DeskAction {
         Self::AgentReviewWithTests,
         Self::RunLocally,
         Self::OpenInEditor,
+        Self::WorkOnPr,
         Self::FixInThread,
         Self::AddressReview,
         Self::FixCi,
@@ -102,16 +115,27 @@ impl DeskAction {
             | Self::MarkReady
             | Self::DiffReview
             | Self::AskAgent => CheckoutStep::NoCheckout,
-            Self::AgentReviewWithTests | Self::RunLocally | Self::OpenInEditor => {
-                CheckoutStep::ReviewCheckout
-            }
-            Self::FixInThread
+            Self::AgentReviewWithTests
+            | Self::RunLocally
+            | Self::OpenInEditor
+            | Self::WorkOnPr
+            | Self::FixInThread
             | Self::AddressReview
             | Self::FixCi
             | Self::Push
             | Self::Restack
             | Self::ResolveConflicts => CheckoutStep::Worktree,
         }
+    }
+
+    /// Whether the repository's PR worktree policy decides if this action may
+    /// make a worktree. The others are explicit requests to change the PR, so
+    /// they always ask and are never refused.
+    pub(crate) const fn follows_policy(self) -> bool {
+        matches!(
+            self,
+            Self::AgentReviewWithTests | Self::RunLocally | Self::OpenInEditor
+        )
     }
 }
 
@@ -127,10 +151,9 @@ pub(crate) fn action_steps() -> BTreeMap<DeskAction, CheckoutStep> {
 mod tests {
     use super::*;
 
-    /// The "What each action needs" table on the canvas's Model board.
     #[test]
-    fn each_action_needs_the_step_the_model_board_gives_it() {
-        use CheckoutStep::{NoCheckout, ReviewCheckout, Worktree};
+    fn each_action_needs_the_step_it_works_at() {
+        use CheckoutStep::{NoCheckout, Worktree};
         use DeskAction::*;
         let expected = [
             (Read, NoCheckout),
@@ -145,9 +168,10 @@ mod tests {
             (MarkReady, NoCheckout),
             (DiffReview, NoCheckout),
             (AskAgent, NoCheckout),
-            (AgentReviewWithTests, ReviewCheckout),
-            (RunLocally, ReviewCheckout),
-            (OpenInEditor, ReviewCheckout),
+            (AgentReviewWithTests, Worktree),
+            (RunLocally, Worktree),
+            (OpenInEditor, Worktree),
+            (WorkOnPr, Worktree),
             (FixInThread, Worktree),
             (AddressReview, Worktree),
             (FixCi, Worktree),
@@ -168,8 +192,14 @@ mod tests {
     #[test]
     fn the_exported_table_names_actions_and_steps_as_the_frontend_does() {
         let table = serde_json::to_value(action_steps()).unwrap();
-        assert_eq!(table["runLocally"], "reviewCheckout");
+        assert_eq!(table["runLocally"], "worktree");
         assert_eq!(table["fixCi"], "worktree");
         assert_eq!(table["read"], "noCheckout");
+    }
+
+    #[test]
+    fn a_stored_review_checkout_step_reads_as_a_worktree() {
+        let step: CheckoutStep = serde_json::from_str("\"reviewCheckout\"").unwrap();
+        assert_eq!(step, CheckoutStep::Worktree);
     }
 }

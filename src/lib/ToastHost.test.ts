@@ -7,7 +7,7 @@ describe("ToastHost", () => {
   it("shows an Undo button that runs the undo", async () => {
     render(ToastHost);
     const undo = vi.fn();
-    toastUndo("Created review checkout pr-409", undo, "From jo-r/usage-meter");
+    toastUndo("Created worktree pr-409", undo, "From jo-r/usage-meter");
 
     await fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
 

@@ -1,10 +1,10 @@
 <script lang="ts">
   /**
-   * The confirmation a step plan asks for before a PR moves up a checkout
-   * step, or before pushing to someone else's git branch. Resolves with the
-   * chosen way up, or `null` on Cancel.
+   * The confirmation a step plan asks for before a PR gets a worktree, or
+   * before pushing to someone else's git branch. Resolves with the choice, or
+   * `null` on Cancel.
    */
-  import { FolderGit2, GitBranch, Upload } from "@lucide/svelte";
+  import { GitBranch, Upload } from "@lucide/svelte";
   import type { DialogClose } from "$lib/app/dialogs.svelte";
   import DialogShell from "$lib/components/DialogShell.svelte";
   import Toggle from "$lib/components/Toggle.svelte";
@@ -12,9 +12,8 @@
   import type { CheckoutTarget, DeskAction, StepConfirm } from "$lib/types";
 
   export type StepChoice = {
-    /** How to go up: a review checkout, promoting it, a new worktree, or
-     *  just going ahead (pushing). */
-    way: "reviewCheckout" | "promote" | "worktree" | "proceed";
+    /** Make the worktree, or just go ahead (pushing). */
+    way: "worktree" | "proceed";
     /** "Don't ask again for <repository>". */
     dontAskAgain: boolean;
   };
@@ -24,17 +23,21 @@
     action,
     target,
     repoName,
-    reviewCheckoutPath,
+    worktreePath,
     close,
   }: {
     confirm: StepConfirm;
     action: DeskAction;
     target: CheckoutTarget;
     repoName: string;
-    /** Where a review checkout goes or already is. */
-    reviewCheckoutPath: string;
+    /** Where the worktree goes or already is. */
+    worktreePath: string;
     close: DialogClose<StepChoice>;
   } = $props();
+
+  /** Actions the repository's policy decides for, so "Don't ask again" means
+   *  something. The rest change the PR and always ask. */
+  const FOLLOWS_POLICY: DeskAction[] = ["agentReviewWithTests", "runLocally", "openInEditor"];
 
   let dontAskAgain = $state(false);
   const actionLabel = $derived(ACTION_LABELS[action]);
@@ -42,8 +45,6 @@
 
   const title = $derived(
     {
-      createReviewCheckout: `Create a review checkout of #${target.number}?`,
-      promoteOrCreateWorktree: `Make a worktree for #${target.number}?`,
       createWorktree: `Create a worktree for #${target.number}?`,
       pushToTheirBranch: `Push to ${target.headRef}?`,
     }[confirm],
@@ -54,41 +55,31 @@
   {#snippet icon()}
     {#if confirm === "pushToTheirBranch"}
       <Upload size={17} class="text-warning-500" />
-    {:else if confirm === "createReviewCheckout"}
-      <FolderGit2 size={17} class="text-primary-500" />
     {:else}
       <GitBranch size={17} class="text-primary-500" />
     {/if}
   {/snippet}
 
-  {#if confirm === "createReviewCheckout"}
+  {#if confirm === "createWorktree"}
     <p class="mt-3 text-sm leading-6 text-surface-600-400">
       {actionLabel}
-      needs a review checkout: a detached checkout at the PR head that Pingex owns. It stays out of your Worktrees list,
-      and agents there can't commit or push.
+      needs a worktree.
+      {#if target.mine}
+        It goes on <span class="font-mono">{target.headRef}</span>, where you and agents can build, run, commit and
+        push.
+      {:else}
+        Agents can build, run and commit there. Nothing reaches the author's branch until you push.
+      {/if}
     </p>
     <p class="mt-2 rounded-md bg-surface-100-900 px-2 py-1 font-mono text-[11px] text-surface-700-300">
-      {reviewCheckoutPath}
+      {worktreePath}
     </p>
-    <div class="mt-3 flex items-center gap-3 text-sm">
-      <Toggle checked={dontAskAgain} label="Don't ask again for {repoName}" onChange={(on) => (dontAskAgain = on)} />
-      <span>Don't ask again for {repoName}</span>
-    </div>
-  {:else if confirm === "promoteOrCreateWorktree"}
-    <p class="mt-3 text-sm leading-6 text-surface-600-400">
-      {actionLabel}
-      needs a worktree on <span class="font-mono">{target.headRef}</span>. Promoting the review checkout keeps its path,
-      so threads running there keep their place.
-    </p>
-    <p class="mt-2 rounded-md bg-surface-100-900 px-2 py-1 font-mono text-[11px] text-surface-700-300">
-      {reviewCheckoutPath}
-    </p>
-  {:else if confirm === "createWorktree"}
-    <p class="mt-3 text-sm leading-6 text-surface-600-400">
-      {actionLabel}
-      needs a worktree on <span class="font-mono">{target.headRef}</span>, where you and agents can commit and push. It
-      shows under {repoName} in the sidebar.
-    </p>
+    {#if FOLLOWS_POLICY.includes(action)}
+      <div class="mt-3 flex items-center gap-3 text-sm">
+        <Toggle checked={dontAskAgain} label="Don't ask again for {repoName}" onChange={(on) => (dontAskAgain = on)} />
+        <span>Don't ask again for {repoName}</span>
+      </div>
+    {/if}
   {:else}
     <p class="mt-3 text-sm leading-6 text-surface-600-400">
       <span class="font-mono">{target.headRef}</span>
@@ -98,18 +89,7 @@
 
   {#snippet footer()}
     <button type="button" class="btn btn-sm preset-tonal" onclick={() => close()}>Cancel</button>
-    {#if confirm === "createReviewCheckout"}
-      <button type="button" class="btn btn-sm preset-filled-primary-500" onclick={() => choose("reviewCheckout")}>
-        Create review checkout
-      </button>
-    {:else if confirm === "promoteOrCreateWorktree"}
-      <button type="button" class="btn btn-sm preset-tonal" onclick={() => choose("worktree")}>
-        Create a new worktree
-      </button>
-      <button type="button" class="btn btn-sm preset-filled-primary-500" onclick={() => choose("promote")}>
-        Promote the review checkout
-      </button>
-    {:else if confirm === "createWorktree"}
+    {#if confirm === "createWorktree"}
       <button type="button" class="btn btn-sm preset-filled-primary-500" onclick={() => choose("worktree")}>
         Create worktree
       </button>

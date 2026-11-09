@@ -1,4 +1,4 @@
-//! Wire types for checkout steps and the PR link on threads.
+//! Wire types for checkout steps, PR worktrees and the PR link on threads.
 
 use serde::{Deserialize, Serialize};
 
@@ -14,8 +14,12 @@ pub(crate) struct CheckoutTarget {
     pub(crate) head_sha: String,
     /// Whether I wrote the PR.
     pub(crate) mine: bool,
-    /// A stack's name: its PRs share one review checkout that switches heads.
+    /// A stack's name. Stack actions work on the PRs' real git branches, so a
+    /// stack's worktree is on one whoever wrote it.
     pub(crate) stack: Option<String>,
+    /// The `owner/name` the PR's head lives in; `None` when it was deleted.
+    #[serde(default)]
+    pub(crate) head_repo: Option<String>,
 }
 
 /// Where a PR's code is now.
@@ -24,17 +28,23 @@ pub(crate) struct CheckoutTarget {
 pub(crate) struct PrCheckout {
     pub(crate) number: i64,
     pub(crate) step: CheckoutStep,
-    /// The review checkout's or worktree's directory, on the repository's Host.
+    /// The worktree's directory, on the repository's Host.
     pub(crate) path: Option<String>,
     /// The commit checked out there.
     pub(crate) head_sha: Option<String>,
     /// The worktree's git branch.
     pub(crate) git_branch: Option<String>,
-    /// The setup command still to run in a new review checkout.
+    /// The setup command still to run in a new worktree.
     pub(crate) setup_pending: Option<String>,
-    /// A review checkout that has local changes, so it stayed on an older
-    /// head when the PR moved.
-    pub(crate) behind_head: bool,
+    /// Commits here that the PR's head does not have.
+    pub(crate) ahead: i64,
+    /// Commits on the PR's head that are not here.
+    pub(crate) behind: i64,
+    /// Uncommitted or untracked files here.
+    pub(crate) dirty: bool,
+    /// Pingex looks after this worktree and removes it once its PR has closed
+    /// and it holds no work. Otherwise it is the user's.
+    pub(crate) managed: bool,
 }
 
 impl PrCheckout {
@@ -46,7 +56,10 @@ impl PrCheckout {
             head_sha: None,
             git_branch: None,
             setup_pending: None,
-            behind_head: false,
+            ahead: 0,
+            behind: 0,
+            dirty: false,
+            managed: false,
         }
     }
 }
@@ -55,11 +68,7 @@ impl PrCheckout {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum StepConfirm {
-    /// The first review checkout in a repository whose policy is Ask first.
-    CreateReviewCheckout,
-    /// The PR has a review checkout: promote it, or create a worktree.
-    PromoteOrCreateWorktree,
-    /// The PR has no checkout: create a worktree on its git branch.
+    /// The PR has no checkout: create a worktree for it.
     CreateWorktree,
     /// Pushing to a git branch someone else owns. Asked every time.
     PushToTheirBranch,
@@ -80,15 +89,24 @@ pub(crate) struct StepPlan {
     pub(crate) confirm_push: bool,
     /// Why the action cannot go ahead (the repository says Never).
     pub(crate) refused: Option<String>,
-    /// Where a new review checkout would go, for the confirmation.
-    pub(crate) review_checkout_path: String,
+    /// Where a new worktree would go, for the confirmation.
+    pub(crate) worktree_path: String,
+}
+
+/// The PR a Pingex-managed worktree belongs to, found from its directory.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ManagedPrWorktree {
+    /// The repository's clone, as the desk is keyed.
+    pub(crate) repo_dir: String,
+    pub(crate) number: i64,
 }
 
 /// What pruning closed PRs removed.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PruneReport {
-    /// PRs whose review checkout was removed.
+    /// PRs whose managed worktree was removed.
     pub(crate) removed_checkouts: Vec<i64>,
     /// PRs seen closed for the first time.
     pub(crate) closed: Vec<i64>,

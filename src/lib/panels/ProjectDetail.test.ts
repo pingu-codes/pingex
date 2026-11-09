@@ -43,6 +43,7 @@ vi.mock("$lib/services/homeRouting", () => ({
     gitFetch: vi.fn(),
     gitPull: vi.fn(),
     gitPush: vi.fn(),
+    reviewManagedWorktreeAt: vi.fn(async () => null),
     listProjectSources: vi.fn(async () => []),
     addProjectSource: vi.fn(),
     removeProjectSource: vi.fn(),

@@ -10,11 +10,10 @@ import { DESK_ACTION_STEPS } from "$lib/bindings";
 import type { CheckoutStep, DeskAction } from "$lib/types";
 
 /** The checkout steps, lowest first. */
-export const CHECKOUT_STEPS: readonly CheckoutStep[] = ["noCheckout", "reviewCheckout", "worktree"];
+export const CHECKOUT_STEPS: readonly CheckoutStep[] = ["noCheckout", "worktree"];
 
 export const STEP_LABELS: Record<CheckoutStep, string> = {
   noCheckout: "No checkout",
-  reviewCheckout: "Review checkout",
   worktree: "Worktree",
 };
 
@@ -35,6 +34,7 @@ export const ACTION_LABELS: Record<DeskAction, string> = {
   agentReviewWithTests: "Agent review with tests",
   runLocally: "Run locally",
   openInEditor: "Open in editor",
+  workOnPr: "Work on this PR",
   fixInThread: "Fix in thread",
   addressReview: "Address review",
   fixCi: "Fix CI in thread",
@@ -56,7 +56,7 @@ export function stepUp(current: CheckoutStep, action: DeskAction): CheckoutStep 
 }
 
 /** The tooltip line for a button whose action needs more than the PR has
- *  ("Creates a review checkout"), or `null`. */
+ *  ("Creates a worktree"), or `null`. */
 export function stepHint(current: CheckoutStep, action: DeskAction): string | null {
   const step = stepUp(current, action);
   return step ? `Creates a ${STEP_LABELS[step].toLowerCase()}` : null;

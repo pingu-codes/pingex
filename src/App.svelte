@@ -287,17 +287,13 @@
                     const target = projectForCwd(repoDir);
                     if (target) openReview(target, pr.number);
                   },
-                  newThread: (repoDir) => newThreadInDir(repoDir),
                   ...checkoutHandlers((repoDir) => projectForCwd(repoDir)?.name ?? repoDir),
                   openStack: (repoDir, group) => openStackPage(repoDir, group.stack.number),
                   restack: (repoDir, group) => openStackPage(repoDir, group.stack.number, { restack: true }),
-                  ...agentReviewHandlers(
-                    (repoDir) => projectForCwd(repoDir)?.name ?? repoDir,
-                    (repoDir, pr) => {
-                      const target = projectForCwd(repoDir);
-                      if (target) openReview(target, pr.number);
-                    },
-                  ),
+                  ...agentReviewHandlers((repoDir, pr) => {
+                    const target = projectForCwd(repoDir);
+                    if (target) openReview(target, pr.number);
+                  }),
                 }}
               />
             {/key}

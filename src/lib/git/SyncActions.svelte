@@ -13,6 +13,7 @@
     behind = 0,
     detached = false,
     busy = null,
+    prNumber = null,
     onSync,
   }: {
     upstream?: string | null;
@@ -21,6 +22,9 @@
     detached?: boolean;
     /** The operation currently running, if any. */
     busy?: SyncOperation | null;
+    /** This checkout is a managed PR worktree: its branch has no upstream to
+     *  publish, and its commits go to this PR instead. */
+    prNumber?: number | null;
     onSync: (operation: SyncOperation) => void;
   } = $props();
 
@@ -67,14 +71,14 @@
     </TooltipButton>
   {:else if !detached}
     <TooltipButton
-      label="Push and set origin as upstream"
+      label={prNumber === null ? "Push and set origin as upstream" : `Push these commits to #${prNumber}`}
       onclick={() => onSync("publish")}
       {disabled}
-      aria-label="Publish branch"
+      aria-label={prNumber === null ? "Publish branch" : "Push to PR"}
       class="btn btn-sm preset-filled-primary-500 disabled:opacity-40"
     >
       <ArrowUpFromLine size={13} class={busy === "publish" ? "animate-pulse" : ""} />
-      Publish branch
+      {prNumber === null ? "Publish branch" : "Push to PR"}
     </TooltipButton>
   {/if}
 </div>

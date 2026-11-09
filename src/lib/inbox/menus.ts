@@ -29,7 +29,7 @@ export function prMenu(
         { id: "worktree:new", label: `New worktree for #${pr.number}` },
       ],
     },
-    { id: "newThread", label: "New thread on this PR", shortcut: "T" },
+    { id: "newThread", label: "Work on this PR", shortcut: "T" },
     {
       id: "agentReview",
       label: "Start agent review",

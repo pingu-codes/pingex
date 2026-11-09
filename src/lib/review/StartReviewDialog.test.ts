@@ -15,12 +15,13 @@ const pr = inboxPr({
   deletions: 12,
 });
 
-function open(harnesses: HarnessKind[] = ["codex", "claude"]) {
+function open(harnesses: HarnessKind[] = ["codex", "claude"], refusedCheckout: string | null = null) {
   const close = vi.fn();
   render(StartReviewDialog, {
+    refusedCheckout,
     pr,
     viewer: "ciaran",
-    reviewCheckoutPath: "~/.pingex/checkouts/pingex/pr-399",
+    worktreePath: "~/.pingex/pr-worktrees/pingex/pr-399",
     setupCommand: "bun install",
     harnesses,
     close,
@@ -36,7 +37,7 @@ describe("Start review", () => {
     expect(screen.getByText("Review #399")).toBeInTheDocument();
     expect(screen.getByText(/jo-r · Readable theme focus rings · \+38 −12/)).toBeInTheDocument();
     expect(code(/^No checkout/)).toBeChecked();
-    expect(screen.getByText("~/.pingex/checkouts/pingex/pr-399")).toBeInTheDocument();
+    expect(screen.getByText("~/.pingex/pr-worktrees/pingex/pr-399")).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Keep findings as drafts" })).toBeChecked();
     expect(screen.getByRole("switch", { name: "Re-run when new commits land" })).not.toBeChecked();
 
@@ -54,10 +55,10 @@ describe("Start review", () => {
     });
   });
 
-  it("switches the code step to a review checkout when Run tests is picked", async () => {
+  it("switches the code step to a worktree when Run tests is picked", async () => {
     const close = open();
     await userEvent.click(screen.getByRole("button", { name: "Run tests" }));
-    expect(code(/^Review checkout/)).toBeChecked();
+    expect(code(/^Worktree/)).toBeChecked();
     expect(screen.getByRole("button", { name: "Run tests" })).toHaveAttribute("aria-pressed", "true");
 
     // Back to No checkout: the dialog drops what it can no longer do.
@@ -70,24 +71,34 @@ describe("Start review", () => {
     expect(close).toHaveBeenCalledWith({
       kind: "start",
       request: expect.objectContaining({
-        step: "reviewCheckout",
+        step: "worktree",
         focus: ["correctness", "tests", "runTests"],
         rerunOnNewCommits: true,
       }),
     });
   });
 
-  it("can't run tests on a harness without a read-only sandbox", async () => {
+  it("runs a harness without a read-only sandbox in a worktree, tests included", async () => {
     const close = open(["codex", "maki"]);
     await userEvent.click(screen.getByRole("radio", { name: "maki" }));
-    expect(screen.getByRole("button", { name: "Run tests" })).toBeDisabled();
     expect(code(/^No checkout/)).toBeDisabled();
-    expect(code(/^Worktree on/)).toBeChecked();
+    expect(code(/^Worktree/)).toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: "Run tests" }));
     await userEvent.click(screen.getByRole("button", { name: "Start review" }));
     expect(close).toHaveBeenCalledWith({
       kind: "start",
-      request: expect.objectContaining({ harness: "maki", step: "worktree" }),
+      request: expect.objectContaining({
+        harness: "maki",
+        step: "worktree",
+        focus: ["correctness", "tests", "runTests"],
+      }),
     });
+  });
+
+  it("offers no worktree or tests when the repository turned PR worktrees off", () => {
+    open(["codex"], "PR worktrees are turned off for this repository");
+    expect(code(/^Worktree/)).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Run tests" })).toBeDisabled();
   });
 
   it("opens the PR without an agent", async () => {

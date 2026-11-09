@@ -3,7 +3,7 @@
 Pull requests, stacks and the checkouts they need, in one place. Designed in
 the "Pingex review desk" canvas
 (https://claude.ai/artifact/67heHF9b6TSYXzwoz6DcRC). Vocabulary (**Review
-desk**, **Inbox**, **Seen head**, **Stack**, **Review checkout**) is in
+desk**, **Inbox**, **Seen head**, **Stack**, **PR worktree**) is in
 `GLOSSARY.md`. How git and GitHub are read and written is decided in
 `docs/adr/0004-git-and-github-io.md`.
 
@@ -11,7 +11,7 @@ desk**, **Inbox**, **Seen head**, **Stack**, **Review checkout**) is in
 
 - **Read layer (done):** the inbox, stacks, PR refs, diffs and files by SHA,
   "changes since", and the Seen head.
-- **Writes (next):** review checkouts, promote to worktree, restack, push
+- **Writes (next):** restack, push
   stack.
 - **Desk UI:** the Pull requests inbox (`src/lib/inbox/`) is in. The Stack
   page, the review page and agent reviews are next.
@@ -23,7 +23,7 @@ desk**, **Inbox**, **Seen head**, **Stack**, **Review checkout**) is in
 | Pull requests | The inbox, grouped by repository and by stack. Filters are Needs me, Mine, Review requested, Everyone, Drafts, CI failing and Unresolved. It also shows the "Since you last looked" feed and the agent reviews that are queued or running. |
 | Stack | The stack tree from the base up. Each branch shows its PR, state, commit count and threads. The stack's worktree, the selected PR's conversation and reviewers, and "Threads on this PR" sit alongside. |
 | Review | Collapsible files, viewed state, inline human comments and agent findings (drafts only you see), the pending review, and the next PRs up. |
-| Start review | Code (no checkout, review checkout, or worktree on the branch), the agent harness and focus, drafts on or off, and re-run on new commits. |
+| Start review | Code (no checkout, or a PR worktree), the agent harness and focus, drafts on or off, and re-run on new commits. |
 | Context menus | Menus for a PR row, a stack branch, a sidebar worktree, a thread, a review comment, an agent finding, a changed file, a branch chip and a status badge. |
 | Implicit interactions | Row states, multi-select, line comments, drag-to-reorder a stack, restack progress and conflicts, cleanup after a merge, toasts, hover details and the keyboard. |
 | Model | The three checkout steps, what each action needs, and where threads are grouped. |
@@ -37,8 +37,7 @@ button names the step it would create.
 | Step | On disk | Adds | Implemented by |
 | --- | --- | --- | --- |
 | No checkout | Hidden refs only | Read, comment, approve, merge, diff review, stack tree | `review_fetch_prs`, `review_diff`, `review_file`, `review_changes_since` |
-| Review checkout | A detached checkout Pingex owns | Run tests, the app or a build; agent reviews that run code | next slice |
-| Worktree | A named worktree in the sidebar | Edit, commit, push, restack, agents fixing review comments | existing worktree service, plus next slice |
+| Worktree | A real worktree on a local branch (ADR 0007) | Build, run, test, measure, edit and commit; push, restack, agents fixing review comments | `review_ensure_pr_worktree`, `review_push_to_pr` |
 
 ## Where the code goes
 

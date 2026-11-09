@@ -11,6 +11,7 @@
 //   rerunAgentReview(review, targets)     "Re-run on new commits"
 
 import { HARNESS_INFO, HARNESS_KINDS } from "$lib/bindings";
+import { checkoutTarget } from "$lib/review/checkoutTarget";
 import { acceptedEntry } from "$lib/review/findingText";
 import { startPrThread } from "$lib/review/prThreads";
 import { readThread } from "$lib/services/api";
@@ -54,14 +55,14 @@ export function installedHarnesses(): HarnessKind[] {
 }
 
 /** The harness a review defaults to: the first installed one that can work
- *  read-only, since a review below the Worktree step needs that. */
+ *  read-only, since a review at No checkout needs that. */
 export function defaultReviewHarness(installed = installedHarnesses()): HarnessKind {
   return installed.find((kind) => can(kind, "readOnlySandbox")) ?? installed[0] ?? "codex";
 }
 
 /** The checkout target for an inbox row. */
 export function reviewTarget(pr: InboxPr, viewer: string | null | undefined): CheckoutTarget {
-  return { number: pr.number, headRef: pr.headRef, headSha: pr.headSha, mine: pr.author === viewer, stack: null };
+  return checkoutTarget(pr, pr.author === viewer);
 }
 
 /** A diff review of `targets` with the defaults: no checkout, drafts only. */

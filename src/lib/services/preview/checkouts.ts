@@ -1,5 +1,5 @@
 // Checkout steps and PR links for the browser preview and the desk UI tests:
-// review checkouts, worktrees and thread links held in memory, with the same
+// PR worktrees and thread links held in memory, with the same
 // step plan the backend's `review/desk/steps.rs` makes. Every PR starts with
 // no checkout; `resetPreviewCheckouts` puts the preview back there.
 
@@ -11,7 +11,7 @@ import { previewPrs } from "./fixtures";
 import { repositoryCommands } from "./repositories";
 
 const HOME = "/Users/ciaran/.codex";
-const RANK: Record<CheckoutStep, number> = { noCheckout: 0, reviewCheckout: 1, worktree: 2 };
+const RANK: Record<CheckoutStep, number> = { noCheckout: 0, worktree: 1 };
 
 const state = {
   checkouts: new Map<string, PrCheckout>(),
@@ -31,9 +31,15 @@ function settingsFor(repoDir: string): RepositorySettings {
   return repositoryCommands.reviewRepositorySettings?.(repoDir) as RepositorySettings;
 }
 
-function reviewCheckoutPath(repoDir: string, target: CheckoutTarget): string {
-  const name = target.stack ? `stack-${slug(target.stack)}` : `pr-${target.number}`;
-  return `${HOME}/review-checkouts/${repoName(repoDir)}/${name}`;
+/** Whether the PR's worktree goes on its real branch, as `placement` decides. */
+function ownBranch(repoDir: string, target: CheckoutTarget): boolean {
+  return target.stack !== null || (target.mine && target.headRepo === deskInbox(repoDir).repo);
+}
+
+function worktreePath(repoDir: string, target: CheckoutTarget): string {
+  return ownBranch(repoDir, target)
+    ? `${HOME}/worktrees/${repoName(repoDir)}/${slug(target.headRef)}`
+    : `${HOME}/pr-worktrees/${repoName(repoDir)}/pr-${target.number}`;
 }
 
 function checkoutOf(repoDir: string, number: number): PrCheckout {
@@ -45,7 +51,10 @@ function checkoutOf(repoDir: string, number: number): PrCheckout {
       headSha: null,
       gitBranch: null,
       setupPending: null,
-      behindHead: false,
+      ahead: 0,
+      behind: 0,
+      dirty: false,
+      managed: false,
     }
   );
 }
@@ -83,51 +92,53 @@ export const previewCheckoutCommands: PreviewCommands = {
       confirm: null,
       confirmPush: action === "push" && !target.mine,
       refused: null,
-      reviewCheckoutPath: reviewCheckoutPath(repoDir, target),
+      worktreePath: current.path ?? worktreePath(repoDir, target),
     };
-    if (stepUp === "reviewCheckout") {
-      if (settings.reviewCheckoutPolicy === "never")
-        plan.refused = "Review checkouts are turned off for this repository";
+    const followsPolicy = action === "agentReviewWithTests" || action === "runLocally" || action === "openInEditor";
+    if (stepUp === "worktree" && followsPolicy) {
+      if (settings.reviewCheckoutPolicy === "never") plan.refused = "PR worktrees are turned off for this repository";
       else if (settings.reviewCheckoutPolicy === "ask" && !settings.skipCheckoutConfirm)
-        plan.confirm = "createReviewCheckout";
+        plan.confirm = "createWorktree";
     } else if (stepUp === "worktree") {
-      plan.confirm = current.step === "reviewCheckout" ? "promoteOrCreateWorktree" : "createWorktree";
+      plan.confirm = "createWorktree";
     } else if (action === "push" && !target.mine) {
       plan.confirm = "pushToTheirBranch";
     }
     return plan;
   },
-  reviewEnsureReviewCheckout(repoDir, target) {
+  reviewEnsurePrWorktree(repoDir, target) {
     const current = checkoutOf(repoDir, target.number);
     if (current.step !== "noCheckout") return { ...current };
     return put(repoDir, {
       number: target.number,
-      step: "reviewCheckout",
-      path: reviewCheckoutPath(repoDir, target),
+      step: "worktree",
+      path: worktreePath(repoDir, target),
       headSha: target.headSha,
-      gitBranch: null,
+      gitBranch: ownBranch(repoDir, target) ? target.headRef : `pr/${target.number}`,
       setupPending: settingsFor(repoDir).setupCommand,
-      behindHead: false,
+      ahead: 0,
+      behind: 0,
+      dirty: false,
+      managed: !ownBranch(repoDir, target),
     });
   },
   reviewRunCheckoutSetup(repoDir, number) {
     const current = checkoutOf(repoDir, number);
     put(repoDir, { ...current, setupPending: null });
   },
-  reviewPromoteCheckout: (repoDir, target) =>
-    put(repoDir, { ...checkoutOf(repoDir, target.number), step: "worktree", gitBranch: target.headRef }),
-  reviewCreatePrWorktree: (repoDir, target, path) =>
-    put(repoDir, {
-      number: target.number,
-      step: "worktree",
-      path: path ?? `${HOME}/worktrees/${repoName(repoDir)}/${slug(target.headRef)}`,
-      headSha: target.headSha,
-      gitBranch: target.headRef,
-      setupPending: null,
-      behindHead: false,
-    }),
-  reviewRemoveReviewCheckout(repoDir, number) {
+  reviewRemovePrWorktree(repoDir, number) {
     state.checkouts.delete(key(repoDir, number));
+  },
+  reviewPushToPr(repoDir, number) {
+    put(repoDir, { ...checkoutOf(repoDir, number), ahead: 0 });
+  },
+  reviewManagedWorktreeAt(dir) {
+    for (const [name, checkout] of state.checkouts) {
+      if (checkout.path === dir && checkout.managed) {
+        return { repoDir: name.slice(0, name.lastIndexOf("#")), number: checkout.number };
+      }
+    }
+    return null;
   },
   reviewPruneClosed: () => ({ removedCheckouts: [], closed: [] }),
   reviewSetCheckoutPolicy(repoDir, policy, skipConfirm) {

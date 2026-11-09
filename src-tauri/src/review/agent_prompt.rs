@@ -5,6 +5,7 @@
 use std::fmt::Write;
 
 use super::agent_review::{AgentReviewRequest, FocusArea};
+use super::checkout_types::PrCheckout;
 use super::findings::Finding;
 use super::requirements::CheckoutStep;
 use super::types::PrDetail;
@@ -25,6 +26,8 @@ pub(crate) struct PromptInput<'a> {
     pub(crate) request: &'a AgentReviewRequest,
     /// The PRs under review, in the request's order.
     pub(crate) prs: &'a [PrDetail],
+    /// The worktree the agent runs in, as it is now.
+    pub(crate) checkout: Option<&'a PrCheckout>,
     /// `(path, contents)` of changed files at head, within the budget.
     pub(crate) files_at_head: &'a [(String, String)],
     /// Changed files left out for the budget, or unreadable.
@@ -62,17 +65,7 @@ pub(crate) fn agent_review_prompt(input: &PromptInput<'_>) -> String {
         );
     }
     out.push('\n');
-    out.push_str(match input.request.step {
-        CheckoutStep::NoCheckout => {
-            "This is a diff review: read the patch, the conversation and the files below. Do not run anything and do not edit files.\n"
-        }
-        CheckoutStep::ReviewCheckout => {
-            "The working directory is a read-only review checkout at the PR head. You may read files and run commands that do not change them. Do not edit, commit or push.\n"
-        }
-        CheckoutStep::Worktree => {
-            "The working directory is a worktree on the PR's git branch. Review only: do not edit, commit or push unless asked later.\n"
-        }
-    });
+    out.push_str(&workspace_note(input));
 
     if !input.request.focus.is_empty() {
         out.push_str("\n## Focus on\n\n");
@@ -217,6 +210,41 @@ pub(crate) fn agent_review_prompt(input: &PromptInput<'_>) -> String {
 
     out.push_str(&contract(stack));
     out
+}
+
+/// Where the agent is and what it may do there.
+fn workspace_note(input: &PromptInput<'_>) -> String {
+    if input.request.step == CheckoutStep::NoCheckout {
+        return "This is a diff review: read the patch, the conversation and the files below. Do not run anything and do not edit files.\n".to_string();
+    }
+    let mut note = String::from("The working directory is a git worktree of this PR");
+    if let Some(branch) = input
+        .checkout
+        .and_then(|checkout| checkout.git_branch.as_ref())
+    {
+        let _ = write!(note, ", on the local branch `{branch}`");
+    }
+    match input.checkout {
+        Some(checkout) if checkout.ahead > 0 || checkout.behind > 0 => {
+            let _ = write!(
+                note,
+                ". It has {} local commit(s) the PR does not, and lacks {} commit(s) from the PR's head",
+                checkout.ahead, checkout.behind
+            );
+        }
+        Some(_) => note.push_str(", at the PR's head"),
+        None => {}
+    }
+    note.push_str(".\n\nYou can build, run, benchmark and write scratch files here. If trying a change helps you check something, make it and say so in your reasoning. Commits stay local unless you are asked to push.\n");
+    let mine = input
+        .request
+        .filed_under()
+        .is_some_and(|target| target.mine);
+    if !mine {
+        note.push_str("Do not push: this is someone else's pull request.\n");
+    }
+    note.push_str("Report findings against the PR's head, not your local edits: use the head's line numbers even if you changed files here.\n");
+    note
 }
 
 /// The findings contract, as the agent reads it.

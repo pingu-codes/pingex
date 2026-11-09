@@ -1,4 +1,4 @@
-//! Commands for checkout steps and the PR link on threads: thin wrappers
+//! Commands for PR worktrees and the PR link on threads: thin wrappers
 //! over `desk::ReviewDesk`, like `commands`. Thread-scoped commands find the
 //! repository from the thread's PR link.
 
@@ -6,7 +6,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::State;
 
-use super::checkout_types::{BranchProgress, CheckoutTarget, PrCheckout, PruneReport, StepPlan};
+use super::checkout_types::{
+    BranchProgress, CheckoutTarget, ManagedPrWorktree, PrCheckout, PruneReport, StepPlan,
+};
 use super::desk::ReviewDesk;
 use super::github::GhCli;
 use super::requirements::DeskAction;
@@ -14,7 +16,7 @@ use crate::storage::{self, PrLink, ReviewCheckoutPolicy};
 use crate::AppState;
 
 /// The desk for `repo_dir` on the window's Home, with the Home's directory
-/// for review checkouts and worktrees.
+/// for PR worktrees.
 fn desk(window: &crate::HomeWindow, state: &State<'_, AppState>, repo_dir: String) -> ReviewDesk {
     let ctx = state.ctx(window);
     let runtime = ctx.runtime();
@@ -63,14 +65,14 @@ pub(crate) async fn review_plan_step(
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn review_ensure_review_checkout(
+pub(crate) async fn review_ensure_pr_worktree(
     repo_dir: String,
     target: CheckoutTarget,
     window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<PrCheckout, String> {
     desk(&window, &state, repo_dir)
-        .ensure_review_checkout(target)
+        .ensure_pr_worktree(target)
         .await
 }
 
@@ -87,44 +89,49 @@ pub(crate) async fn review_run_checkout_setup(
         .await
 }
 
+/// Remove PR `number`'s managed worktree. Refused when it holds work.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn review_promote_checkout(
-    repo_dir: String,
-    target: CheckoutTarget,
-    window: crate::HomeWindow,
-    state: State<'_, AppState>,
-) -> Result<PrCheckout, String> {
-    desk(&window, &state, repo_dir)
-        .promote_review_checkout(target)
-        .await
-}
-
-#[tauri::command]
-#[specta::specta]
-pub(crate) async fn review_create_pr_worktree(
-    repo_dir: String,
-    target: CheckoutTarget,
-    path: Option<String>,
-    window: crate::HomeWindow,
-    state: State<'_, AppState>,
-) -> Result<PrCheckout, String> {
-    desk(&window, &state, repo_dir)
-        .create_pr_worktree(target, path)
-        .await
-}
-
-#[tauri::command]
-#[specta::specta]
-pub(crate) async fn review_remove_review_checkout(
+pub(crate) async fn review_remove_pr_worktree(
     repo_dir: String,
     number: i64,
     window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     desk(&window, &state, repo_dir)
-        .remove_review_checkout(number)
+        .remove_pr_worktree(number)
         .await
+}
+
+/// Push PR `number`'s worktree to the PR's head branch, without forcing.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_push_to_pr(
+    repo_dir: String,
+    number: i64,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    desk(&window, &state, repo_dir).push_to_pr(number).await
+}
+
+/// The PR of the Pingex-managed worktree at `dir`, if that is what it is.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_managed_worktree_at(
+    dir: String,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<Option<ManagedPrWorktree>, String> {
+    let Some((repo_dir, number)) =
+        storage::read_checkout_at_path(&state.ctx(&window).database(), &dir).await?
+    else {
+        return Ok(None);
+    };
+    let managed = desk(&window, &state, repo_dir.clone())
+        .is_managed_worktree(dir)
+        .await?;
+    Ok(managed.then_some(ManagedPrWorktree { repo_dir, number }))
 }
 
 /// Drop what closed PRs left behind, given `open_numbers`: every open PR
@@ -143,7 +150,7 @@ pub(crate) async fn review_prune_closed(
         .await
 }
 
-/// Set the review checkout policy and "Don't ask again for <repository>",
+/// Set the PR worktree policy and "Don't ask again for <repository>",
 /// keeping the repository's other settings.
 #[tauri::command]
 #[specta::specta]

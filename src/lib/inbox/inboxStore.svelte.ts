@@ -51,7 +51,7 @@ export async function syncInbox(repoDir: string): Promise<void> {
     state.stacks = stacks;
     if (viewerChanged) void reloadPrLinks();
     state.error = null;
-    // What closed PRs left behind: refs now, review checkouts after 7 days,
+    // What closed PRs left behind: refs now, managed worktrees after 7 days,
     // and their threads leave the Reviews group. It works from this sync's
     // PR list, and a partial read cannot say which PRs closed.
     if (inbox.complete) {

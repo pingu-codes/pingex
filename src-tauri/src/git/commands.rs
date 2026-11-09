@@ -13,6 +13,7 @@ use super::changes::{
     handoff, handoff_preflight, read_changes_summary, read_file_diff, ChangesSummary, FileDiff,
     HandoffPreflight, DEFAULT_DIFF_BYTES,
 };
+use super::checkouts;
 use super::commits::read_recent_commits;
 use super::run::{common_dir_of, lock_for_common_dir, redact_git_error, run_git, WRITE_TIMEOUT};
 use super::status::{read_repo_info, read_status};
@@ -243,6 +244,10 @@ pub(crate) async fn git_worktree_remove(
                     return Err("This worktree has uncommitted changes".to_string());
                 }
             }
+        }
+        // Pingex's own lock is its marker, not the user's wish to keep it.
+        if matches!(checkouts::is_managed(&host, Path::new(&path)), Ok(true)) {
+            let _ = run_git(&host, &repo, &["worktree", "unlock", &path], WRITE_TIMEOUT)?;
         }
         let mut args = vec!["worktree", "remove"];
         if force {

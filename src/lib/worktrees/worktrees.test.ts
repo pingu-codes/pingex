@@ -6,6 +6,7 @@ import {
   adoptableWorktrees,
   aheadBehindLabel,
   isDirty,
+  prNumberOf,
   statusSummary,
   stripRemotePrefix,
   threadCountForPath,
@@ -125,16 +126,24 @@ describe("worktree helpers", () => {
     expect(cards[1].branchLabel).toBe("detached @ abcdef1");
   });
 
-  it("leaves review checkouts out of the Worktrees list until they are promoted", () => {
-    const cards = worktreeCards(
-      [
-        worktreeEntry({ path: "/repo", isMain: true }),
-        worktreeEntry({ path: "/home/.codex/review-checkouts/repo/pr-9", isReviewCheckout: true, detached: true }),
-        worktreeEntry({ path: "/home/.codex/review-checkouts/repo/pr-8", branch: "jo-r/focus-rings" }),
-      ],
-      [],
-    );
-    expect(cards.map((card) => card.entry.path)).toEqual(["/repo", "/home/.codex/review-checkouts/repo/pr-8"]);
+  it("lists managed PR worktrees with their PR, since they can hold real work", () => {
+    const managed = worktreeEntry({
+      path: "/home/.codex/pr-worktrees/repo/pr-9",
+      isManagedPrWorktree: true,
+      branch: "pr/9",
+    });
+    const adopted = worktreeEntry({
+      path: "/home/.codex/review-checkouts/repo/pr-8",
+      isManagedPrWorktree: true,
+      branch: "agent-experiment",
+    });
+    const plain = worktreeEntry({ path: "/repo/pr-7", branch: "pr/7" });
+    const cards = worktreeCards([worktreeEntry({ path: "/repo", isMain: true }), managed, adopted, plain], []);
+
+    expect(cards.map((card) => card.entry.path)).toEqual(["/repo", managed.path, adopted.path, plain.path]);
+    expect(prNumberOf(managed)).toBe(9);
+    expect(prNumberOf(adopted)).toBe(8);
+    expect(prNumberOf(plain)).toBeNull();
   });
 
   it("offers only linked, present, permanent worktrees not yet in the sidebar", () => {
@@ -144,7 +153,7 @@ describe("worktree helpers", () => {
       worktreeEntry({ path: "/repo/gone", missingDir: true }),
       worktreeEntry({ path: "/repo/stale", prunable: true }),
       worktreeEntry({ path: "/home/.codex/worktrees-tmp/repo/tmp", isTemp: true }),
-      worktreeEntry({ path: "/home/.codex/review-checkouts/repo/pr-9", isReviewCheckout: true }),
+      worktreeEntry({ path: "/home/.codex/pr-worktrees/repo/pr-9", isManagedPrWorktree: true }),
       worktreeEntry({ path: "/repo/listed" }),
       worktreeEntry({ path: "/repo/feature" }),
     ];

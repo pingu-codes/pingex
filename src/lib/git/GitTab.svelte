@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { AlertTriangle, ArrowLeftRight, Check, GitBranch, Undo2 } from "@lucide/svelte";
+  import { AlertTriangle, ArrowLeftRight, ArrowUpFromLine, Check, GitBranch, Undo2 } from "@lucide/svelte";
   import { onMount, untrack } from "svelte";
   import { openDialog } from "$lib/app/dialogs.svelte";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
@@ -7,7 +7,7 @@
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import { type CodexEvent, setThreadHandler } from "$lib/services/codexEvents.svelte";
   import { commands } from "$lib/services/homeRouting";
-  import type { CommitResult, FileDiff, GitContext, SyncResult } from "$lib/types";
+  import type { CommitResult, FileDiff, GitContext, ManagedPrWorktree, SyncResult } from "$lib/types";
   import { formatBytes } from "$lib/utils/format";
   import { highlightDiff } from "$lib/utils/markdown";
   import { resource } from "$lib/utils/resource.svelte";
@@ -34,6 +34,15 @@
   } = $props();
 
   let selected = $state<Selection | null>(null);
+  /** The PR this checkout belongs to, when Pingex manages it for one. */
+  let managedWorktree = $state<ManagedPrWorktree | null>(null);
+  $effect(() => {
+    const current = dir;
+    void (async () => {
+      const found = await commands.reviewManagedWorktreeAt(current).catch(() => null);
+      if (current === dir) managedWorktree = found ?? null;
+    })();
+  });
   // Only the newest request lands, so a slow diff for a row the user has left
   // never shows under another row's header.
   const fileDiff = resource(
@@ -157,8 +166,25 @@
       (error) => (commitError = error),
     );
 
+  /** A managed PR worktree's commits go to its PR, never to a new branch on
+   *  `origin`, and pushing there is asked every time. */
+  async function pushToPr(worktree: ManagedPrWorktree) {
+    const confirmed = await openDialog(ConfirmDialog, {
+      title: `Push to #${worktree.number}?`,
+      body: "These commits go to the pull request's branch. If someone else owns it, this changes their pull request.",
+      confirmLabel: "Push to PR",
+      icon: ArrowUpFromLine,
+      width: 440,
+    });
+    if (confirmed) void mutate("publish", () => commands.reviewPushToPr(worktree.repoDir, worktree.number), "context");
+  }
+
   function sync(operation: SyncOperation) {
     lastSync = null;
+    if (operation === "publish" && managedWorktree) {
+      void pushToPr(managedWorktree);
+      return;
+    }
     const work = async () => {
       lastSync =
         operation === "fetch"
@@ -215,6 +241,7 @@
       behind={status?.behind ?? 0}
       detached={status?.detached ?? false}
       busy={busy === "fetch" || busy === "pull" || busy === "push" || busy === "publish" ? busy : null}
+      prNumber={managedWorktree?.number ?? null}
       onSync={sync}
     />
     <TooltipButton

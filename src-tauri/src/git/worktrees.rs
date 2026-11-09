@@ -193,8 +193,7 @@ pub(crate) fn read_worktrees(
             .as_deref()
             .is_some_and(|branch| branch_counts.get(branch).copied().unwrap_or(0) > 1);
         let root = codex_worktree_root(host, &item.path, &roots);
-        let is_review_checkout =
-            item.lock_reason.as_deref() == Some(super::checkouts::REVIEW_CHECKOUT_LOCK);
+        let is_managed_pr_worktree = super::checkouts::is_managed_lock(item.lock_reason.as_deref());
 
         // A worktree that cannot be inspected still gets a row, tagged with why.
         let mut state = None;
@@ -234,7 +233,7 @@ pub(crate) fn read_worktrees(
             is_main: index == 0,
             is_codex_managed: root.is_some(),
             is_temp: root == Some("worktrees-tmp"),
-            is_review_checkout,
+            is_managed_pr_worktree,
             missing_dir,
             branch_checked_out_elsewhere,
             upstream,

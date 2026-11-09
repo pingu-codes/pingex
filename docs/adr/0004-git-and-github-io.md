@@ -91,8 +91,8 @@ common-dir lock: snapshot → act → verify → restore.
      `--force-with-lease=<ref>:<snapshotted sha>` and `--force-if-includes`.
      It goes to the PR's head remote, never a hard-coded `origin`. Pushing
      to someone else's branch asks every time.
-   - A Review checkout is `git worktree add --detach` followed by
-     `worktree lock`. Promoting it to a worktree is a `git switch` in place.
+   - A PR worktree is `git worktree add` on a local branch, locked when Pingex
+     manages it. It only ever moves by fast-forward (ADR 0007).
 3. **Verify** that the refs moved where they were supposed to.
 4. **Restore on failure or abort.** Put every ref back with one
    `update-ref --stdin` transaction.

@@ -31,7 +31,7 @@
   import CreateWorktreeDialog from "$lib/worktrees/CreateWorktreeDialog.svelte";
   import { refreshGitStatus } from "$lib/worktrees/gitStatus.svelte";
   import RemoveWorktreeDialog from "$lib/worktrees/RemoveWorktreeDialog.svelte";
-  import { type WorktreeCard, worktreeCards } from "$lib/worktrees/worktrees";
+  import { prNumberOf, type WorktreeCard, worktreeCards } from "$lib/worktrees/worktrees";
 
   let {
     repoDir,
@@ -276,7 +276,14 @@
             Codex-managed
           </span>
         {/if}
-        {#if card.entry.locked}
+        {#if prNumberOf(card.entry) !== null}
+          <span
+            class="rounded-full bg-primary-500/15 px-1.5 py-0.5 text-[10px] font-medium text-primary-500"
+            title="Pingex removes this once the PR has closed and it holds no work"
+          >
+            PR #{prNumberOf(card.entry)}
+          </span>
+        {:else if card.entry.locked}
           <span
             class="inline-flex items-center gap-0.5 rounded-full bg-surface-200-800 px-1.5 py-0.5 text-[10px] font-medium text-surface-500"
             title={card.entry.lockReason ?? "Locked"}

@@ -15,13 +15,13 @@ use crate::util::time::unix_secs;
 
 impl ReviewDesk {
     /// Record that `thread_id` is about `target`, starting from whatever the
-    /// PR has checked out now.
+    /// PR has checked out now, brought level with the PR where that is safe.
     pub(crate) async fn link_thread(
         &self,
         thread_id: String,
         target: CheckoutTarget,
     ) -> Result<PrLink, String> {
-        let state = self.checkout_state(target.clone()).await?;
+        let state = self.synced_checkout(target.clone()).await?;
         let link = PrLink {
             thread_id,
             repo_key: self.repo_key(),
@@ -69,9 +69,21 @@ impl ReviewDesk {
             .ok_or_else(|| "This thread is not filed under a pull request".to_string())
     }
 
-    /// The tip of a link's git branch: the local branch, else the PR head.
-    fn tip(&self, link: &PrLink) -> Result<Option<String>, String> {
-        if let Some(branch) = &link.git_branch {
+    /// The git branch a link's thread works on: its worktree's as stored now,
+    /// else what was recorded when it started. A link written before review
+    /// checkouts became worktrees recorded the PR's branch, which the thread
+    /// was never on.
+    async fn working_branch(&self, link: &PrLink) -> Result<Option<String>, String> {
+        let stored = storage::read_checkout(&self.database, &link.repo_key, link.pr_number).await?;
+        Ok(stored
+            .filter(|stored| Some(&stored.path) == link.checkout_path.as_ref())
+            .and_then(|stored| stored.git_branch)
+            .or_else(|| link.git_branch.clone()))
+    }
+
+    /// The tip of `branch`: the local branch, else the PR head.
+    fn tip(&self, link: &PrLink, branch: Option<&str>) -> Result<Option<String>, String> {
+        if let Some(branch) = branch {
             if let Some(tip) = git::branch_tip(&self.host, self.dir(), branch)? {
                 return Ok(Some(tip));
             }
@@ -86,12 +98,13 @@ impl ReviewDesk {
         thread_id: String,
     ) -> Result<BranchProgress, String> {
         let link = self.link(&thread_id).await?;
+        let branch = self.working_branch(&link).await?;
         self.blocking("Reading the git branch failed", move |desk| {
             let start = link
                 .start_sha
                 .clone()
                 .ok_or_else(|| "This thread has no start commit".to_string())?;
-            let tip = desk.tip(&link)?;
+            let tip = desk.tip(&link, branch.as_deref())?;
             let (ahead, behind) = match &tip {
                 Some(tip) => git::ahead_behind(&desk.host, desk.dir(), &start, tip)?,
                 None => (0, 0),
@@ -107,7 +120,8 @@ impl ReviewDesk {
     }
 
     /// Check out the thread's start commit (`start`) or its git branch's tip
-    /// in the thread's checkout. Refused when that checkout has changes.
+    /// in the thread's checkout. Refused when that checkout has changes, or
+    /// when moving would strand commits that are on no branch.
     pub(crate) async fn check_out_thread_commit(
         &self,
         thread_id: String,
@@ -120,22 +134,35 @@ impl ReviewDesk {
             }
             (_, Some(path)) => path.clone(),
         };
+        let branch = self.working_branch(&link).await?;
         self.blocking("Checking out failed", move |desk| {
             let dir = Path::new(&path);
             if !git::is_clean(&desk.host, dir)? {
                 return Err("The checkout has uncommitted changes".to_string());
             }
-            let sha = if start {
-                link.start_sha.clone()
-            } else {
-                desk.tip(&link)?
-            }
-            .ok_or_else(|| "That commit is not in this repository".to_string())?;
-            match (&link.step, &link.git_branch, start) {
-                (CheckoutStep::Worktree, Some(branch), false) => {
-                    git::promote_in_place(&desk.host, desk.dir(), &path, branch, &sha)
+            if git::branch_of(&desk.host, dir)?.is_none() {
+                let branch_ref = branch.as_ref().map(|name| format!("refs/heads/{name}"));
+                let mut kept: Vec<&str> = branch_ref.iter().map(String::as_str).collect();
+                kept.extend(link.start_sha.as_deref());
+                if git::commits_outside(&desk.host, dir, &["HEAD"], &kept)? > 0 {
+                    return Err("This checkout has commits on no branch. Put them on a branch first, so they aren't lost".to_string());
                 }
-                _ => git::detach_at(&desk.host, desk.dir(), dir, &sha),
+            }
+            match (&branch, start) {
+                (Some(name), false)
+                    if git::branch_tip(&desk.host, desk.dir(), name)?.is_some() =>
+                {
+                    git::switch_branch(&desk.host, desk.dir(), dir, name)
+                }
+                _ => {
+                    let sha = if start {
+                        link.start_sha.clone()
+                    } else {
+                        desk.tip(&link, branch.as_deref())?
+                    }
+                    .ok_or_else(|| "That commit is not in this repository".to_string())?;
+                    git::detach_at(&desk.host, desk.dir(), dir, &sha)
+                }
             }
         })
         .await
@@ -172,7 +199,7 @@ mod tests {
             .unwrap();
         let path = fixture
             .desk
-            .ensure_review_checkout(target(&pr))
+            .ensure_pr_worktree(target(&pr))
             .await
             .unwrap()
             .path;
@@ -186,8 +213,9 @@ mod tests {
         assert_eq!(diff.checkout_path, None);
         assert_eq!(diff.git_branch.as_deref(), Some("feature"));
         assert_eq!(diff.start_sha.as_deref(), Some(pr.head_sha.as_str()));
-        assert_eq!(tests.step, CheckoutStep::ReviewCheckout);
+        assert_eq!(tests.step, CheckoutStep::Worktree);
         assert_eq!(tests.checkout_path, path);
+        assert_eq!(tests.git_branch.as_deref(), Some("pr/31"));
         assert_eq!(tests.start_sha.as_deref(), Some(pr.head_sha.as_str()));
         let links = crate::storage::read_pr_links(&fixture.desk.database)
             .await
@@ -287,7 +315,7 @@ mod tests {
         let pr = fixture.open_pr(33, "feature", "src/lib.rs");
         let path = fixture
             .desk
-            .create_pr_worktree(target(&pr), None)
+            .ensure_pr_worktree(target(&pr))
             .await
             .unwrap()
             .path
@@ -324,8 +352,51 @@ mod tests {
             .unwrap();
         assert_eq!(
             fixture.repo.git_in(dir, &["branch", "--show-current"]),
-            "feature"
+            "pr/33"
         );
         assert_eq!(fixture.repo.git_in(dir, &["rev-parse", "HEAD"]), tip);
+    }
+
+    #[tokio::test]
+    async fn the_branch_chip_will_not_strand_commits_made_on_no_branch() {
+        let Some(fixture) = fixture().await else {
+            return;
+        };
+        let pr = fixture.open_pr(34, "feature", "src/lib.rs");
+        let path = fixture
+            .desk
+            .ensure_pr_worktree(target(&pr))
+            .await
+            .unwrap()
+            .path
+            .unwrap();
+        fixture
+            .desk
+            .link_thread("t".into(), target(&pr))
+            .await
+            .unwrap();
+        let dir = std::path::Path::new(&path);
+        fixture
+            .desk
+            .check_out_thread_commit("t".into(), true)
+            .await
+            .unwrap();
+        std::fs::write(dir.join("detached.rs"), "work").unwrap();
+        fixture.repo.git_in(dir, &["add", "detached.rs"]);
+        fixture
+            .repo
+            .git_in(dir, &["commit", "-q", "-m", "detached"]);
+        let committed = fixture.repo.git_in(dir, &["rev-parse", "HEAD"]);
+
+        for start in [true, false] {
+            let error = fixture
+                .desk
+                .check_out_thread_commit("t".into(), start)
+                .await
+                .unwrap_err();
+            assert!(error.contains("no branch"), "{error}");
+        }
+
+        assert_eq!(fixture.repo.git_in(dir, &["rev-parse", "HEAD"]), committed);
     }
 }

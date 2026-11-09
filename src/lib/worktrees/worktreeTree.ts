@@ -31,7 +31,7 @@ function linked(entries: WorktreeEntry[], repoPath: string): WorktreeEntry[] {
       !entry.missingDir &&
       !entry.prunable &&
       !entry.isTemp &&
-      !entry.isReviewCheckout &&
+      !entry.isManagedPrWorktree &&
       trimSlash(entry.path) !== trimSlash(repoPath),
   );
 }

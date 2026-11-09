@@ -60,15 +60,40 @@ describe("startPrThread", () => {
       headSha: target.headSha,
       gitBranch: target.headRef,
       setupPending: null,
-      behindHead: false,
+      ahead: 0,
+      behind: 0,
+      dirty: false,
+      managed: false,
     });
-    await startPrThread({ repoDir, target, input, options: { sandboxMode: "workspace-write" } });
+    await startPrThread({ repoDir, target, input, options: { sandboxMode: "danger-full-access" } });
 
     expect(commands.startThread).toHaveBeenCalledWith("/wt/usage-meter", null, null);
-    expect(vi.mocked(commands.startTurn).mock.calls[0][2]).toMatchObject({ sandboxMode: "workspace-write" });
+    expect(vi.mocked(commands.startTurn).mock.calls[0][2]).toMatchObject({ sandboxMode: "danger-full-access" });
   });
 
-  it("refuses a harness without a read-only sandbox below the Worktree step", async () => {
+  it("lets a run nobody chose permissions for write in the worktree, and nothing more", async () => {
+    setPreviewCheckout(repoDir, {
+      number: 409,
+      step: "worktree",
+      path: "/wt/pr-409",
+      headSha: target.headSha,
+      gitBranch: "pr/409",
+      setupPending: null,
+      ahead: 0,
+      behind: 0,
+      dirty: false,
+      managed: true,
+    });
+    await startPrThread({ repoDir, target, input, harness: "maki" });
+
+    expect(commands.startThread).toHaveBeenCalledWith("/wt/pr-409", null, "maki");
+    expect(vi.mocked(commands.startTurn).mock.calls[0][2]).toMatchObject({
+      approvalPolicy: "on-request",
+      sandboxMode: "workspace-write",
+    });
+  });
+
+  it("refuses a harness without a read-only sandbox at No checkout", async () => {
     await expect(startPrThread({ repoDir, target, input, harness: "maki" })).rejects.toThrow(/read-only sandbox/);
     expect(commands.startThread).not.toHaveBeenCalled();
   });

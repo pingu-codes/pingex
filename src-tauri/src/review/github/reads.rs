@@ -14,7 +14,8 @@ const PR_LIST_LIMIT: &str = "50";
 const PR_LIST_FIELDS: &str =
     "number,title,author,state,isDraft,baseRefName,headRefName,updatedAt,url";
 const PR_VIEW_FIELDS: &str = "number,title,author,state,isDraft,baseRefName,headRefName,\
-    updatedAt,url,body,headRefOid,baseRefOid,commits,comments,reviews,statusCheckRollup";
+    updatedAt,url,body,headRefOid,baseRefOid,commits,comments,reviews,statusCheckRollup,\
+    headRepository,headRepositoryOwner,maintainerCanModify";
 
 /// Paginated on `reviewThreads` (see `gh_graphql`); a thread's first 100
 /// comments are plenty for display. `diffSide` lives on the thread: GitHub

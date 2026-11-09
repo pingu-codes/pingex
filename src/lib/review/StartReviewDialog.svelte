@@ -19,13 +19,14 @@
   import Segmented from "$lib/components/Segmented.svelte";
   import Toggle from "$lib/components/Toggle.svelte";
   import { DEFAULT_FOCUS, defaultReviewHarness, installedHarnesses } from "$lib/review/agentReviews.svelte";
+  import { checkoutTarget } from "$lib/review/checkoutTarget";
   import type { CheckoutStep, FocusArea, HarnessKind, InboxPr } from "$lib/types";
   import { can, harnessLabel } from "$lib/utils/capabilities";
 
   let {
     pr,
     viewer = null,
-    reviewCheckoutPath,
+    worktreePath,
     setupCommand = null,
     harnesses = installedHarnesses(),
     refusedCheckout = null,
@@ -33,13 +34,13 @@
   }: {
     pr: InboxPr;
     viewer?: string | null;
-    /** Where a review checkout goes, or already is. */
-    reviewCheckoutPath: string;
+    /** Where the PR's worktree goes, or already is. */
+    worktreePath: string;
     /** The repository's setup command, run once in a new checkout. */
     setupCommand?: string | null;
     /** The harnesses to offer: what this Home has installed. */
     harnesses?: HarnessKind[];
-    /** Why the repository won't make a review checkout, if it won't. */
+    /** Why the repository won't make a worktree, if it won't. */
     refusedCheckout?: string | null;
     close: DialogClose<StartReviewResult>;
   } = $props();
@@ -65,19 +66,16 @@
   const shortSha = $derived(pr.headSha.slice(0, 7));
   const subtitle = $derived(`${pr.author} · ${pr.title} · +${pr.additions} −${pr.deletions}`);
 
-  /** Steps the harness can work at: below the Worktree step it needs a
-   *  read-only sandbox. */
+  /** Steps the harness can work at: No checkout runs in the user's own clone,
+   *  so it needs a read-only sandbox. */
   function stepAllowed(candidate: CheckoutStep): boolean {
-    if (candidate === "worktree") return true;
-    if (!readOnly) return false;
-    return candidate !== "reviewCheckout" || !refusedCheckout;
+    return candidate === "worktree" ? !refusedCheckout : readOnly;
   }
 
   function chooseHarness(next: HarnessKind) {
     harness = next;
     if (!stepAllowed(step)) {
       step = "worktree";
-      focus = focus.filter((area) => area !== "runTests");
     }
   }
 
@@ -93,16 +91,14 @@
       return;
     }
     focus = FOCUS.map((option) => option.value).filter((value) => value === area || focus.includes(value));
-    if (area === "runTests" && step === "noCheckout") step = "reviewCheckout";
+    if (area === "runTests" && step === "noCheckout") step = "worktree";
   }
 
   function start() {
     close({
       kind: "start",
       request: {
-        targets: [
-          { number: pr.number, headRef: pr.headRef, headSha: pr.headSha, mine: pr.author === viewer, stack: null },
-        ],
+        targets: [checkoutTarget(pr, pr.author === viewer)],
         harness,
         step,
         focus,
@@ -112,13 +108,7 @@
     });
   }
 
-  const runTestsTitle = $derived(
-    !readOnly
-      ? `${harnessLabel(harness)} has no read-only sandbox, so it can't run tests on someone else's PR`
-      : refusedCheckout
-        ? refusedCheckout
-        : undefined,
-  );
+  const runTestsTitle = $derived(refusedCheckout ?? undefined);
 </script>
 
 <DialogShell title="Review #{pr.number}" {subtitle} width={540} onClose={() => close()}>
@@ -127,7 +117,6 @@
       <div class="eyebrow">Code</div>
       <div class="panel-card p-1.5" role="radiogroup" aria-label="Code">
         {@render stepRow("noCheckout")}
-        {@render stepRow("reviewCheckout")}
         {@render stepRow("worktree")}
       </div>
     </div>
@@ -145,7 +134,7 @@
       </div>
       <div class="flex flex-wrap gap-1.5">
         {#each FOCUS as option (option.value)}
-          {@const disabled = option.value === "runTests" && (!readOnly || !!refusedCheckout)}
+          {@const disabled = option.value === "runTests" && !!refusedCheckout}
           <button
             type="button"
             class={focus.includes(option.value) ? "pill-active" : "pill"}
@@ -161,9 +150,9 @@
       <div class="text-surface-500">
         {#if !readOnly}
           {harnessLabel(harness)}
-          has no read-only sandbox, so it reviews in a worktree and can't run tests.
+          has no read-only sandbox, so it reviews in a worktree.
         {:else}
-          Run tests needs a review checkout. Picking it switches Code to Review checkout.
+          Run tests needs a worktree. Picking it switches Code to Worktree.
         {/if}
       </div>
     </div>
@@ -218,23 +207,23 @@
           >Diff review. The agent reads the patch and files at <span class="font-mono">{shortSha}</span>, and runs
           nothing.</span
         >
-      {:else if value === "reviewCheckout"}
-        <span>Review checkout</span>
+      {:else}
+        <span>Worktree</span>
         <span class="text-surface-500">
           {#if refusedCheckout}
             {refusedCheckout}
           {:else}
-            Detached at the PR head in
-            <span class="font-mono">{reviewCheckoutPath}</span>
+            At the PR head in
+            <span class="font-mono">{worktreePath}</span>
             {#if setupCommand}
               , then <span class="font-mono">{setupCommand}</span>
             {/if}
-            . Lets the agent run tests.
+            . The agent can build, run tests and measure.
+            {#if pr.author !== viewer}
+              Nothing reaches their branch until you push.
+            {/if}
           {/if}
         </span>
-      {:else}
-        <span>Worktree on <span class="font-mono">{pr.headRef}</span></span>
-        <span class="text-surface-500">To push fixes to their branch. Asks before every push.</span>
       {/if}
     </span>
     {#if value === "noCheckout"}

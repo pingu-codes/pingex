@@ -13,6 +13,7 @@
   import Composer from "$lib/composer/Composer.svelte";
   import type { SlashCommandId } from "$lib/composer/slashCommands";
   import RightPanel, { type PanelView } from "$lib/panels/RightPanel.svelte";
+  import { linkExpectedThread } from "$lib/review/prLinks.svelte";
   import { forkThread, gitWorktreeAdd, isPromptPartsTextUnsupported, startThread, startTurn } from "$lib/services/api";
   import { approvals, elicitations, turnPlans, userInputRequests } from "$lib/services/codexEvents.svelte";
   import { commands } from "$lib/services/homeRouting";
@@ -306,6 +307,7 @@
     const temporary = newThreadLocation === "temporary";
     const newCwd = await ensureNewThreadCwd();
     const created = await startThread(newCwd, workspace, harness);
+    await linkExpectedThread(created.id, newCwd);
     if (!attachSession(owner, created.id)) throw new Error("Thread creation was interrupted.");
     if (owner.thread) {
       owner.thread.harness = created.harness ?? null;

@@ -24,6 +24,7 @@
   import { startStackReview } from "$lib/review/agentReviews.svelte";
   import CheckoutStepDialog from "$lib/review/CheckoutStepDialog.svelte";
   import { stepUpFor } from "$lib/review/checkoutSteps";
+  import { checkoutTarget } from "$lib/review/checkoutTarget";
   import { ensurePrLinks, prLinks, rememberPrLink } from "$lib/review/prLinks.svelte";
   import ReviewView from "$lib/review/ReviewView.svelte";
   import { startThreadWithTurn } from "$lib/services/api";
@@ -236,13 +237,7 @@
   const theirs = $derived(openPrs.length > 0 && !openPrs.some(isMine));
 
   function targetFor(pr: StackInputPr): CheckoutTarget {
-    return {
-      number: pr.number,
-      headRef: pr.headRef,
-      headSha: pr.headSha,
-      mine: isMine(pr),
-      stack: input?.name ?? null,
-    };
+    return checkoutTarget(pr, isMine(pr), input?.name ?? null);
   }
 
   /** The stack's worktree, creating one on `pr`'s git branch if it has none. */
@@ -375,7 +370,7 @@
           action: "push" as const,
           target: targetFor(other),
           repoName,
-          reviewCheckoutPath: worktree.path,
+          worktreePath: worktree.path,
         }))
       )
         return;

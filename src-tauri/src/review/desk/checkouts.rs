@@ -1,7 +1,6 @@
-//! Checkout steps. Today only the first, No checkout: a PR's commits are
-//! fetched into Pingex-owned refs (`refs/pingex/pr/<n>/head`) and read by
-//! SHA, and the working tree is never touched. Review checkouts and
-//! promotion to a worktree join this file.
+//! No checkout: a PR's commits are fetched into Pingex-owned refs
+//! (`refs/pingex/pr/<n>/head`) and read by SHA, and the working tree is never
+//! touched. A PR's worktree is `steps.rs`.
 
 use super::{pr_number, ReviewDesk};
 use crate::git::objects;

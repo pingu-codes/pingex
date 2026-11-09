@@ -101,9 +101,10 @@ pub(crate) struct WorktreeEntry {
     /// A temporary worktree under `<codex_home>/worktrees-tmp/`: scaffolding
     /// for one thread rather than a project of its own.
     pub(crate) is_temp: bool,
-    /// A Pingex review checkout (locked with `checkouts::REVIEW_CHECKOUT_LOCK`):
-    /// kept out of the Worktrees list and the sidebar nesting.
-    pub(crate) is_review_checkout: bool,
+    /// A PR worktree Pingex manages (locked with `checkouts::PR_WORKTREE_LOCK`):
+    /// in the Worktrees list with its PR, but not nested in the sidebar, where
+    /// its threads already file under the PR.
+    pub(crate) is_managed_pr_worktree: bool,
     /// The registered directory is gone (a stale registration to prune).
     pub(crate) missing_dir: bool,
     /// This worktree's branch is also checked out in another listed worktree.

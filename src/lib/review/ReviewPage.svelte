@@ -89,6 +89,7 @@
     onOpenPr,
     onAskAgent,
     onRunLocally,
+    headerActions,
     onDetail,
     step = "noCheckout",
     seenAt = null,
@@ -108,9 +109,11 @@
     inbox?: Inbox | null;
     onOpenPr?: (number: number) => void;
     onAskAgent?: (request: AskAgentRequest) => void;
-    /** Run locally or Open in editor: creates a review checkout when the PR
-     *  has none. Without it both are unavailable. */
+    /** Run locally or Open in editor: creates a worktree when the PR has none.
+     *  Without it both are unavailable. */
     onRunLocally?: (detail: PrDetail, action: "runLocally" | "openInEditor") => void;
+    /** More of the header's actions, beside Run locally. */
+    headerActions?: Snippet;
     /** The PR's detail, each time it loads. */
     onDetail?: (detail: PrDetail) => void;
     step?: CheckoutStep;
@@ -138,7 +141,6 @@
   /** The checkout step's dot, as the Model board draws it. */
   const STEP_DOT: Record<CheckoutStep, string> = {
     noCheckout: "border-[1.5px] border-current",
-    reviewCheckout: "border-[1.5px] border-dashed border-primary-500",
     worktree: "bg-success-500",
   };
 
@@ -688,6 +690,7 @@
           >
             <span class="size-2 shrink-0 rounded-full {STEP_DOT[step]}" aria-hidden="true"></span>{STEP_LABELS[step]}
           </span>
+          {@render headerActions?.()}
           <button
             type="button"
             class="btn btn-sm hover:preset-tonal text-xs"

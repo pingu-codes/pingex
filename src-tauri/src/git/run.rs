@@ -288,7 +288,7 @@ pub(crate) fn redact_classified(fallback: &str, output: &CommandOutput) -> Strin
 /// form and otherwise using a generic fallback.
 pub(crate) fn redact_git_error(fallback: &str, output: &CommandOutput) -> String {
     let stderr = output.stderr.to_lowercase();
-    if stderr.contains("is already checked out") {
+    if stderr.contains("is already checked out") || stderr.contains("already used by worktree") {
         "That branch is already checked out in another worktree".to_string()
     } else if stderr.contains("already exists") {
         "A worktree already exists at that location".to_string()

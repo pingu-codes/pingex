@@ -248,6 +248,8 @@ impl GitHubProvider for FakeGitHub {
                 head_ref: pr.head_ref.clone(),
                 updated_at: pr.updated_at.clone(),
                 url: pr.url.clone(),
+                head_repo: pr.head_repo.clone(),
+                maintainer_can_modify: pr.maintainer_can_modify,
             })
             .collect())
     }

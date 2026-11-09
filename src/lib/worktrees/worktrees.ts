@@ -85,9 +85,17 @@ export function adoptableWorktrees(entries: WorktreeEntry[], projects: Project[]
       !entry.missingDir &&
       !entry.prunable &&
       !entry.isTemp &&
-      !entry.isReviewCheckout &&
+      !entry.isManagedPrWorktree &&
       !listed.has(trimSlash(entry.path)),
   );
+}
+
+/** The PR a managed worktree belongs to, from its `pr/<n>` branch or
+ *  `pr-<n>` directory; `null` for any other worktree. */
+export function prNumberOf(entry: WorktreeEntry): number | null {
+  if (!entry.isManagedPrWorktree) return null;
+  const match = entry.branch?.match(/^pr\/(\d+)/) ?? basename(entry.path).match(/^pr-(\d+)$/);
+  return match ? Number(match[1]) : null;
 }
 
 /** The branch a worktree is on, or where its detached HEAD points. */
@@ -97,18 +105,17 @@ export function branchLabel(entry: WorktreeEntry): string {
 }
 
 /** Map backend worktree entries to render-ready card models. Pure and tested.
- *  Review checkouts are Pingex's, not the user's, so they get no card. */
+ *  Managed PR worktrees are listed too: they can hold real work, so they have
+ *  to be findable and removable. */
 export function worktreeCards(entries: WorktreeEntry[], projects: Project[]): WorktreeCard[] {
-  return entries
-    .filter((entry) => !entry.isReviewCheckout)
-    .map((entry) => ({
-      entry,
-      displayName: basename(entry.path),
-      branchLabel: branchLabel(entry),
-      threadCount: threadCountForPath(projects, entry.path),
-      dirty: isDirty(entry.status),
-      statusLabel: statusSummary(entry.status),
-      aheadBehind: aheadBehindLabel(entry.ahead, entry.behind),
-      problem: worktreeProblem(entry),
-    }));
+  return entries.map((entry) => ({
+    entry,
+    displayName: basename(entry.path),
+    branchLabel: branchLabel(entry),
+    threadCount: threadCountForPath(projects, entry.path),
+    dirty: isDirty(entry.status),
+    statusLabel: statusSummary(entry.status),
+    aheadBehind: aheadBehindLabel(entry.ahead, entry.behind),
+    problem: worktreeProblem(entry),
+  }));
 }

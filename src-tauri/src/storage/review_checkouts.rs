@@ -1,9 +1,10 @@
 //! Checkout steps per (repository, PR), and the PR link on threads.
 //!
-//! `review_checkouts` holds a row only for a PR above No checkout: its review
-//! checkout (path and head) or its worktree (path and git branch). Several
-//! PRs of one stack can share one path. `review_pr_links` records, per
-//! thread, the PR it is about and what was checked out when it started.
+//! `review_checkouts` holds a row only for a PR above No checkout: its
+//! worktree's path and git branch, and the PR head last seen. Rows written
+//! before review checkouts became PR worktrees say `review_checkout` until they
+//! are adopted. `review_pr_links` records, per thread, the PR it is about and
+//! what was checked out when it started.
 
 use serde::{Deserialize, Serialize};
 use turso::{params, Database, Row};
@@ -15,15 +16,13 @@ use crate::util::time::unix_secs;
 fn step_name(step: CheckoutStep) -> &'static str {
     match step {
         CheckoutStep::NoCheckout => "no_checkout",
-        CheckoutStep::ReviewCheckout => "review_checkout",
         CheckoutStep::Worktree => "worktree",
     }
 }
 
 fn parse_step(name: &str) -> CheckoutStep {
     match name {
-        "review_checkout" => CheckoutStep::ReviewCheckout,
-        "worktree" => CheckoutStep::Worktree,
+        "review_checkout" | "worktree" => CheckoutStep::Worktree,
         _ => CheckoutStep::NoCheckout,
     }
 }
@@ -32,9 +31,11 @@ fn parse_step(name: &str) -> CheckoutStep {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct StoredCheckout {
     pub(crate) pr_number: i64,
-    /// `review_checkout` or `worktree`.
+    /// `worktree`, or `review_checkout` on a row not yet adopted.
     pub(crate) step: String,
     pub(crate) path: String,
+    /// The PR head last seen: what proves a closed PR's commits are safe once
+    /// its refs have been pruned.
     pub(crate) head_sha: Option<String>,
     pub(crate) git_branch: Option<String>,
     pub(crate) setup_done: bool,
@@ -119,6 +120,55 @@ pub(crate) async fn write_checkout(
             i64::from(checkout.setup_done),
             unix_secs()
         ],
+    )
+    .await
+}
+
+/// The repository and PR of the stored checkout at `path`.
+pub(crate) async fn read_checkout_at_path(
+    database: &Database,
+    path: &str,
+) -> Result<Option<(String, i64)>, String> {
+    let connection = db::conn(database)?;
+    db::one(
+        &connection,
+        "SELECT repo_key, pr_number FROM review_checkouts WHERE path = ?",
+        params![path],
+        |row| Ok((db::text(row, 0)?, db::int(row, 1)?)),
+    )
+    .await
+}
+
+/// Record the PR head last seen, keeping `closed_at`.
+pub(crate) async fn update_checkout_head(
+    database: &Database,
+    repo_key: &str,
+    pr_number: i64,
+    head_sha: &str,
+) -> Result<(), String> {
+    let connection = db::conn(database)?;
+    db::exec(
+        &connection,
+        "UPDATE review_checkouts SET head_sha = ?, updated_at = ?
+         WHERE repo_key = ? AND pr_number = ?",
+        params![head_sha, unix_secs(), repo_key, pr_number],
+    )
+    .await
+}
+
+/// Make a `review_checkout` row a worktree on `git_branch`, keeping `closed_at`.
+pub(crate) async fn adopt_checkout(
+    database: &Database,
+    repo_key: &str,
+    pr_number: i64,
+    git_branch: &str,
+) -> Result<(), String> {
+    let connection = db::conn(database)?;
+    db::exec(
+        &connection,
+        "UPDATE review_checkouts SET step = 'worktree', git_branch = ?, updated_at = ?
+         WHERE repo_key = ? AND pr_number = ?",
+        params![git_branch, unix_secs(), repo_key, pr_number],
     )
     .await
 }

@@ -336,3 +336,62 @@ fn tool_denial_ends_the_turn() {
         "denied.txt was written despite the deny"
     );
 }
+
+/// Permissions a queued review in a PR worktree runs under (`workspace-write`,
+/// which is `acceptEdits` on Claude): a Bash commit asks first, then lands on
+/// the worktree's branch.
+#[test]
+fn a_pr_worktree_commit_under_accept_edits_asks_then_lands_on_its_branch() {
+    let setup = live!();
+    let root = tempfile::tempdir().expect("scratch");
+    let repo = root.path().join("repo");
+    let worktree = root.path().join("pr-worktree");
+    std::fs::create_dir_all(&repo).unwrap();
+    std::fs::write(repo.join("README.md"), "# repo\n").unwrap();
+    let git = |dir: &std::path::Path, args: &[&str]| {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .expect("git runs");
+        assert!(output.status.success(), "git {args:?}: {output:?}");
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    };
+    for args in [
+        &["init", "-q", "-b", "main"][..],
+        &["add", "."],
+        &[
+            "-c",
+            "user.name=E2E",
+            "-c",
+            "user.email=e2e@pingex.test",
+            "commit",
+            "-q",
+            "-m",
+            "init",
+        ],
+    ] {
+        git(&repo, args);
+    }
+    let worktree_path = worktree.display().to_string();
+    git(
+        &repo,
+        &["worktree", "add", "-q", "-b", "pr/7", &worktree_path],
+    );
+    std::fs::write(worktree.join("measure.txt"), "1.2s\n").unwrap();
+
+    let claude = harness::spawn(setup, "acceptEdits");
+    claude.send_prompt(&format!(
+        "Run exactly this one Bash command, then reply with exactly DONE: git -C {worktree_path} add measure.txt && git -C {worktree_path} -c user.name=E2E -c user.email=e2e@pingex.test commit -q -m measure"
+    ));
+    let (next, request_id, request) = claude.expect_can_use_tool(0);
+    assert_eq!(request["tool_name"], "Bash");
+    claude.respond_permission(&request_id, "allow", &request);
+    claude.expect_success(next, "committing in the PR worktree");
+
+    assert_eq!(
+        git(&worktree, &["log", "-1", "--format=%s", "pr/7"]),
+        "measure"
+    );
+}

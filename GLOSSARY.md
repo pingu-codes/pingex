@@ -217,19 +217,20 @@ branch names.
 _Avoid_: chain, train, dependent PRs
 
 **Checkout step**:
-Where a pull request's code lives on disk, one of three, lowest first:
-**No checkout** (the PR's commits fetched into `refs/pingex/pr/<n>/`, the
-working tree untouched), **Review checkout**, and **Worktree** (a named
-worktree on the PR's git branch, listed in the sidebar). A PR moves up only
-when an action needs it, and only as far as that action needs; the table of
+Where a pull request's code lives on disk: **No checkout** (the PR's commits
+fetched into `refs/pingex/pr/<n>/`, the working tree untouched), or **Worktree**
+(its **PR worktree**). A PR moves up only when an action needs it; the table of
 what each action needs is `review/requirements.rs`.
 _Avoid_: checkout mode, level, stage
 
-**Review checkout**:
-A detached checkout at a pull request's head that Pingex owns and creates
-only when something has to run there. It never appears in the worktree list
-and is read-only to agents; making it a worktree keeps its path.
-_Avoid_: temp worktree, PR worktree
+**PR worktree**:
+A real worktree on a local branch at a pull request's head, where agents and
+people can build, run and commit. Your own same-repository PR, or a stack's,
+goes on its git branch and is yours. Anyone else's, or a fork, goes on `pr/<n>`
+with no upstream, and Pingex manages it: it removes it once the PR has closed
+and it holds no work. Commits reach someone else's PR only through a confirmed
+push. Replaces the detached, read-only review checkout (ADR 0007).
+_Avoid_: review checkout, temp worktree
 
 **Agent review**:
 A review of a pull request by an agent, run as its own thread on any

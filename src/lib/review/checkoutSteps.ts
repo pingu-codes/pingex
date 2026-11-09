@@ -1,10 +1,12 @@
-// Moving a PR up the checkout steps from the frontend: ask the backend for
-// the step plan, confirm what it says to confirm, run the step, and show the
-// toasts (Undo, setup in the background). Buttons call `stepUpFor` with the
-// action they perform, then do their work in the checkout it returns.
+// Moving a PR up to a worktree from the frontend: ask the backend for the step
+// plan, confirm what it says to confirm, make the worktree, and show the toasts
+// (Undo, setup). Buttons call `stepUpFor` with the action they perform, then do
+// their work in the checkout it returns.
 
 import { openDialog } from "$lib/app/dialogs.svelte";
+import { newThreadInDir } from "$lib/app/navigation.svelte";
 import CheckoutStepDialog from "$lib/review/CheckoutStepDialog.svelte";
+import { expectPrThread } from "$lib/review/prLinks.svelte";
 import { commands } from "$lib/services/homeRouting";
 import { toastError, toaster, toastProgress, toastUndo } from "$lib/toaster";
 import type { CheckoutTarget, DeskAction, PrCheckout } from "$lib/types";
@@ -33,29 +35,25 @@ export async function stepUpFor(request: StepRequest): Promise<PrCheckout | null
       toastError(plan.refused);
       return null;
     }
-    let way: "reviewCheckout" | "promote" | "worktree" | "proceed" | null = null;
     const ask = (confirm: NonNullable<typeof plan.confirm>) =>
       openDialog(CheckoutStepDialog, {
         confirm,
         action,
         target,
         repoName,
-        reviewCheckoutPath: plan.current.path ?? plan.reviewCheckoutPath,
+        worktreePath: plan.worktreePath,
       });
     if (plan.confirm) {
       const choice = await ask(plan.confirm);
       if (!choice) return null;
-      way = choice.way;
       if (choice.dontAskAgain) await commands.reviewSetCheckoutPolicy(repoDir, "ask", true);
     }
     // Pushing to someone else's git branch is asked every time, also when
     // the first question was about the step up; before anything is created.
     if (plan.confirmPush && plan.confirm !== "pushToTheirBranch" && !(await ask("pushToTheirBranch"))) return null;
-    if (plan.stepUp === "reviewCheckout") return await createReviewCheckout(repoDir, target);
     if (plan.stepUp === "worktree") {
-      return way === "promote"
-        ? await commands.reviewPromoteCheckout(repoDir, target)
-        : await createWorktree(repoDir, target);
+      // An editor can open before dependencies finish; an agent shouldn't start.
+      return await createPrWorktree(repoDir, target, { awaitSetup: action !== "openInEditor" });
     }
     return plan.current;
   } catch (cause) {
@@ -64,31 +62,46 @@ export async function stepUpFor(request: StepRequest): Promise<PrCheckout | null
   }
 }
 
-/** Create a review checkout of `target` without asking, with the Undo toast
- *  and setup in the background: for callers that already showed the path,
- *  as Start review does. */
-export async function createReviewCheckout(repoDir: string, target: CheckoutTarget): Promise<PrCheckout> {
-  const checkout = await commands.reviewEnsureReviewCheckout(repoDir, target);
-  const name = basename(checkout.path ?? "");
+/** Make `target`'s worktree without asking, with the Undo toast and its setup
+ *  command: for callers that already showed the path, as Start review does.
+ *  Resolves once setup has finished, so nothing starts before dependencies are
+ *  in, unless the caller says otherwise. */
+export async function createPrWorktree(
+  repoDir: string,
+  target: CheckoutTarget,
+  { awaitSetup = true }: { awaitSetup?: boolean } = {},
+): Promise<PrCheckout> {
+  const checkout = await commands.reviewEnsurePrWorktree(repoDir, target);
+  const path = checkout.path ?? "";
+  const name = basename(path);
   toastUndo(
-    `Created review checkout ${name}`,
-    () => undo(commands.reviewRemoveReviewCheckout(repoDir, target.number)),
+    `Created worktree ${name}`,
+    () =>
+      undo(
+        checkout.managed
+          ? commands.reviewRemovePrWorktree(repoDir, target.number)
+          : commands.gitWorktreeRemove(repoDir, path, false),
+      ),
     `#${target.number} at ${(checkout.headSha ?? target.headSha).slice(0, 7)}`,
   );
-  if (checkout.setupPending) void runSetup(repoDir, target.number, name, checkout.setupPending);
+  if (checkout.setupPending) {
+    const setup = runSetup(repoDir, target.number, name, checkout.setupPending);
+    if (awaitSetup) await setup;
+  }
   return checkout;
 }
 
-async function createWorktree(repoDir: string, target: CheckoutTarget): Promise<PrCheckout> {
-  const checkout = await commands.reviewCreatePrWorktree(repoDir, target, null);
-  const path = checkout.path ?? "";
-  toastUndo(`Created worktree ${basename(path)} from ${target.headRef}`, () =>
-    undo(commands.gitWorktreeRemove(repoDir, path, false)),
-  );
+/** Get `target` a worktree and open a draft thread there, filed under the PR
+ *  when it starts. */
+export async function workOnPr(request: StepRequest): Promise<PrCheckout | null> {
+  const checkout = await stepUpFor(request);
+  if (!checkout?.path) return null;
+  expectPrThread(checkout.path, request.repoDir, request.target);
+  newThreadInDir(checkout.path);
   return checkout;
 }
 
-/** The setup command, in the background, with a toast while it runs. */
+/** The setup command, with a toast while it runs. */
 async function runSetup(repoDir: string, number: number, name: string, command: string): Promise<void> {
   const toast = toastProgress(`Installing dependencies in ${name}`, command);
   try {

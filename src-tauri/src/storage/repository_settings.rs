@@ -1,5 +1,5 @@
 //! Per-repository settings: where worktrees go, the setup command, when a
-//! review checkout may be created, and which remote feeds the inbox.
+//! PR worktree may be created, and which remote feeds the inbox.
 //!
 //! Keyed by `repo_key`: the project's root path as stored for projects, or
 //! the GitHub `owner/name` of a PRs-only repository, which has no folder. A
@@ -11,7 +11,8 @@ use turso::{params, Database};
 use super::db;
 use crate::util::time::unix_secs;
 
-/// When a review checkout may be created for an action that needs one.
+/// When a PR worktree may be created for an action that follows this policy
+/// (`DeskAction::follows_policy`). Named for the step it first governed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum ReviewCheckoutPolicy {
@@ -20,7 +21,7 @@ pub(crate) enum ReviewCheckoutPolicy {
     Ask,
     /// Create it without asking.
     WhenNeeded,
-    /// Never create one; such actions are unavailable.
+    /// Never create one for those actions; they are unavailable.
     Never,
 }
 
@@ -79,7 +80,7 @@ impl PrSource {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RepositorySettings {
     pub(crate) repo_key: String,
-    /// Run once in a new review checkout or worktree, e.g. `bun install`.
+    /// Run once in a new PR worktree, e.g. `bun install`.
     pub(crate) setup_command: Option<String>,
     pub(crate) review_checkout_policy: ReviewCheckoutPolicy,
     /// "Don't ask again for <repository>" on the checkout confirmation.

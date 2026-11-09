@@ -29,7 +29,7 @@ describe("fileReviewThreads", () => {
   it("files threads on other people's PRs and my PRs without a worktree under Reviews", () => {
     const filing = fileReviewThreads([repo("/code/pingex", [diff, plain, mine])], [tests], {
       diff: link("diff"),
-      tests: link("tests", { prNumber: 403, step: "reviewCheckout" }),
+      tests: link("tests", { prNumber: 403, step: "worktree" }),
       mine: link("mine", { prNumber: 415, mine: true, step: "worktree" }),
     });
 

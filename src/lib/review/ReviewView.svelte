@@ -1,18 +1,18 @@
 <script lang="ts">
   import { ArrowLeft, Bot, FileDiff, GitBranch, GitPullRequest, LogIn } from "@lucide/svelte";
   import { onMount } from "svelte";
-  import { newThreadInDir } from "$lib/app/navigation.svelte";
   import DiffBlock from "$lib/components/DiffBlock.svelte";
   import RefreshIcon from "$lib/components/RefreshIcon.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import { inboxes } from "$lib/inbox/inboxStore.svelte";
   import AgentReviewPage from "$lib/review/AgentReviewPage.svelte";
-  import { stepUpFor } from "$lib/review/checkoutSteps";
+  import { stepUpFor, workOnPr } from "$lib/review/checkoutSteps";
+  import { checkoutTarget } from "$lib/review/checkoutTarget";
   import { changeStat, fileChange, reviewPrompt } from "$lib/review/review";
   import { commands } from "$lib/services/homeRouting";
   import { fetchQuery, invalidate } from "$lib/services/queryCache.svelte";
-  import { toastError } from "$lib/toaster";
-  import type { CheckoutStep, CheckoutTarget, PrDetail, PrFile, ProviderStatus, PrSummary } from "$lib/types";
+  import { toastError, toaster } from "$lib/toaster";
+  import type { CheckoutTarget, PrCheckout, PrDetail, PrFile, ProviderStatus, PrSummary } from "$lib/types";
   import { errorMessage } from "$lib/utils/errors";
 
   let {
@@ -50,33 +50,50 @@
     localFiles.find((file) => file.path === selectedPath) ?? localFiles[0] ?? null,
   );
 
-  // The PR's checkout step, for the page's badge and button tooltips.
-  let checkoutStep = $state<CheckoutStep>("noCheckout");
+  // The PR's checkout, for the page's badge, local state and button tooltips.
+  let prCheckout = $state<PrCheckout | null>(null);
 
   function targetOf(detail: PrDetail): CheckoutTarget {
     const viewer = inboxes[repoDir]?.inbox?.viewer;
-    return {
-      number: detail.summary.number,
-      headRef: detail.summary.headRef,
-      headSha: detail.headSha,
-      mine: detail.summary.author === viewer,
-      stack: null,
-    };
+    return checkoutTarget({ ...detail.summary, headSha: detail.headSha }, detail.summary.author === viewer);
   }
 
   async function readStep(detail: PrDetail) {
-    const checkout = await fetchQuery("reviewCheckoutState", repoDir, targetOf(detail)).catch(() => null);
-    checkoutStep = checkout?.step ?? "noCheckout";
+    prCheckout = await fetchQuery("reviewCheckoutState", repoDir, targetOf(detail)).catch(() => null);
   }
 
-  /** Run locally / Open in editor: step up to a review checkout (asking per
+  /** Run locally / Open in editor: step up to the PR's worktree (asking per
    *  the repository's policy, with an Undo toast), then use it. */
   async function runLocally(detail: PrDetail, action: "runLocally" | "openInEditor") {
-    const checkout = await stepUpFor({ repoDir, repoName, target: targetOf(detail), action });
+    const checkout =
+      action === "runLocally"
+        ? await workOnPr({ repoDir, repoName, target: targetOf(detail), action })
+        : await stepUpFor({ repoDir, repoName, target: targetOf(detail), action });
     if (!checkout?.path) return;
-    checkoutStep = checkout.step;
-    if (action === "runLocally") newThreadInDir(checkout.path);
-    else await commands.openInZed(checkout.path).catch((cause) => toastError(errorMessage(cause)));
+    prCheckout = checkout;
+    if (action === "openInEditor") {
+      await commands.openInZed(checkout.path).catch((cause) => toastError(errorMessage(cause)));
+    }
+  }
+
+  /** Work on this PR: a draft thread in its worktree, always asked for. */
+  async function startWork(detail: PrDetail) {
+    const checkout = await workOnPr({ repoDir, repoName, target: targetOf(detail), action: "workOnPr" });
+    if (checkout) prCheckout = checkout;
+  }
+
+  /** Push to PR: the worktree's commits go to the PR's branch, without forcing.
+   *  Pushing to someone else's branch is asked every time. */
+  async function pushToPr(detail: PrDetail) {
+    const checkout = await stepUpFor({ repoDir, repoName, target: targetOf(detail), action: "push" });
+    if (!checkout) return;
+    try {
+      await commands.reviewPushToPr(repoDir, detail.summary.number);
+      toaster.success({ title: `Pushed to #${detail.summary.number}` });
+      await readStep(detail);
+    } catch (cause) {
+      toastError(errorMessage(cause));
+    }
   }
 
   /** The picker's data. Cached, so going back to the list is instant; the
@@ -145,9 +162,11 @@
       onOpenPr={openPr}
       viewer={inboxes[repoDir]?.inbox?.viewer ?? null}
       inbox={inboxes[repoDir]?.inbox ?? null}
-      step={checkoutStep}
+      checkout={prCheckout}
       onDetail={readStep}
       onRunLocally={runLocally}
+      onWorkOnPr={startWork}
+      onPushToPr={pushToPr}
     />
   {/key}
 {:else}

@@ -49,7 +49,7 @@
   // remotes are read for you, or by URL. A GitHub repository is added PRs only
   // (nothing cloned), cloned into a folder on a Host, or linked to a clone
   // Pingex already knows. A folder brings its PR source and the repository's
-  // defaults (worktrees, setup command, review checkout policy).
+  // defaults (worktrees, setup command, PR worktree policy).
   let {
     knownFolders,
     addFolder,
@@ -551,11 +551,11 @@
               >
             </div>
             <div class="flex flex-wrap items-center gap-2 px-3 py-2">
-              <span class="w-32 font-medium">Review checkouts</span>
+              <span class="w-32 font-medium">PR worktrees</span>
               <Segmented
                 value={policy}
                 options={policyOptions}
-                label="Review checkouts"
+                label="PR worktrees"
                 onChange={(next) => (policy = next)}
               />
             </div>

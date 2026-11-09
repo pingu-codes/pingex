@@ -1062,3 +1062,100 @@ fn turn_settings_update_or_its_classified_absence() {
     }
     server.call(requests::thread_delete(&thread_id));
 }
+
+/// A PR worktree is a linked worktree, whose git metadata lives in the main
+/// clone. An agent under `workspace-write` must be able to write there without
+/// asking; this also records what a commit and a push take. It pins the claims
+/// ADR 0007 makes about Codex's sandbox. The push goes to a local bare
+/// repository, so it shows the sandbox's write protection, not its network rule.
+#[test]
+fn a_pr_worktree_agent_writes_freely_commits_with_approval_and_cannot_push_unasked() {
+    live!(server);
+    let repo = server.git_repo("pr-repo");
+    let scratch = server.cwd.parent().expect("scratch root");
+    let worktree = scratch.join("pr-worktree");
+    let worktree_path = worktree.display().to_string();
+    harness::git(
+        &repo,
+        &["worktree", "add", "-q", "-b", "pr/7", &worktree_path],
+    );
+    let remote = scratch.join("remote.git");
+    let remote_path = remote.display().to_string();
+    harness::git(scratch, &["init", "-q", "--bare", &remote_path]);
+    harness::git(&repo, &["remote", "add", "origin", &remote_path]);
+    let thread_id =
+        harness::thread_id_of(&server.call(requests::thread_start(&worktree_path, None, None)));
+    let turn = |text: &str| {
+        requests::turn_start(
+            &thread_id,
+            text_input(text),
+            Some(TurnOptions {
+                model: Some(server.model.clone()),
+                effort: Some("low".into()),
+                approval_policy: Some("on-request".into()),
+                sandbox_mode: Some("workspace-write".into()),
+                ..TurnOptions::default()
+            }),
+        )
+    };
+    // Answer every approval with `decision` until the turn ends; how many came.
+    let settle = |request, decision: &str| {
+        let from = server.cursor();
+        let response = server.call(request);
+        let turn_id = response
+            .pointer("/turn/id")
+            .and_then(Value::as_str)
+            .expect("turn id")
+            .to_string();
+        let (mut cursor, mut asked) = (from, 0);
+        loop {
+            let (next, message) = server
+                .wait_for(cursor, TURN_TIMEOUT, |message| {
+                    let method = message.get("method").and_then(Value::as_str).unwrap_or("");
+                    (message.get("id").is_some() && method.ends_with("requestApproval"))
+                        || (method == "turn/completed"
+                            && message.pointer("/params/turn/id").and_then(Value::as_str)
+                                == Some(turn_id.as_str()))
+                })
+                .expect("the turn ended or asked");
+            cursor = next;
+            if message.get("id").is_none() {
+                return asked;
+            }
+            asked += 1;
+            server.respond(
+                message["id"].as_i64().expect("request id"),
+                requests::approval_result(decision),
+            );
+        }
+    };
+
+    let asked = settle(
+        turn("Run exactly this shell command: `echo 1.2s > measure.txt`. Then reply with exactly DONE."),
+        "decline",
+    );
+    assert_eq!(asked, 0, "writing in the worktree needs no approval");
+    assert!(worktree.join("measure.txt").is_file());
+
+    let asked = settle(
+        turn("Run exactly this shell command, requesting approval if the sandbox blocks it: `git add measure.txt && git -c user.name=E2E -c user.email=e2e@pingex.test commit -q -m measure`. Then reply with exactly DONE."),
+        "accept",
+    );
+    eprintln!("approvals a commit took under workspace-write: {asked}");
+    assert_eq!(
+        harness::git(&worktree, &["log", "-1", "--format=%s", "pr/7"]).trim(),
+        "measure",
+        "the commit reached the worktree's branch"
+    );
+
+    let asked = settle(
+        turn("Run exactly this shell command, requesting approval if the sandbox blocks it: `git push origin HEAD:refs/heads/feature`. Then reply with exactly DONE."),
+        "decline",
+    );
+    eprintln!("approvals a push took under workspace-write: {asked}");
+    assert_eq!(
+        harness::git(&repo, &["ls-remote", "origin", "refs/heads/feature"]).trim(),
+        "",
+        "a declined push reaches nothing"
+    );
+}

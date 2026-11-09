@@ -21,8 +21,8 @@
       <div class="text-surface-500">No agent reviews running.</div>
     {/each}
     <div class="text-surface-500">
-      Diff reviews need no checkout. Reviews that run tests get a review checkout first. Findings stay as drafts until
-      you post them.
+      Diff reviews need no checkout. Reviews that run tests get a worktree first. Findings stay as drafts until you post
+      them.
     </div>
   </div>
 </section>

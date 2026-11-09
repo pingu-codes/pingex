@@ -48,6 +48,14 @@ pub(crate) fn parse_pr_list(json: &Value) -> Vec<PrSummary> {
         .unwrap_or_default()
 }
 
+/// `owner/name` from `gh pr view`'s head repository fields, which it reports
+/// separately. `None` when the list read lacks them or the fork was deleted.
+fn head_repo(value: &Value) -> Option<String> {
+    let name = value.pointer("/headRepository/name")?.as_str()?;
+    let owner = value.pointer("/headRepositoryOwner/login")?.as_str()?;
+    (!name.is_empty() && !owner.is_empty()).then(|| format!("{owner}/{name}"))
+}
+
 fn parse_pr_summary(value: &Value) -> PrSummary {
     PrSummary {
         number: value.get("number").and_then(Value::as_i64).unwrap_or(0),
@@ -62,6 +70,11 @@ fn parse_pr_summary(value: &Value) -> PrSummary {
         head_ref: str_field(value, "headRefName"),
         updated_at: str_field(value, "updatedAt"),
         url: str_field(value, "url"),
+        head_repo: head_repo(value),
+        maintainer_can_modify: value
+            .get("maintainerCanModify")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
     }
 }
 
@@ -327,6 +340,23 @@ pub(crate) fn parse_review_threads(json: &Value) -> Vec<PrComment> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_pr_view_names_its_head_repository_and_a_deleted_fork_has_none() {
+        let fork = serde_json::json!({
+            "headRepository": {"id": "R_1", "name": "desk"},
+            "headRepositoryOwner": {"id": "U_1", "login": "jo-r"},
+            "maintainerCanModify": true,
+        });
+        let summary = parse_pr_summary(&fork);
+        assert_eq!(summary.head_repo.as_deref(), Some("jo-r/desk"));
+        assert!(summary.maintainer_can_modify);
+
+        let deleted = serde_json::json!({"headRepository": null, "headRepositoryOwner": null});
+        let summary = parse_pr_summary(&deleted);
+        assert_eq!(summary.head_repo, None);
+        assert!(!summary.maintainer_can_modify);
+    }
 
     #[test]
     fn parses_pr_list_summaries() {

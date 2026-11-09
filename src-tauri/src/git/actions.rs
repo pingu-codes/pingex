@@ -262,6 +262,14 @@ pub(crate) fn pull(host: &Host, dir: &Path) -> Result<SyncResult, String> {
 
 pub(crate) fn push(host: &Host, dir: &Path, set_upstream: bool) -> Result<SyncResult, String> {
     let output = if set_upstream {
+        // Publishing would make a stray `pr/<n>` branch on `origin`, and not
+        // update the pull request.
+        if matches!(super::checkouts::is_managed(host, dir), Ok(true)) {
+            return Err(classified_error(
+                GitErrorKind::Other,
+                "This worktree belongs to a pull request. Use Push to PR",
+            ));
+        }
         let status = read_status(host, dir)?;
         let Some(branch) = status.branch.filter(|_| !status.detached) else {
             return Err(classified_error(

@@ -31,6 +31,11 @@ pub(crate) struct PrSummary {
     pub(crate) head_ref: String,
     pub(crate) updated_at: String,
     pub(crate) url: String,
+    /// The `owner/name` the head lives in. Only a PR's detail read has it, and
+    /// it is `None` when the head repository was deleted.
+    pub(crate) head_repo: Option<String>,
+    /// The head repository's owner lets the base's maintainers push to it.
+    pub(crate) maintainer_can_modify: bool,
 }
 
 /// One commit on the PR branch.

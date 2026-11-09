@@ -20,7 +20,8 @@
 //! | `viewed` | Files marked viewed, keyed by blob id |
 //! | `pr` | Changes to the PR itself: merge, close, retarget, mark ready, checks, new PRs |
 //! | `checkouts` | No checkout: PR refs, diffs and files by SHA |
-//! | `steps` | Review checkouts, worktrees, promotion and the step plan |
+//! | `steps` | PR worktrees: placement, following the head, removal, the step plan |
+//! | `pr_push` | Pushing a PR worktree back to the PR |
 //! | `links` | The PR link on threads |
 //! | `repositories` | The account's repositories, for Add repository |
 //! | `stack` | A stack on disk: its git branches, the base's lead, its worktree, the restack plan |
@@ -42,6 +43,7 @@ mod cleanup;
 mod links;
 mod pending;
 mod pr;
+mod pr_push;
 mod repositories;
 mod restack;
 mod review;
@@ -96,9 +98,9 @@ impl ReviewDesk {
     }
 
     /// The Home's Pingex-owned directory on the repository's Host (its Codex
-    /// home): review checkouts go under `review-checkouts/`, new worktrees
-    /// under `worktrees/` unless the repository says otherwise. Without one,
-    /// creating either fails.
+    /// home): managed PR worktrees go under `pr-worktrees/`, the user's under
+    /// `worktrees/` unless the repository says otherwise. Without one, creating
+    /// either fails.
     pub(crate) fn with_home_dir(mut self, home: String) -> Self {
         self.home_dir = Some(home);
         self

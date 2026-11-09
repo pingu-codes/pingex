@@ -5,7 +5,9 @@
 import { newThreadInDir, openThreadInCwd } from "$lib/app/navigation.svelte";
 import type { InboxHandlers } from "$lib/inbox/handlers";
 import { inboxes } from "$lib/inbox/inboxStore.svelte";
-import { stepUpFor } from "$lib/review/checkoutSteps";
+import { stepUpFor, workOnPr } from "$lib/review/checkoutSteps";
+import { checkoutTarget } from "$lib/review/checkoutTarget";
+import { expectPrThread } from "$lib/review/prLinks.svelte";
 import { startPrThread } from "$lib/review/prThreads";
 import { commands } from "$lib/services/homeRouting";
 import { toastError, toaster } from "$lib/toaster";
@@ -16,7 +18,7 @@ import { basename } from "$lib/utils/path";
 /** The checkout target for an inbox row. */
 export function targetFor(repoDir: string, pr: InboxPr): CheckoutTarget {
   const viewer = inboxes[repoDir]?.inbox?.viewer;
-  return { number: pr.number, headRef: pr.headRef, headSha: pr.headSha, mine: pr.author === viewer, stack: null };
+  return checkoutTarget(pr, pr.author === viewer);
 }
 
 /** The first message of a "Fix CI in thread" thread: the failing checks' logs. */
@@ -32,8 +34,11 @@ export function fixCiPrompt(pr: InboxPr, logs: { name: string; log: string; trun
 
 export function checkoutHandlers(
   repoName: (repoDir: string) => string,
-): Required<Pick<InboxHandlers, "fixCi" | "createWorktrees" | "openInWorktree">> {
+): Required<Pick<InboxHandlers, "fixCi" | "createWorktrees" | "openInWorktree" | "newThread">> {
   return {
+    async newThread(repoDir, pr) {
+      await workOnPr({ repoDir, repoName: repoName(repoDir), target: targetFor(repoDir, pr), action: "workOnPr" });
+    },
     async fixCi(repoDir, pr) {
       const target = targetFor(repoDir, pr);
       const checkout = await stepUpFor({ repoDir, repoName: repoName(repoDir), target, action: "fixCi" });
@@ -56,21 +61,22 @@ export function checkoutHandlers(
           const target = targetFor(repoDir, pr);
           const current = await commands.reviewCheckoutState(repoDir, target);
           if (current.step === "worktree") continue;
-          const checkout = await commands.reviewCreatePrWorktree(repoDir, target, null);
-          toaster.success({ title: `Created worktree ${basename(checkout.path ?? "")} from ${pr.headRef}` });
+          const checkout = await commands.reviewEnsurePrWorktree(repoDir, target);
+          toaster.success({ title: `Created worktree ${basename(checkout.path ?? "")} for #${pr.number}` });
+          if (checkout.setupPending) await commands.reviewRunCheckoutSetup(repoDir, pr.number);
         } catch (cause) {
           toastError(`#${pr.number}: ${errorMessage(cause)}`);
         }
       }
     },
     async openInWorktree(repoDir, pr, worktreePath) {
+      const target = targetFor(repoDir, pr);
       if (worktreePath) {
+        expectPrThread(worktreePath, repoDir, target);
         newThreadInDir(worktreePath);
         return;
       }
-      const target = targetFor(repoDir, pr);
-      const checkout = await stepUpFor({ repoDir, repoName: repoName(repoDir), target, action: "fixInThread" });
-      if (checkout?.path) newThreadInDir(checkout.path);
+      await workOnPr({ repoDir, repoName: repoName(repoDir), target, action: "workOnPr" });
     },
   };
 }

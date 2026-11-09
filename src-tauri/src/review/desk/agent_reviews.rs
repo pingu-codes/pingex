@@ -42,7 +42,7 @@ fn check_request(request: &AgentReviewRequest) -> Result<(), String> {
     if request.targets.is_empty() {
         return Err("Pick a pull request to review".to_string());
     }
-    if request.step < CheckoutStep::Worktree
+    if request.step == CheckoutStep::NoCheckout
         && !request
             .harness
             .capabilities()
@@ -54,7 +54,7 @@ fn check_request(request: &AgentReviewRequest) -> Result<(), String> {
         );
     }
     if request.focus.contains(&FocusArea::RunTests) && request.step == CheckoutStep::NoCheckout {
-        return Err("Running tests needs a review checkout".to_string());
+        return Err("Running tests needs a worktree".to_string());
     }
     Ok(())
 }
@@ -148,12 +148,28 @@ impl ReviewDesk {
         let dismissed = self.dismissed_last_time(&review).await?;
         let request = review.request.clone();
         let since_sha = review.since_sha.clone();
+        let numbers: Vec<i64> = request.targets.iter().map(|target| target.number).collect();
+        let prs = self
+            .blocking("Writing the review prompt failed", move |desk| {
+                numbers
+                    .iter()
+                    .map(|number| desk.github.pr_detail(*number))
+                    .collect::<Result<Vec<PrDetail>, String>>()
+            })
+            .await?;
+        // What the agent is told about its worktree has to be true when it
+        // starts: level with the PR's head now, not as the review was queued.
+        let checkout = match (request.step, request.filed_under(), prs.last()) {
+            (CheckoutStep::Worktree, Some(target), Some(pr)) => self
+                .synced_checkout(CheckoutTarget {
+                    head_sha: pr.head_sha.clone(),
+                    ..target.clone()
+                })
+                .await
+                .ok(),
+            _ => None,
+        };
         self.blocking("Writing the review prompt failed", move |desk| {
-            let prs = request
-                .targets
-                .iter()
-                .map(|target| desk.github.pr_detail(target.number))
-                .collect::<Result<Vec<PrDetail>, String>>()?;
             // Best effort: a PRs-only repository has no clone to read from,
             // and the agent can still read the patch.
             let _ = desk.fetch_heads(&request.targets);
@@ -172,6 +188,7 @@ impl ReviewDesk {
             Ok(agent_review_prompt(&PromptInput {
                 request: &request,
                 prs: &prs,
+                checkout: checkout.as_ref(),
                 files_at_head: &files_at_head,
                 files_left_out: &files_left_out,
                 rules: &rules,
@@ -493,6 +510,7 @@ mod tests {
             head_sha: pr.head_sha.clone(),
             mine: false,
             stack: None,
+            head_repo: Some(super::super::test_support::SLUG.to_string()),
         }
     }
 
@@ -682,7 +700,7 @@ mod tests {
             .enqueue_agent_review(tests.clone())
             .await
             .is_err());
-        tests.step = CheckoutStep::ReviewCheckout;
+        tests.step = CheckoutStep::Worktree;
         assert!(fixture.desk.enqueue_agent_review(tests).await.is_ok());
     }
 

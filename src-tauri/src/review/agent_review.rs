@@ -25,7 +25,7 @@ pub(crate) enum FocusArea {
     Performance,
     /// Follow the repository's agent instructions (AGENTS.md, CLAUDE.md).
     AgentInstructions,
-    /// Run the tests; needs a review checkout.
+    /// Run the tests; needs a worktree.
     RunTests,
 }
 
@@ -41,7 +41,7 @@ impl FocusArea {
                 "Follow the repository's agent instructions (AGENTS.md, CLAUDE.md) and flag where the change breaks them."
             }
             Self::RunTests => {
-                "Run the repository's tests in this checkout and report failures as findings. Do not edit files."
+                "Run the repository's tests in this worktree and report failures as findings."
             }
         }
     }

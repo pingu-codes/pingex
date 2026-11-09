@@ -1,13 +1,13 @@
 // The inbox's "Start agent review": the Start review dialog for one PR, and
 // a diff review per PR, without asking, for a multi-select batch
 // (`InboxHandlers.startAgentReviews`). The dialog's choice of code step is
-// the confirmation, so a review checkout is made without asking again.
+// the confirmation, so the worktree is made without asking again.
 
 import { openDialog } from "$lib/app/dialogs.svelte";
 import type { InboxHandlers } from "$lib/inbox/handlers";
 import { inboxes } from "$lib/inbox/inboxStore.svelte";
 import { defaultRequest, enqueueAgentReview, reviewTarget } from "$lib/review/agentReviews.svelte";
-import { createReviewCheckout, stepUpFor } from "$lib/review/checkoutSteps";
+import { createPrWorktree } from "$lib/review/checkoutSteps";
 import StartReviewDialog from "$lib/review/StartReviewDialog.svelte";
 import { commands } from "$lib/services/homeRouting";
 import { toastError, toaster } from "$lib/toaster";
@@ -15,7 +15,6 @@ import type { InboxPr } from "$lib/types";
 import { errorMessage } from "$lib/utils/errors";
 
 export function agentReviewHandlers(
-  repoName: (repoDir: string) => string,
   openPr: (repoDir: string, pr: InboxPr) => void,
 ): Required<Pick<InboxHandlers, "startAgentReviews">> {
   return {
@@ -44,7 +43,7 @@ export function agentReviewHandlers(
         const result = await openDialog(StartReviewDialog, {
           pr,
           viewer,
-          reviewCheckoutPath: plan?.current.path ?? plan?.reviewCheckoutPath ?? "",
+          worktreePath: plan?.worktreePath ?? "",
           setupCommand: settings?.setupCommand ?? null,
           refusedCheckout: plan?.refused ?? null,
         });
@@ -54,11 +53,8 @@ export function agentReviewHandlers(
           return;
         }
         const { request } = result;
-        if (request.step === "reviewCheckout" && plan?.current.step === "noCheckout") {
-          await createReviewCheckout(repoDir, target);
-        } else if (request.step === "worktree") {
-          const checkout = await stepUpFor({ repoDir, repoName: repoName(repoDir), target, action: "addressReview" });
-          if (!checkout) return;
+        if (request.step === "worktree" && plan?.current.step !== "worktree") {
+          await createPrWorktree(repoDir, target);
         }
         await enqueueAgentReview(repoDir, request);
         toaster.success({ title: `Agent review queued on #${pr.number}` });
