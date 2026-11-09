@@ -50,7 +50,7 @@ describe("ReviewPage", () => {
     const user = userEvent.setup();
     const first = renderPage();
     await opened();
-    await user.click(screen.getByRole("button", { name: /^Unresolved/ }));
+    await user.click(screen.getByRole("radio", { name: /^Unresolved/ }));
     const pane = document.querySelector<HTMLElement>("[data-diff-pane]") as HTMLElement;
     pane.scrollTop = 300;
     fireEvent.scroll(pane);
@@ -63,7 +63,7 @@ describe("ReviewPage", () => {
     renderPage();
     await opened();
 
-    expect(screen.getByRole("button", { name: /^Unresolved/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("radio", { name: /^Unresolved/ })).toBeChecked();
     const again = document.querySelector<HTMLElement>("[data-diff-pane]") as HTMLElement;
     await waitFor(() => expect(again.scrollTop).toBe(300));
   });
@@ -362,9 +362,9 @@ describe("ReviewPage", () => {
 
       await search(user, "Typo in the heading");
       await screen.findByText("1 of 1");
-      await user.click(screen.getByRole("button", { name: /^Unresolved/ }));
+      await user.click(screen.getByRole("radio", { name: /^Unresolved/ }));
       await screen.findByText("No results");
-      await user.click(screen.getByRole("button", { name: /^All comments/ }));
+      await user.click(screen.getByRole("radio", { name: /^All comments/ }));
       await screen.findByText("1 of 1");
 
       await user.click(screen.getByRole("radio", { name: /^Conversation/ }));
@@ -576,6 +576,18 @@ describe("ReviewPage", () => {
     renderPage();
     await waitFor(() => expect(commands.reviewChangesSince).toHaveBeenCalledTimes(1));
     expect(await screen.findByRole("radio", { name: /since/i, checked: true })).toBeInTheDocument();
+  });
+
+  it("opens the shortcuts with ? and closes them with Escape, leaving focus in the page", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await opened();
+
+    await user.keyboard("?");
+    expect(await screen.findByRole("dialog", { name: "Shortcuts" })).toBeVisible();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Shortcuts" })).toBeNull());
+    expect(screen.getByRole("button", { name: "Shortcuts" })).not.toHaveFocus();
   });
 
   it("says when a check log shows only its end", async () => {

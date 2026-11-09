@@ -224,11 +224,11 @@ describe("Pull requests inbox", () => {
 
     await user.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(within(feed).queryByText(/requested changes on #415/)).toBeNull();
+    expect(within(feed).getByText(/requested changes on #415/)).not.toBeVisible();
     expect(within(toggle).getByText(String(inboxes[MAIN]?.inbox?.feed.length))).toBeInTheDocument();
 
     await user.click(toggle);
-    expect(within(feed).getByText(/requested changes on #415/)).toBeInTheDocument();
+    expect(within(feed).getByText(/requested changes on #415/)).toBeVisible();
   });
 
   it("opens a row with Enter and starts a thread with T", async () => {
@@ -272,14 +272,14 @@ describe("the repository's GitHub account", () => {
     const { user } = setup();
     await loaded();
     await user.click(await screen.findByRole("button", { name: "GitHub account: ciaran" }));
-    await user.click(await screen.findByRole("menuitem", { name: /ciaran-work/ }));
+    await user.click(await screen.findByRole("menuitemradio", { name: /ciaran-work/ }));
     expect(await screen.findByRole("button", { name: "GitHub account: ciaran-work" })).toBeInTheDocument();
     expect(commands.reviewSetRepositoryAccount).toHaveBeenCalledWith(MAIN, "ciaran-work");
     // The preview's inbox still answers as ciaran: the token didn't take.
     expect(await screen.findByText(/Read as ciaran/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "GitHub account: ciaran-work" }));
-    await user.click(await screen.findByRole("menuitem", { name: /Automatic/ }));
+    await user.click(await screen.findByRole("menuitemradio", { name: /Automatic/ }));
     expect(await screen.findByRole("button", { name: "GitHub account: ciaran" })).toBeInTheDocument();
   });
 });

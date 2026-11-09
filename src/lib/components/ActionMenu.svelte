@@ -85,6 +85,13 @@
   });
 </script>
 
+{#snippet rowBody(entry: { label: string; hint?: string })}
+  <Menu.ItemText class="grow">{entry.label}</Menu.ItemText>
+  {#if entry.hint}
+    <span class="text-[10px] text-surface-500">{entry.hint}</span>
+  {/if}
+{/snippet}
+
 {#snippet list(items: MenuEntry[])}
   {#each items as entry, index (entry.kind === "separator" ? `separator-${index}` : entry.id)}
     {#if entry.kind === "separator"}
@@ -106,6 +113,21 @@
           </Menu.Positioner>
         </Portal>
       </Menu>
+    {:else if entry.checked !== undefined}
+      <!-- A choice among options: its state reads as checked, not as text. -->
+      <Menu.OptionItem
+        type="radio"
+        value={entry.id}
+        checked={entry.checked}
+        disabled={entry.disabled}
+        title={entry.title}
+        class="menu-row cursor-pointer {entry.danger ? "text-error-500" : ""}"
+      >
+        {@render rowBody(entry)}
+        {#if entry.checked}
+          <Check size={12} aria-hidden="true" />
+        {/if}
+      </Menu.OptionItem>
     {:else}
       <Menu.Item
         value={entry.id}
@@ -113,13 +135,7 @@
         title={entry.title}
         class="menu-row cursor-pointer {entry.danger ? "text-error-500" : ""}"
       >
-        <Menu.ItemText class="grow">{entry.label}</Menu.ItemText>
-        {#if entry.hint}
-          <span class="text-[10px] text-surface-500">{entry.hint}</span>
-        {/if}
-        {#if entry.checked}
-          <Check size={12} aria-label="Current" />
-        {/if}
+        {@render rowBody(entry)}
         {#if entry.shortcut}
           <kbd class="kbd">{formatAccelerator(entry.shortcut)}</kbd>
         {/if}

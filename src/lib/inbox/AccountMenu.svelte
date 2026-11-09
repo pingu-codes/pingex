@@ -7,6 +7,7 @@
 <script lang="ts">
   import { CircleUser, TriangleAlert } from "@lucide/svelte";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
+  import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
   import { accountEntries, accountReason, viewerMismatch } from "$lib/inbox/accountMenu";
   import { commands } from "$lib/services/homeRouting";
   import type { RepositoryAccount } from "$lib/types";
@@ -57,12 +58,14 @@
 
 {#if account?.login}
   {#if mismatch}
-    <span
+    <TooltipAnchor
+      label="This repository should use {account.login}, but GitHub answered as {viewer}"
+      multiline
+      tabindex={0}
       class="status-badge preset-tonal-warning"
-      title="This repository should use {account.login}, but GitHub answered as {viewer}"
     >
       <TriangleAlert size={10} aria-hidden="true" />Read as {viewer}
-    </span>
+    </TooltipAnchor>
   {/if}
   <ActionMenu
     entries={accountEntries(account)}

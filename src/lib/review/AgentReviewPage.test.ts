@@ -56,7 +56,7 @@ describe("agent findings on the review page", () => {
     // The repeat of tomasz's comment is merged, not a second card.
     expect(screen.getByText(/Same as tomasz's loader.ts:6 comment/)).toBeInTheDocument();
     // Agent findings filter, and the file tree's count of open findings.
-    expect(screen.getByRole("button", { name: "Agent findings" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Agent findings" })).toBeInTheDocument();
     const tree = screen.getByRole("navigation", { name: "Changed files" });
     expect(within(tree).getByTitle("Agent findings")).toHaveTextContent("2");
     // The summary in Your review.

@@ -10,6 +10,7 @@
 -->
 <script lang="ts">
   import { Search, X } from "@lucide/svelte";
+  import { ToggleGroup } from "@skeletonlabs/skeleton-svelte";
   import { onMount } from "svelte";
   import { projects } from "$lib/app/appData.svelte";
   import { openDialog } from "$lib/app/dialogs.svelte";
@@ -432,16 +433,23 @@
       <div class="flex flex-wrap items-center gap-2">
         <Segmented label="Show" value={filter} options={filterOptions} onChange={(value) => (filter = value)} />
         <span class="grow"></span>
-        {#each CHIPS as chip (chip.key)}
-          <button
-            type="button"
-            class={chips[chip.key] ? "pill-active" : "pill"}
-            aria-pressed={chips[chip.key]}
-            onclick={() => (chips = { ...chips, [chip.key]: !chips[chip.key] })}
-          >
-            {chip.label}
-          </button>
-        {/each}
+        <ToggleGroup
+          multiple
+          value={CHIPS.filter((chip) => chips[chip.key]).map((chip) => chip.key)}
+          onValueChange={(details) => {
+            chips = {
+              drafts: details.value.includes("drafts"),
+              ciFailing: details.value.includes("ciFailing"),
+              unresolved: details.value.includes("unresolved"),
+            };
+          }}
+          aria-label="Narrow the list"
+          class="flex gap-1.5 overflow-visible rounded-none border-0 bg-transparent p-0"
+        >
+          {#each CHIPS as chip (chip.key)}
+            <ToggleGroup.Item value={chip.key} class="pill data-[state=on]:pill-active">{chip.label}</ToggleGroup.Item>
+          {/each}
+        </ToggleGroup>
         <button
           type="button"
           class={groupByStack ? "pill-active" : "pill"}

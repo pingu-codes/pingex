@@ -14,6 +14,7 @@
   import { Ellipsis, MessageSquare, Sparkles, SquarePen } from "@lucide/svelte";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
   import type { MenuEntry } from "$lib/components/actionMenu";
+  import TooltipButton from "$lib/components/TooltipButton.svelte";
   import { RING_CLASS, TONE_CLASS } from "$lib/inbox/badges";
   import {
     type AgentReviewState,
@@ -246,15 +247,14 @@
           <span class="hidden items-center gap-1 pr-1 group-focus-visible/pr:inline-flex" aria-hidden="true">
             <kbd class="kbd">↵</kbd><kbd class="kbd">R</kbd><kbd class="kbd">T</kbd>
           </span>
-          <button
-            type="button"
+          <TooltipButton
             class="row-action size-[22px] group-hover/pr:opacity-100 group-focus/pr:opacity-100 group-focus-visible/pr:hidden"
             aria-label="New thread"
-            title="New thread on this PR (T)"
+            label="New thread on this PR (T)"
             onclick={() => onAction("newThread")}
           >
             <SquarePen size={12} />
-          </button>
+          </TooltipButton>
           <button
             type="button"
             class="row-action size-[22px] group-hover/pr:opacity-100 group-focus/pr:opacity-100 group-focus-visible/pr:hidden"

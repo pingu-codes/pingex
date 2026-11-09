@@ -12,6 +12,7 @@
 -->
 <script lang="ts">
   import { ArrowUp, Check, ChevronLeft, Ellipsis, Keyboard, PanelRight, PanelRightOpen } from "@lucide/svelte";
+  import { Popover, Portal } from "@skeletonlabs/skeleton-svelte";
   import { type Snippet, tick, untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { dialogStack, openDialog } from "$lib/app/dialogs.svelte";
@@ -289,6 +290,14 @@
       if (first ? opensOnSince : changes === "since") void showChanges("since");
     });
   });
+
+  /** The ? key opens the shortcuts wherever the page is scrolled: under their
+   *  button, or at the page's corner once the topbar has gone. */
+  function shortcutsAnchor(button: { getBoundingClientRect(): { x: number; y: number; width: number; height: number } } | null) {
+    if (button && !topbarHidden) return button.getBoundingClientRect();
+    const page = scroller?.getBoundingClientRect();
+    return page ? { x: page.right - 20, y: page.top + 2, width: 0, height: 0 } : null;
+  }
 
   /** Back to where the page was left. */
   function land() {
@@ -967,16 +976,7 @@
           }}
         />
         {#if tab === "files"}
-          {#each FILTERS as option (option.value)}
-            <button
-              type="button"
-              class={filter === option.value ? "pill-active" : "pill"}
-              aria-pressed={filter === option.value}
-              onclick={() => (filter = option.value)}
-            >
-              {option.label}
-            </button>
-          {/each}
+          <Segmented label="Show comments" value={filter} options={FILTERS} onChange={(value) => (filter = value)} />
           <Segmented
             label="Changes"
             value={changes}
@@ -1018,39 +1018,42 @@
             ? ` · ${pending.entries.length}`
             : ""}
         </button>
-        <button
-          type="button"
-          class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500"
-          aria-label="Shortcuts"
-          aria-expanded={helpOpen}
-          onclick={() => (helpOpen = !helpOpen)}
+        <!-- Focus stays in the page: returning it to this button would scroll the
+             reviewer back up to the topbar. -->
+        <Popover
+          open={helpOpen}
+          onOpenChange={(details) => (helpOpen = details.open)}
+          autoFocus={false}
+          restoreFocus={false}
+          positioning={{ placement: "bottom-end", strategy: "fixed", gutter: 6, getAnchorRect: shortcutsAnchor }}
         >
-          <Keyboard size={14} aria-hidden="true" />
-        </button>
+          <Popover.Trigger class="btn-icon btn-icon-sm hover:preset-tonal text-surface-500" aria-label="Shortcuts">
+            <Keyboard size={14} aria-hidden="true" />
+          </Popover.Trigger>
+          <Portal>
+            <Popover.Positioner>
+              <Popover.Content
+                class="popover-card z-50 grid max-w-md grid-cols-2 gap-x-4 gap-y-1.5 p-3 text-xs"
+                aria-label="Shortcuts"
+              >
+                {#if helpOpen}
+                  {#each REVIEW_SHORTCUTS as shortcut (shortcut.label)}
+                    <div class="flex justify-between gap-2">
+                      <span>{shortcut.label}</span>
+                      <span class="flex gap-1"
+                        >{#each shortcut.keys as key (key)}
+                          <kbd class="kbd">{key}</kbd>
+                        {/each}</span
+                      >
+                    </div>
+                  {/each}
+                {/if}
+              </Popover.Content>
+            </Popover.Positioner>
+          </Portal>
+        </Popover>
       </div>
     </header>
-
-    <!-- Sticky, so the ? shortcut shows it wherever the page is scrolled. -->
-    {#if helpOpen}
-      <div class="sticky top-2 z-20 flex h-0 shrink-0 justify-end pr-5">
-        <div
-          class="popover-card grid h-fit max-w-md grid-cols-2 gap-x-4 gap-y-1.5 p-3"
-          role="dialog"
-          aria-label="Shortcuts"
-        >
-          {#each REVIEW_SHORTCUTS as shortcut (shortcut.label)}
-            <div class="flex justify-between gap-2">
-              <span>{shortcut.label}</span>
-              <span class="flex gap-1"
-                >{#each shortcut.keys as key (key)}
-                  <kbd class="kbd">{key}</kbd>
-                {/each}</span
-              >
-            </div>
-          {/each}
-        </div>
-      </div>
-    {/if}
 
     {#if action.error}
       <!-- Sticky: a failed write must show even with the topbar scrolled away. -->

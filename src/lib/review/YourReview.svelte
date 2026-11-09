@@ -8,6 +8,7 @@
   import { AlertTriangle, PanelRightClose, X } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import Segmented from "$lib/components/Segmented.svelte";
+  import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import type { People } from "$lib/inbox/inbox";
   import LoginAvatar from "$lib/inbox/LoginAvatar.svelte";
@@ -148,15 +149,17 @@
   {#if error}
     <div class="error-note">{error}</div>
   {/if}
-  <button
-    type="button"
-    class="btn btn-sm preset-filled-primary-500 self-stretch text-xs"
-    disabled={busy || !canSubmit}
-    onclick={onSubmit}
-    title="⌘↵"
-  >
-    {submitLabel}
-  </button>
+  <!-- On a wrapper: a disabled button fires no pointer events to hint from. -->
+  <TooltipAnchor label="⌘↵" class="flex self-stretch">
+    <button
+      type="button"
+      class="btn btn-sm preset-filled-primary-500 grow text-xs"
+      disabled={busy || !canSubmit}
+      onclick={onSubmit}
+    >
+      {submitLabel}
+    </button>
+  </TooltipAnchor>
 
   {@render agentReview?.()}
 
