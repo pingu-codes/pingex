@@ -11,17 +11,21 @@
   `onAction` by id.
 -->
 <script lang="ts">
-  import { Ellipsis, MessageSquare, Sparkles, SquarePen } from "@lucide/svelte";
+  import { Ellipsis, MessageSquare, Sparkles, SquarePen, UserCheck } from "@lucide/svelte";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
   import type { MenuEntry } from "$lib/components/actionMenu";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import { RING_CLASS, TONE_CLASS } from "$lib/inbox/badges";
   import {
     type AgentReviewState,
+    assigneesOf,
     ciBadge,
     type InboxRow,
     isRowControl,
+    NO_PEOPLE,
     type People,
+    type PeopleFilter,
+    type PersonFacet,
     type PrimaryAction,
     reviewBadge,
     reviewers,
@@ -46,6 +50,9 @@
     drift = null,
     checkout = null,
     checkoutKnown = false,
+    dimmed = false,
+    chosen = NO_PEOPLE,
+    onPerson,
     onAction,
     onPick,
   }: {
@@ -69,6 +76,12 @@
     checkout?: PrCheckout | null;
     /** `checkout` has been read: `null` then means no worktree. */
     checkoutKnown?: boolean;
+    /** Shown so its stack reads whole, though the filters don't keep it. */
+    dimmed?: boolean;
+    /** Who the people pickers have chosen, so a person's button shows pressed. */
+    chosen?: PeopleFilter;
+    /** A click on the author or an assignee: filter the inbox by them. */
+    onPerson?: (facet: PersonFacet, login: string) => void;
     onAction: (id: string) => void;
     onPick: (mode: "toggle" | "range") => void;
   } = $props();
@@ -78,6 +91,12 @@
   const review = $derived(reviewBadge(pr));
   const ci = $derived(ciBadge(pr));
   const reviewing = $derived(reviewers(pr));
+  const assigned = $derived(assigneesOf(pr));
+  const authorChosen = $derived(chosen.authors.includes(pr.author));
+
+  function toggle(facet: PersonFacet, login: string) {
+    return onPerson ? () => onPerson(facet, login) : undefined;
+  }
   const unseen = $derived(triage.newActivity > 0);
   const since = $derived(triage.commitsSinceMyReview ?? 0);
 
@@ -103,10 +122,11 @@
     <div
       {...rowProps}
       role="listitem"
-      aria-label="#{pr.number} {pr.title}"
+      aria-label="#{pr.number} {pr.title}{dimmed ? " (outside the filters)" : ""}"
       data-unseen={unseen ? "true" : undefined}
       data-selected={selected ? "true" : undefined}
-      class="group/pr pr-row relative"
+      data-dimmed={dimmed ? "true" : undefined}
+      class="group/pr pr-row relative data-[dimmed=true]:opacity-55 data-[dimmed=true]:focus-within:opacity-100 data-[dimmed=true]:hover:opacity-100"
       style:padding-left={selecting ? "36px" : undefined}
       {onclick}
       onkeydown={(event) => onkeydown(event, rowProps.onkeydown)}
@@ -150,7 +170,13 @@
           aria-hidden="true"
         ></span>
       {:else}
-        <LoginAvatar login={pr.author} person={people.get(pr.author)} role="Author" />
+        <LoginAvatar
+          login={pr.author}
+          person={people.get(pr.author)}
+          role="Author"
+          onclick={toggle("authors", pr.author)}
+          pressed={authorChosen}
+        />
       {/if}
       <!-- Title and badges: two lines in a narrow inbox; one once it is wide (`@container/inbox`), unless the badges would squeeze the title. -->
       <div
@@ -170,7 +196,22 @@
           >
           <!-- A stack's header names its author. -->
           {#if !triage.mine && !stack}
-            <span class="max-w-40 shrink-0 truncate text-[11px] text-surface-500">{pr.author}</span>
+            {#if onPerson}
+              <!-- The avatar is the keyboard's way to the same toggle. -->
+              <button
+                type="button"
+                class="max-w-40 shrink-0 truncate rounded text-[11px] hover:underline {authorChosen
+                  ? "font-medium text-primary-600-400"
+                  : "text-surface-500"}"
+                tabindex={-1}
+                aria-hidden="true"
+                onclick={() => onPerson("authors", pr.author)}
+              >
+                {pr.author}
+              </button>
+            {:else}
+              <span class="max-w-40 shrink-0 truncate text-[11px] text-surface-500">{pr.author}</span>
+            {/if}
           {/if}
           {#if unseen}
             <span class="unseen-dot" aria-hidden="true"></span>
@@ -217,6 +258,22 @@
           {:else if agentReview}
             <span class="status-badge {agentReview === "running" ? TONE_CLASS.primary : TONE_CLASS.surface}">
               <Sparkles size={10} aria-hidden="true" />Agent review {agentReview}
+            </span>
+          {/if}
+          {#if assigned.length > 0}
+            <!-- Marked apart from the reviewers' avatars that follow. -->
+            <span class="inline-flex items-center" role="group" aria-label="Assignees">
+              <UserCheck size={11} class="mr-0.5 text-surface-500" aria-hidden="true" />
+              {#each assigned as login, index (login)}
+                <LoginAvatar
+                  {login}
+                  person={people.get(login)}
+                  role="Assigned"
+                  onclick={toggle("assignees", login)}
+                  pressed={chosen.assignees.includes(login)}
+                  class={index > 0 ? "-ml-1" : ""}
+                />
+              {/each}
             </span>
           {/if}
           {#if reviewing.length > 0}

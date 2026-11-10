@@ -228,6 +228,10 @@ pub(crate) struct InboxPr {
     pub(crate) maintainer_can_modify: bool,
     /// `APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED`, or none.
     pub(crate) review_decision: Option<String>,
+    /// The logins assigned to the PR. Empty in snapshots stored before this
+    /// field.
+    #[serde(default)]
+    pub(crate) assignees: Vec<String>,
     /// Logins and team slugs asked to review.
     pub(crate) review_requests: Vec<String>,
     /// Each reviewer's latest approving or change-requesting review.

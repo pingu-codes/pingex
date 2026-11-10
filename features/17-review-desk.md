@@ -20,7 +20,7 @@ desk**, **Inbox**, **Seen head**, **Stack**, **PR worktree**) is in
 
 | Board | What it shows |
 | --- | --- |
-| Pull requests | The inbox, grouped by repository and by stack. Filters are Needs me, Mine, Review requested, Everyone, Drafts, CI failing and Unresolved. It also shows the "Since you last looked" feed and the agent reviews that are queued or running. |
+| Pull requests | The inbox, grouped by repository and by stack. Filters are Needs me, Mine, Review requested, Everyone, Drafts, CI failing and Unresolved, plus the Author and Assignee pickers (see "People filters" below). It also shows the "Since you last looked" feed and the agent reviews that are queued or running. |
 | Stack | The stack tree from the base up. Each branch shows its PR, state, commit count and threads. The stack's worktree (with Check out stack when it has none), the selected PR's conversation and reviewers, and "Threads on this PR" sit alongside. |
 | Review | Collapsible files, viewed state, inline human comments and agent findings (drafts only you see), the pending review, and the next PRs up. |
 | Start review | Code (no checkout, or a PR worktree), the agent harness and focus, drafts on or off, and re-run on new commits. |
@@ -28,6 +28,29 @@ desk**, **Inbox**, **Seen head**, **Stack**, **PR worktree**) is in
 | Implicit interactions | Row states, multi-select, line comments, drag-to-reorder a stack, restack progress and conflicts, cleanup after a merge, toasts, hover details and the keyboard. |
 | Model | The three checkout steps, what each action needs, and where threads are grouped. |
 | Adding repositories | From GitHub (PRs only, clone, or link an existing clone), from a local folder (which remote PRs come from, plus per-repository defaults), and the sidebar states. |
+
+## People filters
+
+The Author and Assignee pickers on the Pull requests inbox (`PersonFilter`,
+logic in `inbox.ts`) each tick any number of people. A PR matches when it is by
+any ticked author and assigned to any ticked assignee; Assignee also offers
+Unassigned. Clicking the author's or an assignee's avatar on a row, or the
+author's name, ticks or unticks them. Each picker lists me first, then by how
+many PRs the other filters leave each person, counted without that picker's
+own choice.
+
+With someone ticked:
+
+- The tab stays where it was, and the tab counts are the ticked people's PRs in
+  each tab. With no one ticked they are `inbox.counts`.
+- A stack with a matching PR shows whole, and the PRs the filters don't keep
+  are dimmed but stay usable. This applies only to grouped stacks; with Group
+  by stack off, or a stack of several authors, only the matches show.
+- An empty tab offers its matches in Everyone, and to clear the people filters.
+- Past the 200 PR sync cap, a note says older PRs can't match.
+
+Assignees come from the inbox query's `assignees` connection. It includes the
+Copilot coding agent, as `Copilot` (checked Nov 2026).
 
 ## Getting around
 
@@ -41,7 +64,7 @@ replaces it, so going back doesn't lose the place in the diff.
 
 Each page keeps what it had open in `app/places.ts`, in memory, by repository
 and PR or stack number, and opens as it was left however it is reached: the
-inbox its filter, chips, text, selection and scroll; a PR its tab, comment
+inbox its filter, chips, text, people filters, selection and scroll; a PR its tab, comment
 filter, folded files and scroll; a Stack page its selected PR, tree view and
 scroll.
 

@@ -8,7 +8,7 @@
 
 import { ACTION_LABELS } from "$lib/review/actions";
 import { stackName } from "$lib/stack/stack";
-import type { FeedEntry, GitHubPerson, Inbox, InboxPr, PrStack, PrTriage, StackListing } from "$lib/types";
+import type { FeedEntry, GitHubPerson, Inbox, InboxCounts, InboxPr, PrStack, PrTriage, StackListing } from "$lib/types";
 
 export type InboxFilter = "needsMe" | "mine" | "reviewRequested" | "everyone";
 
@@ -75,21 +75,119 @@ export function peopleByLogin(inbox: Inbox): People {
   return new Map(inbox.people.map((person) => [person.login, person]));
 }
 
-/** Title, number (`#412` or `412`), author's login or name, or git branch, ignoring case. */
+/** Who the PR is assigned to. Missing from snapshots stored before the field. */
+export function assigneesOf(pr: InboxPr): string[] {
+  return pr.assignees ?? [];
+}
+
+/**
+ * Title, number (`#412` or `412`), the author's or an assignee's login or
+ * name, or git branch, ignoring case.
+ */
 export function matchesText(pr: InboxPr, text: string, people?: People): boolean {
   const query = text.trim().toLowerCase();
   if (!query) return true;
   const number = query.replace(/^#/, "");
   if (/^\d+$/.test(number)) return String(pr.number).startsWith(number);
-  const name = people?.get(pr.author)?.name ?? "";
-  return [pr.title, pr.author, name, pr.headRef].some((field) => field.toLowerCase().includes(query));
+  const logins = [pr.author, ...assigneesOf(pr)];
+  const names = logins.map((login) => people?.get(login)?.name ?? "");
+  return [pr.title, pr.headRef, ...logins, ...names].some((field) => field.toLowerCase().includes(query));
 }
 
-export function visibleRows(inbox: Inbox, filter: InboxFilter, chips: InboxChips, text: string): InboxRow[] {
-  const people = peopleByLogin(inbox);
+// --- People filters ---------------------------------------------------------
+
+/** The Assignee picker's "no one assigned". No GitHub login starts with `@`. */
+export const UNASSIGNED = "@none";
+
+/**
+ * The Author and Assignee pickers: a PR matches when it is by any chosen
+ * author and assigned to any chosen assignee. An empty list doesn't narrow.
+ */
+export type PeopleFilter = { authors: string[]; assignees: string[] };
+
+export type PersonFacet = keyof PeopleFilter;
+
+export const NO_PEOPLE: PeopleFilter = { authors: [], assignees: [] };
+
+export function filtersPeople(people: PeopleFilter): boolean {
+  return people.authors.length > 0 || people.assignees.length > 0;
+}
+
+/** The logins a PR counts for in one picker: its author, or its assignees or Unassigned. */
+function facetLogins(pr: InboxPr, facet: PersonFacet): string[] {
+  if (facet === "authors") return [pr.author];
+  const assigned = assigneesOf(pr);
+  return assigned.length > 0 ? assigned : [UNASSIGNED];
+}
+
+function inFacet(pr: InboxPr, facet: PersonFacet, chosen: string[]): boolean {
+  return chosen.length === 0 || facetLogins(pr, facet).some((login) => chosen.includes(login));
+}
+
+export function matchesPeople(pr: InboxPr, people: PeopleFilter): boolean {
+  return inFacet(pr, "authors", people.authors) && inFacet(pr, "assignees", people.assignees);
+}
+
+export function visibleRows(
+  inbox: Inbox,
+  filter: InboxFilter,
+  chips: InboxChips,
+  text: string,
+  people: PeopleFilter = NO_PEOPLE,
+): InboxRow[] {
+  const known = peopleByLogin(inbox);
   return inboxRows(inbox).filter(
-    (row) => inFilter(row, filter) && inChips(row, chips) && matchesText(row.pr, text, people),
+    (row) =>
+      inFilter(row, filter) && inChips(row, chips) && matchesText(row.pr, text, known) && matchesPeople(row.pr, people),
   );
+}
+
+/**
+ * Each tab's count. The backend's, unless someone is chosen in a picker: then
+ * the chosen people's PRs in each tab, read from the same `triage`.
+ */
+export function filterCounts(inbox: Inbox, people: PeopleFilter): InboxCounts {
+  if (!filtersPeople(people)) return inbox.counts;
+  const rows = inboxRows(inbox).filter((row) => matchesPeople(row.pr, people));
+  const count = (filter: InboxFilter) => rows.filter((row) => inFilter(row, filter)).length;
+  return {
+    needsMe: count("needsMe"),
+    mine: count("mine"),
+    reviewRequested: count("reviewRequested"),
+    everyone: count("everyone"),
+  };
+}
+
+export type PersonOption = { login: string; count: number };
+
+/**
+ * What each picker offers: everyone who authored or is assigned to an open PR,
+ * me, and whoever is chosen even if their PRs have gone. Each count is the
+ * PRs every other filter keeps, ignoring the picker's own choice, so ticking a
+ * second author shows what it adds. Unassigned, then me, then the most PRs.
+ */
+export function personOptions(
+  inbox: Inbox,
+  filter: InboxFilter,
+  chips: InboxChips,
+  text: string,
+  people: PeopleFilter,
+): Record<PersonFacet, PersonOption[]> {
+  const rows = visibleRows(inbox, filter, chips, text);
+  const options = (facet: PersonFacet): PersonOption[] => {
+    const other: PersonFacet = facet === "authors" ? "assignees" : "authors";
+    const counts = new Map<string, number>();
+    for (const login of [...inbox.prs.flatMap((pr) => facetLogins(pr, facet)), inbox.viewer, ...people[facet]])
+      if (login) counts.set(login, 0);
+    for (const row of rows)
+      if (inFacet(row.pr, other, people[other]))
+        for (const login of facetLogins(row.pr, facet)) counts.set(login, (counts.get(login) ?? 0) + 1);
+    const rank = (login: string) => (login === UNASSIGNED ? 0 : login === inbox.viewer ? 1 : 2);
+    return [...counts]
+      .map(([login, count]) => ({ login, count }))
+      .sort((a, b) => rank(a.login) - rank(b.login) || b.count - a.count || a.login.localeCompare(b.login));
+  };
+  return { authors: options("authors"), assignees: options("assignees") };
 }
 
 // --- Sections and stacks ----------------------------------------------------
@@ -101,6 +199,8 @@ export type StackGroup = {
   name: string;
   author: string;
   rows: InboxRow[];
+  /** Rows shown so the stack reads whole, though the filters don't keep them. */
+  dimmed: ReadonlySet<number>;
 };
 
 export type InboxItem = { kind: "stack"; group: StackGroup } | { kind: "pr"; row: InboxRow };
@@ -111,10 +211,15 @@ export type InboxSection = {
   items: InboxItem[];
 };
 
-/** The open stacks whose PRs are all by one author, with their visible rows. */
-function stackGroups(inbox: Inbox, listing: StackListing, rows: InboxRow[]): StackGroup[] {
+/**
+ * The open stacks whose PRs are all by one author and one of which the filters
+ * keep, with their visible rows. With `wholeStacks`, every open PR in such a
+ * stack shows, and the ones the filters don't keep are `dimmed`.
+ */
+function stackGroups(inbox: Inbox, listing: StackListing, rows: InboxRow[], wholeStacks: boolean): StackGroup[] {
   if (!listing.supported) return [];
-  const byNumber = new Map(rows.map((row) => [row.pr.number, row]));
+  const kept = new Map(rows.map((row) => [row.pr.number, row]));
+  const all = wholeStacks ? new Map(inboxRows(inbox).map((row) => [row.pr.number, row])) : kept;
   const authorOf = new Map(inbox.prs.map((pr) => [pr.number, pr.author]));
   const groups: StackGroup[] = [];
   for (const stack of listing.stacks) {
@@ -123,8 +228,10 @@ function stackGroups(inbox: Inbox, listing: StackListing, rows: InboxRow[]): Sta
     const authors = new Set(open.map((entry) => authorOf.get(entry.number)));
     const author = [...authors][0];
     if (authors.size !== 1 || !author) continue;
-    const visible = open.flatMap((entry) => byNumber.get(entry.number) ?? []);
-    if (visible.length > 0) groups.push({ stack, name: stackName(stack), author, rows: visible });
+    if (!open.some((entry) => kept.has(entry.number))) continue;
+    const shown = open.flatMap((entry) => all.get(entry.number) ?? []);
+    const dimmed = new Set(shown.filter((row) => !kept.has(row.pr.number)).map((row) => row.pr.number));
+    groups.push({ stack, name: stackName(stack), author, rows: shown, dimmed });
   }
   return groups;
 }
@@ -142,15 +249,17 @@ export function stackPosition(group: StackGroup, number: number): { position: nu
  * The inbox's sections, in order: my stacks as cards, my other PRs, review
  * requests (grouped by the author's stack), then everyone else. Empty
  * sections are left out. With `groupByStack` off, or no native stacks, every
- * PR is its own row.
+ * PR is its own row. `wholeStacks` keeps a stack's other PRs, dimmed, beside
+ * the ones `rows` holds; a stack still goes where its first kept PR would.
  */
 export function inboxSections(
   inbox: Inbox,
   listing: StackListing,
   rows: InboxRow[],
   groupByStack: boolean,
+  { wholeStacks = false }: { wholeStacks?: boolean } = {},
 ): InboxSection[] {
-  const groups = groupByStack ? stackGroups(inbox, listing, rows) : [];
+  const groups = groupByStack ? stackGroups(inbox, listing, rows, wholeStacks) : [];
   const stacked = new Map<number, StackGroup>();
   for (const group of groups) for (const row of group.rows) stacked.set(row.pr.number, group);
 

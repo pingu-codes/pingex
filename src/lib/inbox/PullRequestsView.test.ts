@@ -278,6 +278,134 @@ describe("Pull requests inbox", () => {
   });
 });
 
+describe("filtering by author and assignee", () => {
+  const picker = (name: RegExp) => screen.getByRole("combobox", { name });
+
+  async function choose(user: ReturnType<typeof userEvent.setup>, which: RegExp, typed: string) {
+    await user.click(picker(which));
+    await user.keyboard(typed);
+    await user.keyboard("{Enter}{Escape}");
+  }
+
+  it("narrows to an assignee from the picker, and the tab counts follow", async () => {
+    const { user } = setup();
+    await loaded();
+
+    await user.click(picker(/^Assignee$/));
+    expect(screen.getAllByRole("option").map((option) => option.textContent?.trim())).toEqual([
+      // Counted on Needs me, the tab in view.
+      expect.stringMatching(/Unassigned\s+6$/),
+      expect.stringMatching(/ciaran \(you\)\s+1$/),
+      expect.stringMatching(/mira-k Mira Kovac 1$/),
+      expect.stringMatching(/tomasz\s+0$/),
+    ]);
+    await user.keyboard("kovac");
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    await user.keyboard("{Enter}{Escape}");
+
+    expect(picker(/^Assignee: mira-k$/)).toBeInTheDocument();
+    expect(filter(/Needs me 1/)).toBeChecked();
+    expect(row(415)).not.toHaveAttribute("data-dimmed");
+    // The rest of 415's stack, for context.
+    expect(row(412)).toHaveAttribute("data-dimmed", "true");
+    expect(queryRow(128)).toBeNull();
+    await user.click(filter(/Everyone 2/));
+    expect(row(420)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Clear the assignee filter" }));
+    expect(filter(/Everyone 9/)).toBeChecked();
+    expect(picker(/^Assignee$/)).toBeInTheDocument();
+  });
+
+  it("toggles an author from their avatar on a row, without opening the PR", async () => {
+    const { user, handlers } = setup();
+    await loaded();
+    await user.click(filter(/^Everyone/));
+
+    const avatar = within(row(420)).getByRole("button", { name: "Author: tomasz" });
+    await user.click(avatar);
+    expect(handlers.openPr).not.toHaveBeenCalled();
+    expect(picker(/^Author: tomasz$/)).toBeInTheDocument();
+    expect(filter(/Everyone 1/)).toBeChecked();
+    expect(within(row(420)).getByRole("button", { name: "Author: tomasz" })).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(within(row(420)).getByRole("button", { name: "Author: tomasz" }));
+    expect(filter(/Everyone 9/)).toBeChecked();
+  });
+
+  it("toggles an assignee from their avatar", async () => {
+    const { user } = setup();
+    await loaded();
+    const assignees = within(row(415)).getByRole("group", { name: "Assignees" });
+    await user.click(within(assignees).getByRole("button", { name: /mira-k/ }));
+    expect(picker(/^Assignee: mira-k$/)).toBeInTheDocument();
+  });
+
+  it("shows a matching PR's whole stack, dimming the rest, which still selects", async () => {
+    const { user } = setup();
+    await loaded();
+    await user.click(filter(/^Everyone/));
+    await choose(user, /^Assignee$/, "you");
+
+    const stack = screen.getByRole("region", { name: "Stack focus-rings" });
+    expect(
+      within(stack)
+        .getAllByRole("listitem")
+        .map((item) => item.getAttribute("aria-label")),
+    ).toEqual(["#401 Focus rings on every control (outside the filters)", "#403 Trap focus in dialogs"]);
+    expect(row(401)).toHaveAttribute("data-dimmed", "true");
+    expect(filter(/Everyone 1/)).toBeChecked();
+
+    await user.keyboard("{Meta>}");
+    await user.click(within(row(401)).getByText("Focus rings on every control"));
+    await user.keyboard("{/Meta}");
+    await user.keyboard("{Shift>}");
+    await user.click(within(row(403)).getByText("Trap focus in dialogs"));
+    await user.keyboard("{/Shift}");
+    expect(screen.getByText("2 selected")).toBeInTheDocument();
+  });
+
+  it("stays on the tab, and offers Everyone when the people chosen have nothing there", async () => {
+    const { user } = setup();
+    await loaded();
+    await choose(user, /^Author$/, "tomasz");
+
+    expect(filter(/Needs me 0/)).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Show 1 in Everyone" }));
+    expect(filter(/Everyone 1/)).toBeChecked();
+    expect(row(420)).toBeInTheDocument();
+
+    await user.click(filter(/Needs me 0/));
+    await user.click(screen.getByRole("button", { name: "Clear people filters" }));
+    expect(filter(/Needs me 8/)).toBeChecked();
+    expect(row(412)).toBeInTheDocument();
+  });
+
+  it("hides the selection bar for PRs a filter has hidden", async () => {
+    const { user } = setup();
+    await loaded();
+    // Not in a stack, so a match elsewhere in it can't keep it in view.
+    await user.keyboard("{Meta>}");
+    await user.click(within(row(128)).getByText("#128"));
+    await user.keyboard("{/Meta}");
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+
+    await choose(user, /^Assignee$/, "kovac");
+    expect(screen.queryByRole("toolbar", { name: "Selected pull requests" })).toBeNull();
+    expect(within(row(415)).queryByRole("checkbox")).toBeNull();
+  });
+
+  it("keeps the people chosen across a visit", async () => {
+    const { user } = setup();
+    await loaded();
+    await choose(user, /^Author$/, "jo-r");
+
+    cleanup();
+    setup();
+    expect(picker(/^Author: jo-r$/)).toBeInTheDocument();
+  });
+});
+
 describe("the repository's GitHub account", () => {
   it("shows the account and pins this repository from its menu", async () => {
     const { user } = setup();

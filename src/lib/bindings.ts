@@ -1870,6 +1870,11 @@ export type InboxPr = {
 	maintainerCanModify: boolean,
 	/**  `APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED`, or none. */
 	reviewDecision: string | null,
+	/**
+	 *  The logins assigned to the PR. Empty in snapshots stored before this
+	 *  field.
+	 */
+	assignees?: string[],
 	/**  Logins and team slugs asked to review. */
 	reviewRequests: string[],
 	/**  Each reviewer's latest approving or change-requesting review. */

@@ -1,18 +1,22 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  filterCounts,
   inboxSections,
   matchesText,
+  NO_PEOPLE,
   personLabel,
+  personOptions,
   primaryAction,
   rangeSelection,
   reviewers,
   sectionOrder,
   stackPosition,
   syncDelay,
+  UNASSIGNED,
   visibleRows,
 } from "$lib/inbox/inbox";
 import { commands } from "$lib/services/homeRouting";
-import { resetDeskActivity } from "$lib/services/preview/desk";
+import { DESK_VIEWER, resetDeskActivity } from "$lib/services/preview/desk";
 import { inboxPr } from "$lib/services/preview/factories";
 import type { GitHubPerson, Inbox, StackListing } from "$lib/types";
 
@@ -41,6 +45,65 @@ describe("the inbox filters", () => {
     expect(numbers(visibleRows(inbox, "everyone", NO_CHIPS, "maki-acp"))).toEqual([418]);
     expect(numbers(visibleRows(inbox, "everyone", NO_CHIPS, "HANDSHAKE"))).toEqual([409]);
   });
+
+  it("find a PR by an assignee's login or name", () => {
+    expect(numbers(visibleRows(inbox, "everyone", NO_CHIPS, "tomasz"))).toEqual([420]);
+    // 409 by its author's name, 415 and 420 by an assignee's.
+    expect(numbers(visibleRows(inbox, "everyone", NO_CHIPS, "kovac"))).toEqual([409, 415, 420]);
+  });
+});
+
+describe("the people filters", () => {
+  const everyone = (people: { authors?: string[]; assignees?: string[] }) =>
+    numbers(visibleRows(inbox, "everyone", NO_CHIPS, "", { ...NO_PEOPLE, ...people }));
+
+  it("keep PRs by any chosen author and assigned to any chosen assignee", () => {
+    expect(everyone({ authors: ["jo-r"] })).toEqual([401, 403]);
+    expect(everyone({ authors: ["jo-r", "tomasz"] })).toEqual([401, 403, 420]);
+    expect(everyone({ assignees: ["mira-k"] })).toEqual([415, 420]);
+    expect(everyone({ authors: ["jo-r", "tomasz"], assignees: [DESK_VIEWER] })).toEqual([403]);
+  });
+
+  it("offer Unassigned for the PRs no one is assigned to", () => {
+    const all = everyone({});
+    expect(everyone({ assignees: [UNASSIGNED] })).toEqual(all.filter((n) => ![403, 415, 420].includes(n)));
+    expect(everyone({ assignees: [UNASSIGNED, DESK_VIEWER] })).toEqual(all.filter((n) => ![415, 420].includes(n)));
+  });
+
+  it("narrow the tab counts, which read the backend's when no one is chosen", () => {
+    expect(filterCounts(inbox, NO_PEOPLE)).toBe(inbox.counts);
+    expect(filterCounts(inbox, { ...NO_PEOPLE, assignees: ["mira-k"] })).toEqual({
+      needsMe: 1,
+      mine: 1,
+      reviewRequested: 0,
+      everyone: 2,
+    });
+  });
+
+  it("list me first, then by how many PRs each person has, counted without their own picker", () => {
+    const options = personOptions(inbox, "everyone", NO_CHIPS, "", NO_PEOPLE);
+    expect(options.assignees.map(({ login, count }) => [login, count])).toEqual([
+      [UNASSIGNED, everyone({}).length - 3],
+      [DESK_VIEWER, 1],
+      ["mira-k", 2],
+      ["tomasz", 1],
+    ]);
+    expect(options.authors[0]).toEqual({ login: DESK_VIEWER, count: inbox.counts.mine });
+
+    const byJo = personOptions(inbox, "everyone", NO_CHIPS, "", { ...NO_PEOPLE, authors: ["jo-r"] });
+    expect(byJo.authors).toEqual(options.authors);
+    expect(byJo.assignees.map(({ login, count }) => [login, count])).toEqual([
+      [UNASSIGNED, 1],
+      [DESK_VIEWER, 1],
+      ["mira-k", 0],
+      ["tomasz", 0],
+    ]);
+  });
+
+  it("keep a chosen person listed after their PRs have gone", () => {
+    const options = personOptions(inbox, "everyone", NO_CHIPS, "", { ...NO_PEOPLE, authors: ["left-the-team"] });
+    expect(options.authors).toContainEqual({ login: "left-the-team", count: 0 });
+  });
 });
 
 describe("the inbox sections", () => {
@@ -63,6 +126,22 @@ describe("the inbox sections", () => {
       [401, 403],
     ]);
     expect(sectionOrder(sections).slice(0, 4)).toEqual([412, 415, 418, 128]);
+  });
+
+  it("show a whole stack, its other PRs dimmed, when asked to and one of its PRs matches", () => {
+    const rows = visibleRows(inbox, "everyone", NO_CHIPS, "", { ...NO_PEOPLE, assignees: [DESK_VIEWER] });
+    const theirStack = (wholeStacks: boolean) => {
+      const items = inboxSections(inbox, stacks, rows, true, { wholeStacks }).flatMap((section) => section.items);
+      expect(items).toHaveLength(1);
+      if (items[0].kind !== "stack") throw new Error("expected jo-r's stack");
+      return items[0].group;
+    };
+    const whole = theirStack(true);
+    expect(whole.rows.map((row) => row.pr.number)).toEqual([401, 403]);
+    expect([...whole.dimmed]).toEqual([401]);
+    const narrowed = theirStack(false);
+    expect(narrowed.rows.map((row) => row.pr.number)).toEqual([403]);
+    expect(narrowed.dimmed.size).toBe(0);
   });
 
   it("list every PR on its own with Group by stack off, or when the repository has no stacks", () => {

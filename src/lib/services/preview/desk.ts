@@ -107,6 +107,7 @@ const mainPrs: InboxPr[] = [
     baseRef: "feat/driver-trait",
     baseSha: sha(412),
     reviewDecision: "CHANGES_REQUESTED",
+    assignees: ["mira-k"],
     reviews: [{ author: "mira-k", state: "CHANGES_REQUESTED" }],
     unresolvedThreads: 2,
   }),
@@ -140,6 +141,8 @@ const mainPrs: InboxPr[] = [
     baseSha: sha(401),
     headRepo: "jo-r/codex-custom",
     reviewDecision: "REVIEW_REQUIRED",
+    // Assigned to me while 401 below it is not: the stack shows dimmed.
+    assignees: [DESK_VIEWER],
     reviewRequests: [DESK_VIEWER],
     checks: "PENDING",
   }),
@@ -163,6 +166,7 @@ const mainPrs: InboxPr[] = [
     author: "tomasz",
     headRef: "tomasz/vitest-4.1",
     reviewDecision: "REVIEW_REQUIRED",
+    assignees: ["tomasz", "mira-k"],
     reviewRequests: ["mira-k"],
   }),
 ];

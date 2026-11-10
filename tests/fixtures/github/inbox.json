@@ -24,6 +24,20 @@
               "baseRefName": "feat/driver-trait",
               "baseRefOid": "9f04b21c3d5e6f708192a3b4c5d6e7f809a1b2c3",
               "headRepository": { "nameWithOwner": "pingu-codes/pingex" },
+              "assignees": {
+                "nodes": [
+                  {
+                    "login": "pingu-codes",
+                    "name": null,
+                    "avatarUrl": "https://avatars.githubusercontent.com/u/44237086?s=40&v=4"
+                  },
+                  {
+                    "login": "mira-k",
+                    "name": "Mira Kovac",
+                    "avatarUrl": "https://avatars.githubusercontent.com/u/1003?s=40&v=4"
+                  }
+                ]
+              },
               "maintainerCanModify": false,
               "reviewDecision": "CHANGES_REQUESTED",
               "additions": 1204,
@@ -92,6 +106,7 @@
                 "name": "Jo Reyes",
                 "avatarUrl": "https://avatars.githubusercontent.com/u/1002?s=40&v=4"
               },
+              "assignees": { "nodes": [] },
               "headRefName": "usage-weekly",
               "headRefOid": "7e2c1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e",
               "baseRefName": "main",

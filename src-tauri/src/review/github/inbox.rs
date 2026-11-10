@@ -17,8 +17,8 @@ use crate::util::host::Host;
 use crate::util::ttl_cache::TtlCache;
 
 /// Paginated on `pullRequests` (see `gh_graphql`). The inner connections are
-/// capped rather than paginated: 20 reviewers and requests, and 100 threads
-/// per PR for the unresolved count.
+/// capped rather than paginated: 20 reviewers and requests, 100 threads per
+/// PR for the unresolved count, and 10 assignees, which is GitHub's own limit.
 ///
 /// 25 PRs a page: measured on cli/cli (Nov 2026), 25 took about 4s and 50
 /// about 7s, against GitHub's ~10s limit. `mergeStateStatus` is left out on
@@ -34,6 +34,7 @@ pub(crate) const INBOX_QUERY: &str = "query($owner:String!,$repo:String!,$endCur
         number title url isDraft createdAt updatedAt author{login avatarUrl(size:40) ... on User{name}}\
         headRefName headRefOid baseRefName baseRefOid headRepository{nameWithOwner}\
         maintainerCanModify reviewDecision additions deletions changedFiles \
+        assignees(first:10){nodes{login name avatarUrl(size:40)}}\
         reviewRequests(first:20){nodes{requestedReviewer{\
           ... on User{login name avatarUrl(size:40)} ... on Bot{login avatarUrl(size:40)} \
           ... on Mannequin{login avatarUrl(size:40)} ... on Team{slug name avatarUrl(size:40)}\
@@ -114,6 +115,7 @@ fn parse_person(actor: &Value) -> Option<GitHubPerson> {
 /// Everyone one PR node names.
 fn pr_actors(node: &Value) -> impl Iterator<Item = &Value> {
     let author = node.get("author").into_iter();
+    let assignees = nodes(node, "/assignees/nodes");
     let reviewers =
         nodes(node, "/latestOpinionatedReviews/nodes").filter_map(|review| review.get("author"));
     let requested =
@@ -121,7 +123,11 @@ fn pr_actors(node: &Value) -> impl Iterator<Item = &Value> {
     let committer = node
         .pointer("/commits/nodes/0/commit/author/user")
         .into_iter();
-    author.chain(reviewers).chain(requested).chain(committer)
+    author
+        .chain(assignees)
+        .chain(reviewers)
+        .chain(requested)
+        .chain(committer)
 }
 
 /// One entry per login, sorted. A team slug can equal a user's login, and
@@ -161,6 +167,10 @@ fn parse_pr(node: &Value) -> InboxPr {
             .and_then(Value::as_bool)
             .unwrap_or(false),
         review_decision: opt_str(node, "/reviewDecision"),
+        assignees: nodes(node, "/assignees/nodes")
+            .filter_map(|assignee| opt_str(assignee, "/login"))
+            .map(|login| actor_login(&login).to_string())
+            .collect(),
         review_requests: nodes(node, "/reviewRequests/nodes")
             .filter_map(|request| {
                 opt_str(request, "/requestedReviewer/login")
@@ -245,17 +255,20 @@ mod tests {
         assert_eq!(first.checks.as_deref(), Some("SUCCESS"));
         assert_eq!(first.unresolved_threads, 2);
         assert_eq!(first.head_author.as_deref(), Some("pingu-codes"));
+        assert_eq!(first.assignees, vec!["pingu-codes", "mira-k"]);
 
         let fork = &read.prs[1];
         assert_eq!(fork.head_repo.as_deref(), Some("jo-r/pingex"));
         assert!(fork.maintainer_can_modify);
         assert_eq!(fork.checks, None, "no checks");
+        assert!(fork.assignees.is_empty(), "no one assigned");
 
         let ghost = &read.prs[2];
         assert_eq!(ghost.author, "ghost", "a deleted account");
         assert_eq!(ghost.head_repo, None, "a deleted fork");
         assert!(ghost.is_draft);
         assert_eq!(ghost.head_author, None, "no commits");
+        assert!(ghost.assignees.is_empty(), "no assignees field");
     }
 
     #[test]
@@ -323,5 +336,18 @@ mod tests {
         let parsed: Vec<InboxPr> =
             serde_json::from_value(Value::Array(stored)).expect("old snapshot parses");
         assert_eq!(parsed[0].head_author, None);
+    }
+
+    #[test]
+    fn a_snapshot_stored_before_assignees_still_parses() {
+        let stored = serde_json::to_value(vec![InboxPr::default()]).expect("serializes");
+        let mut stored = stored.as_array().expect("array").clone();
+        stored[0]
+            .as_object_mut()
+            .expect("object")
+            .remove("assignees");
+        let parsed: Vec<InboxPr> =
+            serde_json::from_value(Value::Array(stored)).expect("old snapshot parses");
+        assert!(parsed[0].assignees.is_empty());
     }
 }

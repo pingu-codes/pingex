@@ -25,12 +25,17 @@
   import type { InboxHandlers } from "$lib/inbox/handlers";
   import {
     FILTER_LABELS,
+    filterCounts,
+    filtersPeople,
     type InboxChips,
     type InboxFilter,
     type InboxRow,
     inboxSections,
     type People,
+    type PeopleFilter,
+    type PersonFacet,
     peopleByLogin,
+    personOptions,
     primaryAction,
     rangeSelection,
     type StackGroup,
@@ -40,6 +45,7 @@
   } from "$lib/inbox/inbox";
   import { inboxes, markActivitySeen, mutePr, syncInbox } from "$lib/inbox/inboxStore.svelte";
   import { ciMenu, prMenu } from "$lib/inbox/menus";
+  import PersonFilter from "$lib/inbox/PersonFilter.svelte";
   import PrRow from "$lib/inbox/PrRow.svelte";
   import RepoPicker from "$lib/inbox/RepoPicker.svelte";
   import SinceYouLooked from "$lib/inbox/SinceYouLooked.svelte";
@@ -77,6 +83,7 @@
     filter: "needsMe" as InboxFilter,
     chips: { drafts: false, ciFailing: false, unresolved: false } as InboxChips,
     text: "",
+    people: { authors: [], assignees: [] } as PeopleFilter,
     selected: new Set<number>(),
     anchor: null as number | null,
     scrollTop: 0,
@@ -85,6 +92,7 @@
   let filter = $state(left.filter);
   let chips = $state(left.chips);
   let text = $state(left.text);
+  let chosen = $state(left.people);
   let groupByStack = $state(readFlag(GROUP_KEY, true));
   // svelte-ignore state_referenced_locally -- a PR that closed while away is no longer selected.
   let selected = $state(
@@ -95,7 +103,14 @@
   let scroller = $state<HTMLElement>();
 
   $effect(() => {
-    Object.assign(left, { filter, chips: $state.snapshot(chips), text, selected, anchor });
+    Object.assign(left, {
+      filter,
+      chips: $state.snapshot(chips),
+      text,
+      people: $state.snapshot(chosen),
+      selected,
+      anchor,
+    });
   });
 
   const repoState = $derived(inboxes[repoPath]);
@@ -103,8 +118,20 @@
   const stacks = $derived(repoState?.stacks ?? { supported: false, stacks: [] });
   const people = $derived<People>(inbox ? peopleByLogin(inbox) : new Map());
   const repoName = $derived(repos.find((repo) => repo.path === repoPath)?.name ?? basename(repoPath));
-  const rows = $derived(inbox ? visibleRows(inbox, filter, chips, text) : []);
-  const sections = $derived(inbox ? inboxSections(inbox, stacks, rows, groupByStack) : []);
+  const filteringPeople = $derived(filtersPeople(chosen));
+  const rows = $derived(inbox ? visibleRows(inbox, filter, chips, text, chosen) : []);
+  // With someone chosen, a stack shows whole and dims what they didn't write
+  // or aren't assigned, so a match keeps what it builds on in view.
+  const sections = $derived(
+    inbox ? inboxSections(inbox, stacks, rows, groupByStack, { wholeStacks: filteringPeople }) : [],
+  );
+  const pickers = $derived(inbox ? personOptions(inbox, filter, chips, text, chosen) : null);
+  /** What Everyone would show when this tab shows nothing. */
+  const elsewhere = $derived(
+    inbox && filter !== "everyone" && rows.length === 0
+      ? visibleRows(inbox, "everyone", chips, text, chosen).length
+      : 0,
+  );
   const order = $derived(sectionOrder(sections));
   const worktrees = $derived(worktreeMap.byRepo[repoPath] ?? []);
   const agentRuns = $derived(repoAgentReviews(repoPath));
@@ -119,10 +146,11 @@
     const status = agentByNumber.get(number)?.status;
     return status === "failed" ? null : (status ?? null);
   };
+  const counts = $derived(inbox ? filterCounts(inbox, chosen) : null);
   const filterOptions = $derived(
     (Object.keys(FILTER_LABELS) as InboxFilter[]).map((value) => ({
       value,
-      label: `${FILTER_LABELS[value]} ${inbox?.counts[value] ?? 0}`,
+      label: `${FILTER_LABELS[value]} ${counts?.[value] ?? 0}`,
     })),
   );
   // How far behind its base, as GitHub has both, each of my open PRs is:
@@ -204,6 +232,14 @@
       void loadAgentReviews(repoPath);
     }
   });
+
+  function togglePerson(facet: PersonFacet, login: string) {
+    const list = chosen[facet];
+    chosen = {
+      ...chosen,
+      [facet]: list.includes(login) ? list.filter((entry) => entry !== login) : [...list, login],
+    };
+  }
 
   function setGroupByStack(on: boolean) {
     groupByStack = on;
@@ -332,7 +368,7 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
-    if (event.key === "Escape" && selected.size > 0) clearSelection();
+    if (event.key === "Escape" && selectedPrs.length > 0) clearSelection();
   }
 
   const syncedAgo = $derived(
@@ -352,7 +388,7 @@
     agentReview={agentState(row.pr.number)}
     agentFindings={agentByNumber.get(row.pr.number)?.findings ?? 0}
     selected={selected.has(row.pr.number)}
-    selecting={selected.size > 0}
+    selecting={selectedPrs.length > 0}
     menu={prMenu(row.pr, {
       worktrees,
     })}
@@ -363,6 +399,9 @@
     drift={rowDrift(row.pr, group)}
     checkout={checkouts.get(row.pr.number) ?? null}
     checkoutKnown={checkoutsKnown}
+    dimmed={group?.dimmed.has(row.pr.number) ?? false}
+    {chosen}
+    onPerson={togglePerson}
     onAction={(id) => run(id, row, group)}
     onPick={(mode) => pick(row.pr.number, mode)}
   />
@@ -405,7 +444,7 @@
       <label class="relative flex items-center">
         <Search size={14} class="absolute left-2 text-surface-500" aria-hidden="true" />
         <span class="sr-only">Filter pull requests</span>
-        <input class="field w-60 pl-7 text-xs" placeholder="Filter by title, branch or author" bind:value={text}>
+        <input class="field w-60 pl-7 text-xs" placeholder="Title, branch, author or assignee" bind:value={text}>
       </label>
       <button
         type="button"
@@ -423,6 +462,24 @@
       <div class="flex flex-wrap items-center gap-2">
         <Segmented label="Show" value={filter} options={filterOptions} onChange={(value) => (filter = value)} />
         <span class="grow"></span>
+        {#if pickers}
+          <PersonFilter
+            label="Author"
+            options={pickers.authors}
+            chosen={chosen.authors}
+            viewer={inbox.viewer}
+            {people}
+            onChange={(authors) => (chosen = { ...chosen, authors })}
+          />
+          <PersonFilter
+            label="Assignee"
+            options={pickers.assignees}
+            chosen={chosen.assignees}
+            viewer={inbox.viewer}
+            {people}
+            onChange={(assignees) => (chosen = { ...chosen, assignees })}
+          />
+        {/if}
         <ToggleGroup
           multiple
           value={CHIPS.filter((chip) => chips[chip.key]).map((chip) => chip.key)}
@@ -452,6 +509,11 @@
 
       {#if repoState?.error}
         <div class="error-note">{repoState.error}</div>
+      {/if}
+      {#if filteringPeople && !inbox.complete}
+        <div class="text-xs text-surface-500">
+          Only the {inbox.prs.length} most recently updated pull requests are synced, so older ones can't match.
+        </div>
       {/if}
 
       {#each sections as section (section.id)}
@@ -498,6 +560,8 @@
                       {group}
                       {people}
                       mine={false}
+                      authorChosen={chosen.authors.includes(group.author)}
+                      onPerson={togglePerson}
                       checkout={stackCheckout(group)}
                       checkoutKnown={checkoutsKnown}
                       onCheckOut={() => handlers.checkOutStack(repoPath, group)}
@@ -515,8 +579,26 @@
           </div>
         {/if}
       {:else}
-        <div class="empty-state">
+        <div class="empty-state flex flex-col items-center gap-2">
           {inbox.prs.length === 0 ? "No open pull requests." : "No pull requests match these filters."}
+          {#if elsewhere > 0 || filteringPeople}
+            <span class="flex flex-wrap justify-center gap-1.5">
+              {#if elsewhere > 0}
+                <button type="button" class="btn btn-sm text-xs preset-tonal" onclick={() => (filter = "everyone")}>
+                  Show {elsewhere} in Everyone
+                </button>
+              {/if}
+              {#if filteringPeople}
+                <button
+                  type="button"
+                  class="btn btn-sm text-xs hover:preset-tonal"
+                  onclick={() => (chosen = { authors: [], assignees: [] })}
+                >
+                  Clear people filters
+                </button>
+              {/if}
+            </span>
+          {/if}
         </div>
       {/each}
     {:else}

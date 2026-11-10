@@ -95,6 +95,7 @@ export function inboxPr(overrides: Partial<InboxPr> & Pick<InboxPr, "number" | "
     headRepo: null,
     maintainerCanModify: false,
     reviewDecision: null,
+    assignees: [],
     reviewRequests: [],
     reviews: [],
     checks: "SUCCESS",

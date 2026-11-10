@@ -10,7 +10,7 @@
   import { GitBranch } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
-  import type { InboxRow, People, StackGroup } from "$lib/inbox/inbox";
+  import type { InboxRow, People, PersonFacet, StackGroup } from "$lib/inbox/inbox";
   import { isRowControl } from "$lib/inbox/inbox";
   import LoginAvatar from "$lib/inbox/LoginAvatar.svelte";
   import WorktreeBadge from "$lib/review/WorktreeBadge.svelte";
@@ -30,6 +30,8 @@
     onCheckOut,
     behind = null,
     onCompare,
+    authorChosen = false,
+    onPerson,
     row,
   }: {
     group: StackGroup;
@@ -48,6 +50,10 @@
     behind?: number | null;
     /** What the base gained since the stack forked. */
     onCompare?: () => void;
+    /** The Author picker has this stack's author ticked. */
+    authorChosen?: boolean;
+    /** A click on the author: filter the inbox by them. */
+    onPerson?: (facet: PersonFacet, login: string) => void;
     row: Snippet<[InboxRow, number]>;
   } = $props();
 
@@ -122,7 +128,13 @@
         <button type="button" class="btn btn-sm text-xs hover:preset-tonal" onclick={onRestack}>Restack</button>
       {/if}
     {:else}
-      <LoginAvatar login={group.author} person={people.get(group.author)} role="Author" />
+      <LoginAvatar
+        login={group.author}
+        person={people.get(group.author)}
+        role="Author"
+        onclick={onPerson ? () => onPerson("authors", group.author) : undefined}
+        pressed={authorChosen}
+      />
       <span class="text-surface-500">{group.author} · {plural(count, "PR")}</span>
       <span class="grow"></span>
       {@render onDisk()}
