@@ -1,5 +1,5 @@
-import { argNamed, onCommandSettled } from "$lib/services/commandEvents";
-import { fetchQuery, invalidate, touchesLocal } from "$lib/services/queryCache.svelte";
+import { onEffect } from "$lib/services/commandEffects";
+import { fetchQuery, invalidate } from "$lib/services/queryCache.svelte";
 import type { GitStatus } from "$lib/types";
 
 /**
@@ -69,15 +69,9 @@ export function refreshAllGitStatus(throttleMs = 1000): void {
   for (const path of Object.keys(gitStatusCache.byPath)) void refreshGitStatus(path);
 }
 
-/** The arguments a git or review mutation names a directory with. */
-export const PATH_ARGUMENTS = ["dir", "repoDir", "worktreePath", "targetDir"] as const;
-
 // A commit, checkout, pull or worktree change through the app: refresh the
 // chips of the directories it named.
-onCommandSettled((command) => {
-  if (!touchesLocal(command.name)) return;
-  for (const name of PATH_ARGUMENTS) {
-    const path = argNamed(command, name);
-    if (typeof path === "string" && path in gitStatusCache.byPath) void refreshGitStatus(path);
-  }
+onEffect(({ changes, paths }) => {
+  if (!changes.has("git")) return;
+  for (const path of paths) if (path in gitStatusCache.byPath) void refreshGitStatus(path);
 });

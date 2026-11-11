@@ -6,7 +6,7 @@
 
 import { syncDelay } from "$lib/inbox/inbox";
 import { reloadPrLinks } from "$lib/review/prLinks.svelte";
-import { argNamed, onCommandSettled } from "$lib/services/commandEvents";
+import { onEffect } from "$lib/services/commandEffects";
 import { commands } from "$lib/services/homeRouting";
 import type { Inbox, PrStack, StackListing } from "$lib/types";
 import { errorMessage } from "$lib/utils/errors";
@@ -167,49 +167,24 @@ export function startInboxSync(repoDirs: () => string[]): () => void {
   };
 }
 
-/** Writes that change what the inbox shows: a review, a merge, a retarget,
- *  a stack edit. Pingex syncs after each so the inbox and the sidebar's
- *  "need you" badges never lag behind what the user just did. */
-const GITHUB_WRITES = new Set<string>([
-  "reviewSubmit",
-  "reviewSubmitPendingReview",
-  "reviewMerge",
-  "reviewClose",
-  "reviewRetarget",
-  "reviewMarkReady",
-  "reviewReply",
-  "reviewResolveThread",
-  "reviewCreatePr",
-  "reviewPushStack",
-  "reviewReorderStack",
-  "reviewRemoveFromStack",
-  "reviewAddStackBranch",
-  "reviewRenameStackBranch",
-  "reviewFoldIntoParent",
-  "reviewSplitBranch",
-  "reviewDeleteMergedBranches",
-]);
-
 /** How long after a write to sync, so a burst of writes syncs once. */
 const SYNC_AFTER_WRITE_MS = 750;
 
 const pendingSyncs = new Map<string, ReturnType<typeof setTimeout>>();
 
-/** Whose PRs are "mine" changed: every repository for a global switch, since
- *  those without an account of their own follow it. */
-onCommandSettled((command) => {
-  if (command.name === "reviewSwitchGithubAccount") {
-    for (const repoDir of Object.keys(inboxes)) void resyncInbox(repoDir);
-  } else if (command.name === "reviewSetRepositoryAccount") {
-    const repoDir = argNamed(command, "repoDir");
-    if (typeof repoDir === "string" && inboxes[repoDir]) void resyncInbox(repoDir);
+// After Pingex's own changes, as `commandEffects.ts` declares them:
+// - an `account` change alters whose PRs are "mine", so the repository it
+//   names resyncs at once, or every repository for a global switch, since
+//   those without an account of their own follow it;
+// - an `inbox` change (a review, a merge, a retarget, a stack edit) resyncs
+//   its repository shortly after, so a burst of writes syncs once and the
+//   sidebar's "need you" badges never lag behind what the user just did.
+onEffect(({ changes, repo: repoDir }) => {
+  if (changes.has("account")) {
+    if (repoDir === undefined) for (const dir of Object.keys(inboxes)) void resyncInbox(dir);
+    else if (inboxes[repoDir]) void resyncInbox(repoDir);
   }
-});
-
-onCommandSettled((command) => {
-  if (!GITHUB_WRITES.has(command.name)) return;
-  const repoDir = argNamed(command, "repoDir");
-  if (typeof repoDir !== "string" || !inboxes[repoDir]) return;
+  if (!changes.has("inbox") || repoDir === undefined || !inboxes[repoDir]) return;
   const wroteAt = Date.now();
   clearTimeout(pendingSyncs.get(repoDir));
   pendingSyncs.set(

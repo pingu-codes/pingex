@@ -81,8 +81,10 @@ the write-side design: `docs/adr/0004-git-and-github-io.md`.
 Frontend git and GitHub reads that pages repeat go through
 `src/lib/services/queryCache.svelte.ts` (`query` in components,
 `fetchQuery`/`readFresh` elsewhere). A new cached read needs a row in
-`READS`. Mutations invalidate through the `commands` proxy, so a write that
-touches only the profile database belongs in `NARROW`. Backend caches use
+`READS`. Every git and review command declares what it changes in `EFFECTS`
+(`src/lib/services/commandEffects.ts`), and `bun run check` fails until a new
+one does; cache invalidation, inbox resync and the branch chips derive from
+it. Backend caches use
 `util::ttl_cache::TtlCache` and always expire. They hold only SHA-keyed or
 run-stable answers, never mutable git state.
 

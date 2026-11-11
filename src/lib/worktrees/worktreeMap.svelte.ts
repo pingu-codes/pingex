@@ -1,8 +1,7 @@
-import { argNamed, onCommandSettled } from "$lib/services/commandEvents";
-import { fetchQuery, invalidate, touchesLocal } from "$lib/services/queryCache.svelte";
+import { onEffect } from "$lib/services/commandEffects";
+import { fetchQuery, invalidate } from "$lib/services/queryCache.svelte";
 import type { WorktreeEntry } from "$lib/types";
 import { trimSlash } from "$lib/utils/path";
-import { PATH_ARGUMENTS } from "$lib/worktrees/gitStatus.svelte";
 
 /**
  * `git worktree list` per repository, fetched only while the sidebar nests
@@ -72,13 +71,9 @@ function reposTouching(path: string): string[] {
   );
 }
 
-onCommandSettled((command) => {
-  if (!touchesLocal(command.name)) return;
-  const repos = new Set<string>();
-  for (const name of PATH_ARGUMENTS) {
-    const path = argNamed(command, name);
-    if (typeof path === "string") for (const repo of reposTouching(path)) repos.add(repo);
-  }
+onEffect(({ changes, paths }) => {
+  if (!changes.has("git")) return;
+  const repos = new Set(paths.flatMap(reposTouching));
   for (const repo of repos) {
     invalidate({ names: ["gitWorktrees"], repo });
     void refresh(repo);

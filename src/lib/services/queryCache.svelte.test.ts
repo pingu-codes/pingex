@@ -16,12 +16,14 @@ vi.mock("$lib/services/homeRouting", () => ({
     gitStatus: vi.fn(),
     reviewPrDetail: vi.fn(),
     reviewDiff: vi.fn(),
+    reviewProviderStatus: vi.fn(),
   },
 }));
 
 const gitStatus = vi.mocked(commands.gitStatus);
 const prDetail = vi.mocked(commands.reviewPrDetail);
 const reviewDiff = vi.mocked(commands.reviewDiff);
+const providerStatus = vi.mocked(commands.reviewProviderStatus);
 
 /** A promise the test settles by hand. */
 function deferred<T>() {
@@ -55,6 +57,7 @@ beforeEach(() => {
   gitStatus.mockReset();
   prDetail.mockReset();
   reviewDiff.mockReset();
+  providerStatus.mockReset();
 });
 
 afterEach(() => {
@@ -235,6 +238,51 @@ describe("invalidation by mutations", () => {
     settled("reviewPrDetail", ["repoDir", "number", "window"], ["/repo", 1]);
     await settle();
     expect(prDetail).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it("an account change marks that repository's GitHub reads and provider status, not local ones", async () => {
+    gitStatus.mockResolvedValue("clean" as never);
+    prDetail.mockResolvedValue("detail" as never);
+    providerStatus.mockResolvedValue("signed in" as never);
+    const status = mounted(() => query("gitStatus", () => ["/repo"]));
+    const detail = mounted(() => query("reviewPrDetail", () => ["/repo", 1]));
+    const elsewhere = mounted(() => query("reviewPrDetail", () => ["/other", 1]));
+    const provider = mounted(() => query("reviewProviderStatus", () => ["/repo"]));
+    await settle();
+    settled("reviewSetRepositoryAccount", ["repoDir", "login", "window"], ["/repo", "me"]);
+    await settle();
+    expect(gitStatus).toHaveBeenCalledTimes(1);
+    expect(prDetail.mock.calls.map(([repo]) => repo)).toEqual(["/repo", "/other", "/repo"]);
+    expect(providerStatus).toHaveBeenCalledTimes(2);
+    settled("reviewSwitchGithubAccount", ["login", "window"], ["me"]);
+    await settle();
+    expect(prDetail.mock.calls.map(([repo]) => repo)).toEqual(["/repo", "/other", "/repo", "/repo", "/other"]);
+    for (const view of [status, detail, elsewhere, provider]) view.stop();
+  });
+
+  it("a write that reports through named reads marks only those", async () => {
+    gitStatus.mockResolvedValue("clean" as never);
+    providerStatus.mockResolvedValue("linked" as never);
+    const status = mounted(() => query("gitStatus", () => ["/repo"]));
+    const here = mounted(() => query("reviewProviderStatus", () => ["/repo"]));
+    const elsewhere = mounted(() => query("reviewProviderStatus", () => ["/other"]));
+    await settle();
+    settled("reviewLinkClone", ["repoDir", "slug", "window"], ["/repo", "o/n"]);
+    await settle();
+    expect(gitStatus).toHaveBeenCalledTimes(1);
+    expect(providerStatus.mock.calls.map(([repo]) => repo)).toEqual(["/repo", "/other", "/repo"]);
+    for (const view of [status, here, elsewhere]) view.stop();
+  });
+
+  it("an uncached read marks nothing", async () => {
+    gitStatus.mockResolvedValue("clean" as never);
+    const { stop } = mounted(() => query("gitStatus", () => ["/repo"]));
+    await settle();
+    settled("reviewWorktreeContext", ["dir", "window"], ["/repo"]);
+    settled("gitWorktreeHandoffPreflight", ["worktreePath", "targetDir", "window"], ["/repo", "/main"]);
+    await settle();
+    expect(gitStatus).toHaveBeenCalledTimes(1);
     stop();
   });
 

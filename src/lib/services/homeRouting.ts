@@ -2,6 +2,7 @@ import { SvelteMap } from "svelte/reactivity";
 import { hostKey, hostLabel, sameHost } from "$lib/app/host";
 import type { BootstrapData, HomeSnapshot, Host, ProfileBootstrap, UsageScope } from "$lib/bindings";
 import { commandArguments, commands as nativeCommands } from "$lib/bindings";
+import { isAnnounced } from "$lib/services/commandEffects";
 import { emitCommandSettled } from "$lib/services/commandEvents";
 import { isTauri } from "$lib/services/tauri";
 
@@ -675,9 +676,9 @@ export const commands: typeof nativeCommands = new Proxy(nativeCommands, {
     const method = target[property as keyof typeof target];
     if (typeof method !== "function") return method;
     const names: readonly string[] = commandArguments[property as keyof typeof commandArguments] ?? [];
-    // Settled git and review commands are announced so the query cache can
-    // drop what a mutation made stale (`queryCache.svelte.ts`).
-    const announced = property.startsWith("git") || property.startsWith("review");
+    // Settled git and review commands are announced so what they changed
+    // catches up (`commandEffects.ts`).
+    const announced = isAnnounced(property);
     const announce = <T>(args: unknown[], result: T | Promise<T>): Promise<T> => {
       const settled = Promise.resolve(result);
       return announced ? settled.finally(() => emitCommandSettled({ name: property, args, names })) : settled;
