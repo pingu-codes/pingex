@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DialogHost from "$lib/components/DialogHost.svelte";
+import { SCENARIO_DIR, seedInboxScenario } from "$lib/inbox/inboxScenario";
 import { inboxes, syncInbox } from "$lib/inbox/inboxStore.svelte";
 import { commands } from "$lib/services/homeRouting";
 import { worktreeEntry } from "$lib/services/preview/factories";
@@ -23,12 +24,13 @@ vi.mock("$lib/services/homeRouting", async (importOriginal) => {
   };
 });
 
-const MAIN = "/Users/ciaran/Projects/codex-custom";
+const MAIN = SCENARIO_DIR;
 const PATH = "/Users/ciaran/worktrees/codex-custom/harness-stack";
 const project = { path: PATH, name: "harness-stack", kind: "worktree", threads: [] } as unknown as Project;
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  seedInboxScenario();
   for (const key of Object.keys(inboxes)) delete inboxes[key];
   await syncInbox(MAIN);
   worktreeMap.byRepo = { [MAIN]: [worktreeEntry({ path: PATH, branch: "feat/claude-driver" })] };

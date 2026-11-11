@@ -5,7 +5,8 @@ import CheckLogList from "$lib/inbox/CheckLogList.svelte";
 import { PendingReviewStore } from "$lib/review/pendingReview.svelte";
 import ReviewPage from "$lib/review/ReviewPage.svelte";
 import { commands } from "$lib/services/homeRouting";
-import { DESK_REPOS, deskInbox, resetDeskReviewState, THREADED_PR } from "$lib/services/preview/desk";
+import { DESK_REPOS, THREADED_PR } from "$lib/services/preview/demoDesk";
+import { deskInbox } from "$lib/services/preview/desk";
 import type { CheckLog } from "$lib/types";
 
 vi.mock("$lib/services/homeRouting", async (importOriginal) => {
@@ -37,7 +38,6 @@ const yourReview = () => screen.getByRole("complementary", { name: "Your review"
 
 beforeEach(() => {
   localStorage.removeItem("pingex-review-panel-collapsed");
-  resetDeskReviewState();
   vi.mocked(commands.reviewReply).mockClear();
   vi.mocked(commands.reviewSubmitPendingReview).mockClear();
   vi.mocked(commands.reviewPrDetail).mockClear();

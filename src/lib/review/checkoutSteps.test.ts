@@ -6,10 +6,9 @@ import { view } from "$lib/app/navigation.svelte";
 import DialogHost from "$lib/components/DialogHost.svelte";
 import { linkExpectedThread, prLinks, resetPrLinks } from "$lib/review/prLinks.svelte";
 import { commands } from "$lib/services/homeRouting";
-import { resetPreviewCheckouts } from "$lib/services/preview/checkouts";
-import { repositoryCommands } from "$lib/services/preview/repositories";
-import { previewStackWorktree, resetPreviewStacks, setPreviewStackWorktree } from "$lib/services/preview/stack";
-import type { CheckoutTarget, RepositorySettings, StackInput } from "$lib/types";
+import { seedPreviewDesk } from "$lib/services/preview/desk";
+import { deskRepository, inboxPr, prStack } from "$lib/services/preview/factories";
+import type { CheckoutTarget, RepositorySettings, StackInput, StackWorktree } from "$lib/types";
 import { checkOutStack, createPrWorktree, stepUpFor, workOnPr } from "./checkoutSteps";
 
 vi.mock("$lib/services/homeRouting", async (importOriginal) => {
@@ -52,10 +51,30 @@ const inStack = (number: number, headRef: string): CheckoutTarget => ({
 const top = inStack(403, "jo-r/focus-trap");
 const lower = inStack(401, "jo-r/focus-rings");
 
+/** The repository with jo-r's stack 8, its worktree where `worktree` says. */
+function seed({
+  worktree = null,
+  settings,
+}: {
+  worktree?: StackWorktree | null;
+  settings?: Partial<RepositorySettings>;
+}) {
+  const stack = prStack(
+    8,
+    stackInput.prs.map(({ number, title, headRef, headSha }) =>
+      inboxPr({ number, title, headRef, headSha, author: "jo-r" }),
+    ),
+    { worktree },
+  );
+  seedPreviewDesk({
+    repositories: [deskRepository("ciaran/codex-custom", { repository: { path: repoDir }, stacks: [stack], settings })],
+  });
+}
+const stackWorktree = async () => (await commands.reviewStackOverview(repoDir, stackInput)).worktree;
+
 describe("a stack's worktree", () => {
   beforeEach(() => {
-    resetPreviewCheckouts();
-    resetPreviewStacks();
+    seed({});
     resetPrLinks();
     closeAllDialogs();
   });
@@ -69,7 +88,7 @@ describe("a stack's worktree", () => {
 
     expect(result?.created).toBe(true);
     expect(result?.checkout.gitBranch).toBe("jo-r/focus-trap");
-    expect(previewStackWorktree(repoDir, 401)?.path).toBe(result?.checkout.path);
+    expect((await stackWorktree())?.path).toBe(result?.checkout.path);
   });
 
   it("cancelling makes nothing", async () => {
@@ -79,24 +98,24 @@ describe("a stack's worktree", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Cancel" }));
 
     expect(await done).toBeNull();
-    expect(previewStackWorktree(repoDir, 401)).toBeNull();
+    expect(await stackWorktree()).toBeNull();
   });
 
   it("a stack that already has a worktree isn't asked about or moved", async () => {
     const path = "/wt/stack";
-    setPreviewStackWorktree(repoDir, 401, { path, branch: "jo-r/focus-rings", clean: true });
+    seed({ worktree: { path, branch: "jo-r/focus-rings", clean: true } });
     render(DialogHost);
 
     const result = await checkOutStack({ repoDir, repoName: "codex-custom", input: stackInput, target: top });
 
     expect(result?.created).toBe(false);
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(previewStackWorktree(repoDir, 401)?.branch).toBe("jo-r/focus-rings");
+    expect((await stackWorktree())?.branch).toBe("jo-r/focus-rings");
   });
 
   it("working on a PR whose branch isn't checked out asks, then switches the worktree", async () => {
     const path = "/wt/stack";
-    setPreviewStackWorktree(repoDir, 401, { path, branch: "jo-r/focus-trap", clean: true });
+    seed({ worktree: { path, branch: "jo-r/focus-trap", clean: true } });
     render(DialogHost);
     const done = stepUpFor({ repoDir, repoName: "codex-custom", target: lower, action: "workOnPr" });
 
@@ -107,22 +126,22 @@ describe("a stack's worktree", () => {
     const checkout = await done;
 
     expect(checkout).toMatchObject({ path, gitBranch: "jo-r/focus-rings", onPrBranch: true });
-    expect(previewStackWorktree(repoDir, 401)?.branch).toBe("jo-r/focus-rings");
+    expect((await stackWorktree())?.branch).toBe("jo-r/focus-rings");
   });
 
   it("cancelling the switch leaves the worktree where it is", async () => {
-    setPreviewStackWorktree(repoDir, 401, { path: "/wt/stack", branch: "jo-r/focus-trap", clean: true });
+    seed({ worktree: { path: "/wt/stack", branch: "jo-r/focus-trap", clean: true } });
     render(DialogHost);
     const done = stepUpFor({ repoDir, repoName: "codex-custom", target: lower, action: "workOnPr" });
 
     await userEvent.click(await screen.findByRole("button", { name: "Cancel" }));
 
     expect(await done).toBeNull();
-    expect(previewStackWorktree(repoDir, 401)?.branch).toBe("jo-r/focus-trap");
+    expect((await stackWorktree())?.branch).toBe("jo-r/focus-trap");
   });
 
   it("a read needs no switch", async () => {
-    setPreviewStackWorktree(repoDir, 401, { path: "/wt/stack", branch: "jo-r/focus-trap", clean: true });
+    seed({ worktree: { path: "/wt/stack", branch: "jo-r/focus-trap", clean: true } });
     render(DialogHost);
 
     const checkout = await stepUpFor({ repoDir, repoName: "codex-custom", target: lower, action: "read" });
@@ -134,7 +153,7 @@ describe("a stack's worktree", () => {
 
 describe("stepping up for an action", () => {
   beforeEach(() => {
-    resetPreviewCheckouts();
+    seed({});
     resetPrLinks();
     closeAllDialogs();
   });
@@ -174,8 +193,7 @@ describe("stepping up for an action", () => {
   });
 
   it("waits for setup before anything starts in a new worktree", async () => {
-    const settings = repositoryCommands.reviewRepositorySettings?.(repoDir) as RepositorySettings;
-    repositoryCommands.reviewSaveRepositorySettings?.(repoDir, { ...settings, setupCommand: "bun install" });
+    seed({ settings: { setupCommand: "bun install" } });
     let finishSetup = () => {};
     vi.mocked(commands.reviewRunCheckoutSetup).mockImplementationOnce(
       () => new Promise<void>((resolve) => (finishSetup = resolve)) as never,
@@ -189,7 +207,6 @@ describe("stepping up for an action", () => {
     finishSetup();
     await done;
     expect(created).toBe(true);
-    repositoryCommands.reviewSaveRepositorySettings?.(repoDir, { ...settings, setupCommand: null });
   });
 
   it("makes no worktree when the push to their branch is cancelled", async () => {

@@ -1,398 +1,371 @@
-// The review desk's base data for the browser preview and the desk UI tests:
-// several repositories (one PRs only, one with no GitHub remote), a
-// three-PR stack of mine, a stack another author asks me to review, a PR
-// with human review threads, and agent reviews queued and running.
+// The browser preview's review desk: one in-memory owner of everything the
+// review command fakes read and write — repositories and their PRs, stacks,
+// PR worktrees and thread links, pending reviews, viewed marks, the inbox's
+// seen state, agent reviews, and the GitHub account and folders Add
+// repository finds. It stands in for the Rust `ReviewDesk`
+// (`src-tauri/src/review/desk/`) when the page is not under Tauri.
 //
-// The review command fakes in `commands.ts` answer from here, by the
-// repository's folder, or by its slug for a PRs-only repository. Viewer is
-// `ciaran` throughout. Extend these records rather than adding parallel ones,
-// so every desk screen shows the same repositories and PRs.
+// It starts from the demo (`./demoDesk`). `seedPreviewDesk` replaces it with
+// exactly what a test states, built with `./factories`; `resetPreviewDesk`
+// goes back to the demo, and the vitest setup calls it before every test.
+// The fakes for each area live beside this file and keep no state of their
+// own.
 
 import type {
-  CheckoutStep,
+  AgentReview,
+  CommentRef,
+  CommitLine,
   FeedEntry,
   FileBlob,
+  Finding,
+  FolderFacts,
+  GitHubAccount,
   GitHubPerson,
-  HarnessKind,
+  GitHubRepo,
   Inbox,
+  InboxEvent,
   InboxPr,
+  KnownClone,
   NeedsMe,
+  PendingComment,
   PendingReview,
+  PrCheckout,
   PrComment,
   PrDetail,
+  PrLink,
   PrTriage,
   Repository,
+  RepositorySettings,
+  RestackProgress,
+  ReviewDraft,
+  ReviewRequests,
+  ReviewRule,
   StackListing,
+  StackWorktree,
 } from "$lib/types";
-import { inboxPr, largeDiffFiles, NO_ANCHOR, withAnchors } from "./factories";
-import { previewInbox, previewPrDetail } from "./fixtures";
+import type { DeskCommands } from "./commands";
+import { demoDesk } from "./demoDesk";
+import { largeDiffFiles, NO_ANCHOR, prDetail, prSummary } from "./factories";
 
-export const DESK_VIEWER = "ciaran";
+// --- what a seed states -------------------------------------------------------
 
-/** A seeded agent review run: what the agent review fakes
- *  (`preview/agentReviews.ts`) start from. */
-export type PreviewAgentReview = {
-  id: string;
-  repo: string;
+/** A stack as GitHub lists it, plus how the stack fakes answer for it. */
+export type StackSeed = {
+  /** GitHub's stack number. */
   number: number;
-  harness: HarnessKind;
-  /** Where it runs: a diff review at No checkout, or with tests. */
-  step: CheckoutStep;
-  status: "queued" | "running" | "done";
-  /** Unix milliseconds; `null` while queued. */
-  startedAt: number | null;
-  threadId?: string;
-  /** How many Findings a finished run reported. */
-  findings?: number;
+  baseRef?: string;
+  /** Its PRs' numbers, bottom first; each is one of the repository's PRs. */
+  prs: number[];
+  /** PRs of the stack that merged; they stay in GitHub's listing, closed. */
+  merged?: number[];
+  /** Commits the base gained since the stack forked. */
+  behind?: number;
+  /** Open PRs no longer on the head of the PR below them. */
+  drifted?: number[];
+  worktree?: StackWorktree | null;
+  /** The first restack that moves stops here until continued. */
+  conflict?: { at: number; files: string[] } | null;
+  /** Commits on each PR's git branch; 1 when not given. */
+  commits?: Record<number, number>;
+  /** What the base gained, newest first; made up from `behind` when not given. */
+  baseCommits?: CommitLine[];
 };
 
-/** A clone at `path` fed by its `origin`, `slug`. */
-function cloned(slug: string, path: string): Repository {
-  return {
-    key: path,
-    name: path.split("/").at(-1) ?? path,
-    slug,
-    path,
-    state: "cloned",
-    feeds: [{ remote: "origin", slug, onlyMine: false }],
+/** One repository on the desk and what GitHub and the clone say about it. */
+export type RepositorySeed = {
+  repository: Repository;
+  /** Its open PRs, as the inbox lists them. */
+  prs?: InboxPr[];
+  stacks?: StackSeed[];
+  /** A PR's detail page; a PR without one gets `prDetail(pr)`. */
+  details?: PrDetail[];
+  /** "Since you last looked", newest first. */
+  feed?: Omit<FeedEntry, "id">[];
+  people?: GitHubPerson[];
+  events?: InboxEvent[];
+  syncedAt?: number;
+  checkouts?: PrCheckout[];
+  settings?: Partial<RepositorySettings>;
+  /** Commits since my latest review, which the backend counts in the clone. */
+  commitsSinceMyReview?: Record<number, number>;
+  /** How far PRs in no stack are behind their base. */
+  behind?: Record<number, number>;
+};
+
+export type DeskSeed = {
+  /** Who the desk reads GitHub as; `ciaran`, whom `inboxPr` makes the author. */
+  viewer?: string;
+  /** The Home that PR worktrees go under. */
+  home?: string;
+  repositories?: RepositorySeed[];
+  links?: PrLink[];
+  agentReviews?: AgentReview[];
+  findings?: Finding[];
+  /** The gh account and what it can see; signed in as the viewer when not given. */
+  github?: {
+    account?: GitHubAccount;
+    repositories?: GitHubRepo[];
+    /** Review requests in repositories not on the desk. */
+    requests?: ReviewRequests[];
+    knownClones?: KnownClone[];
   };
-}
-
-export const DESK_REPOS: Repository[] = [
-  cloned("ciaran/codex-custom", "/Users/ciaran/Projects/codex-custom"),
-  cloned("ciaran/arctic-explorer", "/Users/ciaran/Projects/arctic-explorer"),
-  {
-    key: "openai/codex",
-    name: "codex",
-    slug: "openai/codex",
-    path: null,
-    state: "prsOnly",
-    feeds: [{ remote: "", slug: "openai/codex", onlyMine: false }],
-  },
-  {
-    key: "/Users/ciaran/Projects/notes",
-    name: "notes",
-    slug: "",
-    path: "/Users/ciaran/Projects/notes",
-    state: "noRemote",
-    feeds: [],
-  },
-];
-
-const url = (slug: string, number: number) => `https://github.com/${slug}/pull/${number}`;
-const sha = (seed: number) => String(seed).repeat(40).slice(0, 40);
-
-// --- ciaran/codex-custom ---------------------------------------------------
-
-/** My stack, bottom first: main ← feat/driver-trait ← feat/claude-driver ← feat/maki-acp. */
-export const MY_STACK = [412, 415, 418] as const;
-/** jo-r's stack asking me for review: main ← jo-r/focus-rings ← jo-r/focus-trap. */
-export const THEIR_STACK = [401, 403] as const;
-/** The PR with human review threads. */
-export const THREADED_PR = 409;
-
-const mainPrs: InboxPr[] = [
-  ...previewInbox.prs,
-  inboxPr({
-    number: 412,
-    title: "Harness driver trait",
-    headRef: "feat/driver-trait",
-    reviewDecision: "APPROVED",
-    reviews: [{ author: "mira-k", state: "APPROVED" }],
-  }),
-  inboxPr({
-    number: 415,
-    title: "Claude Code driver over stream-json",
-    headRef: "feat/claude-driver",
-    baseRef: "feat/driver-trait",
-    baseSha: sha(412),
-    reviewDecision: "CHANGES_REQUESTED",
-    assignees: ["mira-k"],
-    reviews: [{ author: "mira-k", state: "CHANGES_REQUESTED" }],
-    unresolvedThreads: 2,
-  }),
-  inboxPr({
-    number: 418,
-    title: "maki over ACP",
-    isDraft: true,
-    headRef: "feat/maki-acp",
-    baseRef: "feat/claude-driver",
-    baseSha: sha(415),
-    checks: "FAILURE",
-  }),
-  inboxPr({
-    number: 401,
-    title: "Focus rings on every control",
-    author: "jo-r",
-    headRef: "jo-r/focus-rings",
-    headRepo: "jo-r/codex-custom",
-    maintainerCanModify: true,
-    reviewDecision: "REVIEW_REQUIRED",
-    reviewRequests: [DESK_VIEWER],
-    // Approved, then two more commits and a re-request.
-    reviews: [{ author: DESK_VIEWER, state: "APPROVED", commit: sha(400) }],
-  }),
-  inboxPr({
-    number: 403,
-    title: "Trap focus in dialogs",
-    author: "jo-r",
-    headRef: "jo-r/focus-trap",
-    baseRef: "jo-r/focus-rings",
-    baseSha: sha(401),
-    headRepo: "jo-r/codex-custom",
-    reviewDecision: "REVIEW_REQUIRED",
-    // Assigned to me while 401 below it is not: the stack shows dimmed.
-    assignees: [DESK_VIEWER],
-    reviewRequests: [DESK_VIEWER],
-    checks: "PENDING",
-  }),
-  inboxPr({
-    number: THREADED_PR,
-    title: "Retry the app-server handshake",
-    author: "mira-k",
-    headRef: "mira-k/handshake-retry",
-    reviewDecision: "CHANGES_REQUESTED",
-    reviewRequests: [DESK_VIEWER],
-    reviews: [{ author: "tomasz", state: "CHANGES_REQUESTED" }],
-    unresolvedThreads: 2,
-    additions: 86,
-    deletions: 12,
-    changedFiles: 2,
-  }),
-  // Someone else's, not asking me: only under Everyone.
-  inboxPr({
-    number: 420,
-    title: "Bump vitest to 4.1",
-    author: "tomasz",
-    headRef: "tomasz/vitest-4.1",
-    reviewDecision: "REVIEW_REQUIRED",
-    assignees: ["tomasz", "mira-k"],
-    reviewRequests: ["mira-k"],
-  }),
-];
-
-const mainStacks: StackListing = {
-  supported: true,
-  stacks: [
-    { number: 7, baseRef: "main", open: true, prs: [] },
-    { number: 8, baseRef: "main", open: true, prs: [] },
-  ],
+  /** Folders on disk Add repository can inspect, beyond the desk's clones. */
+  folders?: Omit<FolderFacts, "prSource">[];
 };
-for (const [index, numbers] of [MY_STACK, THEIR_STACK].entries()) {
-  mainStacks.stacks[index].prs = numbers.map((number) => {
-    const pr = mainPrs.find((candidate) => candidate.number === number) as InboxPr;
-    return {
-      number,
-      state: "open",
-      isDraft: pr.isDraft,
-      merged: false,
-      headRef: pr.headRef,
-      headSha: pr.headSha,
-    };
-  });
+
+// --- the state ------------------------------------------------------------------
+
+export type StackSim = Required<Omit<StackSeed, "number" | "prs" | "merged" | "baseRef" | "commits">> & {
+  commits: Map<number, number>;
+  run: RestackProgress | null;
+};
+
+/** One repository's live data, edited in place by the fakes. */
+export type RepoData = {
+  /** The inbox as synced; `triage`, `counts` and `feed` are worked out per read. */
+  inbox: Inbox;
+  stacks: StackListing;
+  sims: Map<number, StackSim>;
+  details: Map<number, PrDetail>;
+  feed: FeedEntry[];
+  muted: Map<number, string>;
+  commitsSinceMyReview: Map<number, number>;
+  behind: Map<number, number>;
+};
+
+export type DeskState = {
+  viewer: string;
+  home: string;
+  repositories: Repository[];
+  /** By GitHub slug. */
+  data: Map<string, RepoData>;
+  /** By `<repoDir>#<number>`. */
+  checkouts: Map<string, PrCheckout>;
+  /** By thread id. */
+  links: Map<string, PrLink>;
+  /** By `<slug>#<number>`, as the profile database keeps them. */
+  pendingReviews: Map<string, PendingReview>;
+  viewedMarks: Map<string, Map<string, string>>;
+  drafts: Map<string, ReviewDraft>;
+  agentReviews: AgentReview[];
+  findings: Finding[];
+  /** By slug. */
+  rules: Map<string, ReviewRule[]>;
+  account: GitHubAccount;
+  githubRepositories: GitHubRepo[];
+  requests: ReviewRequests[];
+  knownClones: KnownClone[];
+  folders: Map<string, Omit<FolderFacts, "prSource">>;
+  prsOnly: string[];
+  /** By repository folder. */
+  settings: Map<string, RepositorySettings>;
+  accountPins: Map<string, string>;
+  /** Folders cloned this session, with the slug each clones. */
+  clones: Map<string, string>;
+  /** For ids the fakes make up. */
+  next: number;
+};
+
+let state: DeskState;
+
+/** The live desk, for the area fakes beside this file. */
+export function desk(): DeskState {
+  return state;
 }
 
-function thread(
-  threadId: string,
-  path: string,
-  line: number,
-  resolved: boolean,
-  messages: [author: string, body: string][],
-  /** The review the first comment was posted in; each reply has its own. */
-  review: string,
-  /** A range or outdated flag; the hunk itself comes from `withAnchors`. */
-  anchor: Partial<PrComment> = {},
-): PrComment[] {
-  return messages.map(([author, body], index) => ({
-    id: Number.parseInt(threadId.replace(/\D/g, ""), 10) * 10 + index,
-    author,
-    body,
-    createdAt: `2026-11-04T1${index}:00:00Z`,
-    path,
-    line,
-    side: "RIGHT",
-    threadId,
-    isResolved: resolved,
-    reviewId: index === 0 ? review : `${threadId}_reply${index}`,
-    ...NO_ANCHOR,
-    ...anchor,
-  }));
+/** Replace the desk with exactly `seed`: nothing of the demo stays. */
+export function seedPreviewDesk(seed: DeskSeed = {}): void {
+  state = build(structuredClone(seed));
 }
 
-const threadedDetail: PrDetail = withAnchors({
-  ...structuredClone(previewPrDetail),
-  summary: {
-    number: THREADED_PR,
-    title: "Retry the app-server handshake",
-    author: "mira-k",
-    state: "OPEN",
-    isDraft: false,
-    baseRef: "main",
-    headRef: "mira-k/handshake-retry",
-    updatedAt: "2026-11-05T09:00:00Z",
-    url: url("ciaran/codex-custom", THREADED_PR),
-    headRepo: "ciaran/codex-custom",
-    maintainerCanModify: false,
-  },
-  body: "The app-server sometimes answers `initialize` late on a cold start. Retry the handshake three times with backoff.",
-  headSha: sha(THREADED_PR),
-  baseSha: sha(1),
-  comments: [
-    ...thread(
-      "THREAD_1",
-      "src/lib/loader.ts",
-      4,
-      false,
-      [
-        ["tomasz", "Three retries feels **arbitrary**. Can this come from the _config_?"],
-        ["mira-k", "It could, but nobody has asked to tune it yet."],
-      ],
-      "PRR_tomasz",
-    ),
-    ...thread(
-      "THREAD_2",
-      "src/lib/loader.ts",
-      6,
-      false,
-      [
-        [
-          "tomasz",
-          "This swallows the original error. Keep it as the `cause`:\n\n```ts\nthrow new Error('path is required', { cause });\n```",
-        ],
-      ],
-      "PRR_tomasz",
-      { startLine: 4 },
-    ),
-    ...thread(
-      "THREAD_3",
-      "docs/review.md",
-      1,
-      true,
-      [
-        ["ciaran", "Typo in the heading."],
-        ["mira-k", "Fixed."],
-      ],
-      "PRR_ciaran",
-      { outdated: true },
-    ),
-    {
-      id: 0,
-      author: "mira-k",
-      body: "Pushed the error-handling fix; the retry count stays fixed for now.",
-      createdAt: "2026-11-04T15:00:00Z",
-      path: null,
-      line: null,
-      side: null,
-      threadId: null,
-      isResolved: false,
-      reviewId: null,
-      ...NO_ANCHOR,
-    },
-  ],
-  reviews: [
-    {
-      id: "PRR_tomasz",
-      author: "tomasz",
-      state: "CHANGES_REQUESTED",
-      body: "Requesting changes for the error handling; the rest looks good.",
-      submittedAt: "2026-11-04T10:00:00Z",
-    },
-    { id: "PRR_ciaran", author: "ciaran", state: "COMMENTED", body: "", submittedAt: "2026-11-04T10:05:00Z" },
-  ],
-});
-
-// --- the other repositories --------------------------------------------------
-
-const arcticPrs: InboxPr[] = [
-  inboxPr({
-    number: 31,
-    title: "Tile cache for the map view",
-    url: url("ciaran/arctic-explorer", 31),
-    headRef: "feat/tile-cache",
-    checks: "FAILURE",
-  }),
-];
-
-const codexPrs: InboxPr[] = [
-  inboxPr({
-    number: 7120,
-    title: "app-server: report rate limits per model",
-    author: "openai-dev",
-    url: url("openai/codex", 7120),
-    headRef: "rate-limits-per-model",
-    reviewDecision: "REVIEW_REQUIRED",
-    reviewRequests: [DESK_VIEWER],
-  }),
-  inboxPr({
-    number: 7104,
-    title: "tui: wrap long tool names",
-    author: "contributor-9",
-    url: url("openai/codex", 7104),
-    headRef: "wrap-tool-names",
-    headRepo: "contributor-9/codex",
-  }),
-];
-
-// --- lookups the command fakes use -----------------------------------------
-
-type RepoData = { inbox: Inbox; stacks: StackListing; details: Map<number, PrDetail> };
+/** Back to the demo the browser preview opens on. */
+export function resetPreviewDesk(): void {
+  seedPreviewDesk(demoDesk());
+}
 
 const SYNCED_AT = Date.parse("2026-11-05T10:00:00Z");
-const minutesAgo = (minutes: number) => SYNCED_AT - minutes * 60_000;
 
-/** A flat colour for an avatar, so the preview and tests never reach the network. */
-const avatar = (color: string) =>
-  `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1" fill="${color}"/></svg>`)}`;
-
-const DESK_PEOPLE: GitHubPerson[] = [
-  { login: "jo-r", name: "Jo Reyes", avatarUrl: avatar("#0e7490"), isTeam: false },
-  { login: "mira-k", name: "Mira Kovac", avatarUrl: avatar("#b45309"), isTeam: false },
-  // No display name, and no avatar to fetch: initials.
-  { login: "tomasz", name: null, avatarUrl: null, isTeam: false },
-];
-
-function inbox(slug: string, prs: InboxPr[]): Inbox {
+function build(seed: DeskSeed): DeskState {
+  const viewer = seed.viewer ?? "ciaran";
+  const repositories = (seed.repositories ?? []).map((entry) => entry.repository);
+  const data = new Map<string, RepoData>();
+  const checkouts = new Map<string, PrCheckout>();
+  const settings = new Map<string, RepositorySettings>();
+  for (const entry of seed.repositories ?? []) {
+    const { repository } = entry;
+    const dir = repository.path ?? repository.slug;
+    for (const checkout of entry.checkouts ?? []) checkouts.set(`${dir}#${checkout.number}`, checkout);
+    if (entry.settings) settings.set(dir, { ...defaultSettings(dir, "origin"), ...entry.settings, repoKey: dir });
+    if (repository.slug) data.set(repository.slug, repoData(entry, viewer));
+  }
   return {
-    repo: slug,
-    viewer: DESK_VIEWER,
-    prs,
-    people: DESK_PEOPLE,
-    events: [],
-    rateLimit: { cost: 1, remaining: 4990, resetAt: "2026-11-05T11:00:00Z" },
-    complete: true,
-    syncedAt: SYNCED_AT,
-    triage: [],
-    counts: { needsMe: 0, mine: 0, reviewRequested: 0, everyone: 0 },
-    feed: [],
+    viewer,
+    home: seed.home ?? "/Users/ciaran/.codex",
+    repositories,
+    data,
+    checkouts,
+    links: new Map((seed.links ?? []).map((link) => [link.threadId, link])),
+    pendingReviews: new Map(),
+    viewedMarks: new Map(),
+    drafts: new Map(),
+    agentReviews: seed.agentReviews ?? [],
+    findings: seed.findings ?? [],
+    rules: new Map(),
+    account: seed.github?.account ?? { login: viewer, tokenSource: "keyring", logins: [viewer] },
+    githubRepositories: seed.github?.repositories ?? [],
+    requests: seed.github?.requests ?? [],
+    knownClones: seed.github?.knownClones ?? [],
+    folders: new Map((seed.folders ?? []).map((folder) => [folder.root, folder])),
+    prsOnly: repositories.filter((repo) => repo.state === "prsOnly").map((repo) => repo.slug),
+    settings,
+    accountPins: new Map(),
+    clones: new Map(),
+    next: 0,
   };
 }
 
-/** Commits since my latest review, which the backend counts in the clone. */
-const COMMITS_SINCE_MY_REVIEW = new Map([[401, 2]]);
+function repoData(entry: RepositorySeed, viewer: string): RepoData {
+  const prs = entry.prs ?? [];
+  const byNumber = new Map(prs.map((pr) => [pr.number, pr]));
+  const seeds = entry.stacks ?? [];
+  const stacks: StackListing = {
+    supported: seeds.length > 0,
+    stacks: seeds.map((stack) => ({
+      number: stack.number,
+      baseRef: stack.baseRef ?? "main",
+      open: true,
+      prs: stack.prs.map((number) => {
+        const pr = byNumber.get(number);
+        const merged = stack.merged?.includes(number) ?? false;
+        return {
+          number,
+          state: merged ? "closed" : "open",
+          isDraft: pr?.isDraft ?? false,
+          merged,
+          headRef: pr?.headRef ?? "",
+          headSha: pr?.headSha ?? "",
+        };
+      }),
+    })),
+  };
+  const sims = new Map(
+    seeds.map((stack) => {
+      const behind = stack.behind ?? 0;
+      const sim: StackSim = {
+        behind,
+        drifted: stack.drifted ?? [],
+        worktree: stack.worktree ?? null,
+        conflict: stack.conflict ?? null,
+        commits: new Map(Object.entries(stack.commits ?? {}).map(([number, count]) => [Number(number), count])),
+        baseCommits:
+          stack.baseCommits ??
+          Array.from({ length: behind }, (_, index) => ({
+            sha: `base${index}`.padEnd(40, "0"),
+            subject: `Commit ${behind - index} on ${stack.baseRef ?? "main"}`,
+          })),
+        run: null,
+      };
+      return [stack.number, sim];
+    }),
+  );
+  const toMap = (record: Record<number, number> = {}) =>
+    new Map(Object.entries(record).map(([number, count]) => [Number(number), count]));
+  const feed = entry.feed ?? [];
+  return {
+    inbox: {
+      repo: entry.repository.slug,
+      viewer,
+      prs,
+      people: entry.people ?? [],
+      events: entry.events ?? [],
+      rateLimit: { cost: 1, remaining: 4990, resetAt: "2026-11-05T11:00:00Z" },
+      complete: true,
+      syncedAt: entry.syncedAt ?? SYNCED_AT,
+      triage: [],
+      counts: { needsMe: 0, mine: 0, reviewRequested: 0, everyone: 0 },
+      feed: [],
+    },
+    stacks,
+    sims,
+    details: new Map((entry.details ?? []).map((detail) => [detail.summary.number, detail])),
+    feed: feed.map((item, index) => ({ ...item, id: String(feed.length - index) })),
+    muted: new Map(),
+    commitsSinceMyReview: toMap(entry.commitsSinceMyReview),
+    behind: toMap(entry.behind),
+  };
+}
 
-/** "Since you last looked" for the main repository, newest first. */
-const MAIN_FEED: Omit<FeedEntry, "id">[] = [
-  { number: 415, kind: "reviewed", actor: "mira-k", state: "CHANGES_REQUESTED", at: minutesAgo(12) },
-  { number: 418, kind: "checksFailed", actor: null, state: null, at: minutesAgo(60) },
-  { number: 401, kind: "pushed", actor: "jo-r", state: null, at: minutesAgo(120) },
-  { number: 401, kind: "reviewRequested", actor: null, state: null, at: minutesAgo(120) },
-  { number: 412, kind: "reviewed", actor: "mira-k", state: "APPROVED", at: minutesAgo(180) },
-];
+/** A repository's settings before anyone saved any. */
+export function defaultSettings(repoKey: string, prSource: RepositorySettings["prSource"]): RepositorySettings {
+  return {
+    repoKey,
+    setupCommand: null,
+    reviewCheckoutPolicy: "ask",
+    skipCheckoutConfirm: false,
+    worktreeDir: null,
+    prSource,
+    updatedAt: 0,
+  };
+}
 
-// The seen state the activity fakes keep, per repository slug.
-const feeds = new Map<string, FeedEntry[]>();
-const muted = new Map<string, Map<number, string>>();
+// --- lookups ----------------------------------------------------------------------
 
-/** Back to the seeded feed and no mutes. Tests call it between cases. */
-export function resetDeskActivity() {
-  feeds.clear();
-  muted.clear();
-  feeds.set(
-    "ciaran/codex-custom",
-    MAIN_FEED.map((entry, index) => ({ ...entry, id: String(MAIN_FEED.length - index) })),
+/** The desk repository a review command's `repoDir` names: its folder, or
+ *  its slug for a PRs-only repository. Unknown folders are the first one, so
+ *  screens that pass a made-up folder still find a repository. */
+export function deskRepo(repoDir: string): Repository | undefined {
+  return (
+    state.repositories.find((repo) => repo.path === repoDir || (repo.slug && repo.slug === repoDir)) ??
+    state.repositories[0]
   );
 }
-resetDeskActivity();
+
+/** The live data of the repository at `repoDir`, for the fakes to edit. */
+export function liveRepo(repoDir: string): RepoData {
+  const data = state.data.get(deskRepo(repoDir)?.slug ?? "");
+  if (!data) throw new Error("This folder has no GitHub repository (no matching remote)");
+  return data;
+}
+
+export function deskInbox(repoDir: string): Inbox {
+  return withActivity(liveRepo(repoDir));
+}
+
+export function deskStacks(repoDir: string): StackListing {
+  return structuredClone(liveRepo(repoDir).stacks);
+}
+
+/** A PR's detail: its own when the seed has one, else one made from its row. */
+export function deskPrDetail(repoDir: string, number: number): PrDetail {
+  const detail = structuredClone(liveDetail(repoDir, number));
+  const large = largeDiffShape();
+  if (large) detail.files = largeDiffFiles(large.files, large.lines);
+  return detail;
+}
+
+/** The detail the fakes edit: a reply or a review lands here. */
+function liveDetail(repoDir: string, number: number): PrDetail {
+  const data = liveRepo(repoDir);
+  let detail = data.details.get(number);
+  if (!detail) {
+    const pr = data.inbox.prs.find((candidate) => candidate.number === number);
+    if (!pr) throw new Error(`#${number} is not an open pull request`);
+    detail = prDetail(pr);
+    data.details.set(number, detail);
+  }
+  return detail;
+}
+
+/** `?largeDiff=<files>x<lines>` in the preview's URL replaces every PR's
+ *  files with a generated large diff: the diff scroll benchmark opens
+ *  `?largeDiff=40x150`, and it reproduces a slow diff by hand. */
+function largeDiffShape(): { files: number; lines: number } | null {
+  if (typeof location === "undefined") return null;
+  const match = /^(\d+)x(\d+)$/.exec(new URLSearchParams(location.search).get("largeDiff") ?? "");
+  return match ? { files: Number(match[1]), lines: Number(match[2]) } : null;
+}
+
+// --- the inbox's triage and seen state ---------------------------------------
 
 /** The desk service's Needs me rules (`review/desk/sync.rs`), for the fakes. */
 function needsMe(pr: InboxPr, viewer: string): NeedsMe | null {
@@ -405,14 +378,13 @@ function needsMe(pr: InboxPr, viewer: string): NeedsMe | null {
   return null;
 }
 
-function withActivity(base: Inbox): Inbox {
-  const feed = feeds.get(base.repo) ?? [];
-  const mutes = muted.get(base.repo) ?? new Map<number, string>();
+function withActivity(data: RepoData): Inbox {
+  const base = structuredClone(data.inbox);
   const triage: PrTriage[] = base.prs.map((pr) => {
     const mine = pr.author === base.viewer;
     const myReview = pr.reviews.find((review) => review.author === base.viewer) ?? null;
-    const commitsSinceMyReview = myReview?.commit ? (COMMITS_SINCE_MY_REVIEW.get(pr.number) ?? 0) : null;
-    const isMuted = mutes.get(pr.number) === pr.headSha;
+    const commitsSinceMyReview = myReview?.commit ? (data.commitsSinceMyReview.get(pr.number) ?? 0) : null;
+    const isMuted = data.muted.get(pr.number) === pr.headSha;
     return {
       number: pr.number,
       mine,
@@ -420,7 +392,7 @@ function withActivity(base: Inbox): Inbox {
       needsMe: isMuted ? null : needsMe(pr, base.viewer),
       myReview: myReview?.state ?? null,
       commitsSinceMyReview,
-      newActivity: feed.filter((entry) => entry.number === pr.number).length,
+      newActivity: data.feed.filter((entry) => entry.number === pr.number).length,
       muted: isMuted,
     };
   });
@@ -434,196 +406,231 @@ function withActivity(base: Inbox): Inbox {
       reviewRequested: count((entry) => entry.reviewRequested),
       everyone: triage.length,
     },
-    feed: structuredClone(feed),
+    feed: structuredClone(data.feed),
   };
 }
 
-export function deskMarkActivitySeen(repoDir: string, numbers: number[]) {
-  const slug = repoData(repoDir).inbox.repo;
-  feeds.set(
-    slug,
-    (feeds.get(slug) ?? []).filter((entry) => !numbers.includes(entry.number)),
+// --- reviews and comments --------------------------------------------------------
+
+const prKey = (repoDir: string, number: number) => `${deskRepo(repoDir)?.slug}#${number}`;
+const now = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");
+const STATES: Record<string, string> = {
+  APPROVE: "APPROVED",
+  REQUEST_CHANGES: "CHANGES_REQUESTED",
+  approve: "APPROVED",
+  requestChanges: "CHANGES_REQUESTED",
+};
+
+function comment(fields: Partial<PrComment> & Pick<PrComment, "body">): PrComment {
+  state.next += 1;
+  return {
+    id: 90_000 + state.next,
+    author: state.viewer,
+    createdAt: now(),
+    path: null,
+    line: null,
+    side: null,
+    threadId: null,
+    isResolved: false,
+    reviewId: null,
+    ...NO_ANCHOR,
+    ...fields,
+  };
+}
+
+/** Recount the inbox row's unresolved threads from the detail. */
+function recountThreads(repoDir: string, number: number) {
+  const detail = liveDetail(repoDir, number);
+  const pr = liveRepo(repoDir).inbox.prs.find((candidate) => candidate.number === number);
+  if (!pr) return;
+  pr.unresolvedThreads = new Set(
+    detail.comments.filter((entry) => entry.threadId && !entry.isResolved).map((entry) => entry.threadId),
+  ).size;
+}
+
+/** Post one review on PR `number`, as GitHub records it: the review, its new
+ *  inline comments as threads of their own, and its replies in their threads. */
+function postReview(
+  repoDir: string,
+  number: number,
+  review: {
+    event: string;
+    body: string;
+    comments: PendingComment[];
+    replies?: { commentId: number; body: string }[];
+  },
+) {
+  const detail = liveDetail(repoDir, number);
+  const id = `PRR_preview_${++state.next}`;
+  const reviewState = STATES[review.event] ?? "COMMENTED";
+  detail.reviews.push({ id, author: state.viewer, state: reviewState, body: review.body, submittedAt: now() });
+  for (const posted of review.comments) {
+    detail.comments.push(
+      comment({
+        body: posted.body,
+        path: posted.path,
+        line: posted.line,
+        startLine: posted.startLine ?? null,
+        side: posted.side ?? "RIGHT",
+        threadId: `PRRT_preview_${state.next + 1}`,
+        reviewId: id,
+      }),
+    );
+  }
+  for (const reply of review.replies ?? []) replyIn(detail, reply.commentId, reply.body, id);
+  const pr = liveRepo(repoDir).inbox.prs.find((candidate) => candidate.number === number);
+  if (pr) {
+    pr.reviews = [
+      ...pr.reviews.filter((entry) => entry.author !== state.viewer),
+      { author: state.viewer, state: reviewState, commit: detail.headSha },
+    ];
+  }
+  recountThreads(repoDir, number);
+}
+
+function replyIn(detail: PrDetail, commentId: number, body: string, reviewId: string | null) {
+  const parent = detail.comments.find((entry) => entry.id === commentId);
+  if (!parent?.threadId) throw new Error("That comment is gone");
+  detail.comments.push(
+    comment({
+      body,
+      path: parent.path,
+      line: parent.line,
+      side: parent.side,
+      threadId: parent.threadId,
+      isResolved: parent.isResolved,
+      reviewId: reviewId ?? `PRR_preview_reply_${state.next + 1}`,
+    }),
   );
 }
 
-export function deskMutePr(repoDir: string, number: number, headSha: string) {
-  const slug = repoData(repoDir).inbox.repo;
-  const mutes = muted.get(slug) ?? new Map<number, string>();
-  mutes.set(number, headSha);
-  muted.set(slug, mutes);
-}
-
-const unsupported: StackListing = { supported: false, stacks: [] };
-
-const DATA = new Map<string, RepoData>([
-  [
-    "ciaran/codex-custom",
-    {
-      inbox: { ...inbox("ciaran/codex-custom", mainPrs), events: previewInbox.events },
-      stacks: mainStacks,
-      details: new Map([[THREADED_PR, threadedDetail]]),
-    },
-  ],
-  [
-    "ciaran/arctic-explorer",
-    { inbox: inbox("ciaran/arctic-explorer", arcticPrs), stacks: unsupported, details: new Map() },
-  ],
-  ["openai/codex", { inbox: inbox("openai/codex", codexPrs), stacks: unsupported, details: new Map() }],
-]);
-
-/** The desk repository a review command's `repoDir` names: its folder, or
- *  its slug for a PRs-only repository. Unknown folders are the main one, so
- *  older preview screens keep working. */
-export function deskRepo(repoDir: string): Repository {
-  return DESK_REPOS.find((repo) => repo.path === repoDir || (repo.slug && repo.slug === repoDir)) ?? DESK_REPOS[0];
-}
-
-function repoData(repoDir: string): RepoData {
-  const repo = deskRepo(repoDir);
-  const data = DATA.get(repo.slug);
-  if (!data) throw new Error("This folder has no GitHub repository (no matching remote)");
-  return data;
-}
-
-export function deskInbox(repoDir: string): Inbox {
-  return withActivity(structuredClone(repoData(repoDir).inbox));
-}
-
-export function deskStacks(repoDir: string): StackListing {
-  return structuredClone(repoData(repoDir).stacks);
-}
-
-/** A PR's detail: its own when the fixtures have one, else the shared
- *  sample detail under the PR's summary. */
-export function deskPrDetail(repoDir: string, number: number): PrDetail {
-  const detail = basePrDetail(repoDir, number);
-  const large = largeDiffShape();
-  if (large) detail.files = largeDiffFiles(large.files, large.lines);
-  return detail;
-}
-
-/** `?largeDiff=<files>x<lines>` in the preview's URL replaces every PR's
- *  files with a generated large diff: the diff scroll benchmark opens
- *  `?largeDiff=40x150`, and it reproduces a slow diff by hand. */
-function largeDiffShape(): { files: number; lines: number } | null {
-  if (typeof location === "undefined") return null;
-  const match = /^(\d+)x(\d+)$/.exec(new URLSearchParams(location.search).get("largeDiff") ?? "");
-  return match ? { files: Number(match[1]), lines: Number(match[2]) } : null;
-}
-
-function basePrDetail(repoDir: string, number: number): PrDetail {
-  const data = repoData(repoDir);
-  const own = data.details.get(number);
-  if (own) return structuredClone(own);
-  const detail = structuredClone(previewPrDetail);
-  const pr = data.inbox.prs.find((candidate) => candidate.number === number);
-  if (pr) {
-    detail.summary = {
-      number: pr.number,
-      title: pr.title,
-      author: pr.author,
-      state: "OPEN",
-      isDraft: pr.isDraft,
-      baseRef: pr.baseRef,
-      headRef: pr.headRef,
-      updatedAt: pr.updatedAt,
-      url: pr.url,
-      headRepo: "ciaran/codex-custom",
-      maintainerCanModify: false,
-    };
-    detail.headSha = pr.headSha;
-    detail.baseSha = pr.baseSha;
+/** Each pending entry as the comment it posts. */
+function submission(review: PendingReview) {
+  const comments: PendingComment[] = [];
+  const replies: { commentId: number; body: string }[] = [];
+  for (const entry of review.entries) {
+    if (entry.kind === "reply") {
+      replies.push({ commentId: entry.commentId, body: entry.body });
+      continue;
+    }
+    const body =
+      entry.kind === "suggestion" ? `${entry.body}\n\n\`\`\`suggestion\n${entry.replacement}\n\`\`\`` : entry.body;
+    comments.push({ ...entry.anchor, body });
   }
-  return detail;
+  return { event: review.verdict, body: review.summary, comments, replies };
 }
 
-export const previewAgentReviews: PreviewAgentReview[] = [
-  {
-    id: "agent-review-1",
-    repo: "ciaran/codex-custom",
-    number: THREADED_PR,
-    harness: "claude",
-    step: "noCheckout",
-    status: "done",
-    startedAt: Date.parse("2026-11-05T09:35:00Z"),
-    threadId: "preview-agent-409",
-    findings: 3,
-  },
-  {
-    id: "agent-review-2",
-    repo: "ciaran/codex-custom",
-    number: 401,
-    harness: "claude",
-    step: "noCheckout",
-    status: "running",
-    startedAt: Date.parse("2026-11-05T09:58:00Z"),
-    threadId: "preview-agent-401",
-  },
-  {
-    id: "agent-review-3",
-    repo: "ciaran/codex-custom",
-    number: 403,
-    harness: "codex",
-    step: "worktree",
-    status: "queued",
-    startedAt: null,
-  },
-];
-
-// --- the pending review and viewed files ------------------------------------
-
-/** Pending reviews and viewed marks, per repository and PR, as the profile
- *  database keeps them: they outlive a remount of the review page. */
-const pendingReviews = new Map<string, PendingReview>();
-const viewedMarks = new Map<string, Map<string, string>>();
-const prKey = (repoDir: string, number: number) => `${deskRepo(repoDir).slug}#${number}`;
-
-export function deskPendingReview(repoDir: string, number: number): PendingReview | null {
-  const review = pendingReviews.get(prKey(repoDir, number));
-  return review ? structuredClone(review) : null;
-}
-
-export function deskSavePendingReview(repoDir: string, number: number, review: PendingReview) {
-  const key = prKey(repoDir, number);
-  if (review.entries.length === 0 && !review.summary.trim() && review.verdict !== "approve") pendingReviews.delete(key);
-  else pendingReviews.set(key, { ...structuredClone(review), updatedAt: Math.floor(Date.now() / 1000) });
-}
-
-export function deskDiscardPendingReview(repoDir: string, number: number) {
-  pendingReviews.delete(prKey(repoDir, number));
-}
-
-export function deskSubmitPendingReview(repoDir: string, number: number) {
-  const key = prKey(repoDir, number);
-  if (!pendingReviews.has(key)) throw new Error("There is no pending review to submit");
-  pendingReviews.delete(key);
-}
-
-export function deskViewedFiles(repoDir: string, number: number, files: FileBlob[]): string[] {
-  const marks = viewedMarks.get(prKey(repoDir, number));
-  return files.filter((file) => marks?.get(file.path) === file.blobSha).map((file) => file.path);
-}
-
-export function deskSetViewed(repoDir: string, number: number, files: FileBlob[], viewed: boolean) {
-  const key = prKey(repoDir, number);
-  const marks = viewedMarks.get(key) ?? new Map<string, string>();
-  for (const file of files) {
-    if (viewed) marks.set(file.path, file.blobSha);
-    else marks.delete(file.path);
+function findComment(repoDir: string, ref: CommentRef): { detail: PrDetail; index: number } {
+  for (const detail of liveRepo(repoDir).details.values()) {
+    const index = detail.comments.findIndex((entry) => entry.id === ref.id && (ref.kind === "review") === !!entry.path);
+    if (index >= 0) return { detail, index };
   }
-  viewedMarks.set(key, marks);
+  throw new Error("That comment is gone");
 }
 
-/** Forget every pending review and viewed mark: a fresh profile, for tests. */
-export function resetDeskReviewState() {
-  pendingReviews.clear();
-  viewedMarks.clear();
-}
+/** The inbox, activity, review and comment fakes. */
+export const deskCommands = {
+  reviewListPrs: (repoDir) => liveRepo(repoDir).inbox.prs.map(prSummary),
+  reviewInbox: (repoDir) => deskInbox(repoDir),
+  reviewStacks: (repoDir) => deskStacks(repoDir),
+  reviewPrDetail: (repoDir, number) => deskPrDetail(repoDir, number),
+  reviewFetchPrs: (repoDir, numbers) => {
+    const prs = liveRepo(repoDir).inbox.prs;
+    return numbers.map((number) => ({ number, headSha: prs.find((pr) => pr.number === number)?.headSha ?? null }));
+  },
+  reviewMarkActivitySeen(repoDir, numbers) {
+    const data = liveRepo(repoDir);
+    data.feed = data.feed.filter((entry) => !numbers.includes(entry.number));
+    return null;
+  },
+  reviewMutePr(repoDir, number, headSha) {
+    liveRepo(repoDir).muted.set(number, headSha);
+    return null;
+  },
 
-/** The live PRs and stack listing behind a repository's inbox, for the
- *  stack fakes (`./stack`) to edit; they restore them with
- *  `resetPreviewStacks`. */
-export function deskLiveRepo(repoDir: string): { prs: InboxPr[]; stacks: StackListing } {
-  const data = repoData(repoDir);
-  return { prs: data.inbox.prs, stacks: data.stacks };
-}
+  reviewPendingReview(repoDir, number) {
+    const review = state.pendingReviews.get(prKey(repoDir, number));
+    return review ? structuredClone(review) : null;
+  },
+  reviewSavePendingReview(repoDir, number, review) {
+    const key = prKey(repoDir, number);
+    if (review.entries.length === 0 && !review.summary.trim() && review.verdict !== "approve")
+      state.pendingReviews.delete(key);
+    else state.pendingReviews.set(key, { ...structuredClone(review), updatedAt: Math.floor(Date.now() / 1000) });
+    return null;
+  },
+  reviewDiscardPendingReview(repoDir, number) {
+    state.pendingReviews.delete(prKey(repoDir, number));
+    return null;
+  },
+  reviewSubmitPendingReview(repoDir, number) {
+    const key = prKey(repoDir, number);
+    const review = state.pendingReviews.get(key);
+    if (!review) throw new Error("There is no pending review to submit");
+    postReview(repoDir, number, submission(review));
+    state.pendingReviews.delete(key);
+    return null;
+  },
+  reviewSubmit(repoDir, number, event, body, _commitId, comments) {
+    postReview(repoDir, number, { event, body, comments });
+    return null;
+  },
+  reviewReply(repoDir, number, commentId, body) {
+    replyIn(liveDetail(repoDir, number), commentId, body, null);
+    return null;
+  },
+  reviewResolveThread(repoDir, threadId) {
+    const data = liveRepo(repoDir);
+    for (const [number, detail] of data.details) {
+      const thread = detail.comments.filter((entry) => entry.threadId === threadId);
+      if (thread.length === 0) continue;
+      for (const entry of thread) entry.isResolved = true;
+      recountThreads(repoDir, number);
+      return null;
+    }
+    throw new Error("That review thread is gone");
+  },
+  reviewEditComment(repoDir, ref, body) {
+    const { detail, index } = findComment(repoDir, ref);
+    detail.comments[index] = { ...detail.comments[index], body };
+    return null;
+  },
+  reviewDeleteComment(repoDir, ref) {
+    const { detail, index } = findComment(repoDir, ref);
+    detail.comments.splice(index, 1);
+    return null;
+  },
+
+  reviewViewedFiles(repoDir, number, files: FileBlob[]) {
+    const marks = state.viewedMarks.get(prKey(repoDir, number));
+    return files.filter((file) => marks?.get(file.path) === file.blobSha).map((file) => file.path);
+  },
+  reviewSetViewed(repoDir, number, files, viewed) {
+    const key = prKey(repoDir, number);
+    const marks = state.viewedMarks.get(key) ?? new Map<string, string>();
+    for (const file of files) {
+      if (viewed) marks.set(file.path, file.blobSha);
+      else marks.delete(file.path);
+    }
+    state.viewedMarks.set(key, marks);
+    return null;
+  },
+  reviewSaveDraft(provider, repo, prNumber, headSha, payload) {
+    state.drafts.set(`${provider}:${repo}:${prNumber}`, {
+      headSha,
+      payload,
+      updatedAt: Math.floor(Date.now() / 1000),
+    });
+    return null;
+  },
+  reviewLoadDraft: (provider, repo, prNumber) => state.drafts.get(`${provider}:${repo}:${prNumber}`) ?? null,
+  reviewDeleteDraft(provider, repo, prNumber) {
+    state.drafts.delete(`${provider}:${repo}:${prNumber}`);
+    return null;
+  },
+} satisfies Partial<DeskCommands>;
+
+// The demo until a test seeds its own. The vitest setup resets the desk before
+// each test, once a test has loaded it.
+resetPreviewDesk();
+(globalThis as { __resetPreviewDesk?: () => void }).__resetPreviewDesk = resetPreviewDesk;

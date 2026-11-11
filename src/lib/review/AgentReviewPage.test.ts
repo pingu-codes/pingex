@@ -5,9 +5,16 @@ import DialogHost from "$lib/components/DialogHost.svelte";
 import AgentReviewPage from "$lib/review/AgentReviewPage.svelte";
 import { ensurePrLinks, prLinks } from "$lib/review/prLinks.svelte";
 import { commands } from "$lib/services/homeRouting";
-import { resetPreviewAgentReviews } from "$lib/services/preview/agentReviews";
-import { DESK_REPOS, resetDeskReviewState, THREADED_PR } from "$lib/services/preview/desk";
-import type { PrLink } from "$lib/types";
+import { seedPreviewDesk } from "$lib/services/preview/desk";
+import {
+  addedFile,
+  agentReview,
+  deskRepository,
+  inboxPr,
+  prDetail,
+  reviewThread,
+} from "$lib/services/preview/factories";
+import type { Finding, PrLink } from "$lib/types";
 
 vi.mock("$lib/services/homeRouting", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
@@ -20,7 +27,71 @@ vi.mock("$lib/services/homeRouting", async (importOriginal) => {
   };
 });
 
-const repoDir = DESK_REPOS[0].path as string;
+const repoDir = "/Users/ciaran/Projects/codex-custom";
+const THREADED_PR = 409;
+
+/** mira-k's PR with tomasz's comment on loader.ts:6, and a finished agent
+ *  review of it with three Findings: one merged into that comment. */
+function seed() {
+  const pr = inboxPr({ number: THREADED_PR, title: "Retry the app-server handshake", author: "mira-k" });
+  const loader = ["import { readFileSync } from 'fs';", "", "export function load(path: string) {", "  if (!path) {"];
+  const detail = prDetail(pr, {
+    files: [
+      addedFile("src/lib/loader.ts", [
+        ...loader,
+        "    throw new Error('path is required');",
+        "  }",
+        "  return readFileSync(path);",
+      ]),
+    ],
+    comments: reviewThread("THREAD_2", "src/lib/loader.ts", 6, [["tomasz", "This swallows the original error."]], {
+      review: "PRR_tomasz",
+    }),
+    reviews: [
+      { id: "PRR_tomasz", author: "tomasz", state: "CHANGES_REQUESTED", body: "", submittedAt: "2026-11-04T10:00:00Z" },
+    ],
+  });
+  const done = agentReview(repoDir, "ciaran/codex-custom", pr, { id: "agent-review-1", status: "done", findings: 3 });
+  const finding = (id: number, fields: Partial<Finding> & Pick<Finding, "line" | "title" | "body">): Finding => ({
+    id: `${done.id}-${id}`,
+    agentReviewId: done.id,
+    prNumber: THREADED_PR,
+    headSha: pr.headSha,
+    path: "src/lib/loader.ts",
+    side: "RIGHT",
+    endLine: null,
+    severity: "low",
+    evidence: null,
+    sameAsCommentId: null,
+    state: "draft",
+    dismissReason: null,
+    dismissNote: null,
+    ...fields,
+  });
+  seedPreviewDesk({
+    repositories: [
+      deskRepository("ciaran/codex-custom", { repository: { path: repoDir }, prs: [pr], details: [detail] }),
+    ],
+    agentReviews: [done],
+    findings: [
+      finding(1, {
+        line: 7,
+        severity: "medium",
+        title: "Read errors lose the path",
+        body: "readFileSync throws ENOENT without saying which file it was reading.",
+        evidence: "loader.ts:7 calls readFileSync(path) with no try/catch.",
+      }),
+      finding(2, {
+        line: 6,
+        title: "The original error is swallowed",
+        body: "The thrown error replaces whatever went wrong first.",
+        sameAsCommentId: 20,
+        state: "merged",
+      }),
+      finding(3, { line: 1, title: "Synchronous read on startup", body: "readFileSync blocks the event loop." }),
+    ],
+  });
+}
 
 function renderPage() {
   render(DialogHost);
@@ -31,8 +102,7 @@ const card = (title: string) => screen.findByRole("article", { name: `Agent find
 const yourReview = () => screen.getByRole("complementary", { name: "Your review" });
 
 beforeEach(() => {
-  resetDeskReviewState();
-  resetPreviewAgentReviews();
+  seed();
   vi.mocked(commands.reviewSetFindingState).mockClear();
 });
 

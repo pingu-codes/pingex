@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { SCENARIO_DIR, seedInboxScenario } from "$lib/inbox/inboxScenario";
 import { deskInbox, deskStacks } from "$lib/services/preview/desk";
 import {
   behindLabel,
@@ -14,7 +15,9 @@ import {
 } from "$lib/stack/stack";
 import type { StackInput } from "$lib/types";
 
-const MAIN = "/Users/ciaran/Projects/codex-custom";
+const MAIN = SCENARIO_DIR;
+
+beforeEach(() => seedInboxScenario());
 
 function myStack(): StackInput {
   const stack = deskStacks(MAIN).stacks.find((candidate) => candidate.number === 7);

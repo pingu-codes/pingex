@@ -2,9 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { agentReviews, enqueueAgentReview, startStackReview } from "$lib/review/agentReviews.svelte";
 import { previewEmit } from "$lib/services/codexEvents.svelte";
 import { commands } from "$lib/services/homeRouting";
-import { clearPreviewAgentReviews } from "$lib/services/preview/agentReviews";
-import { resetPreviewCheckouts } from "$lib/services/preview/checkouts";
-import { resetDeskReviewState } from "$lib/services/preview/desk";
+import { seedPreviewDesk } from "$lib/services/preview/desk";
+import { deskRepository, inboxPr } from "$lib/services/preview/factories";
 import type { AgentReviewRequest, CheckoutTarget, InboxPr, ThreadDetail } from "$lib/types";
 
 vi.mock("$lib/services/homeRouting", async (importOriginal) => {
@@ -57,9 +56,11 @@ const statuses = () => (agentReviews.byRepo[repoDir] ?? []).map((review) => `${r
 
 describe("the agent review queue", () => {
   beforeEach(() => {
-    clearPreviewAgentReviews();
-    resetPreviewCheckouts();
-    resetDeskReviewState();
+    // No agent reviews yet, and the PRs they review.
+    const prs = [412, 415, 418].map((number) =>
+      inboxPr({ number, title: `PR ${number}`, headRef: `feature-${number}` }),
+    );
+    seedPreviewDesk({ repositories: [deskRepository("ciaran/codex-custom", { repository: { path: repoDir }, prs })] });
     vi.mocked(commands.startThread).mockClear();
     vi.mocked(commands.startTurn).mockClear();
   });

@@ -6,8 +6,8 @@ import { view } from "$lib/app/navigation.svelte";
 import DialogHost from "$lib/components/DialogHost.svelte";
 import { resetPrLinks } from "$lib/review/prLinks.svelte";
 import { commands } from "$lib/services/homeRouting";
-import { resetPreviewCheckouts } from "$lib/services/preview/checkouts";
-import { inboxPr } from "$lib/services/preview/factories";
+import { seedPreviewDesk } from "$lib/services/preview/desk";
+import { deskRepository, inboxPr } from "$lib/services/preview/factories";
 import { checkoutHandlers } from "./inboxCheckouts";
 
 vi.mock("$lib/services/homeRouting", async (importOriginal) => {
@@ -31,7 +31,9 @@ const handlers = checkoutHandlers(() => "codex-custom");
 
 describe("inbox checkout handlers", () => {
   beforeEach(() => {
-    resetPreviewCheckouts();
+    seedPreviewDesk({
+      repositories: [deskRepository("ciaran/codex-custom", { repository: { path: repoDir }, prs: [pr] })],
+    });
     resetPrLinks();
     closeAllDialogs();
     vi.mocked(commands.startThread).mockClear();

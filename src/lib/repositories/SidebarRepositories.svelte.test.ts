@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import Sidebar from "$lib/layout/Sidebar.svelte";
 import { resetRepositories } from "$lib/repositories/repositoryStore.svelte";
 import { commands } from "$lib/services/homeRouting";
-import { resetPreviewRepositories } from "$lib/services/preview/repositories";
 import type { Project } from "$lib/types";
 
 // The sidebar's repository states over the preview fakes: codex-custom is
@@ -48,10 +47,7 @@ function setup() {
 }
 
 describe("Sidebar repository states", () => {
-  beforeEach(() => {
-    resetPreviewRepositories();
-    resetRepositories();
-  });
+  beforeEach(() => resetRepositories());
 
   it("marks a project with no GitHub remote and shows nothing extra on a cloned one", async () => {
     setup();

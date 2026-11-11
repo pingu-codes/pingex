@@ -1,106 +1,101 @@
 // Checkout steps and PR links for the browser preview and the desk UI tests:
-// PR worktrees and thread links held in memory, with the same
-// step plan the backend's `review/desk/steps.rs` makes. Every PR starts with
-// no checkout; `resetPreviewCheckouts` puts the preview back there.
+// PR worktrees and thread links on the preview desk, with the step plan the
+// backend's `review/desk/steps.rs` makes. The recorded cases in
+// `tests/fixtures/desk/step_plans.json` hold both to the same plans.
 
 import { DESK_ACTION_STEPS } from "$lib/bindings";
-import type { CheckoutStep, CheckoutTarget, PrCheckout, PrLink, RepositorySettings, StepPlan } from "$lib/types";
-import type { PreviewCommands } from "./commands";
-import { DESK_VIEWER, deskInbox } from "./desk";
-import { previewPrs } from "./fixtures";
+import type {
+  CheckoutStep,
+  CheckoutTarget,
+  PrCheckout,
+  PrLink,
+  RepositorySettings,
+  StackWorktree,
+  StepPlan,
+} from "$lib/types";
+import type { DeskCommands } from "./commands";
+import { desk, deskRepo, liveRepo } from "./desk";
+import { prCheckout } from "./factories";
 import { repositoryCommands } from "./repositories";
-import { previewStackWorktree, setPreviewStackWorktree } from "./stack";
+import { setStackWorktree, stackWorktree } from "./stack";
 
-const HOME = "/Users/ciaran/.codex";
 const RANK: Record<CheckoutStep, number> = { noCheckout: 0, worktree: 1 };
 
-const state = {
-  checkouts: new Map<string, PrCheckout>(),
-  links: new Map<string, PrLink>(),
-};
-
 const key = (repoDir: string, number: number) => `${repoDir}#${number}`;
-const repoName = (repoDir: string) => repoDir.replace(/\/+$/, "").split("/").pop() || "repository";
-const slug = (name: string) =>
-  name
+
+/** A path segment from a git branch or folder name, as `steps.rs` makes it:
+ *  lower case, `[a-z0-9._-]`, every other character a `-`. */
+function segment(name: string): string {
+  const slug = name
+    .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replace(/[^a-z0-9._-]/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "");
+  return slug || "checkout";
+}
+
+const repoName = (repoDir: string) => segment(repoDir.replace(/\/+$/, "").split("/").pop() || "repository");
 
 /** The repository's settings, as the Add repository fakes store them. */
 function settingsFor(repoDir: string): RepositorySettings {
-  return repositoryCommands.reviewRepositorySettings?.(repoDir) as RepositorySettings;
+  return repositoryCommands.reviewRepositorySettings(repoDir);
 }
 
 /** Whether the PR's worktree goes on its real branch, as `placement` decides. */
 function ownBranch(repoDir: string, target: CheckoutTarget): boolean {
-  return target.stack !== null || (target.mine && target.headRepo === deskInbox(repoDir).repo);
+  const slug = deskRepo(repoDir)?.slug.toLowerCase();
+  return target.stack !== null || (target.mine && !!slug && target.headRepo?.toLowerCase() === slug);
 }
 
 function worktreePath(repoDir: string, target: CheckoutTarget): string {
-  return ownBranch(repoDir, target)
-    ? `${HOME}/worktrees/${repoName(repoDir)}/${slug(target.headRef)}`
-    : `${HOME}/pr-worktrees/${repoName(repoDir)}/pr-${target.number}`;
+  const { home } = desk();
+  if (!ownBranch(repoDir, target)) return `${home}/pr-worktrees/${repoName(repoDir)}/pr-${target.number}`;
+  const group = settingsFor(repoDir).worktreeDir ?? `${home}/worktrees/${repoName(repoDir)}`;
+  return `${group}/${segment(target.headRef)}`;
 }
 
 function checkoutOf(repoDir: string, number: number): PrCheckout {
-  return (
-    state.checkouts.get(key(repoDir, number)) ?? {
-      number,
-      step: "noCheckout",
-      path: null,
-      headSha: null,
-      gitBranch: null,
-      setupPending: null,
-      ahead: 0,
-      behind: 0,
-      dirty: false,
-      managed: false,
-      onPrBranch: false,
-      mainCheckout: false,
-    }
-  );
+  return desk().checkouts.get(key(repoDir, number)) ?? prCheckout(number);
+}
+
+/** The worktree a stack neighbour of `target` made, on one of the stack's
+ *  git branches, as `pr_checkouts::candidates` finds it. */
+function neighbours(repoDir: string, target: CheckoutTarget): StackWorktree | null {
+  for (const [name, checkout] of desk().checkouts) {
+    if (!name.startsWith(`${repoDir}#`) || checkout.number === target.number || !checkout.path) continue;
+    if (checkout.gitBranch && target.stackBranches?.includes(checkout.gitBranch))
+      return { path: checkout.path, branch: checkout.gitBranch, clean: !checkout.dirty };
+  }
+  return null;
 }
 
 /** Where `target` is, as `pr_checkouts::locate` finds it: its own worktree, or
  *  its stack's, which may be on another of the stack's git branches. */
 function located(repoDir: string, target: CheckoutTarget): PrCheckout {
   const own = checkoutOf(repoDir, target.number);
-  const stackWorktree = target.stack === null ? null : previewStackWorktree(repoDir, target.number);
-  if (!stackWorktree) return own;
-  if (own.path && own.path !== stackWorktree.path) return own;
+  const shared =
+    target.stack === null
+      ? null
+      : (stackWorktree(repoDir, target.number) ?? (own.path ? null : neighbours(repoDir, target)));
+  if (!shared) return own;
+  if (own.path && own.path !== shared.path) return own;
   return {
     ...own,
     step: "worktree",
-    path: stackWorktree.path,
+    path: shared.path,
     headSha: target.headSha,
-    gitBranch: stackWorktree.branch,
-    dirty: !stackWorktree.clean,
-    onPrBranch: stackWorktree.branch === target.headRef,
+    gitBranch: shared.branch,
+    dirty: !shared.clean,
+    onPrBranch: shared.branch === target.headRef,
   };
 }
 
 function put(repoDir: string, checkout: PrCheckout): PrCheckout {
-  state.checkouts.set(key(repoDir, checkout.number), checkout);
+  desk().checkouts.set(key(repoDir, checkout.number), checkout);
   return { ...checkout };
 }
 
-/** Seed a PR's checkout, for tests. */
-export function setPreviewCheckout(repoDir: string, checkout: PrCheckout): void {
-  put(repoDir, checkout);
-}
-
-/** Seed a thread's PR link, for tests. */
-export function setPreviewPrLink(link: PrLink): void {
-  state.links.set(link.threadId, { ...link });
-}
-
-export function resetPreviewCheckouts(): void {
-  state.checkouts.clear();
-  state.links.clear();
-}
-
-export const previewCheckoutCommands: PreviewCommands = {
+export const checkoutCommands = {
   reviewCheckoutState: (repoDir, target) => located(repoDir, target),
   reviewPrCheckouts: (repoDir, targets) =>
     targets.map((target) => located(repoDir, target)).filter((checkout) => checkout.path !== null),
@@ -108,9 +103,9 @@ export const previewCheckoutCommands: PreviewCommands = {
     const open = input.prs.filter((pr) => pr.open && !pr.merged);
     const top = open.at(-1);
     if (!top) throw new Error("This stack has no open pull requests");
-    const created = previewStackWorktree(repoDir, top.number) === null;
-    const path = `${HOME}/worktrees/${repoName(repoDir)}/${slug(top.headRef)}`;
-    if (created) setPreviewStackWorktree(repoDir, top.number, { path, branch: top.headRef, clean: true });
+    const created = stackWorktree(repoDir, top.number) === null;
+    const path = `${settingsFor(repoDir).worktreeDir ?? `${desk().home}/worktrees/${repoName(repoDir)}`}/${segment(top.headRef)}`;
+    if (created) setStackWorktree(repoDir, top.number, { path, branch: top.headRef, clean: true });
     const target: CheckoutTarget = {
       number: top.number,
       headRef: top.headRef,
@@ -160,7 +155,7 @@ export const previewCheckoutCommands: PreviewCommands = {
     const current = located(repoDir, target);
     if (current.path && target.stack !== null && !current.onPrBranch) {
       if (current.dirty) throw new Error(`${current.path} has uncommitted changes. Commit or stash them, then switch`);
-      setPreviewStackWorktree(repoDir, target.number, { path: current.path, branch: target.headRef, clean: true });
+      setStackWorktree(repoDir, target.number, { path: current.path, branch: target.headRef, clean: true });
       return put(repoDir, { ...current, gitBranch: target.headRef, onPrBranch: true });
     }
     if (current.step !== "noCheckout") return { ...current };
@@ -182,15 +177,18 @@ export const previewCheckoutCommands: PreviewCommands = {
   reviewRunCheckoutSetup(repoDir, number) {
     const current = checkoutOf(repoDir, number);
     put(repoDir, { ...current, setupPending: null });
+    return null;
   },
   reviewRemovePrWorktree(repoDir, number) {
-    state.checkouts.delete(key(repoDir, number));
+    desk().checkouts.delete(key(repoDir, number));
+    return null;
   },
   reviewPushToPr(repoDir, number) {
     put(repoDir, { ...checkoutOf(repoDir, number), ahead: 0 });
+    return null;
   },
   reviewManagedWorktreeAt(dir) {
-    for (const [name, checkout] of state.checkouts) {
+    for (const [name, checkout] of desk().checkouts) {
       if (checkout.path === dir && checkout.managed) {
         return { repoDir: name.slice(0, name.lastIndexOf("#")), number: checkout.number };
       }
@@ -198,7 +196,7 @@ export const previewCheckoutCommands: PreviewCommands = {
     return null;
   },
   reviewWorktreeContext(dir) {
-    for (const [name, checkout] of state.checkouts) {
+    for (const [name, checkout] of desk().checkouts) {
       if (checkout.path !== dir || !checkout.managed) continue;
       const number = checkout.number;
       return {
@@ -210,7 +208,7 @@ export const previewCheckoutCommands: PreviewCommands = {
   },
   reviewPruneClosed: () => ({ removedCheckouts: [], closed: [] }),
   reviewSetCheckoutPolicy(repoDir, policy, skipConfirm) {
-    repositoryCommands.reviewSaveRepositorySettings?.(repoDir, {
+    return repositoryCommands.reviewSaveRepositorySettings(repoDir, {
       ...settingsFor(repoDir),
       reviewCheckoutPolicy: policy,
       skipCheckoutConfirm: skipConfirm,
@@ -230,25 +228,25 @@ export const previewCheckoutCommands: PreviewCommands = {
       createdAt: Math.floor(Date.now() / 1000),
       closedAt: null,
     };
-    state.links.set(threadId, link);
+    desk().links.set(threadId, link);
     return { ...link };
   },
-  reviewPrLinks: () => [...state.links.values()].map((link) => ({ ...link })),
+  reviewPrLinks: () => [...desk().links.values()].map((link) => ({ ...link })),
   reviewMoveThreadToPr(threadId, number) {
-    const link = state.links.get(threadId);
+    const link = desk().links.get(threadId);
     if (!link) throw new Error("This thread is not filed under a pull request");
     if (number === null) {
-      state.links.delete(threadId);
-      return;
+      desk().links.delete(threadId);
+      return null;
     }
-    // The inbox's PRs, or the older picker's list that `reviewListPrs` serves.
-    const pr = [...deskInbox(link.repoKey).prs, ...previewPrs].find((candidate) => candidate.number === number);
+    const pr = liveRepo(link.repoKey).inbox.prs.find((candidate) => candidate.number === number);
     if (!pr) throw new Error(`#${number} is not an open pull request`);
-    state.links.set(threadId, { ...link, prNumber: number, mine: pr.author === DESK_VIEWER, closedAt: null });
+    desk().links.set(threadId, { ...link, prNumber: number, mine: pr.author === desk().viewer, closedAt: null });
+    return null;
   },
   reviewBranchProgress(threadId) {
-    const link = state.links.get(threadId);
+    const link = desk().links.get(threadId);
     return { startSha: link?.startSha ?? "", tipSha: link?.startSha ?? null, ahead: 0, behind: 0 };
   },
-  reviewCheckOutThreadCommit: () => {},
-};
+  reviewCheckOutThreadCommit: () => null,
+} satisfies Partial<DeskCommands>;

@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { commands } from "$lib/services/homeRouting";
-import { resetPreviewCheckouts, setPreviewPrLink } from "$lib/services/preview/checkouts";
+import { seedPreviewDesk } from "$lib/services/preview/desk";
 import type { PrLink } from "$lib/types";
 import ThreadBranchChip from "./ThreadBranchChip.svelte";
 
@@ -34,10 +34,7 @@ const link: PrLink = {
 };
 
 describe("ThreadBranchChip", () => {
-  beforeEach(() => {
-    resetPreviewCheckouts();
-    setPreviewPrLink(link);
-  });
+  beforeEach(() => seedPreviewDesk({ links: [link] }));
 
   it("shows the start commit and how far the git branch moved, with its actions", async () => {
     render(ThreadBranchChip, { link });
