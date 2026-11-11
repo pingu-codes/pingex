@@ -41,6 +41,7 @@ mod server_projects;
 mod sidebar_layout;
 mod sources;
 mod stack_worktrees;
+mod thread_snapshots;
 mod threads;
 mod turn_settings;
 mod turn_usage;
@@ -80,8 +81,8 @@ pub(crate) use repository_settings::{
     write_repository_settings, PrSource, RepositorySettings, ReviewCheckoutPolicy,
 };
 pub(crate) use review::{
-    delete_review_draft, read_inbox_snapshot, read_review_draft, write_inbox_snapshot,
-    write_review_draft, ReviewDraft,
+    delete_review_draft, read_inbox_snapshot, read_inbox_snapshot_any_case, read_review_draft,
+    write_inbox_snapshot, write_review_draft, ReviewDraft,
 };
 pub(crate) use review_agent::{
     active_agent_reviews, claim_agent_reviews, delete_agent_review, delete_review_rule,
@@ -130,11 +131,16 @@ pub(crate) use stack_worktrees::{
     delete_stack_worktree, prune_stack_worktrees, read_worktree_purpose, read_worktree_purposes,
     write_stack_worktree,
 };
+pub(crate) use thread_snapshots::{
+    delete_tip_snapshots, read_tip_snapshot, recorded_snapshot_roots, write_tip_snapshot,
+    TipSnapshot,
+};
 pub(crate) use threads::{
     delete_thread_summary, invalidate_thread_detail, read_hidden_thread_ids,
-    read_legacy_agent_threads, read_thread_detail, read_thread_name_source, read_thread_summaries,
-    rename_thread_summary, replace_thread_summaries, search_thread_summaries, thread_updated_at,
-    write_thread_detail, write_thread_name_source, StoredThreadSummary,
+    read_legacy_agent_threads, read_thread_cwd, read_thread_detail, read_thread_name_source,
+    read_thread_summaries, rename_thread_summary, replace_thread_summaries,
+    search_thread_summaries, thread_updated_at, write_thread_detail, write_thread_name_source,
+    StoredThreadSummary,
 };
 pub(crate) use turn_settings::{
     copy_turn_settings, delete_turn_settings, read_turn_settings, record_turn_settings,

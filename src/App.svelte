@@ -46,6 +46,7 @@
     goHome,
     newThread,
     newThreadInDir,
+    openChanges,
     openMemories,
     openParentThread,
     openProjectDetail,
@@ -62,6 +63,7 @@
     view,
   } from "$lib/app/navigation.svelte";
   import VersionBanner from "$lib/app/VersionBanner.svelte";
+  import ChangesPage from "$lib/changes/ChangesPage.svelte";
   import DialogHost from "$lib/components/DialogHost.svelte";
   import RefreshIcon from "$lib/components/RefreshIcon.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
@@ -323,6 +325,22 @@
             />
           {/key}
         </div>
+      {:else if view.changes && view.threadId}
+        {@const changesThread = view.threadId}
+        <div class="min-h-0 flex-1">
+          {#key view.epoch}
+            <ChangesPage
+              threadId={changesThread}
+              cwd={thread?.cwd ?? null}
+              title={thread?.title ?? "Thread"}
+              initialPath={view.changesPath}
+              initialSegment={view.changesSegment}
+              onBack={goBack}
+              backLabel={backLabel()}
+              onOpenThread={() => (backLabel() === "Thread" ? goBack() : openThreadById(changesThread))}
+            />
+          {/key}
+        </div>
       {:else if review}
         <div class="min-h-0 flex-1">
           {#key view.epoch}
@@ -355,6 +373,7 @@
               onThreadCreated={threadCreated}
               onDataChanged={applyData}
               onCommand={slashCommand}
+              onOpenChanges={openChanges}
             />
           {/key}
         </div>

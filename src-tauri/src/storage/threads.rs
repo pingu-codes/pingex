@@ -96,6 +96,25 @@ pub(crate) async fn read_thread_summaries(
     .await
 }
 
+/// Where a thread works, from whichever record has it: a harness thread's
+/// row, else the cached Codex summary.
+pub(crate) async fn read_thread_cwd(
+    database: &Database,
+    thread_id: &str,
+) -> Result<Option<String>, String> {
+    let connection = db::conn(database)?;
+    db::one(
+        &connection,
+        "SELECT cwd FROM harness_threads WHERE thread_id = ?1
+         UNION ALL
+         SELECT cwd FROM thread_summaries WHERE thread_id = ?1
+         LIMIT 1",
+        (thread_id,),
+        |row| db::text(row, 0),
+    )
+    .await
+}
+
 /// Case-insensitive title search over locally-cached thread summaries whose
 /// `cwd` lives under `project_path`. Windowed by `offset`/`limit` for cursor
 /// paging. One extra row is fetched so the caller can report `has_more`.

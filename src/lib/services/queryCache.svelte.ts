@@ -57,7 +57,6 @@ const BY_SHA = { fresh: 30 * MINUTE, expire: 30 * MINUTE, kind: "sha", repoArg: 
  *  directly, every time. */
 export const READS = {
   gitStatus: LOCAL,
-  gitChangesSummary: LOCAL,
   gitWorktrees: LOCAL,
   gitRepoInfo: LOCAL,
   gitContext: LOCAL,
@@ -77,6 +76,11 @@ export const READS = {
   reviewPrsBehind: GITHUB,
   reviewProviderStatus: { fresh: 5 * MINUTE, expire: 60 * MINUTE, kind: "provider", repoArg: 0 },
   reviewDiff: BY_SHA,
+  // The Changes page. Its overview is keyed by thread id; a running agent's
+  // edits, a finished turn and window focus all mark it stale.
+  gitThreadChanges: { fresh: 2 * SECOND, expire: 10 * MINUTE, kind: "local" },
+  gitWorkingDiff: LOCAL,
+  gitSegmentDiff: BY_SHA,
   reviewFile: BY_SHA,
 } as const satisfies Partial<Record<keyof Commands, Policy>>;
 

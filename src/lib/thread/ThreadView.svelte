@@ -7,6 +7,7 @@
   import { openDialog } from "$lib/app/dialogs.svelte";
   import BrowserApprovalCard from "$lib/browser/BrowserApprovalCard.svelte";
   import { approvalsFor, labelBrowserThread } from "$lib/browser/browserStore.svelte";
+  import { RefreshScheduler } from "$lib/changes/changesPage";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import Segmented, { type SegmentedOption } from "$lib/components/Segmented.svelte";
   import TypingDots from "$lib/components/TypingDots.svelte";
@@ -14,7 +15,6 @@
   import type { SlashCommandId } from "$lib/composer/slashCommands";
   import RightPanel, { type PanelView } from "$lib/panels/RightPanel.svelte";
   import { linkExpectedThread } from "$lib/review/prLinks.svelte";
-  import { fileChange } from "$lib/review/review";
   import { forkThread, gitWorktreeAdd, isPromptPartsTextUnsupported, startThread, startTurn } from "$lib/services/api";
   import { approvals, elicitations, turnPlans, userInputRequests } from "$lib/services/codexEvents.svelte";
   import { commands } from "$lib/services/homeRouting";
@@ -57,7 +57,6 @@
   import { toastError } from "$lib/toaster";
   import type {
     BootstrapData,
-    ChangesSummary,
     FileUpdateChange,
     GitRepoInfo,
     PromptPart,
@@ -90,6 +89,7 @@
     onThreadCreated,
     onDataChanged,
     onCommand,
+    onOpenChanges,
     onSelectThread,
     onOpenSubagent,
     onSelectVersion,
@@ -111,6 +111,8 @@
     onDataChanged?: (data: BootstrapData) => void;
     /** Thread-level slash commands from the composer (new, fork, archive, rename). */
     onCommand?: (command: SlashCommandId, threadId: string | null) => void;
+    /** Open the thread's Changes page, on a file or a segment. */
+    onOpenChanges?: (threadId: string, options: { path?: string | null; segment?: string | null }) => void;
     onSelectThread?: (id: string) => void;
     /** Open a subagent thread; the full detail lets the app navigate to
      *  subagents that bootstrap hasn't picked up yet (e.g. mid plan mode). */
@@ -495,51 +497,29 @@
     }
     return null;
   });
-  // Latest diff per changed file across the whole thread, in first-touched order.
+  // Latest diff per changed file across the whole thread, in first-touched order:
+  // the Changes summary's stand-in when the thread works outside Git.
   const outputChanges = $derived(collectFileChanges(allItems));
-  /**
-   * Working-tree diff requested by `/diff`. Non-null only while that view is up:
-   * it answers "what is uncommitted right now", which is a different question
-   * from `outputChanges` ("what did this thread touch").
-   */
-  let workingDiff = $state<FileUpdateChange[] | null>(null);
-  const panelChanges = $derived(workingDiff ?? outputChanges);
-
-  /**
-   * Git-derived "Changes" summary for the thread's directory. Only the cheap
-   * summary is fetched here (numstat, no diff bodies); it refreshes when a turn
-   * finishes, never on a timer, and each file's patch loads on demand.
-   */
   /** Where the thread works: a workspace's hub, else the thread's own directory. */
   const workDir = $derived(workspaceId ? cwd : thread?.cwd || cwd);
-  // Cached per directory, so reopening the thread shows its changes at once.
-  // A finished turn and window focus mark it stale (`app/listeners.svelte.ts`).
-  const gitChangesQuery = query("gitChangesSummary", () => (workDir ? [workDir] : null));
-  const gitChanges = $derived<ChangesSummary | null>(gitChangesQuery.value ?? null);
-  const gitChangesLoading = $derived(gitChangesQuery.refreshing);
-  const gitChangesError = $derived(gitChangesQuery.error);
-  let gitChangesTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** Read again, after a short pause unless `immediate` (a turn's last
-   *  writes can land just after it ends). */
-  function refreshGitChanges(immediate = false) {
-    if (gitChangesTimer) clearTimeout(gitChangesTimer);
-    gitChangesTimer = setTimeout(
-      () => {
-        gitChangesTimer = null;
-        if (!workDir) return;
-        invalidate({ names: ["gitChangesSummary"], repo: workDir });
-      },
-      immediate ? 0 : 500,
-    );
-  }
-
-  // Again each time a turn ends, whichever harness ran it.
-  let hadActiveTurn = false;
+  /** The thread's changes for the overview, the same read the Changes page
+   *  opens on. A finished turn and window focus mark it stale
+   *  (`app/listeners.svelte.ts`); while the agent works, each edit or command
+   *  it finishes does. */
+  const changesQuery = query("gitThreadChanges", () =>
+    liveThreadId ? [liveThreadId, thread?.cwd ?? null, "branch" as const] : null,
+  );
+  const threadChanges = $derived(changesQuery.value ?? null);
+  const changesRefresh = new RefreshScheduler(() => invalidate({ names: ["gitThreadChanges"] }));
+  onDestroy(() => changesRefresh.dispose());
+  const finishedWork = $derived(
+    (activeTurn?.items ?? []).filter(
+      (item) => (item.type === "fileChange" || item.type === "commandExecution") && item.status !== "inProgress",
+    ).length,
+  );
   $effect(() => {
-    const running = activeTurn !== null;
-    if (hadActiveTurn && !running) refreshGitChanges();
-    hadActiveTurn = running;
+    if (finishedWork > 0) untrack(() => changesRefresh.poke());
   });
   const sourceQueries = $derived(
     allItems.filter((item) => item.type === "webSearch" && item.query).map((item) => item.query as string),
@@ -601,23 +581,15 @@
     return owner.review(target, () => ensureLiveThread(owner));
   }
 
-  /** `/diff` — show the working tree against HEAD in the Changes panel. */
-  async function showWorkingDiff() {
-    const dir = thread?.cwd;
-    if (!dir) return;
-    try {
-      const files = await commands.reviewLocalDiff(dir, "HEAD", null);
-      workingDiff = files.map(fileChange);
-      panelView = { kind: "diffs" };
-    } catch (cause) {
-      fail(cause);
-    }
+  /** `/diff` — the Changes page, on the working tree. */
+  function showWorkingDiff() {
+    if (liveThreadId) onOpenChanges?.(liveThreadId, { segment: "uncommitted" });
   }
 
   /** Commands a draft can answer. `/review` and `/goal` are here deliberately:
    *  both start a thread of their own rather than turning the user away. The
    *  rest read back the conversation, so they need a thread behind them. */
-  const DRAFT_COMMANDS = new Set<SlashCommandId>(["new", "review", "goal", "diff", "status"]);
+  const DRAFT_COMMANDS = new Set<SlashCommandId>(["new", "review", "goal", "status"]);
 
   /** Commands answered here rather than in App, given the typed argument. */
   const threadCommands: Partial<Record<SlashCommandId, (argument: string, typed: string) => void>> = {
@@ -635,7 +607,7 @@
       if (argument) void review({ type: "custom", instructions: argument });
       else composer?.openReviewPicker();
     },
-    diff: () => void showWorkingDiff(),
+    diff: showWorkingDiff,
     undo: (argument) => {
       const turns = Number.parseInt(argument, 10);
       void session.undoTurns(Number.isFinite(turns) && turns > 0 ? turns : 1);
@@ -757,15 +729,8 @@
           onShowPlan={() => (panelView = latestPlan ? { kind: "plan", text: latestPlan } : panelView)}
           onShowSources={() => (panelView = { kind: "sources", queries: sourceQueries })}
           onShowSideQuestions={() => (panelView = { kind: "side" })}
-          onShowDiff={(path) => {
-            workingDiff = null;
-            panelView = { kind: "diffs", focusPath: path };
-          }}
-          {gitChanges}
-          onShowChanges={(path) => {
-            refreshGitChanges();
-            panelView = { kind: "changes", focusPath: path };
-          }}
+          changes={threadChanges}
+          onShowChanges={(path) => liveThreadId && onOpenChanges?.(liveThreadId, { path })}
           onShowFiles={() => (panelView = { kind: "files" })}
           onShowMessageLog={() => (panelView = { kind: "messageLog" })}
           onShowStatus={() => (panelView = { kind: "status" })}
@@ -1039,11 +1004,6 @@
       view={panelView}
       parentThreadId={liveThreadId}
       {sideQuestions}
-      changes={panelChanges}
-      {gitChanges}
-      {gitChangesLoading}
-      {gitChangesError}
-      onRefreshGitChanges={() => refreshGitChanges(true)}
       {contextStats}
       {costUsd}
       {activeModel}

@@ -95,6 +95,23 @@ pub(crate) async fn read_inbox_snapshot(
     .await
 }
 
+/// `read_inbox_snapshot` for a lowercase `owner/name` slug, as remotes are
+/// matched, where the stored key keeps GitHub's casing.
+pub(crate) async fn read_inbox_snapshot_any_case(
+    database: &Database,
+    provider: &str,
+    slug: &str,
+) -> Result<Option<String>, String> {
+    let connection = db::conn(database)?;
+    db::one(
+        &connection,
+        "SELECT payload FROM review_inbox_snapshots WHERE provider = ? AND lower(repo) = lower(?) LIMIT 1",
+        params![provider, slug],
+        |row| db::text(row, 0),
+    )
+    .await
+}
+
 pub(crate) async fn write_inbox_snapshot(
     database: &Database,
     provider: &str,

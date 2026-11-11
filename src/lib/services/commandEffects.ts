@@ -47,14 +47,16 @@ const PROFILE: CommandEffect = { changes: ["profile"] };
 
 export const EFFECTS: Record<AnnouncedCommand, CommandEffect> = {
   gitBranches: READ,
-  gitChangesSummary: READ,
   gitContext: READ,
   gitFileDiff: READ,
   gitRecentCommits: READ,
   gitRepoInfo: READ,
   gitStagedFileDiff: READ,
+  gitSegmentDiff: READ,
   gitStatus: READ,
+  gitThreadChanges: READ,
   gitWorktreeHandoffPreflight: READ,
+  gitWorkingDiff: READ,
   gitWorktrees: READ,
   gitCheckoutBranch: GIT,
   gitCommit: GIT,

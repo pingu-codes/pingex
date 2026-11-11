@@ -7,6 +7,7 @@
     label,
     mode,
     initialReplacement = "",
+    addLabel = "Add to review",
     onAdd,
     onCancel,
   }: {
@@ -15,6 +16,8 @@
     mode: "comment" | "suggestion";
     /** The selected lines, for a suggestion to start from. */
     initialReplacement?: string;
+    /** The add button's words: where the comment goes. */
+    addLabel?: string;
     onAdd: (body: string, replacement: string | null) => void;
     onCancel: () => void;
   } = $props();
@@ -80,7 +83,7 @@
   <div class="flex justify-end gap-1.5">
     <button type="button" class="btn btn-sm hover:preset-tonal text-[11px]" onclick={onCancel}>Cancel</button>
     <button type="button" class="btn btn-sm preset-tonal text-[11px]" disabled={!ready} onclick={add}>
-      Add to review
+      {addLabel}
     </button>
   </div>
 </div>

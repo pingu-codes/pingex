@@ -256,6 +256,23 @@ It follows the user's words inside `<worktree_context>` and shows as a folded
 chip, so it works on every harness and never titles the thread.
 _Avoid_: PR context, stack prompt
 
+**Changes page**:
+What a thread has changed in every repository it works in, read from git and laid
+out like a pull request's files. Its scope is the **Branch** (each git branch against
+its base) or **This thread** (only what moved since the **Start tips**).
+_Avoid_: changes panel, outputs, diff view
+
+**Change segment**:
+One part of a **Changes page**: a stack PR against the PR below it, a git branch
+against its base, a branch that moved since the **Start tips**, or the uncommitted
+working tree. Notes left on its lines name the segment they belong to.
+_Avoid_: section, range, slice
+
+**Start tips**:
+Every git branch tip of a repository, and what was already uncommitted, recorded the
+first time a thread works in that repository. "This thread" compares against them.
+_Avoid_: snapshot (fine in code), baseline, start commit (that is a **PR link**'s)
+
 **Agent review**:
 A review of a pull request by an agent, run as its own thread on any
 harness and filed under the PR. Its results come back as Findings.

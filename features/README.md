@@ -20,6 +20,7 @@ record design decisions.
 ## In progress
 
 - [Review desk](17-review-desk.md): read layer done; writes and UI next
+- [Changes page](18-changes-page.md): a thread's changes by repository, stack PR and branch
 
 ## Deferred
 

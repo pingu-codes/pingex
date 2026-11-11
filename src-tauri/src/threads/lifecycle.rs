@@ -312,6 +312,7 @@ async fn delete_one_thread(
             .await?;
     }
     storage::delete_thread_search(&ctx.database(), thread_id).await?;
+    storage::delete_tip_snapshots(&ctx.database(), thread_id).await?;
     // Archiving keeps the journal (unarchiving expects its transcript back);
     // deleting is the one path that owns dropping it.
     storage::delete_thread_items(&ctx.database(), thread_id).await?;

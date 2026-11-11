@@ -1,49 +1,19 @@
-//! The "Changes" view: what a directory has changed relative to its base.
+//! One file's diff with a hard byte cap (the Git tab), and handing a
+//! temporary worktree's branch off to a local checkout.
 //!
-//! Split into a cheap summary (`--numstat`, never diff bodies) and a per-file
-//! diff read with a hard byte cap, so a repository full of generated samples
-//! never makes the backend buffer, or the frontend render, a giant diff.
+//! The Changes page reads its listings and patches in `crate::changes`.
 
-use std::collections::HashMap;
-use std::io::Read;
 use std::path::Path;
 
 use serde::Serialize;
 
-use super::run::{redact_git_error, run_git, run_git_capped, READ_TIMEOUT, WRITE_TIMEOUT};
+use super::run::{redact_git_error, run_git, run_git_capped, WRITE_TIMEOUT};
 use super::status::read_status;
 use super::worktrees::worktree_branches;
 use crate::util::host::Host;
 
-pub(crate) const MAX_CHANGED_FILES: usize = 2000;
 pub(crate) const DEFAULT_DIFF_BYTES: usize = 256 * 1024;
 pub(crate) const MAX_DIFF_BYTES: usize = 2 * 1024 * 1024;
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ChangedFile {
-    pub(crate) path: String,
-    pub(crate) old_path: Option<String>,
-    /// `added`, `modified`, `deleted`, `renamed`, or `untracked`.
-    pub(crate) status: String,
-    pub(crate) additions: u64,
-    pub(crate) deletions: u64,
-    pub(crate) binary: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ChangesSummary {
-    /// The revision everything is compared against (`HEAD` or a merge-base).
-    pub(crate) base: String,
-    /// The branch the base was derived from, when this is a linked worktree.
-    pub(crate) base_branch: Option<String>,
-    pub(crate) files: Vec<ChangedFile>,
-    pub(crate) truncated: bool,
-    pub(crate) total_files: usize,
-    pub(crate) additions: u64,
-    pub(crate) deletions: u64,
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -61,194 +31,6 @@ fn same_dir(host: &Host, a: &Path, b: &str) -> bool {
         return false;
     }
     host.canonical(&host.path_string(a)) == host.canonical(b)
-}
-
-/// Resolve what to diff against: for a linked worktree, the merge-base with
-/// the main worktree's branch; otherwise `HEAD`.
-/// Reads only `git worktree list` (the main worktree is its first entry), not
-/// every worktree's status.
-pub(crate) fn resolve_base(host: &Host, dir: &Path) -> (String, Option<String>) {
-    let head = || ("HEAD".to_string(), None);
-    let Ok(entries) = worktree_branches(host, dir) else {
-        return head();
-    };
-    let main = entries.first();
-    let is_main = main
-        .map(|(path, _)| same_dir(host, dir, path))
-        .unwrap_or(true);
-    if is_main {
-        return head();
-    }
-    let Some(parent) = main.and_then(|(_, branch)| branch.clone()) else {
-        return head();
-    };
-    match run_git(host, dir, &["merge-base", "HEAD", &parent], READ_TIMEOUT) {
-        Ok(output) if output.ok && !output.stdout.trim().is_empty() => {
-            (output.stdout.trim().to_string(), Some(parent))
-        }
-        _ => head(),
-    }
-}
-
-fn parse_numstat(stdout: &str) -> Vec<ChangedFile> {
-    // `-z` output: `add\tdel\tpath\0` or, for renames, `add\tdel\t\0old\0new\0`.
-    let mut files = Vec::new();
-    let mut parts = stdout.split('\0');
-    while let Some(record) = parts.next() {
-        if record.is_empty() {
-            continue;
-        }
-        let mut columns = record.splitn(3, '\t');
-        let add = columns.next().unwrap_or("");
-        let del = columns.next().unwrap_or("");
-        let binary = add == "-";
-        let additions = add.parse().unwrap_or(0);
-        let deletions = del.parse().unwrap_or(0);
-        let (path, old_path, status) = match columns.next() {
-            Some(path) if !path.is_empty() => (path.to_string(), None, "modified"),
-            _ => {
-                let old = parts.next().unwrap_or("").to_string();
-                let new = parts.next().unwrap_or("").to_string();
-                (new, Some(old), "renamed")
-            }
-        };
-        files.push(ChangedFile {
-            path,
-            old_path,
-            status: status.into(),
-            additions,
-            deletions,
-            binary,
-        });
-    }
-    files
-}
-
-/// `git diff --name-status` to tell added/deleted from modified.
-fn read_name_status(host: &Host, dir: &Path, base: &str) -> HashMap<String, String> {
-    let mut map = HashMap::new();
-    let Ok(output) = run_git(
-        host,
-        dir,
-        &["diff", "--name-status", "-z", "-M", "--no-color", base],
-        READ_TIMEOUT,
-    ) else {
-        return map;
-    };
-    let mut parts = output.stdout.split('\0');
-    while let Some(code) = parts.next() {
-        if code.is_empty() {
-            continue;
-        }
-        let path = parts.next().unwrap_or("").to_string();
-        let status = match code.chars().next() {
-            Some('A') => "added",
-            Some('D') => "deleted",
-            Some('R') => {
-                let new = parts.next().unwrap_or("").to_string();
-                map.insert(new, "renamed".into());
-                continue;
-            }
-            _ => "modified",
-        };
-        map.insert(path, status.into());
-    }
-    map
-}
-
-fn read_untracked(host: &Host, dir: &Path) -> Vec<String> {
-    let Ok(output) = run_git(
-        host,
-        dir,
-        &["ls-files", "--others", "--exclude-standard", "-z"],
-        READ_TIMEOUT,
-    ) else {
-        return Vec::new();
-    };
-    output
-        .stdout
-        .split('\0')
-        .filter(|p| !p.is_empty())
-        .map(str::to_string)
-        .collect()
-}
-
-pub(crate) fn read_changes_summary(host: &Host, dir: &Path) -> Result<ChangesSummary, String> {
-    let (base, base_branch) = resolve_base(host, dir);
-    let output = run_git(
-        host,
-        dir,
-        &[
-            "-c",
-            "core.quotepath=off",
-            "diff",
-            "--numstat",
-            "-z",
-            "-M",
-            "--no-color",
-            &base,
-        ],
-        READ_TIMEOUT,
-    )?;
-    if !output.ok {
-        return Err("Could not read changes for this directory".to_string());
-    }
-    let mut files = parse_numstat(&output.stdout);
-    let statuses = read_name_status(host, dir, &base);
-    for file in &mut files {
-        if let Some(status) = statuses.get(&file.path) {
-            file.status = status.clone();
-        }
-    }
-    let untracked = read_untracked(host, dir);
-    let dir_str = host.path_string(dir);
-    // Only sample line counts for a bounded number of untracked files; a
-    // generated corpus of thousands of files must not cost thousands of reads.
-    for (index, path) in untracked.into_iter().enumerate() {
-        let (additions, binary) = if index < 200 {
-            untracked_line_count(&host.to_local(&host.join_str(&dir_str, &path)))
-        } else {
-            (0, false)
-        };
-        files.push(ChangedFile {
-            path,
-            old_path: None,
-            status: "untracked".into(),
-            additions,
-            deletions: 0,
-            binary,
-        });
-    }
-    let total_files = files.len();
-    let truncated = total_files > MAX_CHANGED_FILES;
-    files.truncate(MAX_CHANGED_FILES);
-    let additions = files.iter().map(|f| f.additions).sum();
-    let deletions = files.iter().map(|f| f.deletions).sum();
-    Ok(ChangesSummary {
-        base,
-        base_branch,
-        files,
-        truncated,
-        total_files,
-        additions,
-        deletions,
-    })
-}
-
-/// Cheap line count for an untracked file: read at most 1 MB, and treat a NUL
-/// byte as binary. Bigger files report the count for the sampled prefix only.
-fn untracked_line_count(path: &Path) -> (u64, bool) {
-    let Ok(mut file) = std::fs::File::open(path) else {
-        return (0, false);
-    };
-    let mut buf = vec![0u8; 1024 * 1024];
-    let Ok(read) = file.read(&mut buf) else {
-        return (0, false);
-    };
-    let slice = &buf[..read];
-    let binary = slice.contains(&0);
-    let total = slice.iter().filter(|b| **b == b'\n').count() as u64;
-    (total, binary)
 }
 
 /// Run `git diff` for one path, reading at most `max_bytes` of stdout and then
@@ -479,16 +261,14 @@ mod tests {
     use super::*;
     use crate::git::test_repo::TestRepo;
 
-    /// A linked worktree diffs against its merge-base with the main working
-    /// tree's branch, the main tree against `HEAD`, and the handoff
-    /// preflight tells the two apart, all from `git worktree list` alone.
+    /// The handoff preflight tells a linked worktree from the main one,
+    /// from `git worktree list` alone.
     #[test]
-    fn base_and_preflight_read_the_worktree_list() {
+    fn preflight_reads_the_worktree_list() {
         let Some(fixture) = TestRepo::new() else {
             return;
         };
         let host = Host::Native;
-        let fork = fixture.head();
         let linked = fixture.repo.parent().unwrap().join("linked");
         fixture.git(&[
             "worktree",
@@ -498,20 +278,6 @@ mod tests {
             "feature",
             linked.to_str().unwrap(),
         ]);
-        fixture.commit("main.txt", "later\n", "main moves on");
-        fixture.git_in(
-            &linked,
-            &["commit", "-q", "--allow-empty", "-m", "feature work"],
-        );
-
-        assert_eq!(
-            resolve_base(&host, &fixture.repo),
-            ("HEAD".to_string(), None)
-        );
-        assert_eq!(
-            resolve_base(&host, &linked),
-            (fork, Some("main".to_string()))
-        );
 
         let from_linked = handoff_preflight(&host, &linked, &fixture.repo).unwrap();
         assert_eq!(from_linked.branch.as_deref(), Some("feature"));
@@ -537,18 +303,5 @@ mod tests {
         assert_eq!(info.branch.as_deref(), Some("main"));
         assert_eq!(info.upstream.as_deref(), Some("origin/main"));
         assert_eq!((info.ahead, info.behind), (1, 0));
-    }
-
-    #[test]
-    fn numstat_parses_plain_and_renamed_entries() {
-        let out = "3\t1\tsrc/a.rs\0-\t-\timg.png\0\x30\t0\t\0old.txt\0new.txt\0";
-        let files = parse_numstat(out);
-        assert_eq!(files.len(), 3);
-        assert_eq!(files[0].path, "src/a.rs");
-        assert_eq!(files[0].additions, 3);
-        assert!(files[1].binary);
-        assert_eq!(files[2].status, "renamed");
-        assert_eq!(files[2].old_path.as_deref(), Some("old.txt"));
-        assert_eq!(files[2].path, "new.txt");
     }
 }

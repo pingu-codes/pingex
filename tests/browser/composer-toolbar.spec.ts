@@ -22,7 +22,8 @@ test("keeps composer controls on one line through overview, panel and width chan
   await page.getByRole("button", { name: "Thread overview", exact: true }).click();
   await fits();
   await page.getByRole("button", { name: "Thread overview", exact: true }).click();
-  await page.getByTitle("View diff for src/lib/utils.ts").click();
+  // A right panel narrows the composer.
+  await page.getByRole("button", { name: "Files", exact: true }).click();
   await fits();
   for (const width of [820, 1180, 960, 820, 1400]) {
     await page.setViewportSize({ width, height: 760 });

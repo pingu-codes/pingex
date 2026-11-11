@@ -52,6 +52,7 @@
     selection,
     composer,
     canComment = true,
+    addLabel,
     menuEntries,
     onMenu,
     onToggle,
@@ -78,6 +79,8 @@
     selection: LineRange | null;
     composer: Composer | null;
     canComment?: boolean;
+    /** The line composer's add button, when it is not "Add to review". */
+    addLabel?: string;
     menuEntries: MenuEntry[];
     onMenu: (id: string) => void;
     /** The header toggle; ⌥-click collapses every other file. */
@@ -85,11 +88,13 @@
     onViewed: (viewed: boolean) => void;
     onSelectLine: (side: DiffSide, line: number, extend: boolean) => void;
     onCompose: (mode: Composer["mode"]) => void;
-    onAskAgent: () => void;
+    /** Absent: no Ask agent beside a selection. */
+    onAskAgent?: () => void;
     onAddEntry: (body: string, replacement: string | null) => void;
     onCancelComposer: () => void;
     onRemoveEntry: (id: string) => void;
-    thread: Snippet<[CommentThread]>;
+    /** How a review thread draws; only needed when `threads` has any. */
+    thread?: Snippet<[CommentThread]>;
     afterLine?: Snippet<[LineSlot]>;
     /** The lines (`side:line`) `afterLine` renders something under. */
     annotated?: ReadonlySet<string>;
@@ -317,7 +322,7 @@
       {#if outside.length > 0}
         <div class="eyebrow px-3 pt-2">Outside the diff</div>
         {#each outside as found (found.key)}
-          {@render thread(found)}
+          {@render thread?.(found)}
         {/each}
       {/if}
     </div>
@@ -369,15 +374,21 @@
           >
             Suggest change
           </button>
-          <button type="button" class="btn btn-sm hover:preset-tonal text-[11px] text-primary-500" onclick={onAskAgent}>
-            <Sparkles size={12} aria-hidden="true" />Ask agent
-          </button>
+          {#if onAskAgent}
+            <button
+              type="button"
+              class="btn btn-sm hover:preset-tonal text-[11px] text-primary-500"
+              onclick={onAskAgent}
+            >
+              <Sparkles size={12} aria-hidden="true" />Ask agent
+            </button>
+          {/if}
         </div>
       </div>
     {/if}
 
     {#each threadsByLine.get(`${row.side}:${row.number}`) ?? [] as found (found.key)}
-      {@render thread(found)}
+      {@render thread?.(found)}
     {/each}
     {#each pendingByLine.get(`${row.side}:${row.number}`) ?? [] as entry (entry.id)}
       {@render pendingCard(entry)}
@@ -388,6 +399,7 @@
           label={rangeLabel(composing.range)}
           mode={composing.mode}
           initialReplacement={composing.mode === "suggestion" ? rangeText(file, composing.range) : ""}
+          {addLabel}
           onAdd={onAddEntry}
           onCancel={onCancelComposer}
         />

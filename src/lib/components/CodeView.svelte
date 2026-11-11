@@ -34,7 +34,7 @@
 
   /**
    * Above this, highlighting costs more than the colour is worth — the same call
-   * ChangesPanel makes for large diffs.
+   * Changes page makes for large diffs.
    */
   const MAX_HIGHLIGHT_BYTES = 256 * 1024;
 

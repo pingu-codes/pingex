@@ -10,6 +10,9 @@ type ThreadEventHandler = (event: { method: string; params: Record<string, unkno
 
 const mocks = vi.hoisted(() => ({
   readThread: vi.fn(),
+  // A folder outside Git unless a test says otherwise: the overview lists the
+  // edits the thread reported.
+  gitThreadChanges: vi.fn().mockResolvedValue({ scope: "branch", repos: [], snapshotAt: null, readAt: 0 }),
   invalidateThreadCache: vi.fn().mockResolvedValue(undefined),
   listProjectFiles: vi.fn(),
   revertThread: vi.fn(),
@@ -128,6 +131,7 @@ vi.mock("$lib/services/homeRouting", async (importOriginal) => {
       saveDraft: vi.fn().mockResolvedValue(undefined),
       deleteDraft: vi.fn().mockResolvedValue(undefined),
       gitRepoInfo: mocks.gitRepoInfo,
+      gitThreadChanges: mocks.gitThreadChanges,
       reviewWorktreeContext: mocks.reviewWorktreeContext,
       gitRecentCommits: mocks.gitRecentCommits,
       gitBranches: mocks.gitBranches,
@@ -422,7 +426,7 @@ describe("ThreadView in-progress work", () => {
     expect(screen.queryByLabelText("Codex is working")).not.toBeInTheDocument();
   });
 
-  it("lists created and edited files together in Outputs and in the Changes panel", async () => {
+  it("lists created and edited files together, and opens the Changes page", async () => {
     const user = userEvent.setup();
     mocks.readThread.mockResolvedValueOnce(
       detail({
@@ -446,17 +450,16 @@ describe("ThreadView in-progress work", () => {
         ],
       }),
     );
-    render(ThreadView, { threadId: "thread-1", cwd: "/projects/example" });
+    const onOpenChanges = vi.fn();
+    render(ThreadView, { threadId: "thread-1", cwd: "/projects/example", onOpenChanges });
 
-    // Outputs is the thread's inventory of touched files: a file it edited
-    // belongs there just as much as one it created.
-    expect(await screen.findByTitle("View diff for src/new.ts")).toHaveTextContent(/new\.ts\s*New/);
-    expect(screen.getByTitle("View diff for src/existing.ts")).toHaveTextContent(/existing\.ts\s*Edited/);
+    // Outside Git the reported edits are the inventory of touched files: a
+    // file it edited belongs there just as much as one it created.
+    expect(await screen.findByTitle("src/new.ts")).toHaveTextContent(/new\.ts\s*New/);
+    expect(screen.getByTitle("src/existing.ts")).toHaveTextContent(/existing\.ts\s*Edited/);
 
-    await user.click(screen.getByText("All 2 changed files"));
-    const panel = screen.getByRole("complementary", { name: "Thread side panel" });
-    expect(within(panel).getByText("src/new.ts")).toBeInTheDocument();
-    expect(within(panel).getByText("src/existing.ts")).toBeInTheDocument();
+    await user.click(screen.getByText("Open Changes"));
+    expect(onOpenChanges).toHaveBeenCalledWith("thread-1", { path: null });
   });
 
   it("marks a started file change as in flight before its patch arrives", async () => {
@@ -759,19 +762,15 @@ describe("ThreadView right panel", () => {
     });
   }
 
-  it("opens the changes panel focused on an output clicked in the overview menu", async () => {
+  it("opens the Changes page on a file clicked in the overview menu", async () => {
     const user = userEvent.setup();
-    await renderTurn(turnWithChanges());
+    const onOpenChanges = vi.fn();
+    mocks.readThread.mockResolvedValueOnce(detail(turnWithChanges()));
+    render(ThreadView, { threadId: "thread-1", cwd: "/projects/example", onOpenChanges });
+    await screen.findByRole("button", { name: /Worked/ });
 
-    await user.click(screen.getByTitle("View diff for src/lib/api.ts"));
-
-    const panel = screen.getByRole("complementary", { name: "Thread side panel" });
-    expect(within(panel).getByText("Outputs")).toBeInTheDocument();
-    expect(within(panel).getByText("src/lib/api.ts")).toBeInTheDocument();
-    expect(within(panel).getByText("docs/notes.md")).toBeInTheDocument();
-    expect(within(panel).getByText("+const added = 1;")).toBeVisible();
-
-    await user.click(within(panel).getByRole("button", { name: "Close panel" }));
+    await user.click(await screen.findByTitle("src/lib/api.ts"));
+    expect(onOpenChanges).toHaveBeenCalledWith("thread-1", { path: "src/lib/api.ts" });
     expect(screen.queryByRole("complementary", { name: "Thread side panel" })).not.toBeInTheDocument();
   });
 

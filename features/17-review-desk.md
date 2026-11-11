@@ -144,9 +144,10 @@ The inbox syncs at three moments:
 - after Pingex's own mutations
 
 While focused, it also re-syncs on a slow timer: at most every two minutes,
-and backing off when `rateLimit.remaining` runs low. Nothing polls git. Local
-state is re-read where the worktree service already re-reads it: on focus
-and after a turn completes.
+and backing off when `rateLimit.remaining` runs low. Nothing on the desk
+polls git. Local state is re-read where the worktree service already
+re-reads it: on focus and after a turn completes. (The Changes page polls
+while its agent works; see `18-changes-page.md`.)
 
 "After Pingex's own mutations" is not left to each page: the `commands`
 proxy announces every settled git and review command

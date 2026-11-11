@@ -3,13 +3,47 @@ import userEvent from "@testing-library/user-event";
 import { tick } from "svelte";
 import { describe, expect, it, vi } from "vitest";
 import FloatingMenu from "$lib/thread/FloatingMenu.svelte";
-import type { FileUpdateChange } from "$lib/types";
+import type { ChangeSegment, FileUpdateChange, ThreadChanges } from "$lib/types";
 
 const change = (path: string, kind = "update"): FileUpdateChange => ({
   path,
   kind: { type: kind },
   diff: `+${path}`,
 });
+
+/** A thread outside any Git repository: the menu lists the edits it reported. */
+const noRepository: ThreadChanges = { scope: "branch", repos: [], snapshotAt: null, readAt: 0 };
+
+function segment(id: string, current: boolean, paths: string[]): ChangeSegment {
+  return {
+    id,
+    kind: id === "uncommitted" ? "uncommitted" : "stackPr",
+    label: id,
+    branch: null,
+    prNumber: null,
+    baseLabel: "origin/main",
+    baseSha: "b".repeat(40),
+    headSha: null,
+    current,
+    rewritten: false,
+    needsRestack: false,
+    note: null,
+    files: paths.map((path) => ({
+      path,
+      oldPath: null,
+      status: "modified",
+      additions: 2,
+      deletions: 1,
+      binary: false,
+      contentKey: path,
+      beforeThread: false,
+    })),
+    totalFiles: paths.length,
+    truncated: false,
+    additions: 2 * paths.length,
+    deletions: paths.length,
+  };
+}
 
 function setup(overrides: Partial<Record<string, unknown>> = {}) {
   const handlers = {
@@ -18,7 +52,7 @@ function setup(overrides: Partial<Record<string, unknown>> = {}) {
     onShowPlan: vi.fn(),
     onShowSources: vi.fn(),
     onShowSideQuestions: vi.fn(),
-    onShowDiff: vi.fn(),
+    onShowChanges: vi.fn(),
     onShowFiles: vi.fn(),
     onShowMessageLog: vi.fn(),
     onOpenSubagent: vi.fn(),
@@ -28,6 +62,7 @@ function setup(overrides: Partial<Record<string, unknown>> = {}) {
     outputs: [change("src/lib/api.ts"), change("README.md", "add")],
     sources: ["how to debounce"],
     sideQuestionCount: 2,
+    changes: noRepository,
     ...handlers,
     ...overrides,
   });
@@ -69,16 +104,16 @@ describe("FloatingMenu", () => {
 
   it("shows plan, outputs, sources, and side question sections in the default-open overview panel", async () => {
     const user = userEvent.setup();
-    const { onShowPlan, onShowSideQuestions, onShowDiff } = setup();
+    const { onShowPlan, onShowSideQuestions, onShowChanges } = setup();
 
     expect(screen.getByText("Ship the feature")).toBeInTheDocument();
     expect(screen.getByText("api.ts")).toBeInTheDocument();
     expect(screen.getByText("Web search")).toBeInTheDocument();
-    // Both the side question count and the Outputs count read "2" here.
+    // Both the side question count and the Changes count read "2" here.
     expect(screen.getByRole("button", { name: /Side questions 2/ })).toBeInTheDocument();
 
     await user.click(screen.getByText("api.ts"));
-    expect(onShowDiff).toHaveBeenCalledWith("src/lib/api.ts");
+    expect(onShowChanges).toHaveBeenCalledWith("src/lib/api.ts");
 
     await user.click(screen.getByText("Ship the feature"));
     expect(onShowPlan).toHaveBeenCalledOnce();
@@ -166,9 +201,9 @@ describe("FloatingMenu", () => {
     expect(screen.getByText("New")).toBeInTheDocument();
   });
 
-  it("lists every touched file and still offers the all-changed-files shortcut", async () => {
+  it("lists every touched file and still offers the Changes page", async () => {
     const user = userEvent.setup();
-    const { onShowDiff } = setup({
+    const { onShowChanges } = setup({
       outputs: ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts", "f.ts"]
         .map((path) => change(path))
         .concat(change("late-edit.ts")),
@@ -177,8 +212,36 @@ describe("FloatingMenu", () => {
     // The seventh entry used to fall off the end of the list, which is what
     // made a late edit look like it was never made.
     expect(screen.getByText("late-edit.ts")).toBeInTheDocument();
-    await user.click(screen.getByText("All 7 changed files"));
-    expect(onShowDiff).toHaveBeenCalledWith(null);
+    await user.click(screen.getByText("Open Changes"));
+    expect(onShowChanges).toHaveBeenCalledWith(null);
+  });
+
+  it("lists the checked-out branch's files first, once each, from the thread's repositories", async () => {
+    const user = userEvent.setup();
+    const { onShowChanges } = setup({
+      changes: {
+        ...noRepository,
+        repos: [
+          {
+            root: "/repos/api",
+            label: "api",
+            branch: "feat",
+            headSha: null,
+            inProgress: null,
+            purpose: null,
+            segments: [segment("pr:1", false, ["below.ts"]), segment("uncommitted", true, ["now.ts", "below.ts"])],
+            error: null,
+            note: null,
+          },
+        ],
+      },
+    });
+    const rows = screen.getAllByTitle(/\.ts$/).map((row) => row.getAttribute("title"));
+    expect(rows).toEqual(["now.ts", "below.ts"]);
+    // The edits the agent reported give way to what git says.
+    expect(screen.queryByText("api.ts")).not.toBeInTheDocument();
+    await user.click(screen.getByTitle("now.ts"));
+    expect(onShowChanges).toHaveBeenCalledWith("now.ts");
   });
 
   it("opens the status panel from the usage row instead of listing figures inline", async () => {

@@ -10,8 +10,7 @@ use tauri::State;
 use super::actions;
 use super::branches::read_branches;
 use super::changes::{
-    handoff, handoff_preflight, read_changes_summary, read_file_diff, ChangesSummary, FileDiff,
-    HandoffPreflight, DEFAULT_DIFF_BYTES,
+    handoff, handoff_preflight, read_file_diff, FileDiff, HandoffPreflight, DEFAULT_DIFF_BYTES,
 };
 use super::checkouts;
 use super::commits::read_recent_commits;
@@ -391,22 +390,6 @@ pub(crate) async fn git_worktree_unlock(
     })
     .await
     .map_err(|_| "Git operation failed".to_string())?
-}
-
-#[tauri::command]
-#[specta::specta]
-pub(crate) async fn git_changes_summary(
-    dir: String,
-    window: crate::HomeWindow,
-    state: State<'_, AppState>,
-) -> Result<ChangesSummary, String> {
-    let ctx = state.ctx(&window);
-    let runtime = ctx.runtime();
-    tauri::async_runtime::spawn_blocking(move || {
-        read_changes_summary(&runtime.host, Path::new(&dir))
-    })
-    .await
-    .map_err(|_| "Git inspection failed".to_string())?
 }
 
 #[tauri::command]

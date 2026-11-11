@@ -151,6 +151,7 @@ pub(crate) async fn start_thread(
         if let Some(workspace) = &inputs.workspace {
             storage::assign_thread_workspace(&ctx.database(), id, &workspace.workspace_id).await?;
         }
+        crate::changes::snapshot::record_start_tips(&ctx, id, Some(inputs.cwd.clone())).await;
     }
     Ok(Json(super::read::with_thread_settings(
         thread,
@@ -184,6 +185,7 @@ async fn start_harness_thread(
     if let Some(workspace) = &workspace {
         storage::assign_thread_workspace(&ctx.database(), &id, &workspace.workspace_id).await?;
     }
+    crate::changes::snapshot::record_start_tips(ctx, &id, Some(cwd.clone())).await;
     Ok(Json(
         serde_json::json!({"id": id, "cwd": cwd, "harness": kind.as_str()}),
     ))
@@ -211,6 +213,9 @@ async fn start_harness_turn(
         })
         .unwrap_or_default();
     let parts: Vec<serde_json::Value> = input.into_iter().map(|item| item.0).collect();
+    // Before the turn can touch anything: a repository seen for the first
+    // time, or a thread from before start tips existed.
+    crate::changes::snapshot::record_start_tips(ctx, thread_id, Some(thread.cwd.clone())).await;
     let turn_id = driver
         .start_turn(app, thread, resume, &parts, options.as_ref())
         .await?;
@@ -246,6 +251,7 @@ pub(crate) async fn start_turn(
     }
     ctx.session.ensure_resumed(&app, &thread_id).await?;
     storage::invalidate_thread_detail(&ctx.database(), &thread_id).await?;
+    crate::changes::snapshot::record_start_tips(&ctx, &thread_id, None).await;
     // A turn that never asks for approval (Full Access) does not ask before
     // using the browser either. Set before the turn starts, since its first
     // tool call can arrive before `turn/start` returns.

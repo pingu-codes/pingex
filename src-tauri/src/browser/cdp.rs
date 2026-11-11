@@ -164,7 +164,9 @@ impl Cdp {
                             }
                         }
                         Some(Ok(_)) => {}
-                        Some(Err(error)) => break format!("reading from the browser failed: {error}"),
+                        Some(Err(error)) => {
+                            break format!("reading from the browser failed: {error}")
+                        }
                         None => break "the socket ended".to_string(),
                     }
                 };
@@ -257,7 +259,8 @@ fn replace_lone_surrogates(text: &str) -> String {
         };
         let lone = match unit {
             0xD800..=0xDBFF => {
-                let paired = unit_at(bytes, at + 6).is_some_and(|low| (0xDC00..=0xDFFF).contains(&low));
+                let paired =
+                    unit_at(bytes, at + 6).is_some_and(|low| (0xDC00..=0xDFFF).contains(&low));
                 if paired {
                     at += 12;
                     continue;
@@ -282,8 +285,14 @@ fn replace_lone_surrogates(text: &str) -> String {
 /// first.
 fn leading_id(text: &str) -> Option<u64> {
     let rest = text.trim_start().strip_prefix('{')?.trim_start();
-    let rest = rest.strip_prefix("\"id\"")?.trim_start().strip_prefix(':')?.trim_start();
-    let digits = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+    let rest = rest
+        .strip_prefix("\"id\"")?
+        .trim_start()
+        .strip_prefix(':')?
+        .trim_start();
+    let digits = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
     rest[..digits].parse().ok()
 }
 
@@ -358,7 +367,8 @@ mod tests {
     }
     #[test]
     fn lone_surrogate_escapes_become_replacement_characters() {
-        let cut = r#"{"id":1,"result":{"title":"ab\ud83d","pair":"😀","low":"\udc00x","esc":"\\ud83d"}}"#;
+        let cut =
+            r#"{"id":1,"result":{"title":"ab\ud83d","pair":"😀","low":"\udc00x","esc":"\\ud83d"}}"#;
         assert!(serde_json::from_str::<Value>(cut).is_err());
         let value: Value = serde_json::from_str(&replace_lone_surrogates(cut)).unwrap();
         assert_eq!(value["result"]["title"], "ab\u{fffd}");
@@ -466,7 +476,13 @@ mod tests {
             while events.recv().await.unwrap().method != CLOSED_EVENT {}
         }
         let reason = cdp.closed_reason().unwrap();
-        assert!(reason.contains("1008") && reason.contains("revoked"), "{reason}");
-        assert!(cdp.call(None, "Browser.getVersion", json!({})).await.is_err());
+        assert!(
+            reason.contains("1008") && reason.contains("revoked"),
+            "{reason}"
+        );
+        assert!(cdp
+            .call(None, "Browser.getVersion", json!({}))
+            .await
+            .is_err());
     }
 }

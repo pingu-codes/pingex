@@ -244,16 +244,16 @@ impl Browser {
             return Ok(conn);
         }
         let mut handshake = self.handshake();
-        let outcome = tokio::time::timeout(
-            self.0.allow_wait,
-            handshake.wait_for(Option::is_some),
-        )
-        .await;
+        let outcome =
+            tokio::time::timeout(self.0.allow_wait, handshake.wait_for(Option::is_some)).await;
         match outcome {
             Ok(Ok(result)) => result.clone().expect("waited for an outcome"),
             Ok(Err(_)) => Err("The browser connection attempt stopped. Try again.".to_string()),
             Err(_) => {
-                let browser = self.status().browser.unwrap_or_else(|| "Chrome".to_string());
+                let browser = self
+                    .status()
+                    .browser
+                    .unwrap_or_else(|| "Chrome".to_string());
                 Err(format!("{browser} is still waiting for the user to click \"Allow\" in its connection dialog. Ask them to allow it, then retry this action; the pending connection is kept."))
             }
         }
@@ -1100,7 +1100,10 @@ mod tests {
                 });
             }
         });
-        (format!("ws://127.0.0.1:{port}/devtools/browser/test"), opened)
+        (
+            format!("ws://127.0.0.1:{port}/devtools/browser/test"),
+            opened,
+        )
     }
 
     #[tokio::test]

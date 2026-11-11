@@ -3,7 +3,6 @@
     AppWindow,
     ArrowLeft,
     Eraser,
-    FileDiff,
     FolderTree,
     Gauge,
     Globe,
@@ -16,17 +15,15 @@
   } from "@lucide/svelte";
   import { openFilePreview } from "$lib/app/filePreview";
   import BrowserPanel from "$lib/browser/BrowserPanel.svelte";
-  import DiffBlock from "$lib/components/DiffBlock.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import MessageLog from "$lib/layout/MessageLog.svelte";
-  import ChangesPanel from "$lib/panels/ChangesPanel.svelte";
   import FileTree from "$lib/panels/FileTree.svelte";
   import ProcessDetail from "$lib/panels/ProcessDetail.svelte";
   import SideQuestions from "$lib/panels/SideQuestions.svelte";
   import ThreadStatus from "$lib/panels/ThreadStatus.svelte";
   import { processByKey, type RunningProcess } from "$lib/services/processes.svelte";
   import type { ContextStats } from "$lib/thread/contextUsage";
-  import type { BootstrapData, ChangesSummary, FileUpdateChange, SideQuestion } from "$lib/types";
+  import type { BootstrapData, SideQuestion } from "$lib/types";
   import { renderMarkdown } from "$lib/utils/markdown";
   import { resolveMentionPath } from "$lib/utils/mentions";
   import { loadSize, resizeHandle } from "$lib/utils/resize";
@@ -35,8 +32,6 @@
     | { kind: "plan"; text: string }
     | { kind: "sources"; queries: string[] }
     | { kind: "side"; submission?: { id: number; text: string } }
-    | { kind: "diffs"; focusPath?: string | null }
-    | { kind: "changes"; focusPath?: string | null }
     | { kind: "files" }
     | { kind: "messageLog" }
     | { kind: "status" }
@@ -47,11 +42,6 @@
     view,
     parentThreadId,
     sideQuestions,
-    changes = [],
-    gitChanges = null,
-    gitChangesLoading = false,
-    gitChangesError = null,
-    onRefreshGitChanges = () => {},
     cwd = "",
     contextStats = null,
     costUsd = null,
@@ -68,12 +58,6 @@
     view: PanelView;
     parentThreadId: string | null;
     sideQuestions: SideQuestion[];
-    changes?: FileUpdateChange[];
-    /** Git-derived changes for the `changes` view (summary only; diffs load lazily). */
-    gitChanges?: ChangesSummary | null;
-    gitChangesLoading?: boolean;
-    gitChangesError?: string | null;
-    onRefreshGitChanges?: () => void;
     cwd?: string;
     /** Context usage for the `status` view. */
     contextStats?: ContextStats | null;
@@ -98,8 +82,6 @@
     plan: { title: "Plan", icon: Lightbulb, tone: "text-warning-500" },
     sources: { title: "Sources", icon: Globe },
     side: { title: "Side questions", icon: MessageCircleQuestion, tone: "text-primary-500" },
-    diffs: { title: "Outputs", icon: FileDiff },
-    changes: { title: "Changes", icon: FileDiff },
     files: { title: "Files", icon: FolderTree },
     messageLog: { title: "Message log", icon: ScrollText },
     status: { title: "Status", icon: Gauge },
@@ -111,16 +93,6 @@
 
   let activeSideId = $state<string | null>(null);
   let panelWidth = $state(loadSize("layout.rightPanelWidth", 380, 280, 720));
-
-  let body = $state<HTMLElement | null>(null);
-
-  // Scroll the focused file's diff into view when the diff panel opens on a
-  // specific output.
-  $effect(() => {
-    if (view.kind !== "diffs" || !view.focusPath || !body) return;
-    const target = body.querySelector(`[data-diff-path="${CSS.escape(view.focusPath)}"]`);
-    target?.scrollIntoView?.({ block: "start" });
-  });
 
   function openProjectFile(relativePath: string) {
     void openFilePreview({ path: resolveMentionPath(relativePath, cwd), line: null, column: null }, cwd);
@@ -170,9 +142,6 @@
     {/if}
     <PanelIcon size={14} class={panelMeta.tone ?? "text-surface-500"} />
     <span class="flex-1 text-xs font-semibold">{panelMeta.title}</span>
-    {#if view.kind === "diffs" && changes.length > 0}
-      <span class="text-[10px] text-surface-500">{changes.length}</span>
-    {/if}
     <TooltipButton
       label="Close panel"
       aria-label="Close panel"
@@ -186,29 +155,8 @@
   {#if view.kind === "side"}
     <SideQuestions {parentThreadId} {sideQuestions} bind:activeSideId {onDataChanged} submission={view.submission} />
   {:else}
-    <div class="min-h-0 flex-1 overflow-y-auto p-3" bind:this={body}>
-      {#if view.kind === "diffs"}
-        {#if changes.length === 0}
-          <p class="text-xs text-surface-500">No file changes in this thread.</p>
-        {:else}
-          <div class="space-y-3">
-            {#each changes as change (change.path)}
-              <div data-diff-path={change.path}>
-                <DiffBlock {change} />
-              </div>
-            {/each}
-          </div>
-        {/if}
-      {:else if view.kind === "changes"}
-        <ChangesPanel
-          {cwd}
-          summary={gitChanges}
-          loading={gitChangesLoading}
-          error={gitChangesError}
-          focusPath={view.focusPath ?? null}
-          onRefresh={onRefreshGitChanges}
-        />
-      {:else if view.kind === "files"}
+    <div class="min-h-0 flex-1 overflow-y-auto p-3">
+      {#if view.kind === "files"}
         <FileTree root={cwd} onOpenFile={openProjectFile} />
       {:else if view.kind === "plan"}
         <div class="prose-md prose-md-compact text-xs leading-6">

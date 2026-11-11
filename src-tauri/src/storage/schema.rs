@@ -416,6 +416,16 @@ CREATE TABLE IF NOT EXISTS review_inbox_snapshots (
  );
  CREATE INDEX IF NOT EXISTS review_findings_by_pr
      ON review_findings(provider, repo, pr_number);
+ CREATE TABLE IF NOT EXISTS thread_tip_snapshots (
+     thread_id TEXT NOT NULL,
+     root TEXT NOT NULL,
+     refname TEXT NOT NULL,
+     sha TEXT,
+     head_branch TEXT,
+     dirty_paths TEXT,
+     taken_at INTEGER NOT NULL,
+     PRIMARY KEY (thread_id, root, refname)
+ );
  CREATE TABLE IF NOT EXISTS review_rules (
      id TEXT PRIMARY KEY,
      provider TEXT NOT NULL,

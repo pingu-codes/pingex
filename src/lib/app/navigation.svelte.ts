@@ -45,6 +45,12 @@ export type View = {
   stackPr: number | null;
   /** Start a restack as the Stack page opens (the inbox's Restack). */
   stackRestack: boolean;
+  /** `threadId`'s Changes page is open (instead of the thread). */
+  changes: boolean;
+  /** The file the Changes page opens on. */
+  changesPath: string | null;
+  /** The Change segment it opens on: a segment id, or a page-made key. */
+  changesSegment: string | null;
 };
 
 /** How a PR was reached: a `visit` leaves a step for Back to retrace; a `walk`
@@ -66,6 +72,9 @@ const EMPTY: View = {
   stackNumber: null,
   stackPr: null,
   stackRestack: false,
+  changes: false,
+  changesPath: null,
+  changesSegment: null,
 };
 
 export const view = $state<View & { epoch: number }>({
@@ -103,7 +112,7 @@ export function setView(patch: Partial<View>, options: { remount?: boolean } = {
  *  PR it last showed (its place), and never restarts a restack. */
 function here(): View {
   const { epoch: _epoch, ...current } = view;
-  return { ...current, stackPr: null, stackRestack: false };
+  return { ...current, stackPr: null, stackRestack: false, changesPath: null, changesSegment: null };
 }
 
 function sameView(a: View, b: View): boolean {
@@ -139,6 +148,7 @@ export function backLabel(): string {
   if (previous.stackRepo) return "Stack";
   if (previous.reviewPr !== null) return `#${previous.reviewPr}`;
   if (previous.reviewPath) return "Review";
+  if (previous.changes) return "Changes";
   if (previous.threadId || previous.draftCwd) return "Thread";
   if (previous.detailPath) return projectByPath(previous.detailPath)?.name ?? "Project";
   return "Home";
@@ -271,6 +281,19 @@ export function openStackPage(repoDir: string, number: number, options: { restac
 }
 
 /** The Memories page, keeping the current project in the sidebar. */
+/** A thread's Changes page, opening on `path` or a segment when given. Back
+ *  returns to wherever it was opened from (the thread, usually). */
+export function openChanges(threadId: string, options: { path?: string | null; segment?: string | null } = {}): void {
+  const thread = threadById(threadId);
+  visit({
+    threadId,
+    projectPath: view.threadId === threadId ? view.projectPath : (projectForCwd(thread?.cwd ?? null)?.path ?? null),
+    changes: true,
+    changesPath: options.path ?? null,
+    changesSegment: options.segment ?? null,
+  });
+}
+
 export function openMemories(): void {
   setView({ projectPath: view.projectPath, memories: true });
 }

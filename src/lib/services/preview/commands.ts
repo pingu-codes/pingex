@@ -24,6 +24,7 @@ import type {
 import { basename } from "$lib/utils/path";
 import { agentReviewCommands } from "./agentReviews";
 import { previewStageBytes, previewStageFromPath } from "./attachments";
+import { changesCommands } from "./changes";
 import { checkoutCommands } from "./checkouts";
 import { deskCommands } from "./desk";
 import { worktreeEntry } from "./factories";
@@ -645,18 +646,6 @@ export const previewCommands: PreviewCommands = {
   },
   gitStagedFileDiff: (_dir, path) => previewPatch(path, "@@ -1,2 +1,2 @@\n line\n-before\n+staged change\n"),
   gitFileDiff: (_dir, _base, path) => previewPatch(path, "@@ -1,2 +1,3 @@\n line\n-old\n+new\n+added\n"),
-  gitChangesSummary: () => ({
-    base: "HEAD",
-    baseBranch: null,
-    files: [
-      { path: "src/lib/example.ts", oldPath: null, status: "modified", additions: 12, deletions: 3, binary: false },
-      { path: "README.md", oldPath: null, status: "added", additions: 40, deletions: 0, binary: false },
-    ],
-    truncated: false,
-    totalFiles: 2,
-    additions: 52,
-    deletions: 3,
-  }),
   gitRecentCommits: () => structuredClone(previewCommits),
   gitBranches: () => structuredClone(previewBranches),
 
@@ -755,6 +744,7 @@ export const previewCommands: PreviewCommands = {
   ...repositoryCommands,
   ...checkoutCommands,
   ...stackCommands,
+  ...changesCommands,
   ...agentReviewCommands,
 
   // --- Remote connections ---

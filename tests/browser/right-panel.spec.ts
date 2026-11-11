@@ -45,25 +45,6 @@ test("keeps the overview in a short viewport and scrolls its contents", async ({
   expect(scroll.scrollHeight).toBeGreaterThan(scroll.clientHeight);
 });
 
-test("opens a diff from the overview outputs in the right panel", async ({ page }) => {
-  await page.getByTitle("View diff for src/lib/utils.ts").click();
-  await closeOverview(page);
-
-  const panel = rightPanel(page);
-  await expect(panel.getByText("Outputs", { exact: true })).toBeVisible();
-  await expect(panel.getByText("src/lib/utils.ts")).toBeVisible();
-  await expect(panel.getByText("src/lib/generated.ts")).toBeVisible();
-  // The small diff is expanded by default; its added lines are readable.
-  await expect(panel.getByText("+export function debounce", { exact: false })).toBeVisible();
-
-  // The oversized diff stays collapsed until opened, then offers "show all".
-  await panel.getByRole("button", { name: /src\/lib\/generated\.ts/ }).click();
-  await expect(panel.getByRole("button", { name: /Show all 401 lines/ })).toBeVisible();
-
-  await panel.getByRole("button", { name: "Close panel" }).click();
-  await expect(rightPanel(page)).not.toBeVisible();
-});
-
 test("browses the complete file tree from the Files button", async ({ page }) => {
   await page.getByRole("button", { name: "Files", exact: true }).click();
   await closeOverview(page);

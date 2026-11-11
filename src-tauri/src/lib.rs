@@ -28,6 +28,7 @@ use tauri::Manager;
 
 mod acp;
 mod browser;
+mod changes;
 mod claude;
 mod codex;
 mod composer;
@@ -682,7 +683,9 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             git::commands::git_worktree_prune,
             git::commands::git_worktree_lock,
             git::commands::git_worktree_unlock,
-            git::commands::git_changes_summary,
+            changes::commands::git_thread_changes,
+            changes::commands::git_segment_diff,
+            changes::commands::git_working_diff,
             git::commands::git_file_diff,
             git::commands::git_worktree_handoff_preflight,
             git::commands::git_worktree_handoff,

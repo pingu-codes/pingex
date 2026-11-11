@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "svelte";
 import { describe, expect, it, vi } from "vitest";
 import RightPanel from "$lib/panels/RightPanel.svelte";
-import type { FileUpdateChange, SideQuestion } from "$lib/types";
+import type { SideQuestion } from "$lib/types";
 
 const sideQuestions: SideQuestion[] = [
   {
@@ -19,7 +19,6 @@ const sideQuestions: SideQuestion[] = [
 function setup(
   view: ComponentProps<typeof RightPanel>["view"],
   parentThreadId = "parent-1",
-  changes: FileUpdateChange[] = [],
   extra: Record<string, unknown> = {},
 ) {
   const onClose = vi.fn();
@@ -28,7 +27,6 @@ function setup(
     view,
     parentThreadId,
     sideQuestions,
-    changes,
     cwd: "/project",
     onClose,
     onDataChanged,
@@ -68,14 +66,14 @@ describe("RightPanel", () => {
   it("shows an implement button under the plan when a handler is provided", async () => {
     const user = userEvent.setup();
     const onImplementPlan = vi.fn();
-    setup({ kind: "plan", text: "## The plan" }, "parent-1", [], { onImplementPlan });
+    setup({ kind: "plan", text: "## The plan" }, "parent-1", { onImplementPlan });
 
     await user.click(screen.getByRole("button", { name: "Implement plan" }));
     expect(onImplementPlan).toHaveBeenCalledOnce();
   });
 
   it("disables the implement button while a turn is running", () => {
-    setup({ kind: "plan", text: "## The plan" }, "parent-1", [], { onImplementPlan: vi.fn(), implementDisabled: true });
+    setup({ kind: "plan", text: "## The plan" }, "parent-1", { onImplementPlan: vi.fn(), implementDisabled: true });
 
     expect(screen.getByRole("button", { name: "Implement plan" })).toBeDisabled();
   });
@@ -91,23 +89,6 @@ describe("RightPanel", () => {
 
     expect(screen.getByText("debounce typescript")).toBeInTheDocument();
     expect(screen.getByText("svelte runes")).toBeInTheDocument();
-  });
-
-  it("renders the diffs view with one diff block per changed file", () => {
-    setup({ kind: "diffs" }, "parent-1", [
-      { path: "src/lib/api.ts", kind: { type: "update" }, diff: "+added line\n-removed line" },
-      { path: "README.md", kind: { type: "add" }, diff: "+# Title" },
-    ]);
-
-    expect(screen.getByText("Outputs")).toBeInTheDocument();
-    expect(screen.getByText("src/lib/api.ts")).toBeInTheDocument();
-    expect(screen.getByText("README.md")).toBeInTheDocument();
-  });
-
-  it("shows an empty state in the diffs view when nothing changed", () => {
-    setup({ kind: "diffs" });
-
-    expect(screen.getByText("No file changes in this thread.")).toBeInTheDocument();
   });
 
   it("renders the files view as an expandable tree", async () => {
@@ -137,7 +118,6 @@ describe("RightPanel", () => {
       view: { kind: "side" },
       parentThreadId: "parent-1",
       sideQuestions: [{ ...sideQuestions[0], inheritedTurns: 1 }],
-      changes: [],
       cwd: "/project",
       onClose: vi.fn(),
       onDataChanged: vi.fn(),
@@ -187,7 +167,6 @@ describe("RightPanel", () => {
       view: { kind: "side" },
       parentThreadId: "parent-1",
       sideQuestions,
-      changes: [],
       cwd: "/project",
       onClose: vi.fn(),
       onDataChanged: vi.fn(),

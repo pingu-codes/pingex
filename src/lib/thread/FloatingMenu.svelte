@@ -16,6 +16,7 @@
     SquareTerminal,
   } from "@lucide/svelte";
   import { Menu, Portal, ToggleGroup } from "@skeletonlabs/skeleton-svelte";
+  import { allSegments, totals } from "$lib/changes/changesPage";
   import { messageLog } from "$lib/layout/messageLogPrefs.svelte";
   import UsageMeter from "$lib/layout/UsageMeter.svelte";
   import { accountUsage } from "$lib/services/accountUsage.svelte";
@@ -24,7 +25,7 @@
   import type { ContextStats } from "$lib/thread/contextUsage";
   import { changeLabel } from "$lib/thread/fileChanges";
   import { formatCost } from "$lib/thread/usageCost";
-  import type { ChangesSummary, FileUpdateChange, SubagentDetail } from "$lib/types";
+  import type { FileUpdateChange, SubagentDetail, ThreadChanges } from "$lib/types";
   import { fileIconFor } from "$lib/utils/fileIcons";
   import { formatTokensShort } from "$lib/utils/format";
   import { basename } from "$lib/utils/path";
@@ -32,7 +33,7 @@
   let {
     plan,
     outputs,
-    gitChanges = null,
+    changes = null,
     sources,
     sideQuestionCount,
     subagents = [],
@@ -45,7 +46,6 @@
     onShowPlan,
     onShowSources,
     onShowSideQuestions,
-    onShowDiff,
     onShowChanges = () => {},
     onShowFiles,
     onShowMessageLog,
@@ -55,10 +55,11 @@
     onOpenProcess = () => {},
   }: {
     plan: string | null;
-    /** Every file the thread touched — created, edited, deleted alike. */
+    /** Every file the thread's edits touched: what the menu lists when the
+     *  thread works outside any Git repository. */
     outputs: FileUpdateChange[];
-    /** Git-derived summary of the working directory's changes vs its base. */
-    gitChanges?: ChangesSummary | null;
+    /** The thread's repositories, split by segment (Branch scope). */
+    changes?: ThreadChanges | null;
     sources: string[];
     sideQuestionCount: number;
     subagents?: SubagentDetail[];
@@ -74,7 +75,7 @@
     onShowPlan: () => void;
     onShowSources: () => void;
     onShowSideQuestions: () => void;
-    onShowDiff: (path: string | null) => void;
+    /** Open the Changes page, on `path` when given. */
     onShowChanges?: (path: string | null) => void;
     onShowFiles: () => void;
     onShowMessageLog: () => void;
@@ -86,10 +87,25 @@
     onOpenProcess?: (process: RunningProcess) => void;
   } = $props();
 
-  // Collapsed by default: git changes are secondary to the thread's own outputs
-  // and can be long, so they only take space when asked for.
-  let changesOpen = $state(false);
-  const changeRows = $derived(gitChanges?.files ?? []);
+  /** What the checked-out git branches changed, then everything else, once
+   *  per file: the rows most likely to be what was just worked on. */
+  const changeRows = $derived.by(() => {
+    const segments = allSegments(changes).sort((a, b) => Number(b.segment.current) - Number(a.segment.current));
+    const seen = new Set<string>();
+    const rows: { key: string; path: string; additions: number; deletions: number }[] = [];
+    for (const { repo, segment } of segments) {
+      for (const file of segment.files) {
+        const key = `${repo.root}\u0000${file.path}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rows.push({ key, path: file.path, additions: file.additions, deletions: file.deletions });
+      }
+    }
+    return rows;
+  });
+  const changeTotals = $derived(totals(changes));
+  /** No repository behind the thread: the edits it reported stand in. */
+  const reportedOnly = $derived(!!changes && changes.repos.length === 0);
   // The overview panel is persistent: it starts open and only the toggle
   // button closes it, so opening plan/sources/side questions keeps it around.
   let panel = $state(true);
@@ -258,68 +274,53 @@
         {@render empty("No plan in this thread.")}
       {/if}
 
-      {@render section("Outputs", outputs.length)}
-      {#if outputs.length === 0}
-        {@render empty("No files changed yet.")}
-      {:else}
-        <!-- Every touched file is listed, not just the first few: a file edited
-             late in a long thread is exactly the one the user is looking for. -->
-        <div class="max-h-56 overflow-y-auto">
-          {#each outputs as change (change.path)}
-            {@const icon = fileIconFor(basename(change.path))}
-            <button onclick={() => onShowDiff(change.path)} title={`View diff for ${change.path}`} class="menu-row">
-              <icon.icon size={13} class="shrink-0 {icon.class}" />
-              <span class="min-w-0 flex-1 truncate">{basename(change.path)}</span>
-              <span class="shrink-0 text-[10px] uppercase tracking-wide text-surface-500">
-                {changeLabel(change.kind.type)}
-              </span>
-            </button>
-          {/each}
-        </div>
-        <button onclick={() => onShowDiff(null)} class="menu-row text-surface-500">
-          <FileDiff size={13} class="shrink-0" />
-          <span class="min-w-0 flex-1 truncate">All {outputs.length} changed files</span>
-        </button>
-      {/if}
-
-      <button
-        onclick={() => (changesOpen = !changesOpen)}
-        aria-expanded={changesOpen}
-        class="mt-2 flex w-full items-center gap-1 border-t border-surface-200-800 px-1 pb-1 pt-2 text-left eyebrow text-[10px]"
-      >
-        <span class="flex-1">Changes</span>
-        {#if gitChanges && gitChanges.totalFiles > 0}
-          <span class="tabular-nums normal-case tracking-normal">
-            {gitChanges.totalFiles}
-            · <span class="text-success-500">+{gitChanges.additions}</span>
-            <span class="text-error-500">−{gitChanges.deletions}</span>
-          </span>
-        {/if}
-        <ChevronDown size={12} class="shrink-0 transition {changesOpen ? "rotate-180" : ""}" />
-      </button>
-      {#if changesOpen}
-        {#if !gitChanges}
-          {@render empty("Not a Git repository.")}
-        {:else if changeRows.length === 0}
-          {@render empty(`No changes${gitChanges.baseBranch ? ` vs ${gitChanges.baseBranch}` : ""}.`)}
+      {@render section("Changes", reportedOnly ? outputs.length : changeTotals.files)}
+      {#if !changes}
+        {@render empty("Reading changes…")}
+      {:else if reportedOnly}
+        {#if outputs.length === 0}
+          {@render empty("No files changed yet.")}
         {:else}
           <div class="max-h-56 overflow-y-auto">
-            <!-- Only the first rows are listed here; the panel pages the rest. -->
-            {#each changeRows.slice(0, 50) as file (file.path)}
-              {@const icon = fileIconFor(basename(file.path))}
-              <button onclick={() => onShowChanges(file.path)} title={file.path} class="menu-row">
+            {#each outputs as change (change.path)}
+              {@const icon = fileIconFor(basename(change.path))}
+              <button onclick={() => onShowChanges(change.path)} title={change.path} class="menu-row">
                 <icon.icon size={13} class="shrink-0 {icon.class}" />
-                <span class="min-w-0 flex-1 truncate">{basename(file.path)}</span>
-                <span class="shrink-0 text-[10px] tabular-nums text-success-500">+{file.additions}</span>
-                <span class="shrink-0 text-[10px] tabular-nums text-error-500">−{file.deletions}</span>
+                <span class="min-w-0 flex-1 truncate">{basename(change.path)}</span>
+                <span class="shrink-0 text-[10px] uppercase tracking-wide text-surface-500">
+                  {changeLabel(change.kind.type)}
+                </span>
               </button>
             {/each}
           </div>
-          <button onclick={() => onShowChanges(null)} class="menu-row text-surface-500">
-            <FileDiff size={13} class="shrink-0" />
-            <span class="min-w-0 flex-1 truncate">All {gitChanges.totalFiles} changed files</span>
-          </button>
         {/if}
+      {:else if changeRows.length === 0}
+        {@render empty("No changes yet.")}
+      {:else}
+        <div class="max-h-56 overflow-y-auto">
+          <!-- The first rows only; the Changes page has the rest. -->
+          {#each changeRows.slice(0, 50) as file (file.key)}
+            {@const icon = fileIconFor(basename(file.path))}
+            <button onclick={() => onShowChanges(file.path)} title={file.path} class="menu-row">
+              <icon.icon size={13} class="shrink-0 {icon.class}" />
+              <span class="min-w-0 flex-1 truncate">{basename(file.path)}</span>
+              <span class="shrink-0 text-[10px] tabular-nums text-success-500">+{file.additions}</span>
+              <span class="shrink-0 text-[10px] tabular-nums text-error-500">−{file.deletions}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+      {#if changes}
+        <button onclick={() => onShowChanges(null)} class="menu-row text-surface-500">
+          <FileDiff size={13} class="shrink-0" />
+          <span class="min-w-0 flex-1 truncate">Open Changes</span>
+          {#if !reportedOnly && changeTotals.files > 0}
+            <span class="shrink-0 text-[10px] tabular-nums">
+              <span class="text-success-500">+{changeTotals.additions}</span>
+              <span class="text-error-500">−{changeTotals.deletions}</span>
+            </span>
+          {/if}
+        </button>
       {/if}
 
       {@render section("Sources")}
