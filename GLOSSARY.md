@@ -284,6 +284,15 @@ replies, suggestions and accepted Findings, a summary and a verdict, posted
 to GitHub in one submission. It survives reloads and restarts.
 _Avoid_: draft (alone), batch
 
+**PR under review**:
+One pull request open on the review page, from opening it to submitting the
+review. It follows the PR's head: each new head re-reads the viewed marks,
+keeps an empty Pending review on it, and re-reads "changes since" the Seen
+head when they are showing. It fetches the PR's refs before any read by SHA,
+and a submission posts the Pending review, then marks the head as the Seen
+head, then re-reads the PR (`review/prUnderReview.svelte.ts`).
+_Avoid_: review session (a session is a harness's), review page state
+
 **PR link**:
 What a thread records about the pull request it is about: the repository and
 PR number, plus the Checkout step, checkout path, git branch and commit it

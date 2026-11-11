@@ -9,6 +9,9 @@
   each diff line (finding cards) and `annotatedLines` says which lines it
   fills, `agentReview` goes in the Your review
   panel, and Findings join the review through `PendingReviewStore.add`.
+
+  What is read when, and in which order, is the PR under review's
+  (`prUnderReview.svelte.ts`); the page lays it out and keeps the reader's place.
 -->
 <script lang="ts">
   import { ArrowUp, ChevronLeft, PanelRightOpen } from "@lucide/svelte";
@@ -27,17 +30,16 @@
   import FindBar from "$lib/review/FindBar.svelte";
   import type { PendingReviewStore } from "$lib/review/pendingReview.svelte";
   import { mergeMethod } from "$lib/review/prActions";
+  import { PrUnderReview } from "$lib/review/prUnderReview.svelte";
   import ReviewHeader from "$lib/review/ReviewHeader.svelte";
   import ReviewThread, { type HandTarget } from "$lib/review/ReviewThread.svelte";
   import { type CommentThread, commentThreads, conversationTimeline } from "$lib/review/review";
-  import { ReviewFiles } from "$lib/review/reviewFiles.svelte";
   import { type FindMatch, type FindText, type FindUnit, fileFindUnits, PATH_UNIT } from "$lib/review/reviewFind";
   import {
     type AskAgentRequest,
     type DiffSide,
     entryLocation,
     type FileCounts,
-    fileBlob,
     fileCounts,
     fileInView,
     groupBy,
@@ -64,7 +66,6 @@
   import BranchNameDialog from "$lib/stack/BranchNameDialog.svelte";
   import { baseInput, driftLabel } from "$lib/stack/stack";
   import type {
-    ChangesSince,
     CheckLog,
     CheckoutStep,
     GitHubPerson,
@@ -76,7 +77,6 @@
     PrFile,
   } from "$lib/types";
   import { submitState } from "$lib/utils/actionState.svelte";
-  import { errorMessage } from "$lib/utils/errors";
   import { shortSha } from "$lib/utils/format";
   import { basename } from "$lib/utils/path";
 
@@ -146,11 +146,11 @@
   /** A chosen current file survives scrolling by less than a diff row. */
   const HOLD_SLOP = 20;
 
-  // Cached: a remount (j/k, back from a thread, a branch click on the Stack
-  // page) shows the PR at once and refreshes it behind. A write through
-  // `commands` marks it stale, which re-reads it.
-  const detailQuery = query("reviewPrDetail", () => [repoDir, number]);
-  const detail = $derived<PrDetail | null>(detailQuery.value ?? null);
+  // svelte-ignore state_referenced_locally -- the page is keyed by PR.
+  const review = new PrUnderReview({ repoDir, number, pending, viewer: () => viewer });
+  const { files: reviewFiles } = review;
+  const { viewed, collapsed } = reviewFiles;
+  const detail = $derived(review.detail);
   // How far GitHub's head is behind GitHub's base tip, for the header badge.
   const behindQuery = query("reviewPrsBehind", () =>
     detail
@@ -163,22 +163,15 @@
   const drift = $derived(
     detail ? driftLabel({ number, baseRef: detail.summary.baseRef }, behindQuery.value?.[0]?.behind, inbox) : null,
   );
-  const error = $derived(detail ? null : detailQuery.error);
   // svelte-ignore state_referenced_locally -- the page is keyed by PR.
   const left = prPlace(repoDir, number);
-  /** The page opens on "since", as it was left or because the inbox asked. */
-  const opensOnSince = left.changes === "since";
   /** Where to land: the scroll position recorded as the page loads may be clamped. */
   const landAt = left.scrollTop;
   let tab = $state(left.tab);
   let filter = $state(left.filter);
-  const reviewFiles = new ReviewFiles(left.collapsed);
-  const { viewed, collapsed } = reviewFiles;
   $effect(() => {
     left.tab = tab;
     left.filter = filter;
-    left.changes = changes;
-    if (reviewFiles.collapsedKnown) left.collapsed = [...collapsed];
   });
   let selection = $state<LineRange | null>(null);
   let composer = $state<Composer | null>(null);
@@ -193,20 +186,19 @@
   /** The topbar has scrolled fully out of the page. */
   let topbarHidden = $state(false);
   let topbarHeight = $state(0);
-  let changes = $state<"all" | "since">("all");
-  let since = $state<ChangesSince | null>(null);
+  const changes = $derived(review.changes);
+  const since = $derived(review.since);
   let checkLogs = $state<CheckLog[] | null>(null);
+  /** Reading check logs: the PR's own reads and writes are `review`'s. */
+  const logs = submitState();
+  const busy = $derived(review.busy || logs.busy);
+  const failure = $derived(review.error ?? logs.error);
   let lastUnresolved = -1;
 
-  // svelte-ignore state_referenced_locally -- the page is keyed by PR.
-  const action = submitState();
-
   const viewer = $derived(inbox?.viewer ?? "");
-  /** GitHub refuses Approve and Request changes from a PR's author. */
-  const ownPr = $derived(!!detail && !!viewer && detail.summary.author === viewer);
   const queue = $derived(upNext(inbox, number));
   const people = $derived(inbox ? peopleByLogin(inbox) : new Map<string, GitHubPerson>());
-  const files = $derived<PrFile[]>(changes === "since" && since ? since.files : (detail?.files ?? []));
+  const files = $derived<PrFile[]>(review.shownFiles);
   const threads = $derived(commentThreads(detail?.comments ?? []));
   const shownThreads = $derived(threads.filter((thread) => threadShown(thread, filter)));
   // Shares `threads` with the Files tab, so a reply or resolve shows in both.
@@ -247,26 +239,23 @@
   });
   const viewedCount = $derived(files.filter((file) => viewed.has(file.path)).length);
   const unresolvedCount = $derived(threads.filter((thread) => !thread.resolved).length);
-  const stale = $derived(!!detail && !!pending.headSha && pending.headSha !== detail.headSha);
 
-  /** The head the viewed marks were last read at. */
-  let readHead: string | null = null;
-
-  // Each time the detail lands (first read, a refresh, after a write).
+  let opened = false;
+  // Each time the detail lands; the first time, back to where the page was left.
   $effect(() => {
     const next = detail;
     if (!next) return;
     untrack(() => {
       currentPath ??= next.files[0]?.path ?? null;
-      pending.syncHead(next.headSha);
-      if (readHead === next.headSha) return;
-      const first = readHead === null;
-      readHead = next.headSha;
-      if (first && !opensOnSince) land();
-      void loadReviewState(next, first);
-      if (first) prefetchNext();
-      if (first ? opensOnSince : changes === "since") void showChanges("since");
+      if (opened) return;
+      opened = true;
+      if (!review.opensOnSince) land();
+      prefetchNext();
     });
+  });
+  // The pending review's cards and the folds change the page's height.
+  $effect(() => {
+    if (review.ready && !review.opensOnSince) untrack(land);
   });
 
   /** The ? key opens the shortcuts wherever the page is scrolled: under their
@@ -284,31 +273,11 @@
     if (scroller && landAt > 0) scroller.scrollTop = landAt;
   }
 
-  /** The stored pending review and the viewed marks, read side by side. */
-  async function loadReviewState(next: PrDetail, first: boolean) {
-    const [, marked] = await Promise.all([
-      pending.loaded ? Promise.resolve() : pending.load(next.headSha),
-      commands.reviewViewedFiles(repoDir, number, next.files.map(fileBlob)).catch(() => [] as string[]),
-    ]);
-    if (detail) pending.syncHead(detail.headSha);
-    if (readHead !== next.headSha) return;
-    reviewFiles.applyMarks(marked);
-    // The pending review's cards and the folds above change the page's height.
-    if (first && !opensOnSince) land();
-  }
-
   /** Warm the next PR in the queue, so j/k opens it at once. Only one: each
    *  read is several GitHub calls. */
   function prefetchNext() {
     const next = queueNeighbour(queue, number, 1);
     if (next) prefetch("reviewPrDetail", repoDir, next.number);
-  }
-
-  /** Re-read the PR after a write, keeping what the reviewer had open. The
-   *  write already marked it stale, so this joins that read. */
-  async function reload() {
-    await detailQuery.reload();
-    if (detailQuery.error) action.error = detailQuery.error;
   }
 
   // --- scrolling and the Your review panel ---------------------------------
@@ -419,12 +388,7 @@
   // --- files ---------------------------------------------------------------
 
   function setViewed(targets: PrFile[], value: boolean) {
-    void keepingPlace(() => reviewFiles.setViewed(targets, value));
-    if (targets.length > 0) {
-      commands.reviewSetViewed(repoDir, number, targets.map(fileBlob), value).catch((cause) => {
-        action.error = errorMessage(cause);
-      });
-    }
+    void keepingPlace(() => review.setViewed(targets, value));
   }
 
   function toggle(file: PrFile, event: MouseEvent) {
@@ -488,8 +452,7 @@
       case "whole":
         if (detail) {
           void openDialog(WholeFileDialog, {
-            repoDir,
-            number,
+            review,
             path: file.path,
             headSha: detail.headSha,
             commits: detail.commits,
@@ -503,21 +466,6 @@
         void commands.copyText(file.path);
         break;
     }
-  }
-
-  async function showChanges(value: "all" | "since") {
-    if (value === "all" || !detail) {
-      changes = "all";
-      return;
-    }
-    const at = detail;
-    await action.run(async () => {
-      await commands.reviewFetchPrs(repoDir, [number]);
-      const read = await commands.reviewChangesSince(repoDir, number, at.baseSha, at.headSha);
-      if (detail?.headSha !== at.headSha) return;
-      since = read;
-      changes = "since";
-    });
   }
 
   // --- lines and the pending review ----------------------------------------
@@ -557,28 +505,10 @@
     });
   }
 
-  async function submit() {
-    if (!detail || action.busy) return;
-    const head = detail.headSha;
-    if (ownPr && pending.verdict !== "comment") pending.setVerdict("comment");
-    const ok = await action.run(() => pending.submit());
-    if (!ok) return;
-    // What "changes since your review" measures from. Best effort: a
-    // PRs-only repository has no clone to pin it in.
-    void commands
-      .reviewFetchPrs(repoDir, [number])
-      .then(() => commands.reviewMarkSeen(repoDir, number, head))
-      .catch(() => {});
-    await reload();
-  }
-
   // --- threads -------------------------------------------------------------
 
   async function replyNow(commentId: number, body: string): Promise<boolean> {
-    return action.run(async () => {
-      await commands.reviewReply(repoDir, number, commentId, body);
-      await reload();
-    });
+    return review.write(() => commands.reviewReply(repoDir, number, commentId, body));
   }
 
   function holdReply(thread: (typeof threads)[number], body: string) {
@@ -595,21 +525,13 @@
   }
 
   async function resolve(threadId: string) {
-    await action.run(async () => {
-      await commands.reviewResolveThread(repoDir, threadId);
-      await reload();
-    });
+    await review.write(() => commands.reviewResolveThread(repoDir, threadId));
   }
 
   async function editComment(comment: PrComment, body: string): Promise<boolean> {
-    return action.run(async () => {
-      await commands.reviewEditComment(
-        repoDir,
-        { kind: comment.path ? "review" : "conversation", id: comment.id },
-        body,
-      );
-      await reload();
-    });
+    return review.write(() =>
+      commands.reviewEditComment(repoDir, { kind: comment.path ? "review" : "conversation", id: comment.id }, body),
+    );
   }
 
   async function deleteComment(comment: PrComment) {
@@ -619,10 +541,9 @@
       confirmLabel: "Delete",
     });
     if (!confirmed) return;
-    await action.run(async () => {
-      await commands.reviewDeleteComment(repoDir, { kind: comment.path ? "review" : "conversation", id: comment.id });
-      await reload();
-    });
+    await review.write(() =>
+      commands.reviewDeleteComment(repoDir, { kind: comment.path ? "review" : "conversation", id: comment.id }),
+    );
   }
 
   // --- the PR itself -------------------------------------------------------
@@ -639,10 +560,10 @@
         tone: "warning" as const,
       });
       if (confirmed) {
-        await action.run(() => commands.reviewMerge(repoDir, number, { method, headSha: at.headSha }).then(reload));
+        await review.write(() => commands.reviewMerge(repoDir, number, { method, headSha: at.headSha }));
       }
     } else if (id === "ready") {
-      await action.run(() => commands.reviewMarkReady(repoDir, number).then(reload));
+      await review.write(() => commands.reviewMarkReady(repoDir, number));
     } else if (id === "retarget") {
       const base = await openDialog(BranchNameDialog, {
         title: `Retarget #${number}`,
@@ -651,19 +572,19 @@
         label: "New base git branch",
         confirmLabel: "Retarget",
       });
-      if (base) await action.run(() => commands.reviewRetarget(repoDir, number, base).then(reload));
+      if (base) await review.write(() => commands.reviewRetarget(repoDir, number, base));
     } else if (id === "close") {
       const confirmed = await openDialog(ConfirmDialog, {
         title: `Close #${number}?`,
         body: "The pull request closes without merging. It can be reopened on GitHub.",
         confirmLabel: "Close pull request",
       });
-      if (confirmed) await action.run(() => commands.reviewClose(repoDir, number).then(reload));
+      if (confirmed) await review.write(() => commands.reviewClose(repoDir, number));
     }
   }
 
   async function loadCheckLogs() {
-    await action.run(async () => {
+    await logs.run(async () => {
       checkLogs = await commands.reviewCheckLogs(repoDir, number);
     });
   }
@@ -770,7 +691,7 @@
         compose("comment");
         break;
       case "submit":
-        void submit();
+        void review.submit();
         break;
       case "find":
         openFind();
@@ -833,7 +754,7 @@
       filters={FILTERS}
       onFilterChange={(value) => (filter = value)}
       {changes}
-      onShowChanges={showChanges}
+      onShowChanges={(value) => review.showChanges(value)}
       {viewedCount}
       fileCount={files.length}
       onExpandAll={() => keepingPlace(() => reviewFiles.expandAll())}
@@ -858,18 +779,18 @@
       {/snippet}
     </ReviewHeader>
 
-    {#if action.error}
+    {#if failure}
       <!-- Sticky: a failed write must show even with the topbar scrolled away. -->
       <div class="sticky top-0 z-20 shrink-0 bg-surface-50-950 px-5 pt-2">
-        <div class="error-note rounded-md">{action.error}</div>
+        <div class="error-note rounded-md">{failure}</div>
       </div>
     {/if}
 
-    {#if error}
+    {#if review.loadError}
       <div class="grid flex-1 place-items-center p-8">
         <div class="error-note max-w-md">
           <div class="font-semibold">Could not load this pull request</div>
-          <p class="mt-1">{error}</p>
+          <p class="mt-1">{review.loadError}</p>
         </div>
       </div>
     {:else}
@@ -939,9 +860,9 @@
               <ChecksTab
                 checks={detail.checks}
                 logs={checkLogs}
-                busy={action.busy}
+                {busy}
                 onLoadLogs={loadCheckLogs}
-                onRerun={() => action.run(() => commands.reviewRerunFailedChecks(repoDir, number))}
+                onRerun={() => review.write(() => commands.reviewRerunFailedChecks(repoDir, number))}
               />
             {:else}
               {@render threadsTab?.()}
@@ -979,12 +900,12 @@
         >
           <div class="sticky top-0 max-h-[100cqh] overflow-y-auto p-4">
             <YourReview
-              {ownPr}
+              ownPr={review.ownPr}
               {people}
               {pending}
-              busy={action.busy}
-              {stale}
-              onSubmit={submit}
+              {busy}
+              stale={review.stale}
+              onSubmit={() => review.submit()}
               onJump={(entry) => jumpTo(entryLocation(entry).path)}
               upNext={queue}
               {onOpenPr}
@@ -1037,7 +958,7 @@
     thread={found}
     {viewer}
     prUrl={detail?.summary.url ?? ""}
-    busy={action.busy}
+    {busy}
     onReplyNow={replyNow}
     onAddToReview={(body) => holdReply(found, body)}
     onResolve={() => resolve(found.key)}
