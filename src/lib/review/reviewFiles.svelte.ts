@@ -1,6 +1,7 @@
 // Which of a PR's files the review page has marked viewed and which it has
-// folded. Only the state and how the two move together: the page reads and
-// saves the marks, and keeps the reader's place around each change.
+// folded. Only the state and how the two move together: the PR under review
+// (`prUnderReview.svelte.ts`) reads and saves the marks, and the page keeps
+// the reader's place around each change.
 
 import { SvelteSet } from "svelte/reactivity";
 import type { PrFile } from "$lib/types";

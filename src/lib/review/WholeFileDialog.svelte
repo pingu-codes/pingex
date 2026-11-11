@@ -3,26 +3,22 @@
   fetched PR refs: nothing is checked out.
 -->
 <script lang="ts">
-  import { onMount } from "svelte";
   import type { DialogClose } from "$lib/app/dialogs.svelte";
   import CodeView from "$lib/components/CodeView.svelte";
   import DialogShell from "$lib/components/DialogShell.svelte";
-  import { commands } from "$lib/services/homeRouting";
-  import { query } from "$lib/services/queryCache.svelte";
+  import type { PrUnderReview } from "$lib/review/prUnderReview.svelte";
   import type { PrCommit, PrFileContents } from "$lib/types";
   import { languageForPath } from "$lib/utils/codeLanguage";
   import { shortSha } from "$lib/utils/format";
 
   let {
-    repoDir,
-    number,
+    review,
     path,
     headSha,
     commits,
     close,
   }: {
-    repoDir: string;
-    number: number;
+    review: PrUnderReview;
     path: string;
     headSha: string;
     commits: PrCommit[];
@@ -31,16 +27,10 @@
 
   // svelte-ignore state_referenced_locally -- opens at the head.
   let sha = $state(headSha);
-  /** The commits are in the hidden PR refs once this has fetched them. */
-  let fetched = $state(false);
-  const fileQuery = query("reviewFile", () => (fetched ? [repoDir, sha, path] : null));
+  // svelte-ignore state_referenced_locally -- a dialog is opened per file.
+  const fileQuery = review.fileAt(() => [sha, path]);
   const contents = $derived<PrFileContents | null>(fileQuery.value ?? null);
   const error = $derived(fileQuery.error);
-
-  onMount(async () => {
-    await commands.reviewFetchPrs(repoDir, [number]).catch(() => {});
-    fetched = true;
-  });
 </script>
 
 <DialogShell title={path} subtitle="Whole file, nothing checked out" width={860} onClose={() => close()}>
