@@ -30,7 +30,9 @@
   import { submitState } from "$lib/utils/actionState.svelte";
   import CreateWorktreeDialog from "$lib/worktrees/CreateWorktreeDialog.svelte";
   import { refreshGitStatus } from "$lib/worktrees/gitStatus.svelte";
+  import ProjectIcon from "$lib/worktrees/ProjectIcon.svelte";
   import RemoveWorktreeDialog from "$lib/worktrees/RemoveWorktreeDialog.svelte";
+  import { worktreeKind } from "$lib/worktrees/worktreeKind";
   import { prNumberOf, type WorktreeCard, worktreeCards } from "$lib/worktrees/worktrees";
 
   let {
@@ -262,6 +264,9 @@
   <div class="flex items-start gap-3">
     <div class="min-w-0 flex-1">
       <div class="flex items-center gap-2">
+        {#if card.entry.purpose}
+          <ProjectIcon kind="worktree" purpose={card.entry.purpose} size={14} />
+        {/if}
         <span class="truncate text-sm font-semibold">{card.displayName}</span>
         {#if card.entry.isMain}
           <span class="rounded-full bg-primary-500/15 px-1.5 py-0.5 text-[10px] font-medium text-primary-500"
@@ -282,6 +287,14 @@
             title="Pingex removes this once the PR has closed and it holds no work"
           >
             PR #{prNumberOf(card.entry)}
+          </span>
+        {:else if card.entry.purpose?.kind === "stack"}
+          <span
+            class="rounded-full bg-primary-500/15 px-1.5 py-0.5 text-[10px] font-medium text-primary-500"
+            title={worktreeKind("worktree", card.entry.purpose).tooltip}
+            data-testid="stack-worktree-pill"
+          >
+            Stack
           </span>
         {:else if card.entry.locked}
           <span

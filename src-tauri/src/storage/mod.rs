@@ -40,6 +40,7 @@ mod sections;
 mod server_projects;
 mod sidebar_layout;
 mod sources;
+mod stack_worktrees;
 mod threads;
 mod turn_settings;
 mod turn_usage;
@@ -124,6 +125,10 @@ pub(crate) use sources::{
     read_all_project_sources, read_instructions_for_cwd, read_project_sources, read_source,
     replace_source_lines, search_index_lines, set_source_status, write_project_instructions,
     IndexedLine, StoredProjectSource,
+};
+pub(crate) use stack_worktrees::{
+    delete_stack_worktree, prune_stack_worktrees, read_worktree_purpose, read_worktree_purposes,
+    write_stack_worktree,
 };
 pub(crate) use threads::{
     delete_thread_summary, invalidate_thread_detail, read_hidden_thread_ids,

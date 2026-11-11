@@ -112,6 +112,7 @@ describe("scoped prefs", () => {
       claudeMode: null,
       subagentModelPolicy: null,
       subagentReasoningEffortPolicy: null,
+      worktreeContext: true,
     });
   });
 

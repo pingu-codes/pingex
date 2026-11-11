@@ -12,6 +12,8 @@ use super::checkout_types::{
 use super::desk::ReviewDesk;
 use super::github::GhCli;
 use super::requirements::DeskAction;
+use super::worktree_context::WorktreeContext;
+use super::worktree_purpose::WorktreePurpose;
 use crate::storage::{self, PrLink, ReviewCheckoutPolicy};
 use crate::AppState;
 
@@ -145,6 +147,25 @@ pub(crate) async fn review_managed_worktree_at(
         .is_managed_worktree(dir)
         .await?;
     Ok(managed.then_some(ManagedPrWorktree { repo_dir, number }))
+}
+
+/// What to tell an agent starting a thread in `dir`, when `dir` is a managed
+/// PR worktree or a Stack worktree.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_worktree_context(
+    dir: String,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<Option<WorktreeContext>, String> {
+    let Some(purpose) =
+        storage::read_worktree_purpose(&state.ctx(&window).database(), &dir).await?
+    else {
+        return Ok(None);
+    };
+    let (WorktreePurpose::ManagedPr { repo_dir, .. } | WorktreePurpose::Stack { repo_dir, .. }) =
+        purpose;
+    desk(&window, &state, repo_dir).worktree_context(dir).await
 }
 
 /// Drop what closed PRs left behind, given `open_numbers`: every open PR

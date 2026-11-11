@@ -14,6 +14,7 @@
   } from "$lib/thread/messageText";
   import type { MessageVersions } from "$lib/thread/messageVersions";
   import { messageParts } from "$lib/thread/turnSegments";
+  import { splitWorktreeContext, withWorktreeContext } from "$lib/thread/worktreeContext";
   import type { ThreadItem, UserInputPart } from "$lib/types";
   import { copyPlainOrMarkdown } from "$lib/utils/copy";
   import { fileIconFor, iconForPath } from "$lib/utils/fileIcons";
@@ -46,19 +47,25 @@
 
   // Mentions arrive as their own text parts; merge adjacent runs so a mention
   // stays inline in the sentence it was typed into.
-  const parts = $derived(mergeTextParts(messageParts(item)));
+  // Worktree context rides in the message; the bubble shows it folded away.
+  const split = $derived(splitWorktreeContext(mergeTextParts(messageParts(item))));
+  const parts = $derived(split.content);
+  let contextOpen = $state(false);
 
-  const messageText = () => joinMessageText(messageParts(item));
+  const messageText = () => joinMessageText(parts);
 
   const copied = flashFlag();
   onDestroy(copied.clear);
 
   function copyMessage(event: MouseEvent) {
-    copyPlainOrMarkdown(event, messageText(), userMessageMarkdown(messageParts(item), cwd));
+    copyPlainOrMarkdown(event, messageText(), userMessageMarkdown(parts, cwd));
     copied.trigger();
   }
 
-  const edit = new InlineEdit(messageText, (text) => onSubmitEdit(editedParts(parts, text)));
+  const edit = new InlineEdit(messageText, (text) => {
+    const edited = editedParts(parts, text);
+    onSubmitEdit(split.context === null ? edited : withWorktreeContext(edited, split.context));
+  });
 
   function autogrow() {
     const element = edit.textarea;
@@ -168,6 +175,25 @@
           {@render fileChip(part.name ?? basename(part.path ?? ""), part.path ?? "")}
         {/if}
       {/each}
+      {#if split.context !== null && !edit.editing}
+        <div data-testid="worktree-context">
+          <button
+            type="button"
+            class="pill gap-1"
+            aria-expanded={contextOpen}
+            title="Sent to the agent with this message"
+            onclick={() => (contextOpen = !contextOpen)}
+          >
+            <ChevronRight size={11} class="transition {contextOpen ? "rotate-90" : ""}" />
+            Worktree context
+          </button>
+          {#if contextOpen}
+            <pre
+              class="mt-1.5 whitespace-pre-wrap rounded-lg bg-surface-200-800/60 px-2.5 py-2 font-sans text-xs leading-5 text-surface-700-300"
+            >{split.context}</pre>
+          {/if}
+        </div>
+      {/if}
       {#if edit.editing}
         <textarea
           bind:this={edit.textarea}

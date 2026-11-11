@@ -8,6 +8,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::review::worktree_purpose::WorktreePurpose;
+
 use crate::storage::{
     SideQuestion, SidebarLayout, StoredProjectSource, StoredThreadSection, StoredWorkspace,
     StoredWorkspaceMember, ThreadBranch,
@@ -69,6 +71,11 @@ pub(crate) struct Project {
     /// the stored order.
     #[serde(default)]
     pub(crate) recency_at: Option<i64>,
+    /// What a worktree project is for, when Pingex knows: a managed PR
+    /// worktree or a Stack worktree. Read from the profile database, so a
+    /// stack's may lag until its page is next opened.
+    #[serde(default)]
+    pub(crate) purpose: Option<WorktreePurpose>,
 }
 
 #[derive(Clone, Serialize, specta::Type)]
@@ -140,4 +147,6 @@ pub(crate) struct BootstrapExtras {
     pub(crate) sections: Vec<StoredThreadSection>,
     pub(crate) sections_supported: bool,
     pub(crate) sidebar_layout: SidebarLayout,
+    /// What each worktree is for, by path, where Pingex knows.
+    pub(crate) worktree_purposes: Vec<(String, WorktreePurpose)>,
 }

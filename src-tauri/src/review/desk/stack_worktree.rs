@@ -9,10 +9,15 @@
 //! or is checked out and behind it, stays where it is and is reported. Safe to
 //! run again: it only fills in what is missing.
 
+use std::path::Path;
+
 use super::ReviewDesk;
 use crate::git::{checkouts as checkouts_git, stack as git};
 use crate::review::checkout_types::CheckoutTarget;
 use crate::review::stack_types::{KeptBranch, StackCheckout, StackInput, StackInputPr};
+use crate::review::worktree_context::{worktree_context, WorktreeContext};
+use crate::review::worktree_purpose::WorktreePurpose;
+use crate::storage;
 
 impl ReviewDesk {
     /// Make every open PR's local git branch, then give the stack a worktree
@@ -30,6 +35,7 @@ impl ReviewDesk {
                 run.worktree
             ));
         }
+        let purpose = WorktreePurpose::stack(&self.repo_key(), &input);
         let (created_branches, kept, has_worktree) = self
             .blocking("Checking out the stack failed", move |desk| {
                 let open = input.open_prs();
@@ -53,12 +59,66 @@ impl ReviewDesk {
         } else {
             self.ensure_pr_worktree(top).await?
         };
+        if let Some(path) = checkout.path.as_deref() {
+            self.record_stack_worktree(path, &purpose).await?;
+        }
         Ok(StackCheckout {
             checkout,
             created: !has_worktree,
             created_branches,
             kept,
         })
+    }
+
+    /// Remember that the worktree at `path` holds this stack, for listings and
+    /// worktree context. The main clone is never a Stack worktree.
+    pub(super) async fn record_stack_worktree(
+        &self,
+        path: &str,
+        purpose: &WorktreePurpose,
+    ) -> Result<(), String> {
+        if path == self.repo_key() {
+            return Ok(());
+        }
+        if storage::read_worktree_purpose(&self.database, path)
+            .await?
+            .as_ref()
+            == Some(purpose)
+        {
+            return Ok(());
+        }
+        storage::write_stack_worktree(&self.database, path, purpose).await
+    }
+
+    /// What to tell an agent starting in the worktree at `path`, when it is a
+    /// managed PR worktree or a Stack worktree now. The stored purpose is
+    /// checked against git, so a worktree since put to other use gets none.
+    pub(crate) async fn worktree_context(
+        &self,
+        path: String,
+    ) -> Result<Option<WorktreeContext>, String> {
+        let Some(purpose) = storage::read_worktree_purpose(&self.database, &path).await? else {
+            return Ok(None);
+        };
+        if !self.host.is_dir(&path) {
+            return Ok(None);
+        }
+        self.blocking("Reading the worktree failed", move |desk| {
+            let dir = Path::new(&path);
+            let branch = checkouts_git::branch_of(&desk.host, dir)?;
+            let fits = match &purpose {
+                WorktreePurpose::ManagedPr { .. } => checkouts_git::is_managed(&desk.host, dir)?,
+                WorktreePurpose::Stack { .. } => {
+                    checkouts_git::is_linked_worktree(&desk.host, dir)?
+                        && purpose.holds_on(branch.as_deref())
+                }
+            };
+            Ok(fits.then(|| WorktreeContext {
+                text: worktree_context(&purpose, branch.as_deref()),
+                purpose,
+            }))
+        })
+        .await
     }
 
     /// Catch each git branch up with GitHub where nothing can be lost, and make
@@ -110,6 +170,7 @@ mod tests {
     use super::super::stack_support::StackFixture;
     use crate::review::checkout_types::StepConfirm;
     use crate::review::requirements::DeskAction;
+    use crate::review::worktree_purpose::WorktreePurpose;
     use crate::storage;
     use crate::util::host::Host;
 
@@ -158,6 +219,42 @@ mod tests {
         }
         let worktrees = stack.git(&["worktree", "list", "--porcelain"]);
         assert_eq!(worktrees.matches("worktree ").count(), 2, "{worktrees}");
+    }
+
+    #[tokio::test]
+    async fn a_checked_out_stack_gives_its_worktree_context_until_it_leaves_the_stack() {
+        let Some(stack) = remote_only().await else {
+            return;
+        };
+        let result = stack
+            .desk()
+            .ensure_stack_worktree(stack.input())
+            .await
+            .unwrap();
+        let path = result.checkout.path.unwrap();
+
+        let context = stack
+            .desk()
+            .worktree_context(path.clone())
+            .await
+            .unwrap()
+            .expect("a stack worktree has context");
+        assert_eq!(
+            context.purpose,
+            WorktreePurpose::stack(&stack.desk().repo_key(), &stack.input())
+        );
+        assert!(
+            context.text.contains("The worktree is on `feat/maki`"),
+            "{}",
+            context.text
+        );
+
+        // On a git branch outside the stack, it is no longer the stack's.
+        stack.git_in(Path::new(&path), &["switch", "-q", "-c", "elsewhere"]);
+        assert_eq!(stack.desk().worktree_context(path).await.unwrap(), None);
+        // The main clone is never a Stack worktree.
+        let main = stack.desk().repo_key();
+        assert_eq!(stack.desk().worktree_context(main).await.unwrap(), None);
     }
 
     #[tokio::test]

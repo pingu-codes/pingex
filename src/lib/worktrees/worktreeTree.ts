@@ -1,4 +1,4 @@
-import type { Project, ThreadSummary, WorktreeEntry } from "$lib/types";
+import type { Project, ThreadSummary, WorktreeEntry, WorktreePurpose } from "$lib/types";
 import { basename, trimSlash } from "$lib/utils/path";
 import { branchLabel } from "$lib/worktrees/worktrees";
 
@@ -7,6 +7,8 @@ export interface WorktreeChild {
   path: string;
   name: string;
   branch: string;
+  /** What the worktree is for, when Pingex knows: a stack's worktree shows as one. */
+  purpose: WorktreePurpose | null;
   /** The sidebar project for this worktree, or null when it was never added. */
   adopted: Project | null;
   /** For an unadded worktree: its threads, filed by cwd. */
@@ -72,6 +74,7 @@ export function nestProjects(
         path: entry.path,
         name: adopted?.name ?? basename(entry.path),
         branch: branchLabel(entry),
+        purpose: entry.purpose,
         adopted,
         threads: [],
       };

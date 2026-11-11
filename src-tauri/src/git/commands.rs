@@ -25,6 +25,7 @@ use super::worktrees::read_worktrees;
 use crate::projects::worktrees::{
     is_temp_worktree_path, temp_worktree_location, worktree_parent_project_on,
 };
+use crate::review::worktree_purpose::WorktreePurpose;
 use crate::storage;
 use crate::util::host::Host;
 use crate::AppState;
@@ -64,11 +65,54 @@ pub(crate) async fn git_worktrees(
 ) -> Result<Vec<WorktreeEntry>, String> {
     let ctx = state.ctx(&window);
     let runtime = ctx.runtime();
-    tauri::async_runtime::spawn_blocking(move || {
-        read_worktrees(&runtime.host, Path::new(&repo_dir), &runtime.codex_home)
+    let repo = repo_dir.clone();
+    let mut entries = tauri::async_runtime::spawn_blocking(move || {
+        read_worktrees(&runtime.host, Path::new(&repo), &runtime.codex_home)
     })
     .await
-    .map_err(|_| "Git inspection failed".to_string())?
+    .map_err(|_| "Git inspection failed".to_string())??;
+    let purposes = storage::read_worktree_purposes(&ctx.database()).await?;
+    for entry in &mut entries {
+        entry.purpose = purpose_of(entry, &repo_dir, &purposes);
+    }
+    Ok(entries)
+}
+
+/// What `entry` is for, when a stored purpose fits what git says: a managed PR
+/// worktree carries Pingex's lock, and a stack's worktree is on one of the
+/// stack's git branches. Matched by path, or by branch within `repo_dir` when
+/// the stored path spells the same directory differently (a symlinked home).
+fn purpose_of(
+    entry: &WorktreeEntry,
+    repo_dir: &str,
+    purposes: &[(String, WorktreePurpose)],
+) -> Option<WorktreePurpose> {
+    if entry.is_main {
+        return None;
+    }
+    let branch = entry.branch.as_deref();
+    let fits = |purpose: &WorktreePurpose| match purpose {
+        WorktreePurpose::ManagedPr { .. } => entry.is_managed_pr_worktree,
+        WorktreePurpose::Stack { .. } => purpose.holds_on(branch),
+    };
+    let by_branch = |purpose: &WorktreePurpose| match purpose {
+        WorktreePurpose::ManagedPr {
+            repo_dir: repo,
+            number,
+        } => repo == repo_dir && branch == Some(checkouts::managed_branch(*number).as_str()),
+        WorktreePurpose::Stack {
+            repo_dir: repo,
+            prs,
+            ..
+        } => repo == repo_dir && prs.iter().any(|pr| Some(pr.head_ref.as_str()) == branch),
+    };
+    purposes
+        .iter()
+        .find(|(path, _)| *path == entry.path)
+        .or_else(|| purposes.iter().find(|(_, purpose)| by_branch(purpose)))
+        .map(|(_, purpose)| purpose)
+        .filter(|purpose| fits(purpose))
+        .cloned()
 }
 
 #[tauri::command]
@@ -230,7 +274,9 @@ pub(crate) async fn git_worktree_remove(
     window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let host = state.ctx(&window).host();
+    let ctx = state.ctx(&window);
+    let host = ctx.host();
+    let removed = path.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let repo = PathBuf::from(&repo_dir);
         let common = common_dir_of(&host, &repo)?;
@@ -261,7 +307,8 @@ pub(crate) async fn git_worktree_remove(
         Ok(())
     })
     .await
-    .map_err(|_| "Git operation failed".to_string())?
+    .map_err(|_| "Git operation failed".to_string())??;
+    storage::delete_stack_worktree(&ctx.database(), &removed).await
 }
 
 #[tauri::command]

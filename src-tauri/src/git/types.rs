@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::review::worktree_purpose::WorktreePurpose;
+
 /// Working-tree status counts, shared by the worktree cards and the branch chip.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -105,6 +107,10 @@ pub(crate) struct WorktreeEntry {
     /// in the Worktrees list with its PR, but not nested in the sidebar, where
     /// its threads already file under the PR.
     pub(crate) is_managed_pr_worktree: bool,
+    /// What Pingex knows this worktree is for: a managed PR worktree's PR, or
+    /// the stack a Stack worktree holds. Filled in by the `git_worktrees`
+    /// command from the profile database.
+    pub(crate) purpose: Option<WorktreePurpose>,
     /// The registered directory is gone (a stale registration to prune).
     pub(crate) missing_dir: bool,
     /// This worktree's branch is also checked out in another listed worktree.

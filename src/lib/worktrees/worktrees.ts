@@ -90,10 +90,11 @@ export function adoptableWorktrees(entries: WorktreeEntry[], projects: Project[]
   );
 }
 
-/** The PR a managed worktree belongs to, from its `pr/<n>` branch or
- *  `pr-<n>` directory; `null` for any other worktree. */
+/** The PR a managed worktree belongs to: the one Pingex recorded, else read
+ *  off its `pr/<n>` branch or `pr-<n>` directory; `null` for any other worktree. */
 export function prNumberOf(entry: WorktreeEntry): number | null {
   if (!entry.isManagedPrWorktree) return null;
+  if (entry.purpose?.kind === "managedPr") return entry.purpose.number;
   const match = entry.branch?.match(/^pr\/(\d+)/) ?? basename(entry.path).match(/^pr-(\d+)$/);
   return match ? Number(match[1]) : null;
 }

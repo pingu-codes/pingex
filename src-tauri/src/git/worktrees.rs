@@ -234,6 +234,7 @@ pub(crate) fn read_worktrees(
             is_codex_managed: root.is_some(),
             is_temp: root == Some("worktrees-tmp"),
             is_managed_pr_worktree,
+            purpose: None,
             missing_dir,
             branch_checked_out_elsewhere,
             upstream,

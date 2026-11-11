@@ -238,6 +238,24 @@ branch for each open PR. Switching PR switches its branch. A stack's PR counts a
 at the Worktree step even when the worktree is on a neighbouring branch.
 _Avoid_: stack checkout (that's the action), per-PR stack worktree
 
+**Worktree purpose**:
+What Pingex knows a worktree is for: a managed **PR worktree** and its PR, or a
+**Stack worktree** and its stack. It picks the worktree's icon and tooltip in
+the sidebar and the Worktrees list. A worktree on your own single PR's branch
+has none, and neither does any other worktree. A stack's is remembered when
+its worktree is found or made (`stack_worktrees`), so it can lag until the
+stack is next read; git still decides where a stack lives.
+_Avoid_: worktree kind, worktree type
+
+**Worktree context**:
+What a new thread's first message tells the agent about the worktree it starts
+in, when that worktree has a **Worktree purpose**: the stack's PRs bottom first
+and to put each change on the PR it belongs to, or whose PR a managed worktree
+holds and not to push. On by default, switched off per draft in the composer.
+It follows the user's words inside `<worktree_context>` and shows as a folded
+chip, so it works on every harness and never titles the thread.
+_Avoid_: PR context, stack prompt
+
 **Agent review**:
 A review of a pull request by an agent, run as its own thread on any
 harness and filed under the PR. Its results come back as Findings.

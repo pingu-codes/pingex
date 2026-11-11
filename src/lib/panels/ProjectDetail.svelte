@@ -3,7 +3,6 @@
     AlertCircle,
     CheckCircle2,
     File as FileIcon,
-    FolderGit2,
     FolderOpen,
     FolderPlus,
     GitBranch,
@@ -36,6 +35,7 @@
   import { relativeTime } from "$lib/utils/format";
   import { basename } from "$lib/utils/path";
   import { ensureGitStatus, gitStatusCache } from "$lib/worktrees/gitStatus.svelte";
+  import ProjectIcon from "$lib/worktrees/ProjectIcon.svelte";
   import Worktrees from "$lib/worktrees/Worktrees.svelte";
   import { aheadBehindLabel, isDirty, statusSummary } from "$lib/worktrees/worktrees";
   import { isEmptyResults } from "./workspaceSearch";
@@ -285,9 +285,17 @@
       <div
         class="mt-4 flex items-center gap-2 rounded-lg border border-primary-500/30 bg-primary-500/10 px-3 py-2 text-xs"
       >
-        <FolderGit2 size={14} class="shrink-0 text-primary-500" />
+        <ProjectIcon kind="worktree" purpose={project.purpose} size={14} />
         <span class="min-w-0 flex-1 truncate">
-          This is a worktree of <span class="font-mono" title={context.parentPath}>{basename(context.parentPath)}</span>
+          {#if project.purpose?.kind === "stack"}
+            This is the worktree of the stack "{project.purpose.name}" in
+          {:else if project.purpose?.kind === "managedPr"}
+            This is the worktree for PR #{project.purpose.number}
+            of
+          {:else}
+            This is a worktree of
+          {/if}
+          <span class="font-mono" title={context.parentPath}>{basename(context.parentPath)}</span>
         </span>
         {#if onOpenProjectPath}
           <button

@@ -36,10 +36,18 @@
   import { openSettings, settingsNav } from "$lib/services/settingsNav.svelte";
   import type { ContextStats } from "$lib/thread/contextUsage";
   import { freshPlanPrompt } from "$lib/thread/planHandoff";
-  import type { ReviewTarget, SkillSummary, SubagentPolicy, TurnOptions, UserInputPart } from "$lib/types";
+  import type {
+    ReviewTarget,
+    SkillSummary,
+    SubagentPolicy,
+    TurnOptions,
+    UserInputPart,
+    WorktreeContext,
+  } from "$lib/types";
   import { can } from "$lib/utils/capabilities";
   import { clickOutside } from "$lib/utils/clickOutside";
   import { loadSize, resizeHandle } from "$lib/utils/resize";
+  import { worktreeKind } from "$lib/worktrees/worktreeKind";
 
   let {
     busy = false,
@@ -59,6 +67,7 @@
     runningSpeedTier = undefined,
     history = [],
     threadHarness = null,
+    worktreeContext = null,
     onSend,
     onInterrupt,
     onCommand,
@@ -82,6 +91,9 @@
     projectKey?: string;
     /** Thread the composer belongs to, or null for an unsent draft thread. */
     threadId?: string | null;
+    /** The managed PR worktree or Stack worktree this draft starts in, and
+     *  what the agent would be told about it; null anywhere else. */
+    worktreeContext?: WorktreeContext | null;
     /** Live context usage for the thread, or null before Codex has reported any. */
     contextStats?: ContextStats | null;
     /** A compaction turn is running. */
@@ -311,6 +323,12 @@
    */
   export function harnessChoice(): HarnessChoice | null {
     return prefs.harness;
+  }
+
+  /** Whether the draft's first message should carry its worktree context.
+   *  Read by ThreadView when the draft is sent. */
+  export function includeWorktreeContext(): boolean {
+    return prefs.worktreeContext;
   }
 
   export function implementPlan() {
@@ -794,6 +812,26 @@
           onChoose={choosePermission}
         />
       {/snippet}
+      {#snippet worktree()}
+        {#if worktreeContext}
+          {@const kind = worktreeKind("worktree", worktreeContext.purpose)}
+          <TooltipButton
+            label={prefs.worktreeContext
+              ? `The first message tells the agent about this worktree:\n\n${worktreeContext.text}`
+              : "The agent is not told what this worktree is for"}
+            multiline={true}
+            onclick={() => (settings.prefs.worktreeContext = !prefs.worktreeContext)}
+            aria-label="Include worktree context"
+            aria-pressed={prefs.worktreeContext}
+            data-testid="worktree-context-pill"
+            class="{prefs.worktreeContext ? "pill-active" : "pill"} gap-1"
+          >
+            <kind.icon size={12} />
+            {kind.label}
+            context
+          </TooltipButton>
+        {/if}
+      {/snippet}
       {#snippet home()}
         {#if !threadId}
           <HarnessMenu {harness} onChoose={(next) => settings.chooseHarness(next)} />
@@ -823,6 +861,7 @@
           ...(settings.supportsSpeed ? [{ id: "fast", priority: 3, content: fast }] : []),
           { id: "subagents", priority: 1, content: subagents },
           { id: "permissions", priority: 2, content: permissions },
+          ...(worktreeContext ? [{ id: "worktree", priority: 4, content: worktree }] : []),
           ...(!threadId || threadHomeLabel(threadId)
             ? [{ id: "home", priority: 0, placement: "end" as const, content: home }]
             : []),

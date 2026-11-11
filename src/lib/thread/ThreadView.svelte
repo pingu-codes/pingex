@@ -53,6 +53,7 @@
   import UserMessageBubble from "$lib/thread/UserMessageBubble.svelte";
   import { estimateCost } from "$lib/thread/usageCost";
   import WorkItem from "$lib/thread/WorkItem.svelte";
+  import { splitWorktreeContext, withWorktreeContext } from "$lib/thread/worktreeContext";
   import { toastError } from "$lib/toaster";
   import type {
     BootstrapData,
@@ -71,6 +72,7 @@
     TurnOptions,
     UserInputPart,
     WorktreeBranchRequest,
+    WorktreeContext,
   } from "$lib/types";
   import { can, harnessKind } from "$lib/utils/capabilities";
   import { errorMessage } from "$lib/utils/errors";
@@ -236,6 +238,26 @@
       });
   });
 
+  /** What the draft's directory is for, when it is a managed PR worktree or a
+   *  Stack worktree, and what to tell the agent about it. */
+  let draftWorktreeContext = $state<WorktreeContext | null>(null);
+  $effect(() => {
+    if (threadId || !cwd) return;
+    const dir = cwd;
+    commands
+      .reviewWorktreeContext(dir)
+      .then((context) => {
+        if (dir === cwd) draftWorktreeContext = context;
+      })
+      .catch(() => {
+        draftWorktreeContext = null;
+      });
+  });
+  /** Offered only when the thread really starts in that worktree. */
+  const offeredWorktreeContext = $derived(
+    !threadId && !workspaceId && newThreadLocation === "project" ? draftWorktreeContext : null,
+  );
+
   const notGitRepo = "This project is not a Git repository";
   const newThreadLocations = $derived<SegmentedOption<NewThreadLocation>[]>([
     { value: "project", label: "Project" },
@@ -322,8 +344,11 @@
    *  first; from there the session owns queueing, the optimistic bubble and the
    *  turn. Returns whether the message is accounted for. */
   async function send(input: UserInputPart[], options?: TurnOptions): Promise<boolean> {
+    let outgoing = input;
     if (!session.id && !session.activeTurn && !session.starting) {
       session.starting = true;
+      // Read before the thread exists: the offer is a draft's.
+      const context = composer?.includeWorktreeContext() ? offeredWorktreeContext : null;
       try {
         const id = await ensureLiveThread();
         // Name the thread off its opening message before the turn is even started:
@@ -332,6 +357,8 @@
         nameNewThread(id, messageTitle(input));
         const text = messageText(input);
         if (text.trim()) requestAutoName(id, "seed", text);
+        // After the title and the naming seed, which are the user's words only.
+        if (context) outgoing = withWorktreeContext(input, context.text);
       } catch (cause) {
         fail(cause);
         return false;
@@ -339,7 +366,7 @@
         session.starting = false;
       }
     }
-    const sent = session.send(input, options);
+    const sent = session.send(outgoing, options);
     // The optimistic bubble is already in the transcript; follow it.
     transcript.follow(true);
     return sent;
@@ -445,7 +472,7 @@
     const out: string[] = [];
     for (const item of allItems) {
       if (item.type !== "userMessage" || !item.content) continue;
-      const text = messageText(item.content as UserInputPart[]).trim();
+      const text = messageText(splitWorktreeContext(item.content as UserInputPart[]).content).trim();
       if (text && out.at(-1) !== text) out.push(text);
     }
     return out;
@@ -984,6 +1011,7 @@
       history={messageHistory}
       projectKey={projectPath || cwd}
       {threadId}
+      worktreeContext={offeredWorktreeContext}
       threadHarness={harnessKind(thread?.harness) ?? (threadId ? "codex" : null)}
       onSend={send}
       onInterrupt={() => session.interrupt()}

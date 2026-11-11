@@ -7,15 +7,18 @@
     label: string;
     children: Snippet;
     openDelay?: number;
+    /** Keep the label's line breaks, for a tooltip that quotes text. */
+    multiline?: boolean;
   };
 
-  let { label, children, openDelay = 350, ...buttonProps }: Props = $props();
+  let { label, children, openDelay = 350, multiline = false, ...buttonProps }: Props = $props();
 </script>
 
 <TooltipAnchor
   tag="button"
   {label}
   {openDelay}
+  {multiline}
   {...buttonProps as HTMLAttributes<HTMLElement>}
   aria-label={buttonProps["aria-label"] ?? label}
 >

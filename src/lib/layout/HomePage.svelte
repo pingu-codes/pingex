@@ -7,8 +7,6 @@
     ChevronDown,
     Cpu,
     EyeOff,
-    Folder,
-    FolderGit2,
     FolderOpen,
     Gauge,
     House,
@@ -34,6 +32,7 @@
   import { formatTokensShort, relativeTime } from "$lib/utils/format";
   import { resource } from "$lib/utils/resource.svelte";
   import BranchChip from "$lib/worktrees/BranchChip.svelte";
+  import ProjectIcon from "$lib/worktrees/ProjectIcon.svelte";
 
   type HomeAction = "reveal" | "rename" | "togglePin" | "toggleArchive" | "remove";
 
@@ -146,13 +145,7 @@
 
 {#snippet projectRow(project: Project, hideLabel: string, HideIcon: typeof X)}
   <div class="group/row flex items-center gap-3 panel-card px-3 py-2.5">
-    {#if project.kind === "multiProject"}
-      <Layers3 size={17} strokeWidth={1.7} class="shrink-0 text-primary-500" />
-    {:else if project.kind === "worktree"}
-      <FolderGit2 size={17} strokeWidth={1.7} class="shrink-0 text-primary-500" />
-    {:else}
-      <Folder size={17} strokeWidth={1.7} class="shrink-0 text-surface-500" />
-    {/if}
+    <ProjectIcon kind={project.kind} purpose={project.purpose} size={17} />
     <button
       onclick={() => onNewThread(project)}
       class="min-w-0 flex-1 text-left"
@@ -409,11 +402,7 @@
             <div
               class="group/row flex items-center gap-3 rounded-xl border border-surface-200-800 px-3 py-2.5 opacity-70 transition hover:opacity-100"
             >
-              {#if project.kind === "worktree"}
-                <FolderGit2 size={17} strokeWidth={1.7} class="shrink-0 text-surface-500" />
-              {:else}
-                <Folder size={17} strokeWidth={1.7} class="shrink-0 text-surface-500" />
-              {/if}
+              <ProjectIcon kind={project.kind} purpose={project.purpose} size={17} muted />
               <div class="min-w-0 flex-1">
                 <div class="truncate text-sm font-medium">{project.name}</div>
                 <div class="truncate text-[11px] text-surface-500">{project.path}</div>

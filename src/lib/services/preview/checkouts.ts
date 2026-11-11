@@ -197,6 +197,17 @@ export const previewCheckoutCommands: PreviewCommands = {
     }
     return null;
   },
+  reviewWorktreeContext(dir) {
+    for (const [name, checkout] of state.checkouts) {
+      if (checkout.path !== dir || !checkout.managed) continue;
+      const number = checkout.number;
+      return {
+        purpose: { kind: "managedPr", repoDir: name.slice(0, name.lastIndexOf("#")), number },
+        text: `This directory is a worktree for pull request #${number}, which is someone else's or comes from a fork. Pingex made it and removes it once the PR has closed and it holds no work.\nIt is on the local branch \`pr/${number}\`, which has no upstream, so commits stay local. Don't push and don't set an upstream: the user pushes to the PR from Pingex.`,
+      };
+    }
+    return null;
+  },
   reviewPruneClosed: () => ({ removedCheckouts: [], closed: [] }),
   reviewSetCheckoutPolicy(repoDir, policy, skipConfirm) {
     repositoryCommands.reviewSaveRepositorySettings?.(repoDir, {

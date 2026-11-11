@@ -18,6 +18,7 @@ use super::worktrees::{
     discover_worktrees, is_temp_worktree_path, is_worktree_path, temp_worktrees_root_on,
     worktree_parent_project_on,
 };
+use crate::review::worktree_purpose::WorktreePurpose;
 use crate::storage::{
     self, SideQuestion, Store, StoredProject, StoredProjectSource, StoredThreadSummary,
     StoredWorkspaceMember, ThreadBranch,
@@ -380,6 +381,7 @@ async fn read_bootstrap_extras(ctx: &HomeContext) -> Result<BootstrapExtras, Str
         sections: storage::read_thread_sections(&ctx.database()).await?,
         sections_supported: storage::thread_sections_supported(&ctx.database()).await?,
         sidebar_layout: storage::read_sidebar_layout(&ctx.database()).await?,
+        worktree_purposes: storage::read_worktree_purposes(&ctx.database()).await?,
     })
 }
 
@@ -467,7 +469,10 @@ fn build_bootstrap(
         sections,
         sections_supported,
         sidebar_layout,
+        worktree_purposes,
     } = extras;
+    let worktree_purposes: HashMap<String, WorktreePurpose> =
+        worktree_purposes.into_iter().collect();
     // Branches need their last activity so the UI can open the newest one;
     // the listing is the only place that knows it.
     for branch in &mut thread_branches {
@@ -625,6 +630,9 @@ fn build_bootstrap(
             sources: sources_by_project.remove(&entry.path).unwrap_or_default(),
             members: Vec::new(),
             recency_at: project_recency.get(&entry.path).copied(),
+            purpose: worktree
+                .then(|| worktree_purposes.get(&entry.path).cloned())
+                .flatten(),
             path: entry.path,
         });
     }
@@ -679,6 +687,7 @@ fn build_bootstrap(
                 })
                 .collect(),
             recency_at: project_recency.get(&workspace.hub_path).copied(),
+            purpose: None,
             path: workspace.hub_path,
         });
     }
@@ -859,6 +868,7 @@ mod tests {
                 project_recency: HashMap::new(),
                 sections_supported: false,
                 sidebar_layout: Default::default(),
+                worktree_purposes: Vec::new(),
             },
         )
         .unwrap();
@@ -950,6 +960,7 @@ mod tests {
                 project_recency: HashMap::new(),
                 sections_supported: false,
                 sidebar_layout: Default::default(),
+                worktree_purposes: Vec::new(),
             },
         )
         .unwrap();
@@ -1017,6 +1028,7 @@ mod tests {
                 project_recency: HashMap::new(),
                 sections_supported: false,
                 sidebar_layout: Default::default(),
+                worktree_purposes: Vec::new(),
             },
         )
         .unwrap();
@@ -1085,6 +1097,7 @@ mod tests {
                 project_recency: HashMap::new(),
                 sections_supported: false,
                 sidebar_layout: Default::default(),
+                worktree_purposes: Vec::new(),
             },
         )
         .unwrap();
@@ -1161,6 +1174,7 @@ mod tests {
             project_recency: HashMap::new(),
             sections_supported: false,
             sidebar_layout: Default::default(),
+            worktree_purposes: Vec::new(),
         };
         let runtime = RuntimeConfig {
             codex_home: home,
@@ -1276,6 +1290,7 @@ mod tests {
                 project_recency: HashMap::new(),
                 sections_supported: false,
                 sidebar_layout: Default::default(),
+                worktree_purposes: Vec::new(),
             },
         )
         .unwrap();
@@ -1347,6 +1362,7 @@ mod tests {
                 project_recency: HashMap::new(),
                 sections_supported: false,
                 sidebar_layout: Default::default(),
+                worktree_purposes: Vec::new(),
             },
         )
         .unwrap();
@@ -1419,6 +1435,7 @@ mod tests {
                 project_recency: HashMap::new(),
                 sections_supported: false,
                 sidebar_layout: Default::default(),
+                worktree_purposes: Vec::new(),
             },
         )
         .unwrap();
@@ -1483,6 +1500,7 @@ mod tests {
                 project_recency: HashMap::new(),
                 sections_supported: false,
                 sidebar_layout: Default::default(),
+                worktree_purposes: Vec::new(),
             },
         )
         .unwrap();

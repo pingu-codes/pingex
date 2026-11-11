@@ -49,6 +49,7 @@ export function worktreeEntry(overrides: Partial<WorktreeEntry> = {}): WorktreeE
     isCodexManaged: false,
     isTemp: false,
     isManagedPrWorktree: false,
+    purpose: null,
     missingDir: false,
     branchCheckedOutElsewhere: false,
     upstream: null,

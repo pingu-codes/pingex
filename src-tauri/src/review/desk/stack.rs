@@ -22,6 +22,7 @@ use crate::review::stack_types::{
     PrBaseInput, PrBehind, RestackPlan, RestackPlanStep, StackBranch, StackInput, StackInputPr,
     StackOverview, StackWorktree,
 };
+use crate::review::worktree_purpose::WorktreePurpose;
 
 /// The base's newest commits the Stack page lists.
 const BASE_COMMITS_SHOWN: usize = 5;
@@ -271,6 +272,7 @@ impl ReviewDesk {
     /// The stack's git branches on disk, the base's lead and its worktree.
     pub(crate) async fn stack_overview(&self, input: StackInput) -> Result<StackOverview, String> {
         let stored = self.stored_restack(input.number).await?;
+        let purpose = WorktreePurpose::stack(&self.repo_key(), &input);
         let mut overview = self
             .blocking("Reading the stack failed", move |desk| {
                 let open = input.open_prs();
@@ -331,6 +333,9 @@ impl ReviewDesk {
             })
             .await?;
         overview.restack = stored.map(|run| run.progress());
+        if let Some(worktree) = &overview.worktree {
+            self.record_stack_worktree(&worktree.path, &purpose).await?;
+        }
         Ok(overview)
     }
 

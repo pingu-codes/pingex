@@ -344,6 +344,23 @@ describe("Sidebar", () => {
     expect(screen.queryByRole("menuitem", { name: "Move up" })).not.toBeInTheDocument();
   });
 
+  it("marks a stack worktree and a managed PR worktree apart from an ordinary one", () => {
+    const stack = {
+      ...project(),
+      kind: "worktree" as const,
+      purpose: { kind: "stack" as const, repoDir: "/repo", number: 7, name: "billing", baseRef: "main", prs: [] },
+    };
+    const { unmount } = setup(stack);
+    expect(screen.getByTestId("project-icon")).toHaveAttribute("data-purpose", "stack");
+    expect(screen.getByTestId("project-icon")).toHaveAccessibleName(
+      'Stack worktree for "billing". Switching PR switches its branch.',
+    );
+    unmount();
+
+    setup({ ...stack, purpose: { kind: "managedPr" as const, repoDir: "/repo", number: 57 } });
+    expect(screen.getByTestId("project-icon")).toHaveAttribute("data-purpose", "managedPr");
+  });
+
   it("treats multi-project workspaces as immutable containers while allowing thread moves", async () => {
     const user = userEvent.setup();
     const workspace = {

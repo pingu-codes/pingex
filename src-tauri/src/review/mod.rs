@@ -33,3 +33,5 @@ pub(crate) mod requirements;
 pub(crate) mod stack_commands;
 pub(crate) mod stack_types;
 pub(crate) mod types;
+pub(crate) mod worktree_context;
+pub(crate) mod worktree_purpose;

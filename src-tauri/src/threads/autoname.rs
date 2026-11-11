@@ -114,6 +114,7 @@ async fn resolve_seed(
             opening_exchange(response.get("thread")?)
         }
     };
+    let raw = crate::review::worktree_context::strip_worktree_context(&raw);
     let trimmed = strip_mention_markup(raw.trim());
     if trimmed.is_empty() {
         return None;

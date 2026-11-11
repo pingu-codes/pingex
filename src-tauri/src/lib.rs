@@ -779,6 +779,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             review::checkout_commands::review_remove_pr_worktree,
             review::checkout_commands::review_push_to_pr,
             review::checkout_commands::review_managed_worktree_at,
+            review::checkout_commands::review_worktree_context,
             review::checkout_commands::review_prune_closed,
             review::checkout_commands::review_set_checkout_policy,
             review::checkout_commands::review_link_thread,

@@ -96,6 +96,9 @@ impl ReviewDesk {
             }
         }
 
+        storage::prune_stack_worktrees(&self.database, &key, |number| open.contains(&number))
+            .await?;
+
         for link in storage::read_pr_links(&self.database).await? {
             if link.repo_key == key && link.closed_at.is_none() && !open.contains(&link.pr_number) {
                 storage::mark_pr_links_closed(&self.database, &key, link.pr_number, now).await?;

@@ -21,6 +21,12 @@ Provide a repository-level **Worktrees** view and lightweight worktree informati
 
 Worktree identity must use canonical path plus Git common directory, not the display name or the assumption that all worktrees live below `CODEX_HOME/worktrees`. Keep the existing importer as a source of discovered projects, but do not classify arbitrary linked worktrees as disposable Codex worktrees.
 
+## What a worktree is for
+
+A worktree project and a row in the Worktrees list show what Pingex knows the worktree is for (its Worktree purpose): a managed PR worktree gets a pull-request icon, a Stack worktree a stack icon, and any other worktree the plain worktree icon. The tooltip names the PR, or the stack and its PRs. One component draws all of them (`src/lib/worktrees/ProjectIcon.svelte`, from `worktreeKind`), reading `Project.purpose` and `WorktreeEntry.purpose`. A worktree on your own single PR's branch is an ordinary worktree here.
+
+A new thread drafted in a worktree with a purpose shows a composer pill, on by default, that adds worktree context to the first message (`features/17-review-desk.md`, "Worktree context").
+
 ## Sidebar nesting
 
 A toggle in the Projects header ("Nest worktrees under their repository") switches the sidebar between two layouts. The choice is a per-device preference (`sidebarPrefs.nestWorktrees`, in localStorage).

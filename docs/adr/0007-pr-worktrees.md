@@ -92,6 +92,15 @@ separate answers.
    and Push to PR refuse a worktree on another branch: either would otherwise
    move a PR's branch onto its neighbour's commits.
 
+   A stack's worktree is still found by branch. The `stack_worktrees` table,
+   added later, only remembers the last answer by path (the stack's name, base
+   and open PRs), so listings can mark the worktree and a new thread can be told
+   where it is without reading GitHub. It is written when the desk finds or makes
+   the worktree (`ReviewDesk::record_stack_worktree`) and dropped with the
+   worktree or the stack's last open PR. Readers check the branch, so a stale
+   row marks nothing. Point 7 is unchanged: a managed worktree needs no second
+   store.
+
 10. **A same-repository PR's branch, checked out anywhere, is that PR's worktree,
     whoever wrote the PR.** The location rule is one function,
     `pr_checkouts::locate`, which the inbox, PR page and Stack page all read

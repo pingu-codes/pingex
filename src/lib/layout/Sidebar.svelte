@@ -6,7 +6,6 @@
     Ellipsis,
     EyeOff,
     Folder,
-    FolderGit2,
     FolderOpen,
     FolderPlus,
     FolderTree,
@@ -81,6 +80,7 @@
   import { basename } from "$lib/utils/path";
   import BranchChip from "$lib/worktrees/BranchChip.svelte";
   import { ensureGitStatus, gitStatusCache } from "$lib/worktrees/gitStatus.svelte";
+  import ProjectIcon from "$lib/worktrees/ProjectIcon.svelte";
   import { ensureWorktrees, worktreeMap } from "$lib/worktrees/worktreeMap.svelte";
   import { nestProjects, type WorktreeChild } from "$lib/worktrees/worktreeTree";
 
@@ -763,15 +763,7 @@
         class="group flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 pl-2 pr-14 text-left text-[13px] font-medium group-hover/project:preset-tonal"
       >
         <ChevronDown class="text-surface-500 transition group-data-[state=closed]:-rotate-90" size={14} />
-        {#if project.kind === "multiProject"}
-          <Layers3 class="text-primary-500" size={15} strokeWidth={1.7} />
-        {:else if project.kind === "worktree"}
-          <TooltipAnchor label="Codex worktree" class="grid place-items-center">
-            <FolderGit2 class="text-primary-500" size={15} strokeWidth={1.7} />
-          </TooltipAnchor>
-        {:else}
-          <Folder class="text-surface-500" size={15} strokeWidth={1.7} />
-        {/if}
+        <ProjectIcon kind={project.kind} purpose={project.purpose} />
         <TooltipAnchor
           label={projectTooltip(project)}
           multiline={true}
@@ -890,9 +882,7 @@
         class="group flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 pl-2 pr-14 text-left text-[13px] text-surface-600-400 group-hover/unadded:preset-tonal"
       >
         <ChevronDown class="text-surface-500 transition group-data-[state=closed]:-rotate-90" size={14} />
-        <TooltipAnchor label="Worktree not added to the sidebar" class="grid place-items-center">
-          <FolderGit2 class="text-surface-500" size={15} strokeWidth={1.7} />
-        </TooltipAnchor>
+        <ProjectIcon kind="worktree" purpose={child.purpose} muted note="Worktree not added to the sidebar" />
         <TooltipAnchor
           label={`${child.path}\n⎇ ${child.branch}`}
           multiline={true}

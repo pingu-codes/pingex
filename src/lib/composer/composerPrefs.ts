@@ -30,6 +30,9 @@ export interface ComposerPrefs extends SubagentPrefs {
   /** The mode of a harness with its own modes (`HARNESS_MODES`). One slot
    *  for all of them; the key predates the others. */
   claudeMode: HarnessMode | null;
+  /** Tell the agent about the managed PR worktree or Stack worktree a new
+   *  thread starts in. Only read when a draft in one is sent. */
+  worktreeContext: boolean;
 }
 
 export interface PermissionPreset {
@@ -111,6 +114,7 @@ const defaults = (): ComposerPrefs => ({
   permissionPreset: null,
   planMode: false,
   claudeMode: null,
+  worktreeContext: true,
   subagentModelPolicy: null,
   subagentReasoningEffortPolicy: null,
 });

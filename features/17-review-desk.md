@@ -83,6 +83,12 @@ button names the step it would create.
 | No checkout | Hidden refs only | Read, comment, approve, merge, diff review, stack tree | `review_fetch_prs`, `review_diff`, `review_file`, `review_changes_since` |
 | Worktree | A real worktree on a local branch (ADR 0007) | Build, run, test, measure, edit and commit; push, restack, agents fixing review comments | `review_ensure_pr_worktree`, `review_ensure_stack_worktree`, `review_push_to_pr`; where each PR is: `review_pr_checkouts` |
 
+## Worktree context
+
+A thread started from a draft in a managed PR worktree or a Stack worktree tells the agent where it is. The backend builds the text (`review/worktree_context.rs`, command `review_worktree_context`): for a stack, its open PRs bottom first, the branch checked out now, and the rule to put each change on the PR it belongs to and restack the PRs above; for a managed PR worktree, whose PR it holds and not to push. It reads the stored Worktree purpose and the directory's branch, never GitHub, and gives nothing when the worktree has since been put on a branch outside the stack.
+
+The composer shows a pill for it on a draft, on by default (`ComposerPrefs.worktreeContext`), and only when the thread starts in that worktree: choosing a temporary or permanent worktree withdraws it. ThreadView appends the text to the first message inside `<worktree_context>`, after the user's words, so the title and the naming seed are the user's alone. The bubble folds it under a "Worktree context" chip (`thread/worktreeContext.ts` owns the tag). Agent reviews, conflict threads and plan threads send their own prompts and get none.
+
 ## Where the code goes
 
 | Piece | Where | Extend it by |

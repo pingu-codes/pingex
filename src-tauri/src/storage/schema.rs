@@ -365,6 +365,15 @@ CREATE TABLE IF NOT EXISTS review_inbox_snapshots (
      slug TEXT PRIMARY KEY,
      added_at INTEGER NOT NULL
  );
+ CREATE TABLE IF NOT EXISTS stack_worktrees (
+     path TEXT PRIMARY KEY,
+     repo_key TEXT NOT NULL,
+     stack_number INTEGER NOT NULL,
+     stack_name TEXT NOT NULL,
+     base_ref TEXT NOT NULL,
+     prs TEXT NOT NULL,
+     updated_at INTEGER NOT NULL
+ );
  CREATE TABLE IF NOT EXISTS review_restacks (
      repo_key TEXT NOT NULL,
      stack_number INTEGER NOT NULL,

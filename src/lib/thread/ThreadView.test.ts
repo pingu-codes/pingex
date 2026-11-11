@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   startTurn: vi.fn(),
   compactThread: vi.fn(),
   gitRepoInfo: vi.fn(),
+  reviewWorktreeContext: vi.fn().mockResolvedValue(null),
   gitRecentCommits: vi.fn(),
   gitBranches: vi.fn(),
   startReview: vi.fn(),
@@ -127,6 +128,7 @@ vi.mock("$lib/services/homeRouting", async (importOriginal) => {
       saveDraft: vi.fn().mockResolvedValue(undefined),
       deleteDraft: vi.fn().mockResolvedValue(undefined),
       gitRepoInfo: mocks.gitRepoInfo,
+      reviewWorktreeContext: mocks.reviewWorktreeContext,
       gitRecentCommits: mocks.gitRecentCommits,
       gitBranches: mocks.gitBranches,
       interruptTurn: mocks.interruptTurn,
@@ -963,6 +965,89 @@ describe("ThreadView workspace starts", () => {
         resolvedEffort: "high",
       },
     );
+  });
+});
+
+describe("ThreadView worktree context", () => {
+  const stackContext = {
+    purpose: {
+      kind: "stack",
+      repoDir: "/repo",
+      number: 7,
+      name: "billing",
+      baseRef: "main",
+      prs: [{ number: 101, title: "Add the ledger", headRef: "billing/ledger" }],
+    },
+    text: 'This directory is the worktree of the stack "billing".',
+  };
+  const box = () => screen.getByRole("textbox", { name: "Message Codex… (@ to attach files, / for commands)" });
+  const firstMessage = () => mocks.startTurn.mock.calls[0][1];
+
+  beforeEach(() => {
+    resetSessions();
+    mocks.startThread.mockReset();
+    mocks.startTurn.mockReset();
+    mocks.requestAutoName.mockReset();
+    mocks.gitRepoInfo.mockResolvedValue({ isGitRepo: true, root: "/repo" });
+    mocks.gitRecentCommits.mockResolvedValue([]);
+    mocks.startThread.mockResolvedValue({ id: "thread-9", cwd: "/wt/billing" });
+    mocks.startTurn.mockResolvedValue({ id: "turn-9", status: "inProgress" });
+    mocks.reviewWorktreeContext.mockResolvedValue(stackContext);
+  });
+  afterEach(() => {
+    mocks.reviewWorktreeContext.mockResolvedValue(null);
+  });
+
+  it("tells the agent about a stack worktree in the first message, after the user's words", async () => {
+    const user = userEvent.setup();
+    render(ThreadView, { threadId: null, cwd: "/wt/billing" });
+    expect(await screen.findByRole("button", { name: "Include worktree context" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    await user.type(box(), "Fix the tax rounding{Enter}");
+
+    await vi.waitFor(() => expect(mocks.startTurn).toHaveBeenCalled());
+    expect(firstMessage()).toEqual([
+      { type: "text", text: "Fix the tax rounding" },
+      { type: "text", text: `\n\n<worktree_context>\n${stackContext.text}\n</worktree_context>` },
+    ]);
+    // The thread is named from what the user typed alone.
+    expect(mocks.requestAutoName).toHaveBeenCalledWith("thread-9", "seed", "Fix the tax rounding");
+  });
+
+  it("sends nothing extra once the option is switched off", async () => {
+    const user = userEvent.setup();
+    render(ThreadView, { threadId: null, cwd: "/wt/switched-off" });
+    await user.click(await screen.findByRole("button", { name: "Include worktree context" }));
+
+    await user.type(box(), "Fix the tax rounding{Enter}");
+
+    await vi.waitFor(() => expect(mocks.startTurn).toHaveBeenCalled());
+    expect(firstMessage()).toEqual([{ type: "text", text: "Fix the tax rounding" }]);
+  });
+
+  it("offers nothing in a directory that is not a PR or stack worktree", async () => {
+    mocks.reviewWorktreeContext.mockResolvedValue(null);
+    const user = userEvent.setup();
+    render(ThreadView, { threadId: null, cwd: "/projects/example" });
+
+    await user.type(box(), "Fix the tax rounding{Enter}");
+
+    await vi.waitFor(() => expect(mocks.startTurn).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Include worktree context" })).not.toBeInTheDocument();
+    expect(firstMessage()).toEqual([{ type: "text", text: "Fix the tax rounding" }]);
+  });
+
+  it("withdraws the offer when the thread will start in a temporary worktree instead", async () => {
+    const user = userEvent.setup();
+    render(ThreadView, { threadId: null, cwd: "/wt/billing", projectPath: "/wt/billing", codexHome: "/codex" });
+    await screen.findByRole("button", { name: "Include worktree context" });
+
+    await user.click(await screen.findByRole("radio", { name: "Temporary worktree" }));
+
+    expect(screen.queryByRole("button", { name: "Include worktree context" })).not.toBeInTheDocument();
   });
 });
 

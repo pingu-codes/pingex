@@ -143,6 +143,9 @@ describe("worktree helpers", () => {
     expect(cards.map((card) => card.entry.path)).toEqual(["/repo", managed.path, adopted.path, plain.path]);
     expect(prNumberOf(managed)).toBe(9);
     expect(prNumberOf(adopted)).toBe(8);
+    // What Pingex recorded wins over what the names suggest.
+    const recorded = { ...adopted, purpose: { kind: "managedPr" as const, repoDir: "/repo", number: 12 } };
+    expect(prNumberOf(recorded)).toBe(12);
     expect(prNumberOf(plain)).toBeNull();
   });
 
