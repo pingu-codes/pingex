@@ -8,6 +8,11 @@ beforeEach(() => (globalThis as { __resetQueryCache?: () => void }).__resetQuery
 // Likewise what each page had open when it was left.
 beforeEach(forgetPlaces);
 
+// And the browser preview's review desk, which the command fakes answer from:
+// back to the demo before each test, which then seeds what it needs. It
+// registers its reset when loaded.
+beforeEach(() => (globalThis as { __resetPreviewDesk?: () => void }).__resetPreviewDesk?.());
+
 // Pure-logic test files opt into `// @vitest-environment node`, which skips
 // booting jsdom. Everything below is a DOM shim, so only install it there.
 if (typeof window !== "undefined") {

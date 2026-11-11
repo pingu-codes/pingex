@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prLinks, resetPrLinks } from "$lib/review/prLinks.svelte";
 import { commands } from "$lib/services/homeRouting";
-import { resetPreviewCheckouts, setPreviewCheckout } from "$lib/services/preview/checkouts";
-import type { CheckoutTarget } from "$lib/types";
+import { seedPreviewDesk } from "$lib/services/preview/desk";
+import { deskRepository, prCheckout } from "$lib/services/preview/factories";
+import type { CheckoutTarget, PrCheckout } from "$lib/types";
 import { startPrThread } from "./prThreads";
 
 vi.mock("$lib/services/homeRouting", async (importOriginal) => {
@@ -27,9 +28,17 @@ const target: CheckoutTarget = {
 };
 const input = [{ type: "text" as const, text: "Review this" }];
 
+/** The repository, with PR 409's worktree where `checkout` puts it. */
+function seed(checkout?: Partial<PrCheckout>) {
+  const checkouts = checkout ? [prCheckout(409, checkout)] : [];
+  seedPreviewDesk({
+    repositories: [deskRepository("ciaran/codex-custom", { repository: { path: repoDir }, checkouts })],
+  });
+}
+
 describe("startPrThread", () => {
   beforeEach(() => {
-    resetPreviewCheckouts();
+    seed();
     resetPrLinks();
     vi.mocked(commands.startThread).mockClear();
     vi.mocked(commands.startTurn).mockClear();
@@ -53,8 +62,7 @@ describe("startPrThread", () => {
   });
 
   it("only reads in a stack's worktree that is on another PR's branch", async () => {
-    setPreviewCheckout(repoDir, {
-      number: 409,
+    seed({
       step: "worktree",
       path: "/wt/stack",
       headSha: target.headSha,
@@ -80,8 +88,7 @@ describe("startPrThread", () => {
   });
 
   it("runs in the worktree with the caller's permissions once the PR has one", async () => {
-    setPreviewCheckout(repoDir, {
-      number: 409,
+    seed({
       step: "worktree",
       path: "/wt/usage-meter",
       headSha: target.headSha,
@@ -101,8 +108,7 @@ describe("startPrThread", () => {
   });
 
   it("lets a run nobody chose permissions for write in the worktree, and nothing more", async () => {
-    setPreviewCheckout(repoDir, {
-      number: 409,
+    seed({
       step: "worktree",
       path: "/wt/pr-409",
       headSha: target.headSha,

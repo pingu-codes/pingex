@@ -6,8 +6,8 @@ import { closeAllDialogs } from "$lib/app/dialogs.svelte";
 import DialogHost from "$lib/components/DialogHost.svelte";
 import Sidebar from "$lib/layout/Sidebar.svelte";
 import { prLinks, resetPrLinks } from "$lib/review/prLinks.svelte";
-import { resetPreviewCheckouts, setPreviewPrLink } from "$lib/services/preview/checkouts";
-import { threadSummary } from "$lib/services/preview/factories";
+import { seedPreviewDesk } from "$lib/services/preview/desk";
+import { deskRepository, inboxPr, threadSummary } from "$lib/services/preview/factories";
 import type { PrLink, Project } from "$lib/types";
 
 vi.mock("$lib/services/homeRouting", async (importOriginal) => {
@@ -73,11 +73,21 @@ function setup() {
 
 describe("Sidebar Reviews group", () => {
   beforeEach(() => {
-    resetPreviewCheckouts();
+    // Someone's #126 and my #128, with a thread filed under each.
+    seedPreviewDesk({
+      repositories: [
+        deskRepository("ciaran/codex-custom", {
+          repository: { path: repo },
+          prs: [
+            inboxPr({ number: 126, title: "Native git worktree service", author: "octo-helper" }),
+            inboxPr({ number: 128, title: "Add pull-request review view" }),
+          ],
+        }),
+      ],
+      links: [link("diff"), link("mine", { prNumber: 128, mine: true, step: "worktree", checkoutPath: "/wt/review" })],
+    });
     resetPrLinks();
     closeAllDialogs();
-    setPreviewPrLink(link("diff"));
-    setPreviewPrLink(link("mine", { prNumber: 128, mine: true, step: "worktree", checkoutPath: "/wt/review" }));
   });
 
   it("files threads on other people's PRs under Reviews and keeps my worktree threads in place with a PR chip", async () => {

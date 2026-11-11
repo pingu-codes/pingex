@@ -3,16 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DialogHost from "$lib/components/DialogHost.svelte";
 import type { InboxHandlers } from "$lib/inbox/handlers";
+import { SCENARIO_DIR, seedInboxScenario } from "$lib/inbox/inboxScenario";
 import { inboxes } from "$lib/inbox/inboxStore.svelte";
 import PullRequestsView from "$lib/inbox/PullRequestsView.svelte";
-import { resetDeskActivity } from "$lib/services/preview/desk";
-import { resetPreviewStacks, setPreviewStackDrift } from "$lib/services/preview/stack";
 
-const MAIN = "/Users/ciaran/Projects/codex-custom";
+const MAIN = SCENARIO_DIR;
 
 beforeEach(() => {
-  resetPreviewStacks();
-  resetDeskActivity();
+  seedInboxScenario();
   localStorage.clear();
   for (const key of Object.keys(inboxes)) delete inboxes[key];
 });
@@ -95,7 +93,7 @@ describe("my PRs that are behind their base", () => {
   });
 
   it("a drifted PR shows even when the stack's base has not moved", async () => {
-    setPreviewStackDrift(MAIN, 7, 0, [418]);
+    seedInboxScenario({ behind: 0, drifted: [418] });
     setup();
     expect(await screen.findByText("Behind #415")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Behind main by/ })).not.toBeInTheDocument();

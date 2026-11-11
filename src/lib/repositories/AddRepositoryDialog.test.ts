@@ -5,7 +5,7 @@ import { NATIVE_HOST } from "$lib/app/host";
 import AddRepositoryDialog, { type AddRepositoryInitial } from "$lib/repositories/AddRepositoryDialog.svelte";
 import { resetRepositories } from "$lib/repositories/repositoryStore.svelte";
 import { commands } from "$lib/services/homeRouting";
-import { FORK_FOLDER, resetPreviewRepositories } from "$lib/services/preview/repositories";
+import { FORK_FOLDER } from "$lib/services/preview/demoDesk";
 
 // Add repository over the preview fakes: the account is `ciaran`, signed in
 // through the keyring with a second login; codex-custom and arctic-explorer
@@ -30,10 +30,7 @@ const rowFor = (group: HTMLElement, slug: string) =>
   within(group).getByText(slug).closest("[data-repository]") as HTMLElement;
 
 describe("AddRepositoryDialog", () => {
-  beforeEach(() => {
-    resetPreviewRepositories();
-    resetRepositories();
-  });
+  beforeEach(() => resetRepositories());
 
   it("lists repositories asking for my review and not yet added first, then mine", async () => {
     setup();

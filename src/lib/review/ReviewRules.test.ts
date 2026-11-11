@@ -3,13 +3,13 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import ReviewRules from "$lib/review/ReviewRules.svelte";
 import { commands } from "$lib/services/homeRouting";
-import { resetPreviewAgentReviews } from "$lib/services/preview/agentReviews";
-import { DESK_REPOS } from "$lib/services/preview/desk";
+import { seedPreviewDesk } from "$lib/services/preview/desk";
+import { deskRepository } from "$lib/services/preview/factories";
 
-const repoDir = DESK_REPOS[0].path as string;
+const repoDir = "/repos/app";
 const rules = async () => (await commands.reviewRules(repoDir)).map((rule) => rule.rule);
 
-beforeEach(() => resetPreviewAgentReviews());
+beforeEach(() => seedPreviewDesk({ repositories: [deskRepository("me/app", { repository: { path: repoDir } })] }));
 
 describe("repository review rules", () => {
   it("adds, edits and removes the rules agent reviews skip", async () => {

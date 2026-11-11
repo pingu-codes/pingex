@@ -15,19 +15,20 @@ import {
   UNASSIGNED,
   visibleRows,
 } from "$lib/inbox/inbox";
+import { SCENARIO_DIR, seedInboxScenario } from "$lib/inbox/inboxScenario";
 import { commands } from "$lib/services/homeRouting";
-import { DESK_VIEWER, resetDeskActivity } from "$lib/services/preview/desk";
 import { inboxPr } from "$lib/services/preview/factories";
 import type { GitHubPerson, Inbox, StackListing } from "$lib/types";
 
-const MAIN = "/Users/ciaran/Projects/codex-custom";
+const MAIN = SCENARIO_DIR;
+const VIEWER = "ciaran";
 const NO_CHIPS = { drafts: false, ciFailing: false, unresolved: false };
 
 let inbox: Inbox;
 let stacks: StackListing;
 
 beforeEach(async () => {
-  resetDeskActivity();
+  seedInboxScenario();
   inbox = await commands.reviewInbox(MAIN);
   stacks = await commands.reviewStacks(MAIN);
 });
@@ -61,13 +62,13 @@ describe("the people filters", () => {
     expect(everyone({ authors: ["jo-r"] })).toEqual([401, 403]);
     expect(everyone({ authors: ["jo-r", "tomasz"] })).toEqual([401, 403, 420]);
     expect(everyone({ assignees: ["mira-k"] })).toEqual([415, 420]);
-    expect(everyone({ authors: ["jo-r", "tomasz"], assignees: [DESK_VIEWER] })).toEqual([403]);
+    expect(everyone({ authors: ["jo-r", "tomasz"], assignees: [VIEWER] })).toEqual([403]);
   });
 
   it("offer Unassigned for the PRs no one is assigned to", () => {
     const all = everyone({});
     expect(everyone({ assignees: [UNASSIGNED] })).toEqual(all.filter((n) => ![403, 415, 420].includes(n)));
-    expect(everyone({ assignees: [UNASSIGNED, DESK_VIEWER] })).toEqual(all.filter((n) => ![415, 420].includes(n)));
+    expect(everyone({ assignees: [UNASSIGNED, VIEWER] })).toEqual(all.filter((n) => ![415, 420].includes(n)));
   });
 
   it("narrow the tab counts, which read the backend's when no one is chosen", () => {
@@ -84,17 +85,17 @@ describe("the people filters", () => {
     const options = personOptions(inbox, "everyone", NO_CHIPS, "", NO_PEOPLE);
     expect(options.assignees.map(({ login, count }) => [login, count])).toEqual([
       [UNASSIGNED, everyone({}).length - 3],
-      [DESK_VIEWER, 1],
+      [VIEWER, 1],
       ["mira-k", 2],
       ["tomasz", 1],
     ]);
-    expect(options.authors[0]).toEqual({ login: DESK_VIEWER, count: inbox.counts.mine });
+    expect(options.authors[0]).toEqual({ login: VIEWER, count: inbox.counts.mine });
 
     const byJo = personOptions(inbox, "everyone", NO_CHIPS, "", { ...NO_PEOPLE, authors: ["jo-r"] });
     expect(byJo.authors).toEqual(options.authors);
     expect(byJo.assignees.map(({ login, count }) => [login, count])).toEqual([
       [UNASSIGNED, 1],
-      [DESK_VIEWER, 1],
+      [VIEWER, 1],
       ["mira-k", 0],
       ["tomasz", 0],
     ]);
@@ -129,7 +130,7 @@ describe("the inbox sections", () => {
   });
 
   it("show a whole stack, its other PRs dimmed, when asked to and one of its PRs matches", () => {
-    const rows = visibleRows(inbox, "everyone", NO_CHIPS, "", { ...NO_PEOPLE, assignees: [DESK_VIEWER] });
+    const rows = visibleRows(inbox, "everyone", NO_CHIPS, "", { ...NO_PEOPLE, assignees: [VIEWER] });
     const theirStack = (wholeStacks: boolean) => {
       const items = inboxSections(inbox, stacks, rows, true, { wholeStacks }).flatMap((section) => section.items);
       expect(items).toHaveLength(1);

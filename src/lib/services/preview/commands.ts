@@ -1,9 +1,11 @@
 // The browser preview's stand-in for the Rust backend. `services/homeRouting`
 // dispatches every generated command here when the page is not running under
-// Tauri; a command missing from the table resolves `undefined`. Each fake
-// takes the same arguments the generated command does and returns the same
-// wire shape, so the wrappers in `api.ts` run unchanged on top of it.
-// Loaded with a dynamic `import()`, so none of this ships in the app bundle.
+// Tauri. Each fake takes the same arguments the generated command does and
+// returns the same wire shape, so the wrappers in `api.ts` run unchanged on
+// top of it. Every review desk command (`review*`) must have one, answering
+// from the preview desk (`./desk`); any other command missing from the table
+// resolves `undefined`. Loaded with a dynamic `import()`, so none of this
+// ships in the app bundle.
 
 import { NATIVE_HOST, sameHost } from "$lib/app/host";
 import type { commands } from "$lib/bindings";
@@ -14,29 +16,16 @@ import type {
   IntegrationsList,
   Project,
   QueuedSubmission,
-  ReviewDraft,
   SidebarLayout,
   ThreadGoal,
   ThreadSummary,
   UserInputPart,
 } from "$lib/types";
 import { basename } from "$lib/utils/path";
-import { previewAgentReviewCommands } from "./agentReviews";
+import { agentReviewCommands } from "./agentReviews";
 import { previewStageBytes, previewStageFromPath } from "./attachments";
-import { previewCheckoutCommands } from "./checkouts";
-import {
-  deskDiscardPendingReview,
-  deskInbox,
-  deskMarkActivitySeen,
-  deskMutePr,
-  deskPendingReview,
-  deskPrDetail,
-  deskSavePendingReview,
-  deskSetViewed,
-  deskStacks,
-  deskSubmitPendingReview,
-  deskViewedFiles,
-} from "./desk";
+import { checkoutCommands } from "./checkouts";
+import { deskCommands } from "./desk";
 import { worktreeEntry } from "./factories";
 import {
   nextPreviewId,
@@ -65,7 +54,6 @@ import {
   previewPrDetail,
   previewPromptPartsText,
   previewProviderStatus,
-  previewPrs,
   previewQueue,
   previewQuickShortcut,
   previewRateLimits,
@@ -94,15 +82,26 @@ import {
   previewWriteMemory,
 } from "./memories";
 import { repositoryCommands } from "./repositories";
-import { previewStackCommands } from "./stack";
+import { stackCommands } from "./stack";
 import { previewCompact, previewInterrupt, previewStreamTurn } from "./stream";
 
 type Commands = typeof commands;
 
-/** A fake for each command the preview implements, typed like the generated
- *  command but free to answer synchronously or with nothing. */
-export type PreviewCommands = {
-  [K in keyof Commands]?: (
+/** A fake of command `K`: the generated command's arguments and answer,
+ *  free to answer synchronously. */
+type Fake<K extends keyof Commands> = (
+  ...args: Parameters<Commands[K]>
+) => Awaited<ReturnType<Commands[K]>> | ReturnType<Commands[K]>;
+
+/** The review desk's commands: every one has a fake, so a new desk command
+ *  fails `bun run check` until the preview desk answers it. */
+type DeskCommand = Extract<keyof Commands, `review${string}`>;
+export type DeskCommands = { [K in DeskCommand]: Fake<K> };
+
+/** Every desk fake, and a fake for each other command the preview implements,
+ *  which may answer with nothing. */
+export type PreviewCommands = DeskCommands & {
+  [K in Exclude<keyof Commands, DeskCommand>]?: (
     ...args: Parameters<Commands[K]>
   ) => Awaited<ReturnType<Commands[K]>> | ReturnType<Commands[K]> | void | Promise<void>;
 };
@@ -201,8 +200,6 @@ function previewPatch(path: string, hunk: string) {
 }
 
 const draftKey = (project: string) => `pingex-draft:${project}`;
-const reviewDrafts = new Map<string, ReviewDraft>();
-const reviewDraftKey = (provider: string, repo: string, prNumber: number) => `${provider}:${repo}:${prNumber}`;
 
 const projectOverrides = new Map<string, Record<string, boolean>>();
 
@@ -727,24 +724,14 @@ export const previewCommands: PreviewCommands = {
   }),
   remotePairingStatus: () => ({ claimed: false }),
 
-  // --- Pull-request review ---
+  // --- Pull-request review: the preview desk ---
   reviewProviderStatus: () => ({ ...previewProviderStatus }),
-  reviewListPrs: () => structuredClone(previewPrs),
-  reviewPrDetail: (repoDir, number) => deskPrDetail(repoDir, number),
   reviewCheckFresh: (_repoDir, _number, knownHead, knownUpdatedAt) => ({
     stale: false,
     remoteHead: knownHead,
     remoteUpdatedAt: knownUpdatedAt,
   }),
   reviewLocalDiff: () => structuredClone(previewPrDetail.files),
-  reviewInbox: (repoDir) => deskInbox(repoDir),
-  reviewMarkActivitySeen: (repoDir, numbers) => deskMarkActivitySeen(repoDir, numbers),
-  reviewMutePr: (repoDir, number, headSha) => deskMutePr(repoDir, number, headSha),
-  reviewStacks: (repoDir) => deskStacks(repoDir),
-  reviewFetchPrs: (repoDir, numbers) => {
-    const prs = deskInbox(repoDir).prs;
-    return numbers.map((number) => ({ number, headSha: prs.find((pr) => pr.number === number)?.headSha ?? null }));
-  },
   reviewDiff: () => ({ files: structuredClone(previewPrDetail.files), truncated: false }),
   reviewFile: () => ({ text: "export const VERSION = 1;\n", size: 26, truncated: false }),
   reviewChangesSince: (_repoDir, _number, _baseSha, headSha) => ({
@@ -755,38 +742,20 @@ export const previewCommands: PreviewCommands = {
     rangeDiff: null,
     truncated: false,
   }),
-  reviewMarkSeen: () => {},
-  reviewForgetPr: () => {},
-  reviewEditComment: () => {},
-  reviewDeleteComment: () => {},
-  reviewMerge: () => {},
-  reviewClose: () => {},
-  reviewRetarget: () => {},
-  reviewMarkReady: () => {},
+  reviewMarkSeen: () => null,
+  reviewForgetPr: () => null,
+  reviewMerge: () => null,
+  reviewClose: () => null,
+  reviewRetarget: () => null,
+  reviewMarkReady: () => null,
   reviewCheckLogs: () => [],
-  reviewRerunFailedChecks: () => {},
+  reviewRerunFailedChecks: () => null,
   reviewCreatePr: () => nextPreviewId(),
+  ...deskCommands,
   ...repositoryCommands,
-  reviewPendingReview: (repoDir, number) => deskPendingReview(repoDir, number),
-  reviewSavePendingReview: (repoDir, number, review) => deskSavePendingReview(repoDir, number, review),
-  reviewDiscardPendingReview: (repoDir, number) => deskDiscardPendingReview(repoDir, number),
-  reviewSubmitPendingReview: (repoDir, number) => deskSubmitPendingReview(repoDir, number),
-  reviewViewedFiles: (repoDir, number, files) => deskViewedFiles(repoDir, number, files),
-  reviewSetViewed: (repoDir, number, files, viewed) => deskSetViewed(repoDir, number, files, viewed),
-  reviewSaveDraft(provider, repo, prNumber, headSha, payload) {
-    reviewDrafts.set(reviewDraftKey(provider, repo, prNumber), {
-      headSha,
-      payload,
-      updatedAt: Math.floor(Date.now() / 1000),
-    });
-  },
-  reviewLoadDraft: (provider, repo, prNumber) => reviewDrafts.get(reviewDraftKey(provider, repo, prNumber)) ?? null,
-  reviewDeleteDraft(provider, repo, prNumber) {
-    reviewDrafts.delete(reviewDraftKey(provider, repo, prNumber));
-  },
-  ...previewCheckoutCommands,
-  ...previewStackCommands,
-  ...previewAgentReviewCommands,
+  ...checkoutCommands,
+  ...stackCommands,
+  ...agentReviewCommands,
 
   // --- Remote connections ---
   listConnections: () => previewConnections.map((connection) => ({ ...connection })),

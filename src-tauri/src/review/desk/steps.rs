@@ -1290,4 +1290,141 @@ mod tests {
             .unwrap();
         assert_eq!(mine.confirm, None);
     }
+
+    /// The step plans recorded in `tests/fixtures/desk/step_plans.json`, which
+    /// the browser preview's fake (`preview/checkouts.test.ts`) answers too.
+    #[tokio::test]
+    async fn recorded_step_plans() {
+        use serde::Deserialize;
+        use serde_json::{json, Value};
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Case {
+            name: String,
+            #[serde(default)]
+            settings: serde_json::Map<String, Value>,
+            prs: Vec<CasePr>,
+            #[serde(default)]
+            ensure: Vec<CaseTarget>,
+            target: CaseTarget,
+            action: DeskAction,
+            plan: Value,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct CasePr {
+            number: u32,
+            head_ref: String,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct CaseTarget {
+            number: i64,
+            mine: bool,
+            head_repo: Option<String>,
+            stack: Option<String>,
+            #[serde(default)]
+            stack_branches: Vec<String>,
+        }
+        /// `value` with `{home}` and `{repo}` filled in.
+        fn fill(value: &Value, home: &str, repo: &str) -> Value {
+            match value {
+                Value::String(text) => {
+                    Value::String(text.replace("{home}", home).replace("{repo}", repo))
+                }
+                Value::Object(map) => Value::Object(
+                    map.iter()
+                        .map(|(key, value)| (key.clone(), fill(value, home, repo)))
+                        .collect(),
+                ),
+                other => other.clone(),
+            }
+        }
+
+        let recorded: Value = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/desk/step_plans.json"
+        ))
+        .unwrap();
+        let cases: Vec<Case> = serde_json::from_value(recorded["cases"].clone()).unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let Some(fixture) = fixture().await else {
+                return;
+            };
+            let home = fixture.desk.home_dir.clone().unwrap();
+            let repo = super::segment(&fixture.repo.repo.file_name().unwrap().to_string_lossy());
+
+            let key = fixture.repo.repo.display().to_string();
+            let stored = storage::read_repository_settings(&fixture.desk.database, &key)
+                .await
+                .unwrap();
+            let mut settings = serde_json::to_value(stored).unwrap();
+            for (name, value) in &case.settings {
+                settings[name] = fill(value, &home, &repo);
+            }
+            let settings = serde_json::from_value(settings).unwrap();
+            storage::write_repository_settings(&fixture.desk.database, &settings)
+                .await
+                .unwrap();
+
+            let prs: Vec<InboxPr> = case
+                .prs
+                .iter()
+                .map(|pr| {
+                    fixture.open_pr(pr.number, &pr.head_ref, &format!("src/pr{}.rs", pr.number))
+                })
+                .collect();
+            let target_of = |spec: &CaseTarget| {
+                let pr = prs
+                    .iter()
+                    .find(|pr| pr.number == spec.number)
+                    .expect("a PR of the case");
+                CheckoutTarget {
+                    number: pr.number,
+                    head_ref: pr.head_ref.clone(),
+                    head_sha: pr.head_sha.clone(),
+                    mine: spec.mine,
+                    stack: spec.stack.clone(),
+                    head_repo: spec.head_repo.as_deref().map(|repo| match repo {
+                        "same" => SLUG.to_string(),
+                        _ => "someone/fork".to_string(),
+                    }),
+                    stack_branches: spec.stack_branches.clone(),
+                }
+            };
+            for spec in &case.ensure {
+                fixture
+                    .desk
+                    .ensure_pr_worktree(target_of(spec))
+                    .await
+                    .unwrap();
+            }
+
+            let plan = fixture
+                .desk
+                .plan_step(target_of(&case.target), case.action)
+                .await
+                .unwrap();
+            let plan = serde_json::to_value(plan).unwrap();
+            let current = &plan["current"];
+            let answered = json!({
+                "stepUp": plan["stepUp"],
+                "confirm": plan["confirm"],
+                "confirmPush": plan["confirmPush"],
+                "refused": plan["refused"],
+                "switchBranch": plan["switchBranch"],
+                "worktreePath": plan["worktreePath"],
+                "current": {
+                    "step": current["step"],
+                    "path": current["path"],
+                    "gitBranch": current["gitBranch"],
+                    "managed": current["managed"],
+                    "onPrBranch": current["onPrBranch"],
+                    "setupPending": current["setupPending"],
+                },
+            });
+            assert_eq!(answered, fill(&case.plan, &home, &repo), "{}", case.name);
+        }
+    }
 }

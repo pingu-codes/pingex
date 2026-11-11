@@ -1,8 +1,8 @@
 import { render, screen } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import EmptyInbox from "$lib/repositories/EmptyInbox.svelte";
-import { resetPreviewRepositories, setPreviewGithubAccount } from "$lib/services/preview/repositories";
+import { seedPreviewDesk } from "$lib/services/preview/desk";
 
 // The inbox with no repositories: Add repository, and connecting GitHub when
 // no account is signed in.
@@ -10,7 +10,6 @@ describe("EmptyInbox", () => {
   // The preview fakes load lazily on the first command; on a busy machine that
   // first import outlasts findBy's one-second wait.
   beforeAll(() => import("$lib/services/preview/commands"), 30_000);
-  afterEach(() => resetPreviewRepositories());
 
   it("offers Add repository", async () => {
     const onAddRepository = vi.fn();
@@ -22,7 +21,7 @@ describe("EmptyInbox", () => {
   });
 
   it("says how to connect GitHub when no account is signed in", async () => {
-    setPreviewGithubAccount({ login: null, tokenSource: null, logins: [] });
+    seedPreviewDesk({ github: { account: { login: null, tokenSource: null, logins: [] } } });
     render(EmptyInbox, { onAddRepository: vi.fn() });
 
     const connect = await screen.findByTestId("connect-github");

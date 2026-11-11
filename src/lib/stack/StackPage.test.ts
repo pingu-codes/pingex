@@ -2,12 +2,11 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DialogHost from "$lib/components/DialogHost.svelte";
+import { SCENARIO_DIR, seedInboxScenario } from "$lib/inbox/inboxScenario";
 import { inboxes } from "$lib/inbox/inboxStore.svelte";
 import { startStackReview } from "$lib/review/agentReviews.svelte";
 import { resetPrLinks } from "$lib/review/prLinks.svelte";
 import { commands } from "$lib/services/homeRouting";
-import { deskLiveRepo, resetDeskActivity } from "$lib/services/preview/desk";
-import { resetPreviewStacks, setPreviewStackDrift } from "$lib/services/preview/stack";
 import { followUps, resetFollowUps } from "$lib/stack/followUps.svelte";
 import StackPage from "$lib/stack/StackPage.svelte";
 import { followUpKey } from "$lib/stack/stack";
@@ -33,7 +32,7 @@ vi.mock("$lib/review/agentReviews.svelte", async (importOriginal) => {
   return { ...actual, startStackReview: vi.fn(async () => ({})) };
 });
 
-const MAIN = "/Users/ciaran/Projects/codex-custom";
+const MAIN = SCENARIO_DIR;
 
 function setup(props: { initialPr?: number } = {}) {
   render(DialogHost);
@@ -60,9 +59,8 @@ async function loaded() {
 }
 
 beforeEach(() => {
-  resetPreviewStacks();
+  seedInboxScenario();
   resetFollowUps();
-  resetDeskActivity();
   resetPrLinks();
   localStorage.clear();
   for (const key of Object.keys(inboxes)) delete inboxes[key];
@@ -227,21 +225,14 @@ describe("Stack page", () => {
   });
 
   it("after a PR merges, offers to restack the rest and delete its git branch, until Later", async () => {
-    const stack = deskLiveRepo(MAIN).stacks.stacks.find((candidate) => candidate.number === 7);
-    if (!stack) throw new Error("fixture stack missing");
-    const saved = structuredClone(stack.prs);
-    stack.prs[0] = { ...stack.prs[0], merged: true, state: "closed" };
-    try {
-      const user = setup();
-      await waitFor(() => expect(screen.getByText("#412 merged into main")).toBeInTheDocument());
-      expect(screen.getByText("Restack #415 and #418 onto main and delete feat/driver-trait?")).toBeInTheDocument();
-      expect(nodeOrder()).toEqual([418, 415]);
+    seedInboxScenario({ merged: [412] });
+    const user = setup();
+    await waitFor(() => expect(screen.getByText("#412 merged into main")).toBeInTheDocument());
+    expect(screen.getByText("Restack #415 and #418 onto main and delete feat/driver-trait?")).toBeInTheDocument();
+    expect(nodeOrder()).toEqual([418, 415]);
 
-      await user.click(screen.getByRole("button", { name: "Later" }));
-      expect(screen.queryByText("#412 merged into main")).toBeNull();
-    } finally {
-      stack.prs = saved;
-    }
+    await user.click(screen.getByRole("button", { name: "Later" }));
+    expect(screen.queryByText("#412 merged into main")).toBeNull();
   });
 });
 
@@ -262,10 +253,9 @@ describe("when the inbox changes under the page", () => {
 
 describe("the sidebar's follow-up dot", () => {
   it("settles when a merged PR leaves nothing to offer", async () => {
-    const stack = deskLiveRepo(MAIN).stacks.stacks.find((candidate) => candidate.number === 7);
+    seedInboxScenario({ merged: [412] });
+    const stack = (await commands.reviewStacks(MAIN)).stacks.find((candidate) => candidate.number === 7);
     if (!stack) throw new Error("fixture stack missing");
-    const saved = structuredClone(stack.prs);
-    stack.prs[0] = { ...stack.prs[0], merged: true, state: "closed" };
     const original = vi.mocked(commands.reviewStackOverview).getMockImplementation();
     vi.mocked(commands.reviewStackOverview).mockImplementation(async (...args) => ({
       ...(await (original as NonNullable<typeof original>)(...args)),
@@ -276,7 +266,6 @@ describe("the sidebar's follow-up dot", () => {
       await waitFor(() => expect(followUps.later).toContain(followUpKey(stack)));
       expect(screen.queryByText(/merged into main/)).toBeNull();
     } finally {
-      stack.prs = saved;
       vi.mocked(commands.reviewStackOverview).mockImplementation(original as never);
     }
   });
@@ -354,7 +343,7 @@ describe("collapsing the stack", () => {
 
 describe("a PR that no longer sits on the head of the one below", () => {
   it("says so on its git branch, and the restack preview loads though the base has not moved", async () => {
-    setPreviewStackDrift(MAIN, 7, 0, [418]);
+    seedInboxScenario({ behind: 0, drifted: [418] });
     setup();
 
     expect(await screen.findByText("The stack is on its tip")).toBeInTheDocument();

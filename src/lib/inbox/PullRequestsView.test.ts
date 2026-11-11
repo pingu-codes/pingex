@@ -2,10 +2,10 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { InboxHandlers } from "$lib/inbox/handlers";
+import { SCENARIO_DIR, seedInboxScenario } from "$lib/inbox/inboxScenario";
 import { inboxes } from "$lib/inbox/inboxStore.svelte";
 import PullRequestsView from "$lib/inbox/PullRequestsView.svelte";
 import { commands } from "$lib/services/homeRouting";
-import { resetDeskActivity } from "$lib/services/preview/desk";
 
 vi.mock("$lib/services/homeRouting", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
@@ -20,7 +20,7 @@ vi.mock("$lib/services/homeRouting", async (importOriginal) => {
   };
 });
 
-const MAIN = "/Users/ciaran/Projects/codex-custom";
+const MAIN = SCENARIO_DIR;
 const REPOS = [
   { path: MAIN, name: "codex-custom" },
   { path: "/Users/ciaran/Projects/arctic-explorer", name: "arctic-explorer" },
@@ -49,7 +49,7 @@ const queryRow = (number: number) => screen.queryByRole("listitem", { name: new 
 const filter = (name: RegExp) => screen.getByRole("radio", { name });
 
 beforeEach(() => {
-  resetDeskActivity();
+  seedInboxScenario();
   localStorage.clear();
   for (const key of Object.keys(inboxes)) delete inboxes[key];
   vi.clearAllMocks();

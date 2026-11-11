@@ -1,8 +1,10 @@
 import { render, screen, waitFor, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import ReviewView from "$lib/review/ReviewView.svelte";
 import { commands } from "$lib/services/homeRouting";
+import { seedPreviewDesk } from "$lib/services/preview/desk";
+import { addedFile, deskRepository, inboxPr, prDetail } from "$lib/services/preview/factories";
 
 vi.mock("$lib/services/homeRouting", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
@@ -17,9 +19,20 @@ vi.mock("$lib/services/homeRouting", async (importOriginal) => {
   };
 });
 
-// In browser mode (isTauri() === false) the review API serves preview fixtures,
-// so the whole view renders without Tauri.
+// In browser mode (isTauri() === false) the review API serves the preview
+// desk, so the whole view renders without Tauri.
 describe("ReviewView", () => {
+  beforeEach(() => {
+    const pr = inboxPr({ number: 128, title: "Add pull-request review view" });
+    const loader = ["import { readFileSync } from 'fs';", "", "export function load(path: string) {", "  if (!path) {"];
+    const files = [addedFile("src/lib/loader.ts", [...loader, "    throw new Error('path is required');", "  }"])];
+    seedPreviewDesk({
+      repositories: [
+        deskRepository("me/repo", { repository: { path: "/repo" }, prs: [pr], details: [prDetail(pr, { files })] }),
+      ],
+    });
+  });
+
   it("opened onto a PR, does not read the PR list it never shows", async () => {
     vi.mocked(commands.reviewListPrs).mockClear();
     vi.mocked(commands.reviewProviderStatus).mockClear();
