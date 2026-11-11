@@ -10,26 +10,27 @@
 // Nothing outlives `expire`, and the cache holds at most `MAX_ENTRIES`.
 //
 // Staleness also comes from events, not only time:
-// - every git or review mutation through the `commands` proxy marks what it
-//   could have changed (`invalidateAfter`, below);
+// - every git or review write through the `commands` proxy marks what it
+//   changed, as `commandEffects.ts` declares it (below);
 // - window focus and a finished agent turn mark local git state stale
 //   (`app/listeners.svelte.ts`).
 // Marked entries that a mounted component is showing re-read at once; the
 // rest re-read when next asked for.
 
 import { untrack } from "svelte";
-import { argNamed, onCommandSettled, type SettledCommand } from "$lib/services/commandEvents";
+import { onEffect } from "$lib/services/commandEffects";
 import { commands } from "$lib/services/homeRouting";
 import { errorMessage } from "$lib/utils/errors";
 
 type Commands = typeof commands;
 
 /** What a read depends on, which decides what makes it stale.
- *  - `local`: the working tree and refs; stale after any git mutation, on
+ *  - `local`: the working tree and refs; stale after any `git` change, on
  *    focus and when an agent turn finishes.
- *  - `github`: GitHub (and the clone's view of it); stale after a review
- *    mutation on the same repository.
- *  - `provider`: whether `gh` is installed and signed in.
+ *  - `github`: GitHub (and the clone's view of it); stale after a `github`
+ *    or `account` change on the same repository.
+ *  - `provider`: whether `gh` is installed and signed in; stale after an
+ *    `account` change.
  *  - `sha`: keyed by commit SHAs, so it never changes; only time evicts it. */
 export type ReadKind = "local" | "github" | "provider" | "sha";
 
@@ -357,120 +358,13 @@ if (import.meta.env.MODE === "test") {
   (globalThis as { __resetQueryCache?: () => void }).__resetQueryCache = resetQueryCache;
 }
 
-// --- what each mutation makes stale ---------------------------------------
+// --- what a settled command made stale ------------------------------------
 
-/** Uncached review and git reads: settling one changes nothing. */
-const UNCACHED_READS = new Set<string>([
-  "gitWorktreeHandoffPreflight",
-  "reviewInbox",
-  "reviewStacks",
-  "reviewAgentReviews",
-  "reviewActiveAgentReviews",
-  "reviewAgentReviewPrompt",
-  // Measured from the reviewer's seen head, which no argument names.
-  "reviewChangesSince",
-  "reviewPrLinks",
-  "reviewManagedWorktreeAt",
-  "reviewRepository",
-  "reviewRepositorySettings",
-  "reviewRules",
-  "reviewGithubAccount",
-  "reviewRepositoryAccount",
-  "reviewMyRepositories",
-  "reviewRepositoriesRequestingReview",
-  "reviewPrsOnlyRepositories",
-  "reviewCheckFresh",
-  "reviewCheckLogs",
-  "reviewLocalDiff",
-  "reviewPlanStep",
-  "reviewInspectFolder",
-  "reviewFindClones",
-  "reviewLoadDraft",
-  "reviewPendingReview",
-  "reviewViewedFiles",
-  "reviewFindings",
-]);
-
-/** Review mutations that touch less than "this repository on GitHub":
- *  `local` marks local git state, a list marks only those reads. Any review
- *  mutation not listed marks every read of its repository and local state. */
-const NARROW: Partial<Record<string, "local" | readonly ReadName[]>> = {
-  // The profile database only: nothing cached reads it.
-  reviewSetViewed: [],
-  reviewSavePendingReview: [],
-  reviewDiscardPendingReview: [],
-  reviewSaveDraft: [],
-  reviewDeleteDraft: [],
-  reviewSetFindingState: [],
-  reviewMarkSeen: [],
-  reviewMarkActivitySeen: [],
-  reviewMutePr: [],
-  reviewForgetPr: [],
-  reviewEnqueueAgentReview: [],
-  reviewAgentReviewStarted: [],
-  reviewRerunAgentReview: [],
-  reviewRemoveAgentReview: [],
-  reviewClaimAgentReviews: [],
-  reviewRerunOnNewCommits: [],
-  reviewRecordAgentReviewResult: [],
-  reviewAddRule: [],
-  reviewUpdateRule: [],
-  reviewRemoveRule: [],
-  reviewSaveRepositorySettings: [],
-  reviewSetCheckoutPolicy: [],
-  reviewAddPrsOnlyRepository: [],
-  reviewRemovePrsOnlyRepository: [],
-  // Hidden PR refs only; nothing on screen reads them directly.
-  reviewFetchPrs: [],
-  // Runs after every inbox sync: closed PRs' refs and checkouts.
-  reviewPruneClosed: ["reviewCheckoutState", "reviewPrCheckouts"],
-  // Thread links and the branches they follow.
-  reviewLinkThread: ["reviewBranchProgress"],
-  reviewMoveThreadToPr: ["reviewBranchProgress"],
-  reviewLinkClone: ["reviewBranchProgress", "reviewProviderStatus"],
-  reviewEnsurePrWorktree: "local",
-  reviewRemovePrWorktree: "local",
-  reviewRunCheckoutSetup: "local",
-  reviewCheckOutThreadCommit: "local",
-  reviewCloneRepository: [],
-};
-
-/** Whether a settled command could have changed git or GitHub state. */
-export function isMutation(name: string): boolean {
-  return (name.startsWith("git") || name.startsWith("review")) && !(name in READS) && !UNCACHED_READS.has(name);
-}
-
-/** Whether a settled command could have changed the working tree, refs or
- *  worktrees: any git mutation, and the review mutations that run git. */
-export function touchesLocal(name: string): boolean {
-  if (!isMutation(name)) return false;
-  if (name.startsWith("git")) return true;
-  const narrow = NARROW[name];
-  return narrow === undefined || narrow === "local";
-}
-
-export function invalidateAfter(command: SettledCommand): void {
-  const { name } = command;
-  if (!isMutation(name)) return;
-  if (name.startsWith("git")) {
-    invalidate({ kinds: ["local"] });
-    return;
-  }
-  if (!name.startsWith("review")) return;
-  if (name === "reviewSwitchGithubAccount") {
-    invalidate({ kinds: ["github", "provider"] });
-    return;
-  }
-  const repo = argNamed(command, "repoDir");
-  const narrow = NARROW[name];
-  if (narrow === "local") {
-    invalidate({ kinds: ["local"] });
-  } else if (narrow) {
-    if (narrow.length > 0) invalidate({ names: narrow, ...(repo === undefined ? {} : { repo }) });
-  } else {
-    invalidate({ kinds: ["local"] });
-    if (typeof repo === "string") invalidate({ kinds: ["github"], repo });
-  }
-}
-
-onCommandSettled(invalidateAfter);
+// What each command changes is declared in `commandEffects.ts`; this maps
+// those changes onto what the reads here depend on (`ReadKind`).
+onEffect(({ changes, stale, repo }) => {
+  if (changes.has("git")) invalidate({ kinds: ["local"] });
+  if (changes.has("github") && repo !== undefined) invalidate({ kinds: ["github"], repo });
+  if (changes.has("account")) invalidate({ kinds: ["github", "provider"], ...(repo === undefined ? {} : { repo }) });
+  if (stale.length > 0) invalidate({ names: stale, ...(repo === undefined ? {} : { repo }) });
+});

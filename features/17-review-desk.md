@@ -150,8 +150,8 @@ and after a turn completes.
 
 "After Pingex's own mutations" is not left to each page: the `commands`
 proxy announces every settled git and review command
-(`services/commandEvents.ts`), and the inbox syncs after the GitHub writes
-in `GITHUB_WRITES` (`inbox/inboxStore.svelte.ts`).
+(`services/commandEvents.ts`), and the inbox syncs after the commands that
+`services/commandEffects.ts` declares an `inbox` change.
 
 ### Query cache
 
@@ -169,10 +169,13 @@ answer at once and re-reads it in the background. Each read has a policy in
 | SHA-keyed reads (`reviewDiff`, `reviewFile`, `reviewChangesSince`) | 30 min | 30 min |
 
 A read can also go stale before its time is up:
-- A review mutation marks every read of its repository.
-- A git mutation, window focus or a finished turn marks local git reads.
+- What a command marks follows from what `EFFECTS`
+  (`services/commandEffects.ts`) declares it changes: a GitHub write marks
+  every read of its repository and local git reads; an account change marks
+  GitHub reads and provider status.
+- A git change, window focus or a finished turn marks local git reads.
 - Writes that touch only the profile database (viewed marks, the pending
-  review, Findings) mark nothing; `NARROW` lists them.
+  review, Findings) mark nothing, unless they name the reads that report them.
 
 A stale read that a mounted page is showing is re-read at once. Any other
 stale read is re-read the next time something asks for it. The review page
