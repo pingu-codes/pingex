@@ -172,11 +172,13 @@
   const landAt = left.scrollTop;
   let tab = $state(left.tab);
   let filter = $state(left.filter);
+  let collapsedDirs = $state(left.collapsedDirs);
   const reviewFiles = new ReviewFiles(left.collapsed);
   const { viewed, collapsed } = reviewFiles;
   $effect(() => {
     left.tab = tab;
     left.filter = filter;
+    left.collapsedDirs = collapsedDirs;
     left.changes = changes;
     if (reviewFiles.collapsedKnown) left.collapsed = [...collapsed];
   });
@@ -875,7 +877,7 @@
     {:else}
       <div class="relative flex flex-1">
         {#if tab === "files"}
-          <FileRail {files} {currentPath} {countsByPath} {viewed} onJump={jumpTo} />
+          <FileRail {files} {currentPath} {countsByPath} {viewed} onJump={jumpTo} bind:collapsedDirs />
 
           <section aria-label="Diffs" data-find-root class="flex min-w-0 flex-1 flex-col gap-2.5 px-5 py-4">
             {#if changes === "since" && since}

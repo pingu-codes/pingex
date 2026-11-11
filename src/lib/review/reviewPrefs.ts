@@ -4,6 +4,7 @@ import { readFlag, writeFlag } from "$lib/utils/storedFlag";
 
 const REVIEW_COLLAPSED_KEY = "pingex-review-panel-collapsed";
 const STACK_TREE_COLLAPSED_KEY = "pingex-stack-tree-collapsed";
+const FILE_RAIL_COLLAPSED_KEY = "pingex-review-rail-collapsed";
 
 /** Whether the Your review panel is folded to its strip. */
 export const loadReviewCollapsed = () => readFlag(REVIEW_COLLAPSED_KEY);
@@ -12,3 +13,7 @@ export const saveReviewCollapsed = (collapsed: boolean) => writeFlag(REVIEW_COLL
 /** Whether the Stack page's tree is folded to its strip. */
 export const loadStackTreeCollapsed = () => readFlag(STACK_TREE_COLLAPSED_KEY);
 export const saveStackTreeCollapsed = (collapsed: boolean) => writeFlag(STACK_TREE_COLLAPSED_KEY, collapsed);
+
+/** Whether the review page's file tree is folded to its strip. */
+export const loadFileRailCollapsed = () => readFlag(FILE_RAIL_COLLAPSED_KEY);
+export const saveFileRailCollapsed = (collapsed: boolean) => writeFlag(FILE_RAIL_COLLAPSED_KEY, collapsed);

@@ -205,18 +205,6 @@ export function fileInView(count: number, box: (index: number) => FileBox, viewT
   return first < count && box(first).top < viewBottom ? first : -1;
 }
 
-/** Changed files grouped by folder, folders in the order files first name
- *  them. */
-export function fileGroups(files: PrFile[]): { dir: string; files: PrFile[] }[] {
-  const groups = new Map<string, PrFile[]>();
-  for (const file of files) {
-    const slash = file.path.lastIndexOf("/");
-    const dir = slash < 0 ? "" : file.path.slice(0, slash);
-    groups.set(dir, [...(groups.get(dir) ?? []), file]);
-  }
-  return [...groups].map(([dir, files]) => ({ dir, files }));
-}
-
 /** A file's viewed key: its blob id at the head, or a hash of its patch when
  *  the provider gave none (a local diff), so a changed file still resets. */
 export function fileBlob(file: PrFile): FileBlob {
@@ -253,6 +241,8 @@ export function prPlace(repoDir: string, number: number) {
     scrollTop: 0,
     /** `null` until the page has read the viewed marks, which collapse their files. */
     collapsed: null as string[] | null,
+    /** The file tree's folded directories. */
+    collapsedDirs: [] as string[],
   }));
 }
 

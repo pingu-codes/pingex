@@ -81,6 +81,8 @@ test("the shortcuts card shows wherever the page is scrolled", async ({ page }) 
 test.describe("the file rail", () => {
   const rail = (page: Page) => page.getByRole("navigation", { name: "Changed files" });
   const highlighted = (page: Page) => rail(page).locator('[aria-current="true"]');
+  /** The rail's scrolling list, under its header. */
+  const railScroll = (page: Page) => rail(page).locator("[data-rail-scroll]");
   /** The fixture pads its numbers. */
   const name = (index: number) => `file-${String(index).padStart(2, "0")}.ts`;
   const fileAt = (index: number) => `[data-file="src/large/${name(index)}"]`;
@@ -106,8 +108,8 @@ test.describe("the file rail", () => {
 
     await scrollInto(page, 30, 500);
     await expect(highlighted(page)).toHaveText(name(30));
-    await expect.poll(() => rail(page).evaluate((nav) => nav.scrollTop)).toBeGreaterThan(0);
-    const box = (await rail(page).boundingBox())!;
+    await expect.poll(() => railScroll(page).evaluate((list) => list.scrollTop)).toBeGreaterThan(0);
+    const box = (await railScroll(page).boundingBox())!;
     const row = (await highlighted(page).boundingBox())!;
     expect(row.y).toBeGreaterThanOrEqual(box.y);
     expect(row.y + row.height).toBeLessThanOrEqual(box.y + box.height);
@@ -115,7 +117,7 @@ test.describe("the file rail", () => {
     await scrollInto(page, 2, 500);
     await expect(highlighted(page)).toHaveText(name(2));
     await expect(highlighted(page)).toBeInViewport();
-    await expect.poll(() => rail(page).evaluate((nav) => nav.scrollTop)).toBeLessThan(100);
+    await expect.poll(() => railScroll(page).evaluate((list) => list.scrollTop)).toBeLessThan(100);
   });
 
   test("v walks down the files, each staying in place as it collapses", async ({ page }) => {
@@ -150,7 +152,7 @@ test.describe("the file rail", () => {
   test("collapsing the file at the top moves the highlight to the next", async ({ page }) => {
     await openPr(page);
     await rail(page)
-      .getByRole("button", { name: name(2) })
+      .getByRole("treeitem", { name: name(2) })
       .click();
     await expect(highlighted(page)).toHaveText(name(2));
     await page.getByRole("button", { name: `Toggle src/large/${name(2)}` }).click();
@@ -163,7 +165,7 @@ test.describe("the file rail", () => {
 
     // A file that can't reach the top of the view keeps a click's highlight.
     await rail(page)
-      .getByRole("button", { name: name(37) })
+      .getByRole("treeitem", { name: name(37) })
       .click();
     await page.waitForTimeout(100);
     await expect(highlighted(page)).toHaveText(name(37));
@@ -178,18 +180,48 @@ test.describe("the file rail", () => {
     await expect(highlighted(page)).not.toHaveText(name(39));
   });
 
-  test("a long folder name wraps instead of being cut off", async ({ page }) => {
+  test("a folder folds and opens again, and reading into it opens it", async ({ page }) => {
     await openPr(page);
-    const folder = rail(page).locator(".eyebrow").first();
-    const short = (await folder.boundingBox())!.height;
-    await folder.evaluate((element) => {
-      element.textContent =
-        "packages/some-long-package-name/src/components/deeply/nested/averyveryveryveryverylongfoldername";
-    });
-    expect((await folder.boundingBox())!.height).toBeGreaterThan(short);
-    const fits = (element: Element) => element.scrollWidth <= element.clientWidth;
-    expect(await folder.evaluate(fits)).toBe(true);
-    expect(await rail(page).evaluate(fits)).toBe(true);
+    const folder = rail(page).getByRole("treeitem", { name: "src/large" });
+    const file = rail(page).getByRole("treeitem", { name: name(1) });
+    await expect(file).toBeVisible();
+
+    await folder.locator("[data-part=branch-control]").click();
+    await expect(file).toBeHidden();
+    await expect(folder).toHaveAttribute("aria-expanded", "false");
+
+    // The diff moving to another file reveals it in the tree.
+    await scrollInto(page, 5, 200);
+    await expect(highlighted(page)).toHaveText(name(5));
+    await expect(folder).toHaveAttribute("aria-expanded", "true");
+  });
+
+  test("the rail resizes from its edge and keeps the width on the next open", async ({ page }) => {
+    const { diffs } = await openPr(page);
+    const handle = page.getByRole("separator", { name: "Resize files" });
+    const before = (await rail(page).boundingBox())!.width;
+    const diffsBefore = (await diffs.boundingBox())!.width;
+    const grip = (await handle.boundingBox())!;
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + 100);
+    await page.mouse.down();
+    await page.mouse.move(grip.x + grip.width / 2 + 120, grip.y + 100, { steps: 5 });
+    await page.mouse.up();
+    await expect.poll(async () => (await rail(page).boundingBox())!.width).toBeGreaterThan(before + 100);
+    expect((await diffs.boundingBox())!.width).toBeLessThan(diffsBefore - 100);
+
+    await page.reload();
+    await openPr(page);
+    expect((await rail(page).boundingBox())!.width).toBeGreaterThan(before + 100);
+  });
+
+  test("the rail folds to a strip and opens again", async ({ page }) => {
+    const { diffs } = await openPr(page);
+    const wide = (await diffs.boundingBox())!.width;
+    await page.getByRole("button", { name: "Collapse files" }).click();
+    await expect(rail(page)).toBeHidden();
+    expect((await diffs.boundingBox())!.width).toBeGreaterThan(wide + 150);
+    await page.getByRole("button", { name: "Expand files" }).click();
+    await expect(rail(page)).toBeVisible();
   });
 });
 
