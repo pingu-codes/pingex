@@ -19,7 +19,16 @@ impl ReviewDesk {
     /// complete inbox sync just listed, and drop what closed PRs left behind.
     /// The caller passes the sync's own answer: fetching the inbox again here
     /// doubled every sync's GitHub reads (seconds per page on a busy repo).
-    pub(crate) async fn prune_closed(&self, open: HashSet<i64>) -> Result<PruneReport, String> {
+    /// `complete` says whether that sync listed every open PR: a partial list
+    /// cannot say which PRs closed, so it prunes nothing.
+    pub(crate) async fn prune_closed(
+        &self,
+        open: HashSet<i64>,
+        complete: bool,
+    ) -> Result<PruneReport, String> {
+        if !complete {
+            return Ok(PruneReport::default());
+        }
         self.prune_closed_with(open, unix_secs()).await
     }
 
@@ -252,6 +261,45 @@ mod tests {
                 .git(&["for-each-ref", "--format=%(refname)", "refs/pingex/"]),
             ""
         );
+    }
+
+    #[tokio::test]
+    async fn a_list_from_an_incomplete_sync_prunes_nothing() {
+        let Some(fixture) = fixture().await else {
+            return;
+        };
+        let pr = fixture.open_pr(21, "feature", "src/lib.rs");
+        fixture.desk.fetch_prs(vec![21]).await.unwrap();
+        fixture
+            .desk
+            .ensure_pr_worktree(CheckoutTarget {
+                number: 21,
+                head_ref: pr.head_ref.clone(),
+                head_sha: pr.head_sha.clone(),
+                ..CheckoutTarget::default()
+            })
+            .await
+            .unwrap();
+
+        let report = fixture
+            .desk
+            .prune_closed(std::collections::HashSet::new(), false)
+            .await
+            .unwrap();
+
+        assert!(report.closed.is_empty(), "{report:?}");
+        assert_eq!(
+            fixture
+                .repo
+                .git(&["for-each-ref", "--format=%(refname)", "refs/pingex/"]),
+            objects::head_ref(21)
+        );
+        let row =
+            crate::storage::read_checkout(&fixture.desk.database, &fixture.desk.repo_key(), 21)
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(row.closed_at, None);
     }
 
     #[tokio::test]

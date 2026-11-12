@@ -719,6 +719,81 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn switching_to_a_pr_with_no_local_branch_and_an_unfetched_head_does_not_hang() {
+        let Some(stack) = remote_only().await else {
+            return;
+        };
+        let path = stack
+            .desk()
+            .ensure_stack_worktree(stack.input())
+            .await
+            .unwrap()
+            .checkout
+            .path
+            .unwrap();
+        stack.git(&["branch", "-q", "-D", "feat/driver"]);
+        let head = stack.teammate_pushes(412, "feat/driver");
+        let target = stack.target(412);
+        assert_eq!(target.head_sha, head);
+
+        let switched = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            stack.desk().ensure_pr_worktree(target),
+        )
+        .await
+        .expect("the switch finishes")
+        .unwrap();
+
+        assert_eq!(switched.git_branch.as_deref(), Some("feat/driver"));
+        assert_eq!(stack.git_in(Path::new(&path), &["rev-parse", "HEAD"]), head);
+    }
+
+    #[tokio::test]
+    async fn the_main_clone_is_never_switched_as_a_stack_worktree() {
+        let Some(stack) = StackFixture::new().await else {
+            return;
+        };
+        stack.git(&["switch", "-q", "feat/maki"]);
+
+        let result = stack.desk().ensure_pr_worktree(stack.target(412)).await;
+
+        assert_eq!(stack.git(&["branch", "--show-current"]), "feat/maki");
+        if let Ok(state) = result {
+            assert!(!state.main_checkout, "{state:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_stack_edit_never_runs_in_the_main_clone() {
+        let Some(stack) = StackFixture::new().await else {
+            return;
+        };
+        stack.git(&["switch", "-q", "feat/claude"]);
+        let tips: Vec<String> = ["feat/driver", "feat/claude", "feat/maki"]
+            .iter()
+            .map(|branch| stack.tip(branch))
+            .collect();
+        stack.advance_main("main.rs", "the base moved\n");
+        stack.git(&["switch", "-q", "feat/claude"]);
+
+        let restacked = stack.desk().restack(stack.input(), None).await;
+        let added = stack
+            .desk()
+            .add_stack_branch(stack.input(), "feat/extra".into(), None)
+            .await;
+
+        assert!(restacked.is_err(), "{restacked:?}");
+        assert_eq!(stack.git(&["branch", "--show-current"]), "feat/claude");
+        let after: Vec<String> = ["feat/driver", "feat/claude", "feat/maki"]
+            .iter()
+            .map(|branch| stack.tip(branch))
+            .collect();
+        assert_eq!(after, tips);
+        let _ = added;
+        assert_eq!(stack.git(&["branch", "--show-current"]), "feat/claude");
+    }
+
+    #[tokio::test]
     async fn a_dirty_stack_worktree_refuses_to_switch_and_stays_put() {
         let Some(stack) = remote_only().await else {
             return;

@@ -212,11 +212,7 @@ async fn pr_hint(database: &Database, state: &RepoState, number: Option<i64>) ->
         let Ok(prs) = serde_json::from_str::<Vec<InboxPr>>(&payload) else {
             continue;
         };
-        let found = prs.iter().find(|pr| match number {
-            Some(number) => pr.number == number,
-            None => state.branch.as_deref() == Some(pr.head_ref.as_str()),
-        });
-        if let Some(pr) = found {
+        if let Some(pr) = matching_pr(&prs, slug, number, state.branch.as_deref()) {
             return Some(PrHint {
                 number: pr.number,
                 base_ref: pr.base_ref.clone(),
@@ -225,6 +221,27 @@ async fn pr_hint(database: &Database, state: &RepoState, number: Option<i64>) ->
         }
     }
     None
+}
+
+/// The PR among `prs` (an inbox read of `slug`) that a thread or worktree
+/// names by `number`, else the one whose head is `branch`.
+fn matching_pr<'a>(
+    prs: &'a [InboxPr],
+    slug: &str,
+    number: Option<i64>,
+    branch: Option<&str>,
+) -> Option<&'a InboxPr> {
+    prs.iter().find(|pr| match number {
+        Some(number) => pr.number == number,
+        // A fork's branch can share this branch's name.
+        None => {
+            branch == Some(pr.head_ref.as_str())
+                && pr
+                    .head_repo
+                    .as_deref()
+                    .is_some_and(|repo| repo.eq_ignore_ascii_case(slug))
+        }
+    })
 }
 
 /// A committed segment's patches: `head` against `base`, straight (two-dot),
@@ -261,4 +278,35 @@ pub(crate) async fn git_working_diff(
     })
     .await
     .map_err(|_| "Diff failed".to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::matching_pr;
+    use crate::review::types::InboxPr;
+
+    fn pr(number: i64, head_ref: &str, head_repo: &str) -> InboxPr {
+        InboxPr {
+            number,
+            head_ref: head_ref.into(),
+            head_repo: Some(head_repo.into()),
+            ..InboxPr::default()
+        }
+    }
+
+    #[test]
+    fn a_forks_branch_of_the_same_name_is_not_this_branchs_pr() {
+        let prs = [pr(3, "main", "jo-r/desk"), pr(4, "feature", "pingex/desk")];
+
+        assert_eq!(matching_pr(&prs, "pingex/desk", None, Some("main")), None);
+        assert_eq!(
+            matching_pr(&prs, "Pingex/Desk", None, Some("feature")).map(|pr| pr.number),
+            Some(4)
+        );
+        assert_eq!(
+            matching_pr(&prs, "pingex/desk", Some(3), Some("main")).map(|pr| pr.number),
+            Some(3),
+            "a thread that names its PR keeps it"
+        );
+    }
 }

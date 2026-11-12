@@ -137,6 +137,9 @@ impl ReviewDesk {
         let branch = self.working_branch(&link).await?;
         self.blocking("Checking out failed", move |desk| {
             let dir = Path::new(&path);
+            if !git::is_linked_worktree(&desk.host, dir)? {
+                return Err("This thread ran in the repository's main clone, which is not moved".to_string());
+            }
             if !git::is_clean(&desk.host, dir)? {
                 return Err("The checkout has uncommitted changes".to_string());
             }
@@ -355,6 +358,27 @@ mod tests {
             "pr/33"
         );
         assert_eq!(fixture.repo.git_in(dir, &["rev-parse", "HEAD"]), tip);
+    }
+
+    #[tokio::test]
+    async fn the_branch_chip_never_moves_the_main_clone() {
+        let Some(fixture) = fixture().await else {
+            return;
+        };
+        let pr = fixture.open_pr(35, "feature", "src/lib.rs");
+        fixture.repo.switch("feature");
+        let here = CheckoutTarget {
+            head_repo: Some(super::super::test_support::SLUG.to_string()),
+            ..target(&pr)
+        };
+        let link = fixture.desk.link_thread("t".into(), here).await.unwrap();
+        assert!(link.checkout_path.is_some(), "{link:?}");
+        fixture.repo.commit("src/more.rs", "more", "more");
+
+        let refused = fixture.desk.check_out_thread_commit("t".into(), true).await;
+
+        assert!(refused.is_err());
+        assert_eq!(fixture.repo.git(&["branch", "--show-current"]), "feature");
     }
 
     #[tokio::test]

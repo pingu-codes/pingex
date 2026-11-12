@@ -414,6 +414,12 @@ impl ReviewDesk {
         let (moving, moving_path) = (target.clone(), path.clone());
         self.blocking("Switching the worktree failed", move |desk| {
             let dir = Path::new(&moving_path);
+            if !git::is_linked_worktree(&desk.host, dir)? {
+                return Err(
+                    "The repository's main clone is not a stack's worktree, so it is not switched"
+                        .to_string(),
+                );
+            }
             if stack_git::rebase_in_progress(&desk.host, dir) {
                 return Err(format!("A rebase is going on in {moving_path}"));
             }
@@ -422,9 +428,12 @@ impl ReviewDesk {
                     "{moving_path} has uncommitted changes. Commit or stash them, then switch"
                 ));
             }
+            // Fetching takes the repository's lock itself, so it comes first.
+            if stack_git::branch_tip(&desk.host, desk.dir(), &moving.head_ref)?.is_none() {
+                desk.ensure_commit(&moving)?;
+            }
             stack_git::locked(&desk.host, desk.dir(), || {
                 if stack_git::branch_tip(&desk.host, desk.dir(), &moving.head_ref)?.is_none() {
-                    desk.ensure_commit(&moving)?;
                     stack_git::create_branch(
                         &desk.host,
                         desk.dir(),

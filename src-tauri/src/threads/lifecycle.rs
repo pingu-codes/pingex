@@ -311,15 +311,21 @@ async fn delete_one_thread(
             .send(app, requests::thread_delete(thread_id))
             .await?;
     }
-    storage::delete_thread_search(&ctx.database(), thread_id).await?;
-    storage::delete_tip_snapshots(&ctx.database(), thread_id).await?;
-    // Archiving keeps the journal (unarchiving expects its transcript back);
-    // deleting is the one path that owns dropping it.
-    storage::delete_thread_items(&ctx.database(), thread_id).await?;
-    storage::delete_turn_settings(&ctx.database(), thread_id).await?;
-    storage::delete_thread_branch(&ctx.database(), thread_id).await?;
+    delete_thread_rows(&ctx.database(), thread_id).await?;
     remove_thread_locally(ctx, thread_id).await?;
     storage::unassign_thread_workspace(&ctx.database(), thread_id).await
+}
+
+/// Drop what the profile database keeps for a deleted thread.
+async fn delete_thread_rows(database: &turso::Database, thread_id: &str) -> Result<(), String> {
+    storage::delete_thread_search(database, thread_id).await?;
+    storage::delete_tip_snapshots(database, thread_id).await?;
+    // Archiving keeps the journal (unarchiving expects its transcript back);
+    // deleting is the one path that owns dropping it.
+    storage::delete_thread_items(database, thread_id).await?;
+    storage::delete_turn_settings(database, thread_id).await?;
+    storage::delete_thread_branch(database, thread_id).await?;
+    storage::delete_pr_link(database, thread_id).await
 }
 
 #[tauri::command]
@@ -476,4 +482,40 @@ pub(crate) async fn fork_thread(
         thread,
         Some(&response),
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::review::requirements::CheckoutStep;
+    use crate::storage::{self, PrLink};
+
+    #[tokio::test]
+    async fn a_deleted_thread_leaves_no_pr_link_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let database = storage::open(dir.path()).await.unwrap();
+        storage::write_pr_link(
+            &database,
+            &PrLink {
+                thread_id: "gone".into(),
+                repo_key: "/repo".into(),
+                pr_number: 7,
+                mine: false,
+                step: CheckoutStep::Worktree,
+                checkout_path: Some("/wt".into()),
+                git_branch: Some("pr/7".into()),
+                start_sha: None,
+                created_at: 1,
+                closed_at: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        super::delete_thread_rows(&database, "gone").await.unwrap();
+
+        assert_eq!(
+            storage::read_pr_link(&database, "gone").await.unwrap(),
+            None
+        );
+    }
 }

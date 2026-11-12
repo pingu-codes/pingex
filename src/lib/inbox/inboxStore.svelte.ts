@@ -77,18 +77,18 @@ async function readInbox(repoDir: string): Promise<void> {
     for (const listener of syncListeners) listener(repoDir, inbox);
     // What closed PRs left behind: refs now, managed worktrees after 7 days,
     // and their threads leave the Reviews group. It works from this sync's
-    // PR list, and a partial read cannot say which PRs closed.
-    if (inbox.complete) {
-      void commands
-        .reviewPruneClosed(
-          repoDir,
-          inbox.prs.map((pr) => pr.number),
-        )
-        .then((report) => {
-          if (report.closed.length > 0) void reloadPrLinks();
-        })
-        .catch(() => {});
-    }
+    // PR list; the backend refuses a partial one, which cannot say which PRs
+    // closed.
+    void commands
+      .reviewPruneClosed(
+        repoDir,
+        inbox.prs.map((pr) => pr.number),
+        inbox.complete,
+      )
+      .then((report) => {
+        if (report.closed.length > 0) void reloadPrLinks();
+      })
+      .catch(() => {});
   } catch (cause) {
     state.error = errorMessage(cause);
   } finally {

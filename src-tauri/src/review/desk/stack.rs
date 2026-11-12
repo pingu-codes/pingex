@@ -241,7 +241,9 @@ impl ReviewDesk {
             .ok_or_else(|| "The stack shares no history with its base".to_string())
     }
 
-    /// The worktree one of the stack's open git branches is checked out in.
+    /// The linked worktree one of the stack's open git branches is checked
+    /// out in. The main clone never counts: stack edits rebase and switch
+    /// branches there.
     pub(super) fn stack_worktree(
         &self,
         input: &StackInput,
@@ -253,10 +255,12 @@ impl ReviewDesk {
             .collect();
         let Some((path, branch)) = worktrees::worktree_branches(&self.host, self.dir())?
             .into_iter()
-            .find(|(_, branch)| {
+            .find(|(path, branch)| {
                 branch
                     .as_deref()
                     .is_some_and(|name| branches.contains(&name))
+                    && crate::git::checkouts::is_linked_worktree(&self.host, Path::new(path))
+                        .unwrap_or(false)
             })
         else {
             return Ok(None);

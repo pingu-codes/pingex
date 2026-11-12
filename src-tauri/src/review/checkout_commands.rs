@@ -169,18 +169,20 @@ pub(crate) async fn review_worktree_context(
 }
 
 /// Drop what closed PRs left behind, given `open_numbers`: every open PR
-/// from a complete inbox sync of `repo_dir`.
+/// an inbox sync of `repo_dir` listed, and whether that sync was `complete`.
+/// An incomplete sync prunes nothing.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn review_prune_closed(
     repo_dir: String,
     open_numbers: Vec<i64>,
+    complete: bool,
     window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<PruneReport, String> {
     let _t = crate::util::timing::phase(format!("review_prune_closed {repo_dir}"));
     desk(&window, &state, repo_dir)
-        .prune_closed(open_numbers.into_iter().collect())
+        .prune_closed(open_numbers.into_iter().collect(), complete)
         .await
 }
 
