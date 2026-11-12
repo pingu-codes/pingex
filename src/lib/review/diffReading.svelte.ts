@@ -58,7 +58,8 @@ export type ReviewKeyCommand =
   | "find"
   | "findNext"
   | "findPrevious"
-  | "help";
+  | "help"
+  | "back";
 
 /** What the page's own commands run. A command neither runs is left alone. */
 export type PageKeys = Partial<Record<ReviewKeyCommand, () => void>>;
@@ -241,7 +242,8 @@ export class DiffReading {
 
   /** The keys of a diff page. This runs ] and [ (next and previous file), v
    *  (viewed), c (comment on the selection) and Escape (drop the selection);
-   *  `page` runs the rest. Keys typed into a field are the field's. */
+   *  `page` runs the rest, including an Escape with nothing selected. Keys
+   *  typed into a field, or pressed in an open menu, are theirs. */
   onKeydown(event: KeyboardEvent, page: PageKeys = {}): void {
     if (dialogStack.length > 0 || event.defaultPrevented) return;
     if (event.key === "Escape" && (this.#selection || this.#composer)) {
@@ -379,6 +381,8 @@ function reviewKey(event: KeyboardEvent): ReviewKeyCommand | null {
   if (event.metaKey || event.ctrlKey || event.altKey) return null;
   const target = event.target as HTMLElement | null;
   if (target?.closest?.("input, textarea, select, [contenteditable='true']")) return null;
+  // An open menu or listbox closes on Escape; the page must not also leave.
+  if (event.key === "Escape" && target?.closest?.("[role='menu'], [role='listbox']")) return null;
   const map: Record<string, ReviewKeyCommand> = {
     j: "nextPr",
     k: "previousPr",
@@ -388,6 +392,7 @@ function reviewKey(event: KeyboardEvent): ReviewKeyCommand | null {
     v: "toggleViewed",
     c: "comment",
     "?": "help",
+    Escape: "back",
   };
   return map[event.key] ?? null;
 }

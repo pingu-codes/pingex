@@ -89,3 +89,10 @@ test("opens on the file chosen in the overview, and Back returns to the thread",
   await page.getByRole("button", { name: "Thread", exact: true }).click();
   await expect(page.getByRole("button", { name: "Worked for 24s" })).toBeVisible();
 });
+
+test("Escape goes back to the thread, once nothing on the page is selected", async ({ page }) => {
+  await openChanges(page);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Worked for 24s" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Changes", exact: true })).toBeHidden();
+});

@@ -112,13 +112,14 @@ function page(heights: Record<string, number>) {
   };
 }
 
-const pageKeys = { nextPr: vi.fn() };
+const pageKeys = { nextPr: vi.fn(), back: vi.fn() };
 let stops: (() => void)[] = [];
 
 afterEach(() => {
   for (const stop of stops) stop();
   stops = [];
   pageKeys.nextPr.mockClear();
+  pageKeys.back.mockClear();
 });
 
 const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -339,6 +340,7 @@ describe("selected lines and the composer", () => {
 
     at.press("Escape");
     expect(at.reading.selection).toBeNull();
+    expect(pageKeys.back).not.toHaveBeenCalled();
   });
 });
 
@@ -364,6 +366,23 @@ describe("the keys", () => {
     expect(pageKeys.nextPr).toHaveBeenCalledOnce();
     expect(at.press("n").defaultPrevented).toBe(false);
     expect(at.press("v").defaultPrevented).toBe(true);
+  });
+
+  it("hands the page an Escape once nothing is selected, but not one pressed in a menu", () => {
+    const at = page({ "a.ts": 1000 });
+    at.reading.selectLine("a.ts", "RIGHT", 2, false);
+    expect(at.press("Escape").defaultPrevented).toBe(false);
+    expect(pageKeys.back).not.toHaveBeenCalled();
+    expect(at.press("Escape").defaultPrevented).toBe(true);
+    expect(pageKeys.back).toHaveBeenCalledOnce();
+
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    document.body.append(menu);
+    menu.addEventListener("keydown", (event) => at.reading.onKeydown(event, pageKeys));
+    menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true, bubbles: true }));
+    menu.remove();
+    expect(pageKeys.back).toHaveBeenCalledOnce();
   });
 
   it("leaves keys typed into a field, or already taken, to them", () => {

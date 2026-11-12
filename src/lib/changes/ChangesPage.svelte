@@ -32,6 +32,7 @@
   import { activeTurns } from "$lib/services/codexEvents.svelte";
   import { commands } from "$lib/services/homeRouting";
   import { invalidate, query } from "$lib/services/queryCache.svelte";
+  import { settingsNav } from "$lib/services/settingsNav.svelte";
   import { collectFileChanges } from "$lib/thread/fileChanges";
   import { openSession, releaseSession } from "$lib/thread/sessions.svelte";
   import { toaster, toastFailure } from "$lib/toaster";
@@ -355,11 +356,13 @@
   }
 
   /** The review page's keys, where they mean something here: j/k walk the
-   *  segments and ⌘↵ sends; [ and ], v, c and Escape are the reading's. */
+   *  segments, ⌘↵ sends, and an Escape with nothing selected goes back;
+   *  [ and ], v, c and dropping a selection are the reading's. */
   const pageKeys = {
     nextPr: () => walkSegments(1),
     previousPr: () => walkSegments(-1),
     submit: () => void sendNotes(),
+    back: () => onBack(),
   };
 
   const scopes = [
@@ -545,5 +548,11 @@
   </div>
 </div>
 
-<svelte:window onkeydown={(event) => reading.onKeydown(event, pageKeys)} />
+<!-- The Settings overlay owns the keys while open: its Escape closes it, and
+     must not also take the page back underneath. -->
+<svelte:window
+  onkeydown={(event) => {
+    if (!settingsNav.open) reading.onKeydown(event, pageKeys);
+  }}
+/>
 <svelte:document onvisibilitychange={() => (visible = document.visibilityState === "visible")} />
