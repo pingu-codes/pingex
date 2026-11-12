@@ -1159,3 +1159,153 @@ fn a_pr_worktree_agent_writes_freely_commits_with_approval_and_cannot_push_unask
         "a declined push reaches nothing"
     );
 }
+
+// ── steering and background terminals ─────────────────────────────────────
+
+/// A steer joins the turn that is running rather than starting another: the
+/// `userMessage` it becomes carries the client id the app sent and belongs to
+/// the same turn, which then answers it.
+#[test]
+fn a_steer_lands_in_the_running_turn() {
+    live!(server);
+    let thread_id = server.start_thread();
+    let from = server.cursor();
+    let response = server.call(requests::turn_start(
+        &thread_id,
+        text_input("Count from 1 to 200, one number per line, with no other text."),
+        low_effort(server),
+    ));
+    let turn_id = response
+        .pointer("/turn/id")
+        .and_then(Value::as_str)
+        .expect("turn id")
+        .to_string();
+    server
+        .wait_notification(from, "item/agentMessage/delta", TURN_TIMEOUT, |params| {
+            params["turnId"] == turn_id
+        })
+        .expect("model started streaming");
+    let steered = server.call(requests::turn_steer(
+        &thread_id,
+        &turn_id,
+        text_input("After counting, end with a line that says exactly STEERED."),
+        "pingex-steer-live",
+    ));
+    assert_eq!(
+        steered["turnId"],
+        turn_id.as_str(),
+        "steer response: {steered}"
+    );
+    let outcome = server.await_turn(from, &turn_id);
+    let landed = outcome
+        .items
+        .iter()
+        .any(|item| item["type"] == "userMessage" && item["clientId"] == "pingex-steer-live");
+    assert!(
+        landed,
+        "no steered userMessage in the turn: {:?}",
+        outcome.item_types()
+    );
+    assert_eq!(outcome.status, "completed");
+    assert_reply_contains(&outcome, "STEERED", "steered turn");
+
+    // With nothing running, Codex refuses in words the app classifies as a
+    // refusal, so the message is queued instead of lost.
+    let refused = server
+        .request(requests::turn_steer(
+            &thread_id,
+            &turn_id,
+            text_input("too late"),
+            "pingex-steer-late",
+        ))
+        .expect_err("a finished turn cannot be steered");
+    let wrapped = format!(
+        "Codex request failed: {}",
+        json!({"code": refused.code, "message": refused.message})
+    );
+    assert!(
+        pingex_app_lib::e2e::steer_refused(&wrapped),
+        "unclassified steer refusal: {wrapped}"
+    );
+    server.call(requests::thread_delete(&thread_id));
+}
+
+/// A long command outlives its turn as a background terminal: Codex lists it
+/// after `turn/completed`, stops it on request, and only then reports its
+/// `item/completed`. Depends on the model backgrounding the command, so a run
+/// where it did not is reported rather than failed.
+#[test]
+fn a_background_terminal_outlives_its_turn_and_can_be_stopped() {
+    live!(server);
+    let thread_id = server.start_thread();
+    let from = server.cursor();
+    let outcome = server.run_turn(requests::turn_start(
+        &thread_id,
+        text_input(
+            "Start `sleep 300` in the shell and do not wait for it to finish: \
+             leave it running in the background. Then reply with exactly STARTED.",
+        ),
+        low_effort(server),
+    ));
+    let listed = server.call(requests::background_terminals_list(&thread_id, None));
+    let Some(terminal) = listed["data"]
+        .as_array()
+        .and_then(|rows| {
+            rows.iter()
+                .find(|row| row["command"].as_str().unwrap_or("").contains("sleep"))
+        })
+        .cloned()
+    else {
+        eprintln!(
+            "model did not leave a background terminal (items: {:?}); list: {listed}",
+            outcome.item_types()
+        );
+        server.call(requests::thread_delete(&thread_id));
+        return;
+    };
+    let item_id = terminal["itemId"].as_str().expect("itemId").to_string();
+    let process_id = terminal["processId"]
+        .as_str()
+        .expect("processId")
+        .to_string();
+    assert!(
+        !outcome
+            .items
+            .iter()
+            .any(|item| item["id"] == item_id.as_str()),
+        "a background terminal must not complete with its turn"
+    );
+    let started = server
+        .messages_since(from)
+        .into_iter()
+        .find(|message| {
+            message["method"] == "item/started"
+                && message.pointer("/params/item/id") == Some(&json!(item_id))
+        })
+        .expect("item/started for the background command");
+    assert_eq!(
+        started.pointer("/params/item/processId"),
+        Some(&json!(process_id))
+    );
+
+    let after = server.cursor();
+    let stopped = server.call(requests::background_terminal_terminate(
+        &thread_id,
+        &process_id,
+    ));
+    assert_eq!(stopped["terminated"], true, "terminate: {stopped}");
+    server
+        .wait_notification(after, "item/completed", TURN_TIMEOUT, |params| {
+            params.pointer("/item/id") == Some(&json!(item_id))
+        })
+        .expect("the stopped command reports item/completed");
+    let empty = server.call(requests::background_terminals_list(&thread_id, None));
+    assert!(
+        !empty["data"]
+            .as_array()
+            .is_some_and(|rows| rows.iter().any(|row| row["itemId"] == item_id.as_str())),
+        "terminated terminal still listed: {empty}"
+    );
+    server.call(requests::background_terminals_clean(&thread_id));
+    server.call(requests::thread_delete(&thread_id));
+}

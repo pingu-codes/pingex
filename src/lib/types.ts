@@ -230,6 +230,8 @@ export interface ThreadItem {
    * side through `reasoningContent`.
    */
   content?: UserInputPart[] | string[];
+  /** `userMessage`: the `clientUserMessageId` the app sent it with (steers). */
+  clientId?: string | null;
   // agentMessage / plan
   text?: string;
   /** Async delivery does not complete the enclosing turn. */
@@ -256,6 +258,8 @@ export interface ThreadItem {
   // commandExecution
   command?: string;
   cwd?: string;
+  /** The PTY session behind a command; set when it can outlive its step. */
+  processId?: string | null;
   status?: string;
   aggregatedOutput?: string | null;
   exitCode?: number | null;

@@ -91,11 +91,25 @@ Behaviour changes the app had to follow:
 | New threads default to paginated history, and `thread/rollback` refuses paginated threads | 0.152.0 | `/undo` sends `thread/revert` (`ThreadSession.undoTurns`) |
 | `thread/rollback` removed; `thread/revert` still refuses legacy (non-paginated) threads | 0.156.0 | `/undo` on a legacy thread shows "undo isn't available" and leaves history unchanged (`ThreadSession.undoTurns`) |
 
+Ungated APIs the app uses beyond the core, present on every tier (0.160 and
+later), so they need no `Feature`:
+
+- `turn/steer` with `expectedTurnId` and `clientUserMessageId`. The steered
+  `userMessage` item echoes the id as `clientId`. A refusal (no active turn, a
+  turn-id mismatch, a review or compact turn) comes back prefixed
+  `codex-steer-refused` (`threads/turn.rs`) and the message is queued instead.
+- Experimental `thread/backgroundTerminals/{list,terminate,clean}`: commands
+  that outlive their turn, matched to `commandExecution.processId`. Only a
+  loaded thread answers (`thread not found` reads as none running).
+  `osPid`, `cpuPercent` and `rssKb` are always null up to the mirror's
+  `main`, so the app does not carry them.
+
 Deliberately not adopted yet (tracked on the roadmap): paginated history
 (`thread/turns/list`, `thread/items/list`, `thread/timeline/list` — upstream
-deprecates full hydration on resume/fork in their favour), `turn/steer`,
+deprecates full hydration on resume/fork in their favour),
 `thread/search`, `experimentalFeature/list`, `permissionProfile/list`, the MCP
-event stream, realtime/voice, marketplace installation, `fs/*`, process/terminal,
+event stream, realtime/voice, marketplace installation, `fs/*`, `process/*`,
+`command/exec`,
 login/Bedrock flows, environments and the Windows sandbox, raw response events,
 `userVerification/*` (and the `openai/userVerification` elicitation mode),
 `memory/status`, Daybreak preferences (`daybreakEnabled`, now also on

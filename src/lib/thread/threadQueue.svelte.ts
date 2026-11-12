@@ -24,6 +24,9 @@ export interface QueueDeps {
   /** Start a turn. Resolves `false` when the message reached nothing, in which
    *  case the queue puts it back rather than dropping it. */
   send: (input: UserInputPart[], options?: TurnOptions) => Promise<boolean>;
+  /** Send a message into the running turn instead. Same contract as `send`;
+   *  a turn that cannot take it queues it again. */
+  steer: (input: UserInputPart[], options?: TurnOptions) => Promise<boolean>;
   /** Stop the running turn, so a promoted message goes next. */
   interrupt: () => Promise<void>;
   /** Whether the thread can take a turn right now — nothing running, nothing
@@ -151,6 +154,28 @@ export class ThreadQueue {
     }
     this.drainBlocked = false;
     await this.deps.interrupt();
+    this.maybeDrain();
+  }
+
+  /** Take a message off the queue and steer it into the running turn, without
+   *  stopping it. Like a drain, this holds the only copy in between, so a
+   *  steer that reached nothing puts it back where it was. */
+  async steer(entry: QueuedSubmission): Promise<void> {
+    const index = this.entries.findIndex((candidate) => candidate.id === entry.id);
+    if (index < 0 || this.inFlight) return;
+    const options = this.options.get(entry.clientUserMessageId);
+    this.inFlight = true;
+    try {
+      await this.remove(entry);
+      this.options.delete(entry.clientUserMessageId);
+      if (!(await this.deps.steer(entry.input, options))) {
+        if (options) this.options.set(entry.clientUserMessageId, options);
+        const restored = { ...entry, id: localId(entry.clientUserMessageId) };
+        this.entries = [...this.entries.slice(0, index), restored, ...this.entries.slice(index)];
+      }
+    } finally {
+      this.inFlight = false;
+    }
     this.maybeDrain();
   }
 

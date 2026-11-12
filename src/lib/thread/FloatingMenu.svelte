@@ -13,9 +13,11 @@
     MessageCircleQuestion,
     Plus,
     ScrollText,
+    Square,
     SquareTerminal,
   } from "@lucide/svelte";
   import { Menu, Portal, ToggleGroup } from "@skeletonlabs/skeleton-svelte";
+  import { untrack } from "svelte";
   import { allSegments, totals } from "$lib/changes/changesPage";
   import { messageLog } from "$lib/layout/messageLogPrefs.svelte";
   import UsageMeter from "$lib/layout/UsageMeter.svelte";
@@ -53,6 +55,9 @@
     onShowBrowser,
     onOpenSubagent = () => {},
     onOpenProcess = () => {},
+    onStopProcess,
+    onStopAllBackground,
+    onPanelOpen,
   }: {
     plan: string | null;
     /** Every file the thread's edits touched: what the menu lists when the
@@ -85,6 +90,13 @@
     onShowBrowser?: () => void;
     onOpenSubagent?: (agent: SubagentDetail) => void;
     onOpenProcess?: (process: RunningProcess) => void;
+    /** Stop a command that has a PTY session; absent when the harness keeps
+     *  no background terminals. */
+    onStopProcess?: (process: RunningProcess) => void;
+    /** Stop every background terminal of this thread. */
+    onStopAllBackground?: () => void;
+    /** The overview panel opened: a moment to refresh what it shows. */
+    onPanelOpen?: () => void;
   } = $props();
 
   /** What the checked-out git branches changed, then everything else, once
@@ -109,6 +121,9 @@
   // The overview panel is persistent: it starts open and only the toggle
   // button closes it, so opening plan/sources/side questions keeps it around.
   let panel = $state(true);
+  $effect(() => {
+    if (panel) untrack(() => onPanelOpen?.());
+  });
 
   const cost = $derived(formatCost(costUsd));
   // Named per-model buckets (e.g. Spark) sit alongside the account-wide limit.
@@ -165,6 +180,11 @@
   // history of finished commands doesn't bury the ones still running.
   const processFilterOptions: StatusBucket[] = ["Active", "Finished", "Failed"];
   let processFilters = $state<string[]>(["Active"]);
+  const backgroundHere = $derived(
+    processes.filter(
+      (process) => process.threadId === currentThreadId && process.background && process.status === "running",
+    ).length,
+  );
   // Stopped (interrupted) commands are done running, so they live under Finished.
   const processFilterBucket = (status: string): StatusBucket => {
     const bucket = statusBucket(status);
@@ -389,33 +409,62 @@
         {#if visibleProcesses.length === 0}
           {@render empty("No matching processes.")}
         {/if}
+        {#if onStopAllBackground && backgroundHere > 0}
+          <button
+            onclick={onStopAllBackground}
+            class="menu-row text-error-500"
+            aria-label="Stop all background processes"
+          >
+            <Square size={12} class="shrink-0" />
+            <span class="min-w-0 flex-1 truncate">
+              Stop {backgroundHere === 1 ? "the background process" : `all ${backgroundHere} background processes`}
+            </span>
+          </button>
+        {/if}
         <div class="max-h-52 overflow-y-auto">
           {#each visibleProcesses as process (process.key)}
             {@const state = statusBucket(process.status)}
-            <button
-              onclick={() => onOpenProcess(process)}
-              class="flex w-full items-start gap-2 rounded px-2 py-1.5 text-left hover:preset-tonal"
-              aria-label={`Open process ${process.command}`}
-            >
-              <SquareTerminal size={13} class="mt-0.5 shrink-0 {statusTone(process.status)}" />
-              <span class="min-w-0 flex-1">
-                <span class="flex items-center gap-1.5">
-                  <span class="min-w-0 flex-1 truncate font-mono text-xs">{process.command || "(command)"}</span>
-                  <span class="text-[9px] {statusTone(process.status)}">{state}</span>
+            {@const stoppable = onStopProcess && process.status === "running" && process.processId}
+            <div class="group flex items-start rounded hover:preset-tonal">
+              <button
+                onclick={() => onOpenProcess(process)}
+                class="flex min-w-0 flex-1 items-start gap-2 px-2 py-1.5 text-left"
+                aria-label={`Open process ${process.command}`}
+              >
+                <SquareTerminal size={13} class="mt-0.5 shrink-0 {statusTone(process.status)}" />
+                <span class="min-w-0 flex-1">
+                  <span class="flex items-center gap-1.5">
+                    <span class="min-w-0 flex-1 truncate font-mono text-xs">{process.command || "(command)"}</span>
+                    <span class="text-[9px] {statusTone(process.status)}">{state}</span>
+                  </span>
+                  <span class="mt-0.5 flex flex-wrap gap-1 text-[9px] text-surface-500">
+                    {#if process.status === "running"}
+                      <span class="tabular-nums">{elapsedLabel(process.startedAt, processClock.now)}</span>
+                    {:else if process.exitCode != null}
+                      <span>exit {process.exitCode}</span>
+                    {/if}
+                    {#if process.background && process.status === "running"}
+                      <span>·</span>
+                      <span class="text-primary-500">background</span>
+                    {/if}
+                    {#if process.threadId !== currentThreadId}
+                      <span>·</span>
+                      <span>other thread</span>
+                    {/if}
+                  </span>
                 </span>
-                <span class="mt-0.5 flex flex-wrap gap-1 text-[9px] text-surface-500">
-                  {#if process.status === "running"}
-                    <span class="tabular-nums">{elapsedLabel(process.startedAt, processClock.now)}</span>
-                  {:else if process.exitCode != null}
-                    <span>exit {process.exitCode}</span>
-                  {/if}
-                  {#if process.threadId !== currentThreadId}
-                    <span>·</span>
-                    <span>other thread</span>
-                  {/if}
-                </span>
-              </span>
-            </button>
+              </button>
+              {#if stoppable}
+                <button
+                  onclick={() => onStopProcess?.(process)}
+                  class="btn-icon btn-icon-sm mt-1 mr-1 shrink-0 rounded-md text-surface-500 transition hover:text-error-500"
+                  aria-label={`Stop process ${process.command}`}
+                  title="Stop this process"
+                >
+                  <Square size={11} />
+                </button>
+              {/if}
+            </div>
           {/each}
         </div>
       {/if}

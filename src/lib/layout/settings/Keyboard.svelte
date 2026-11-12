@@ -9,7 +9,8 @@
   import { errorMessage } from "$lib/utils/errors";
 
   const KEYBOARD_SHORTCUTS = [
-    { keys: "⌘ ↵", action: "Send message" },
+    { keys: "↵", action: "Send message (while Codex works: steer it)" },
+    { keys: "⇥", action: "While Codex works: queue for after the turn" },
     { keys: "⇧ ↵", action: "New line in composer" },
     { keys: "⌘ K", action: "Open file mention search" },
     { keys: "/", action: "Open slash command menu" },

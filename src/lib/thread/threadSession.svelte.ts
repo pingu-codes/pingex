@@ -12,12 +12,14 @@
 import {
   getThreadGoal,
   isRevertUnsupported,
+  isSteerRefused,
   isTurnSettingsUnsupported,
   listSubagents,
   readThread,
   revertThread,
   startReview,
   startTurn,
+  steerTurn,
   updateTurnSettings,
 } from "$lib/services/api";
 import { activeTurns, type CodexEvent, threadTokenUsage } from "$lib/services/codexEvents.svelte";
@@ -37,6 +39,7 @@ import type {
   TurnOptions,
   UserInputPart,
 } from "$lib/types";
+import { can } from "$lib/utils/capabilities";
 import { errorMessage } from "$lib/utils/errors";
 
 /** Notices for a model/effort change made mid-turn. */
@@ -44,6 +47,17 @@ export const LIVE_SETTINGS_APPLIED = "Switched the running turn to the new setti
 export const LIVE_SETTINGS_NEXT_TURN = "New settings apply from the next turn.";
 /** Undo on a thread whose history Codex cannot rewind (created before 0.152). */
 const UNDO_UNAVAILABLE = "Codex can't rewind this thread's history, so undo isn't available here.";
+/** A steer Codex declined (the turn ended, or it is a review or compaction). */
+export const STEER_QUEUED = "Couldn't steer this turn, so the message was queued for after it.";
+
+/** A message sent into a running turn that Codex has not picked up yet. It
+ *  joins the transcript at the turn's next step, as a `userMessage` item
+ *  carrying `clientId`. */
+export interface PendingSteer {
+  clientId: string;
+  turnId: string;
+  input: UserInputPart[];
+}
 
 export class ThreadSession {
   /** Codex's id for the thread; `null` while it is an unsent draft. */
@@ -95,6 +109,11 @@ export class ThreadSession {
   /** Views currently showing this session. Retention looks at it. */
   mounted = 0;
   readonly queue: ThreadQueue;
+  /** Steers sent but not yet in the transcript, oldest first. */
+  pendingSteers = $state<PendingSteer[]>([]);
+  /** Where steers the turn ended without taking go back to (the view puts
+   *  them in the composer). Without one, they are queued instead. */
+  onSteersReturned: ((inputs: UserInputPart[][]) => void) | null = null;
   /** Called after work ends with no view attached; the registry drops the
    *  session then. */
   onIdle: (() => void) | null = null;
@@ -264,6 +283,7 @@ export class ThreadSession {
     this.queue = new ThreadQueue({
       threadId: () => this.id,
       send: (input, options) => this.send(input, options),
+      steer: (input, options) => this.steer(input, options),
       interrupt: () => this.interrupt(),
       idle: () => this.available(),
       onNotice: (text) => {
@@ -486,6 +506,75 @@ export class ThreadSession {
     });
   }
 
+  /** Whether a message sent now can go into the running turn rather than
+   *  wait for it: a harness that steers, and a turn Codex has named and that
+   *  is an ordinary one (not a review, compaction or undo). */
+  get canSteer(): boolean {
+    const active = this.activeTurn;
+    return (
+      can(this.thread?.harness, "steer") &&
+      !!this.id &&
+      !!active &&
+      !active.id.startsWith("local-") &&
+      !this.disposed &&
+      !this.disconnectedState &&
+      !this.compacting &&
+      !this.operation &&
+      !this.pendingTurnStart
+    );
+  }
+
+  /**
+   * Send a message into the running turn (`turn/steer`). Same contract as
+   * `send`: `true` when the message is accounted for — steered, or queued
+   * because the turn could not take it — and `false` when it reached nothing.
+   * With no steerable turn this is just `send`, so the message is never lost.
+   */
+  async steer(input: UserInputPart[], options?: TurnOptions): Promise<boolean> {
+    const id = this.id;
+    const active = this.activeTurn;
+    if (!this.canSteer || !id || !active) return this.send(input, options);
+    options ??= this.turnOptions?.();
+    const clientId = `pingex-steer-${crypto.randomUUID()}`;
+    // Registered before the call: the item can arrive before the response.
+    this.pendingSteers.push({ clientId, turnId: active.id, input });
+    try {
+      await steerTurn(id, active.id, input, clientId);
+      return true;
+    } catch (cause) {
+      this.pendingSteers = this.pendingSteers.filter((steer) => steer.clientId !== clientId);
+      if (this.disposed) return false;
+      if (isSteerRefused(cause)) {
+        this.notice = STEER_QUEUED;
+        void this.queue.add(input, options);
+        return true;
+      }
+      toastError(errorMessage(cause));
+      return false;
+    }
+  }
+
+  /** Settle pending steers against an event: a `userMessage` carrying one's
+   *  client id means it landed; its turn ending without one means Codex never
+   *  took it, so it goes back to the user. */
+  #settleSteers(event: CodexEvent, turnCompleted: boolean): void {
+    if (this.pendingSteers.length === 0) return;
+    const { method, params } = event;
+    if (method === "item/started" || method === "item/completed") {
+      const clientId = params.item?.type === "userMessage" ? params.item.clientId : null;
+      if (clientId) this.pendingSteers = this.pendingSteers.filter((steer) => steer.clientId !== clientId);
+      return;
+    }
+    if (!turnCompleted) return;
+    const ended = turnIdOf(params);
+    const stranded = this.pendingSteers.filter((steer) => steer.turnId === ended);
+    if (stranded.length === 0) return;
+    this.pendingSteers = this.pendingSteers.filter((steer) => steer.turnId !== ended);
+    const inputs = stranded.map((steer) => steer.input);
+    if (this.onSteersReturned) this.onSteersReturned(inputs);
+    else for (const input of inputs) void this.queue.add(input);
+  }
+
   /**
    * The user changed model or effort while a turn is running. Newer Codex can
    * switch the running turn over (`turn/settings/update`); everything else —
@@ -562,6 +651,12 @@ export class ThreadSession {
     this.starting = false;
     this.streamError = "Lost connection to Codex.";
     this.endCompaction();
+    // Codex is gone, so no steer still waiting will land; hand them back.
+    if (this.pendingSteers.length > 0) {
+      const inputs = this.pendingSteers.map((steer) => steer.input);
+      this.pendingSteers = [];
+      this.onSteersReturned?.(inputs);
+    }
     finalizeRunningTurns(this.thread?.turns ?? [], "interrupted");
     this.revision++;
   }
@@ -651,6 +746,7 @@ export class ThreadSession {
       this.revision++;
       return;
     }
+    this.#settleSteers(event, !!outcome.turnCompleted);
     if (outcome.streamError) this.streamError = outcome.streamError;
     if (outcome.notice) this.notice = outcome.notice;
     // The buffering notice describes an ongoing stall; once the stall ends — or

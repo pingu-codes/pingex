@@ -132,6 +132,12 @@ pub(crate) enum Capability {
     /// Driving the user's own Chrome through the `pingex_browser` tools
     /// (Codex dynamic tools, `src-tauri/src/browser`).
     BrowserUse,
+    /// Sending a message into the running turn instead of queueing it for
+    /// after (Codex `turn/steer`).
+    Steer,
+    /// Commands that outlive their turn and can be listed and stopped later
+    /// (Codex unified-exec sessions, `thread/backgroundTerminals/*`).
+    BackgroundTerminals,
 }
 
 impl HarnessKind {
@@ -148,6 +154,8 @@ impl HarnessKind {
                 SideQuestions,
                 ReadOnlySandbox,
                 BrowserUse,
+                Steer,
+                BackgroundTerminals,
             ],
             HarnessKind::Claude => &[
                 PermissionModes,

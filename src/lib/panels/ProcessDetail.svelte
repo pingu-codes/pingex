@@ -1,14 +1,18 @@
 <script lang="ts">
-  import { OctagonX } from "@lucide/svelte";
+  import { OctagonX, Square } from "@lucide/svelte";
   import { elapsedLabel, processClock, type RunningProcess } from "$lib/services/processes.svelte";
 
   let {
     process,
     onStopTurn,
+    onStopProcess,
   }: {
     process: RunningProcess | null;
     /** Present only when the process belongs to the open thread. Interrupts the whole turn. */
     onStopTurn?: (process: RunningProcess) => void;
+    /** Stop just this command (a background terminal); absent when the
+     *  harness cannot. Shown only for a command with a PTY session. */
+    onStopProcess?: (process: RunningProcess) => void;
   } = $props();
 
   let output = $state<HTMLElement | null>(null);
@@ -77,7 +81,16 @@
       class="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-surface-50-950 p-2.5 font-mono text-[11px] leading-5"
     >{process.output.trim() || "No output yet."}</pre>
     <p class="shrink-0 text-[10px] text-surface-500">Includes text Codex typed into the command.</p>
-    {#if process.status === "running" && onStopTurn}
+    {#if process.status === "running" && process.background}
+      <p class="shrink-0 text-[10px] text-surface-500">Still running after its turn ended.</p>
+    {/if}
+    {#if process.status === "running" && process.processId && onStopProcess}
+      <button class="btn btn-sm preset-tonal w-full shrink-0 text-error-500" onclick={() => onStopProcess(process)}>
+        <Square size={14} />
+        Stop process
+      </button>
+    {/if}
+    {#if process.status === "running" && !process.background && onStopTurn}
       <button class="btn btn-sm preset-tonal w-full shrink-0 text-error-500" onclick={() => onStopTurn(process)}>
         <OctagonX size={14} />
         Stop turn (stops all its work)

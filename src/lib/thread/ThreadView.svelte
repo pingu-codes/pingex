@@ -16,7 +16,13 @@
   import { isPromptPartsTextUnsupported } from "$lib/services/api";
   import { approvals, elicitations, turnPlans, userInputRequests } from "$lib/services/codexEvents.svelte";
   import { commands } from "$lib/services/homeRouting";
-  import { processes } from "$lib/services/processes.svelte";
+  import {
+    processes,
+    type RunningProcess,
+    reconcileBackground,
+    stopAllBackground,
+    terminateProcess,
+  } from "$lib/services/processes.svelte";
   import { invalidate, query } from "$lib/services/queryCache.svelte";
   import ApprovalCard from "$lib/thread/ApprovalCard.svelte";
   import { contextStats as deriveContextStats } from "$lib/thread/contextUsage";
@@ -155,6 +161,23 @@
     const current = session;
     current.turnOptions = () => untrack(() => composer?.turnOptions());
   });
+  // A steer the turn ended without taking goes back into an empty composer;
+  // with text already there it is queued instead, so nothing typed is lost.
+  $effect(() => {
+    const current = session;
+    const returned = (inputs: UserInputPart[][]) => {
+      if (composer?.isEmpty()) {
+        composer.restoreText(inputs.map((input) => queuedText(input)).join("\n\n"));
+        session.notice = "The turn ended before it took your message, so it's back in the composer.";
+      } else {
+        for (const input of inputs) void current.queue.add(input);
+      }
+    };
+    current.onSteersReturned = returned;
+    return () => {
+      if (current.onSteersReturned === returned) current.onSteersReturned = null;
+    };
+  });
   // The harness changed mode by itself (Claude leaves plan mode when a plan is
   // approved); the pill follows once, then the event is spent.
   $effect(() => {
@@ -283,6 +306,14 @@
     return sent;
   }
 
+  /** Send into the running turn (Enter mid-turn). Falls back to queueing when
+   *  the turn cannot take it; the session decides. */
+  function steer(input: UserInputPart[], options?: TurnOptions): Promise<boolean> {
+    const sent = session.steer(input, options);
+    transcript.follow(true);
+    return sent;
+  }
+
   /** Editing a past user message sends the edit on a new Branch, so the
    *  original and every later edit survive as Versions the bubble can page
    *  between. The Branch is already streaming when the view moves there. */
@@ -294,6 +325,15 @@
   const threadApprovals = $derived(approvals.list.filter((approval) => approval.threadId === liveThreadId));
   const browserApprovals = $derived(liveThreadId ? approvalsFor(liveThreadId) : []);
   const browserUse = $derived(can(thread?.harness, "browserUse"));
+  const backgroundTerminals = $derived(can(thread?.harness, "backgroundTerminals"));
+  // Commands that outlived their turn, including ones started before a reload.
+  $effect(() => {
+    const id = liveThreadId;
+    if (id && backgroundTerminals) untrack(() => void reconcileBackground(id));
+  });
+  function stopProcess(process: RunningProcess) {
+    terminateProcess(process).catch(fail);
+  }
   // Name the thread's Pingex tab group in Chrome after the thread.
   $effect(() => {
     if (browserUse && liveThreadId && thread?.name) labelBrowserThread(liveThreadId, thread.name);
@@ -613,6 +653,13 @@
           onShowBrowser={browserUse ? () => (panelView = { kind: "browser" }) : undefined}
           onOpenSubagent={(agent) => (onOpenSubagent ? onOpenSubagent(agent) : onSelectThread?.(agent.id))}
           onOpenProcess={(process) => (panelView = { kind: "process", processKey: process.key })}
+          onStopProcess={backgroundTerminals ? stopProcess : undefined}
+          onStopAllBackground={backgroundTerminals && liveThreadId
+            ? () => void stopAllBackground(liveThreadId).catch(fail)
+            : undefined}
+          onPanelOpen={() => {
+            if (liveThreadId && backgroundTerminals) void reconcileBackground(liveThreadId);
+          }}
         />
       {/if}
       <div
@@ -801,13 +848,23 @@
       </div>
     {/if}
 
-    {#if session.queue.entries.length > 0}
+    {#if session.pendingSteers.length > 0 || session.queue.entries.length > 0}
       <div class="mx-auto w-full max-w-3xl space-y-1 px-6 pb-2">
+        {#each session.pendingSteers as steer (steer.clientId)}
+          <div
+            class="flex items-start gap-2 rounded-lg border border-primary-500/30 bg-primary-500/10 px-3 py-1.5 text-xs text-surface-600-400"
+            title="Sent into the running turn; Codex reads it at its next step."
+          >
+            <span class="shrink-0 pt-0.5 font-medium text-primary-600-400">Steering</span>
+            <span class="min-w-0 flex-1 truncate pt-0.5">{queuedText(steer.input)}</span>
+          </div>
+        {/each}
         {#each session.queue.entries as entry, index (entry.id)}
           <QueuedMessageRow
             {entry}
             canSendNow={activeTurn !== null || index > 0}
             onSendNow={() => session.queue.promote(entry)}
+            onSteer={session.canSteer ? () => session.queue.steer(entry) : undefined}
             onEdit={(input) => session.queue.edit(entry, input)}
             onCancel={() => cancelQueued(entry)}
           />
@@ -854,7 +911,9 @@
       {threadId}
       worktreeContext={draft.worktreeContext}
       threadHarness={harnessKind(thread?.harness) ?? (threadId ? "codex" : null)}
+      canSteer={session.canSteer}
       onSend={send}
+      onSteer={steer}
       onInterrupt={() => session.interrupt()}
       onCommand={runCommand}
       onGoal={goals.set}
@@ -895,6 +954,7 @@
       implementDisabled={activeTurn !== null || starting}
       {showSystemPromptInThread}
       onToggleSystemPromptInThread={toggleSystemPromptInThread}
+      onStopProcess={backgroundTerminals ? stopProcess : undefined}
       onStopProcessTurn={(process) => {
         if (process.turnId && process.threadId) {
           commands.interruptTurn(process.threadId, process.turnId).catch(fail);
