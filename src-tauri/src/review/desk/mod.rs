@@ -101,9 +101,9 @@ impl ReviewDesk {
     }
 
     /// The Home's Pingex-owned directory on the repository's Host (its Codex
-    /// home): managed PR worktrees go under `pr-worktrees/`, the user's under
-    /// `worktrees/` unless the repository says otherwise. Without one, creating
-    /// either fails.
+    /// home): PR and Stack worktrees go under `worktrees/<repository>/` unless
+    /// the repository says otherwise. Without one, checking a PR out there
+    /// fails.
     pub(crate) fn with_home_dir(mut self, home: String) -> Self {
         self.home_dir = Some(home);
         self

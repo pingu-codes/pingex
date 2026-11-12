@@ -127,7 +127,7 @@ pub(crate) enum Capability {
     SideQuestions,
     /// A turn sent with the read-only sandbox (`sandboxMode: "read-only"`)
     /// cannot change files without asking: Codex's sandbox, Claude's Default
-    /// mode. Agents at No checkout need it, since they run in the user's clone.
+    /// mode. "Ask only" turns on a PR thread use it.
     ReadOnlySandbox,
     /// Driving the user's own Chrome through the `pingex_browser` tools
     /// (Codex dynamic tools, `src-tauri/src/browser`).

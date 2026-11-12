@@ -1147,7 +1147,7 @@ export type Capability =
 /**
  *  A turn sent with the read-only sandbox (`sandboxMode: "read-only"`)
  *  cannot change files without asking: Codex's sandbox, Claude's Default
- *  mode. Agents at No checkout need it, since they run in the user's clone.
+ *  mode. "Ask only" turns on a PR thread use it.
  */
 "readOnlySandbox" | 
 /**

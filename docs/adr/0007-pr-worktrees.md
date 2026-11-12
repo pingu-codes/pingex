@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted; points 1 to 3, 7, the switching and read-only parts of 9, and 10 superseded by ADR 0008
 ---
 
 # A PR is either not on disk or in a real worktree

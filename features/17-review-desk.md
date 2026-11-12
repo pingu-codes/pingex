@@ -23,10 +23,10 @@ desk**, **Inbox**, **Seen head**, **Stack**, **PR worktree**) is in
 | Pull requests | The inbox, grouped by repository and by stack. Filters are Needs me, Mine, Review requested, Everyone, Drafts, CI failing and Unresolved, plus the Author and Assignee pickers (see "People filters" below). It also shows the "Since you last looked" feed and the agent reviews that are queued or running. |
 | Stack | The stack tree from the base up. Each branch shows its PR, state, commit count and threads. The stack's worktree (with Check out stack when it has none), the selected PR's conversation and reviewers, and "Threads on this PR" sit alongside. |
 | Review | Collapsible files, viewed state, inline human comments and agent findings (drafts only you see), the pending review, and the next PRs up. |
-| Start review | Code (no checkout, or a PR worktree), the agent harness and focus, drafts on or off, and re-run on new commits. |
+| Start review | The PR's worktree the agent works in, the agent harness and focus, drafts on or off, and re-run on new commits. |
 | Context menus | Menus for a PR row, a stack branch, a sidebar worktree, a thread, a review comment, an agent finding, a changed file, a branch chip and a status badge. |
 | Implicit interactions | Row states, multi-select, line comments, drag-to-reorder a stack, restack progress and conflicts, cleanup after a merge, toasts, hover details and the keyboard. |
-| Model | The three checkout steps, what each action needs, and where threads are grouped. |
+| Model | Checked out or not, what waits for Check out, and where threads are grouped. (Its three-step table predates ADR 0008.) |
 | Adding repositories | From GitHub (PRs only, clone, or link an existing clone), from a local folder (which remote PRs come from, plus per-repository defaults), and the sidebar states. |
 
 ## People filters
@@ -73,21 +73,28 @@ beside it however it was opened. `openReview` decides from the last sync; with
 none yet, the PR opens on its own page. The tree folds to a strip of the stack's
 PRs, and the choice is stored. A restack unfolds it to show its progress.
 
-## Checkout steps
+## Checking out
 
-A PR moves up one step at a time, and only when an action needs it. Each
-button names the step it would create.
+A PR is either not checked out or checked out in its worktree (ADR 0008). Only
+Check out makes one: on the PR page, in an inbox row's menu and primary action,
+in the bulk bar, on a stack card and on the Stack page. A stack's PR checks out
+the whole stack. A git branch already checked out somewhere is offered for
+adoption (`AdoptWorktreeDialog`) and never moved by Pingex afterwards.
 
-| Step | On disk | Adds | Implemented by |
+| State | On disk | What works | Implemented by |
 | --- | --- | --- | --- |
-| No checkout | Hidden refs only | Read, comment, approve, merge, diff review, stack tree | `review_fetch_prs`, `review_diff`, `review_file`, `review_changes_since` |
-| Worktree | A real worktree on a local branch (ADR 0007) | Build, run, test, measure, edit and commit; push, restack, agents fixing review comments | `review_ensure_pr_worktree`, `review_ensure_stack_worktree`, `review_push_to_pr`; where each PR is: `review_pr_checkouts` |
+| Not checked out | Hidden refs only | Read, comment, approve, merge, the stack tree | `review_fetch_prs`, `review_diff`, `review_file`, `review_changes_since` |
+| Checked out | Its PR worktree, or its Stack worktree (ADR 0007, 0008) | Also Work on this PR, Fix CI, Run locally, Open in editor, Push, Restack, Push stack, agent reviews, Ask and Hand to agent, Review whole stack | `review_check_out`, `review_check_out_stack`, `review_adopt_worktree`, `review_switch_stack_branch`, `review_push_to_pr`; reads: `review_pr_checkout`, `review_pr_checkouts` |
+
+Until a PR is checked out, what needs its worktree is disabled with "Check out
+first". Every PR thread starts in the worktree (`startPrThread` in
+`src/lib/review/prOnDisk.ts`) and is filed under the PR before its first turn.
 
 ## Worktree context
 
-A thread started from a draft in a managed PR worktree or a Stack worktree tells the agent where it is. The backend builds the text (`review/worktree_context.rs`, command `review_worktree_context`): for a stack, its GitHub number and its open PRs numbered by position from the bottom ("PR 1" is the one on the base), each with its branch and base, the one checked out now, a rule that it holds only for that stack (a question about another PR or stack is checked with `gh pr view` first), and the rule to put each change on the PR it belongs to and restack the PRs above, with `gh stack rebase` when `gh stack` tracks the stack; for a managed PR worktree, whose PR it holds and not to push. It reads the stored Worktree purpose and the directory's branch, never GitHub, and gives nothing when the worktree has since been put on a branch outside the stack. A draft in a Stack worktree shows that at once, then checks the stack out again in the background (missing branches, `gh stack` tracking, a fresh read of the stack) and replaces it with the context read afterwards. The pill shows the position, "Stack context · 2 of 3".
+A thread started from a draft in a PR worktree or a Stack worktree tells the agent where it is, and is filed under the PR that worktree holds as it starts. The backend builds the text (`review/worktree_context.rs`, command `review_worktree_context`): for a stack, its GitHub number and its open PRs numbered by position from the bottom ("PR 1" is the one on the base), each with its branch and base, the one checked out now, a rule that it holds only for that stack (a question about another PR or stack is checked with `gh pr view` first), and the rule to put each change on the PR it belongs to and restack the PRs above, with `gh stack rebase` when `gh stack` tracks the stack; for a PR worktree, whose PR it holds and, on `pr/<n>`, not to push. It reads the stored Worktree purpose and the directory's branch, never GitHub, and gives nothing when the worktree has since been put on a branch outside the stack. A draft in a Stack worktree shows that at once, then checks the stack out again in the background (missing branches, `gh stack` tracking, a fresh read of the stack) and replaces it with the context read afterwards. The pill shows the position, "Stack context · 2 of 3".
 
-"New thread" (the sidebar button, `/new`) on a Stack page starts the draft in the stack's worktree, checking the stack out first when it has none; on a PR page it is Work on this PR. Only a project chosen in the sidebar overrides that.
+"New thread" (the sidebar button, `/new`) on a Stack page starts the draft in the stack's worktree once the stack is checked out; on a PR page it is Work on this PR. Only a project chosen in the sidebar overrides that.
 
 The composer shows a pill for it on a draft, on by default (`ComposerPrefs.worktreeContext`), and only when the thread starts in that worktree: choosing a temporary or permanent worktree withdraws it. ThreadView appends the text to the first message inside `<worktree_context>`, after the user's words, so the title and the naming seed are the user's alone. The bubble folds it under a "Worktree context" chip (`thread/worktreeContext.ts` owns the tag). Agent reviews, conflict threads and plan threads send their own prompts and get none.
 
@@ -98,12 +105,12 @@ The composer shows a pill for it on a draft, on by default (`ComposerPrefs.workt
 | GitHub provider port | `src-tauri/src/review/provider.rs` (`GitHubProvider`) | Adding the operation to the trait, to `github::GhCli`, and to `fake::FakeGitHub` (with a `Sent` variant for a write). Only `review/github/` names `gh`. |
 | Review desk service | `src-tauri/src/review/desk/` (`ReviewDesk`), one file per area | Adding an `impl ReviewDesk` block in the area's file, or a new file for a new area. Tests use `desk/test_support.rs`: a `TestRepo` whose `origin` reads as GitHub, plus `FakeGitHub`. |
 | Commands | `src-tauri/src/review/commands.rs` | A thin wrapper that builds the desk with `desk(...)` and forwards. |
-| What each action needs | `src-tauri/src/review/requirements.rs`, exported as `DESK_ACTION_STEPS`; labels and tooltips in `src/lib/review/actions.ts` | A `DeskAction` variant, then `bun run typegen` and its label. |
+| Putting a PR on disk | Backend: `desk/check_out.rs` (Check out, adopt, switch, removal) and `desk/stack_worktree.rs` (a stack's); frontend: `src/lib/review/prOnDisk.ts`, the only caller of the checkout, adopt and switch commands (`scripts/check-seams.ts`, run by `bun run check`) | Gating an action on the worktree: read `checkoutOf` (or `reviewPrCheckouts`) and disable it with `CHECK_OUT_FIRST`. Starting a PR thread: `startPrThread`. |
 | Context menus | `src/lib/components/ActionMenu.svelte`, entries in `actionMenu.ts` | Passing entries (items, separators, submenus) with accelerator shortcuts. |
 | Inbox classification | `src-tauri/src/review/desk/sync.rs` (Needs me, Mine, Review requested, commits since my review) and `desk/activity.rs` (feed and seen state, muting), stored in `review_seen` and `review_feed` | Reading `inbox.triage` and `inbox.counts`; the frontend never re-derives them. |
-| Worktree indicators | `WorktreeBadge` on inbox rows, stack cards, the PR page and the stack tree, its words in `worktreeBadge.ts`; `desk/pr_checkouts.rs` holds the one rule for where a PR is | A new place: read `reviewPrCheckouts` (or `reviewCheckoutState` for one PR) and pass `known`, so nothing claims there's no worktree before the read answers. |
-| Pull requests inbox | `src/lib/inbox/`: `PullRequestsView`, pure helpers in `inbox.ts`, the sync cadence in `inboxStore.svelte.ts`, menus in `menus.ts` | Passing an `InboxHandlers` entry from `App.svelte` (agent reviews, worktrees, Stack page, Fix CI); without one its buttons show disabled. |
-| Preview desk | `src/lib/services/preview/desk.ts` (the one in-memory desk the `review*` fakes answer from; `seedPreviewDesk`, `resetPreviewDesk`), the area fakes beside it, the demo in `demoDesk.ts`, builders in `factories.ts` | A new `review*` command: `bun run check` fails until the preview desk fakes it (`DeskCommands` in `preview/commands.ts`). Tests seed the desk with builders; the vitest setup resets it to the demo before each test. Extend `demoDesk.ts` for the preview, never as test data. A step plan change: a case in `tests/fixtures/desk/step_plans.json`, which `steps.rs` (`recorded_step_plans`) and `preview/checkouts.test.ts` both answer. |
+| Worktree indicators | `WorktreeBadge` on inbox rows, stack cards, the PR page and the stack tree, its words in `worktreeBadge.ts`; `desk/pr_checkouts.rs` reads where checked-out PRs are | A new place: read `reviewPrCheckouts` (or `reviewPrCheckout` for one PR) and pass `known`, so nothing claims a PR isn't checked out before the read answers. |
+| Pull requests inbox | `src/lib/inbox/`: `PullRequestsView`, pure helpers in `inbox.ts`, the sync cadence in `inboxStore.svelte.ts`, menus in `menus.ts`, the work handlers in `inboxWork.ts` | Passing an `InboxHandlers` entry from `App.svelte` (agent reviews, Check out, Stack page, Fix CI); without one its buttons show disabled. |
+| Preview desk | `src/lib/services/preview/desk.ts` (the one in-memory desk the `review*` fakes answer from; `seedPreviewDesk`, `resetPreviewDesk`), the area fakes beside it, the demo in `demoDesk.ts`, builders in `factories.ts` | A new `review*` command: `bun run check` fails until the preview desk fakes it (`DeskCommands` in `preview/commands.ts`). Tests seed the desk with builders; the vitest setup resets it to the demo before each test. Extend `demoDesk.ts` for the preview, never as test data. Check out's fakes (`preview/checkouts.ts`) keep their worktrees in the preview's worktree listing, so the sidebar shows them. |
 | Stack page | `src/lib/stack/`: `StackPage`, pure helpers in `stack.ts` (the `StackInput` the backend takes, reorder, the git branch menu, the merge follow-up), the worktree menu in `worktreeActions.ts`; backend `desk/stack.rs` (overview, PRs behind their base, plan), `desk/restack.rs` (per-branch rebases, snapshot, continue, abort; a stopped run is stored in `review_restacks`) and `desk/stack_edits.rs` (push with leases, reorder, fold, remove, split, rename, add, merged clean-up); commands in `review/stack_commands.rs`; preview fakes in `preview/stack.ts` | A new stack edit: a desk operation in `stack_edits.rs` driving a `restack::Run`, a command, a fake in `preview/stack.ts`, and a git branch menu entry. Review whole stack calls `startStackReview`. |
 
 ## Read commands (`src-tauri/src/review/commands.rs`)
@@ -120,7 +127,7 @@ The composer shows a pill for it on a draft, on by default (`ComposerPrefs.workt
 | `review_mark_seen(repoDir, number, sha)` / `review_forget_pr` | Pins or drops the Seen head, or drops all of a closed PR's refs. |
 | `review_mark_activity_seen(repoDir, numbers)` / `review_mute_pr(repoDir, number, headSha)` | Clears PRs' "since you last looked" entries, or leaves a PR out of Needs me until new commits. |
 
-The writes that need no checkout are commands too: `review_merge`,
+The writes that need nothing checked out are commands too: `review_merge`,
 `review_close`, `review_retarget`, `review_mark_ready`, `review_check_logs`,
 `review_rerun_failed_checks`, `review_create_pr`, `review_edit_comment` and
 `review_delete_comment`. `review_my_repositories` and

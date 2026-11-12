@@ -236,28 +236,38 @@ it, as GitHub records it. Pingex reads a Stack and never infers one from
 branch names.
 _Avoid_: chain, train, dependent PRs
 
-**Checkout step**:
-Where a pull request's code lives on disk: **No checkout** (the PR's commits
-fetched into `refs/pingex/pr/<n>/`, the working tree untouched), or **Worktree**
-(its **PR worktree**). A PR moves up only when an action needs it; the table of
-what each action needs is `review/requirements.rs`.
-_Avoid_: checkout mode, level, stage
+**Check out**:
+The one way a pull request gets onto disk: an explicit action that puts a lone PR
+in its **PR worktree**, or a Stack's PR, or the Stack itself, in its **Stack
+worktree**. A PR is either checked out or not; work that needs the code waits
+for it ("Check out first"). When the git branch is already checked out
+somewhere, Check out offers to adopt that worktree (**Adopted worktree**).
+_Avoid_: step up, checkout step, create worktree
 
 **PR worktree**:
-A real worktree on a local branch at a pull request's head, where agents and
-people can build, run and commit. Your own same-repository PR, or a stack's,
-goes on its git branch and is yours. Anyone else's, or a fork, goes on `pr/<n>`
-with no upstream, and Pingex manages it: it removes it once the PR has closed
-and it holds no work. Commits reach someone else's PR only through a confirmed
-push. Replaces the detached, read-only review checkout (ADR 0007).
-_Avoid_: review checkout, temp worktree
+The worktree a lone pull request is checked out in, at its head, where agents
+and people can build, run and commit. Your own same-repository PR goes on its
+git branch, where a plain `git push` updates it. Anyone else's, or a fork, goes
+on `pr/<n>` with no upstream, and reaches the PR only through a confirmed push.
+Pingex makes it under the repository's worktree directory, locks it, and
+removes it once the PR has closed and it holds no work (ADR 0008).
+_Avoid_: review checkout, managed worktree (every one Pingex makes is), temp worktree
 
 **Stack worktree**:
-The one worktree a **Stack** lives in, on one of its git branches, with a local
-branch for each open PR. Switching PR switches its branch. A stack's PR counts as
-at the Worktree step even when the worktree is on a neighbouring branch. When the
-`gh stack` extension is installed, it tracks the stack there too.
+The one worktree a **Stack**'s open PRs are checked out in, on one of its git
+branches, with a local branch for each open PR. Checking out any of the stack's
+PRs checks out the stack. Switching PR switches its branch, once no thread runs
+there, and is refused with changes or a rebase going on. Pingex removes it once
+every PR of the stack has closed and it holds no work. When the `gh stack`
+extension is installed, it tracks the stack there too.
 _Avoid_: stack checkout (that's the action), per-PR stack worktree
+
+**Adopted worktree**:
+A worktree Check out found the PR's git branch already checked out in, and that
+the user chose to use as the PR's (or the Stack's) worktree, the main clone
+included. It stays the user's: Pingex never switches its branch, brings it up
+to date or removes it; cleanup only forgets it.
+_Avoid_: existing worktree, imported worktree
 
 **Position** (in a **Stack**):
 A pull request's place in its stack, counted from the bottom among the open
@@ -266,10 +276,10 @@ PRs: 1 is the PR on the stack's base, so "the first PR" is position 1. Shown as
 _Avoid_: layer, level, depth, index
 
 **Worktree purpose**:
-What Pingex knows a worktree is for: a managed **PR worktree** and its PR, or a
+What Pingex knows a worktree is for: a **PR worktree** and its PR, or a
 **Stack worktree** and its stack. It picks the worktree's icon and tooltip in
-the sidebar and the Worktrees list. A worktree on your own single PR's branch
-has none, and neither does any other worktree. A stack's is remembered when
+the sidebar and the Worktrees list, where only someone else's PR on `pr/<n>`
+shows as a PR worktree; any other worktree has none. A stack's is remembered when
 its worktree is found or made (`stack_worktrees`), so it can lag until the
 stack is next read; git still decides where a stack lives.
 _Avoid_: worktree kind, worktree type
@@ -303,13 +313,9 @@ _Avoid_: snapshot (fine in code), baseline, start commit (that is a **PR link**'
 
 **Agent review**:
 A review of a pull request by an agent, run as its own thread on any
-harness and filed under the PR. Its results come back as Findings.
+harness, in the PR's worktree, and filed under the PR. Its results come back
+as Findings.
 _Avoid_: AI review, bot review, "Ask Codex" (the older composer pre-fill)
-
-**Diff review**:
-An Agent review at No checkout: the agent reads the patch, the conversation
-and files at the PR head, and runs nothing.
-_Avoid_: quick review, read-only review
 
 **Finding**:
 One issue an Agent review reports, at a file and line, with a severity. Only
@@ -354,9 +360,10 @@ _Avoid_: file navigation, scroll state
 
 **PR link**:
 What a thread records about the pull request it is about: the repository and
-PR number, plus the Checkout step, checkout path, git branch and commit it
-started on. The PR decides where the thread is grouped; the checkout decides
-where it runs.
+PR number, plus the worktree, git branch and commit it started on. Every PR
+thread starts in the PR's worktree and is linked as it starts, before its
+first turn; a thread whose link can't be written is deleted. The PR decides
+where the thread is grouped; the worktree decides where it runs.
 _Avoid_: PR association, thread tag
 
 **Browser use**:
