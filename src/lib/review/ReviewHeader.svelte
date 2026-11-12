@@ -11,8 +11,9 @@
   import Segmented, { type SegmentedOption } from "$lib/components/Segmented.svelte";
   import type { People } from "$lib/inbox/inbox";
   import LoginAvatar from "$lib/inbox/LoginAvatar.svelte";
+  import { REVIEW_SHORTCUTS } from "$lib/review/diffReading.svelte";
   import { prMenuEntries } from "$lib/review/prActions";
-  import { REVIEW_SHORTCUTS, type ReviewFilter, type ReviewTab } from "$lib/review/reviewPage";
+  import type { ReviewFilter, ReviewTab } from "$lib/review/reviewPage";
   import { commands } from "$lib/services/homeRouting";
   import type { PrDetail } from "$lib/types";
 

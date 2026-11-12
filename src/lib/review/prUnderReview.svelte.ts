@@ -16,8 +16,8 @@
 // effects belong to the component.
 
 import { untrack } from "svelte";
+import { SvelteSet } from "svelte/reactivity";
 import type { PendingReviewStore } from "$lib/review/pendingReview.svelte";
-import { ReviewFiles } from "$lib/review/reviewFiles.svelte";
 import { fileBlob, prPlace } from "$lib/review/reviewPage";
 import { commands } from "$lib/services/homeRouting";
 import { type QueryHandle, query } from "$lib/services/queryCache.svelte";
@@ -25,21 +25,27 @@ import type { ChangesSince, PrDetail, PrFile, PrFileContents } from "$lib/types"
 import { submitState } from "$lib/utils/actionState.svelte";
 import { errorMessage } from "$lib/utils/errors";
 
-/** The viewed marks and folds as a caller may change them: marking viewed
- *  goes through `PrUnderReview.setViewed`, which saves the mark. */
-export type ReviewFolds = Omit<ReviewFiles, "applyMarks" | "setViewed">;
+/** Which of the PR's files are marked viewed and which are folded. Marking
+ *  viewed goes through `PrUnderReview.setViewed`, which saves the mark; the
+ *  folds are the page's to change, and are kept for when it comes back. */
+export type ReviewFiles = { readonly viewed: ReadonlySet<string>; readonly collapsed: SvelteSet<string> };
 
 export class PrUnderReview {
   readonly repoDir: string;
   readonly number: number;
-  readonly files: ReviewFolds;
+  readonly files: ReviewFiles;
   /** The PR opened on "changes since", as it was left or because the inbox
    *  asked, so there is no scroll position to go back to. */
   readonly opensOnSince: boolean;
 
   readonly #pending: PendingReviewStore;
   readonly #viewer: () => string;
-  readonly #files: ReviewFiles;
+  readonly #viewed = new SvelteSet<string>();
+  readonly #collapsed: SvelteSet<string>;
+  /** `#collapsed` is the reviewer's: the page came back with it, or the marks are read. */
+  #collapsedKnown = $state(false);
+  /** The page came back with its folds, which the marks read then leave alone. */
+  readonly #hadCollapsed: boolean;
   readonly #detail: QueryHandle<PrDetail>;
   readonly #action = submitState();
   readonly #left: ReturnType<typeof prPlace>;
@@ -68,8 +74,10 @@ export class PrUnderReview {
     this.#viewer = options.viewer;
     this.#left = prPlace(this.repoDir, this.number);
     this.opensOnSince = this.#left.changes === "since";
-    this.#files = new ReviewFiles(this.#left.collapsed);
-    this.files = this.#files;
+    this.#collapsed = new SvelteSet(this.#left.collapsed ?? []);
+    this.#hadCollapsed = this.#left.collapsed !== null;
+    this.#collapsedKnown = this.#hadCollapsed;
+    this.files = { viewed: this.#viewed, collapsed: this.#collapsed };
     // Cached: a remount shows the PR at once and refreshes it behind. A write
     // through `commands` marks it stale, which re-reads it.
     this.#detail = query("reviewPrDetail", () => [this.repoDir, this.number]);
@@ -80,7 +88,7 @@ export class PrUnderReview {
       if (next) untrack(() => this.#follow(next));
     });
     $effect(() => {
-      if (this.#files.collapsedKnown) this.#left.collapsed = [...this.#files.collapsed];
+      if (this.#collapsedKnown) this.#left.collapsed = [...this.#collapsed];
     });
   }
 
@@ -154,9 +162,12 @@ export class PrUnderReview {
     return this.#sinceRead;
   }
 
-  /** Mark files viewed or not (which folds or unfolds them) and save the marks. */
-  setViewed(targets: PrFile[], value: boolean): void {
-    this.#files.setViewed(targets, value);
+  /** Mark files viewed or not and save the marks. Folding them is the page's. */
+  setViewed(targets: readonly PrFile[], value: boolean): void {
+    for (const file of targets) {
+      if (value) this.#viewed.add(file.path);
+      else this.#viewed.delete(file.path);
+    }
     if (targets.length === 0) return;
     commands.reviewSetViewed(this.repoDir, this.number, targets.map(fileBlob), value).catch((cause) => {
       this.#action.error = errorMessage(cause);
@@ -223,8 +234,21 @@ export class PrUnderReview {
     ]);
     if (this.detail) this.#pending.syncHead(this.detail.headSha);
     if (this.#readHead !== next.headSha) return;
-    this.#files.applyMarks(marked);
+    this.#applyMarks(marked);
     this.#ready = true;
+  }
+
+  /** Take the marks just read for a head. Marks follow a file's content: one
+   *  that changed is unread again, and opens. The first time, the marked files
+   *  fold; a page coming back keeps what the reviewer had folded. */
+  #applyMarks(marked: string[]): void {
+    for (const path of this.#viewed) if (!marked.includes(path)) this.#collapsed.delete(path);
+    this.#viewed.clear();
+    for (const path of marked) {
+      this.#viewed.add(path);
+      if (!this.#hadCollapsed) this.#collapsed.add(path);
+    }
+    this.#collapsedKnown = true;
   }
 
   /** Until the answer is for the head the PR is at: a push mid-read reads

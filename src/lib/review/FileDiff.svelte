@@ -9,7 +9,6 @@
 <script lang="ts" module>
   /** Where a caller's per-line content goes. */
   export type LineSlot = { path: string; side: DiffSide; line: number };
-  export type Composer = { range: LineRange; mode: "comment" | "suggestion" };
 </script>
 
 <script lang="ts">
@@ -20,6 +19,7 @@
   import CommentBody from "$lib/review/CommentBody.svelte";
   import DiffChunk from "$lib/review/DiffChunk.svelte";
   import { highlightFor } from "$lib/review/diffHighlighter.svelte";
+  import type { Composer } from "$lib/review/diffReading.svelte";
   import LineComposer from "$lib/review/LineComposer.svelte";
   import { nearViewport, scrolling } from "$lib/review/nearViewport";
   import type { CommentThread } from "$lib/review/review";
