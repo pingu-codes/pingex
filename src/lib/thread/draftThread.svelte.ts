@@ -45,10 +45,6 @@ export interface DraftDeps {
   workspaceId: () => string | null;
   /** The session the view shows, which is the one a created thread is announced for. */
   session: () => ThreadSession;
-  /** The harness the thread starts on. */
-  harness: () => HarnessKind | null;
-  /** Whether the first message carries the offered Worktree context. */
-  includeWorktreeContext: () => boolean;
   /** The draft became a thread while a view showed it. */
   onCreated: (id: string, cwd: string, inTempWorktree: boolean) => void;
 }
@@ -69,6 +65,10 @@ export function nameFromOpening(id: string, input: UserInputPart[]): void {
  * `/goal` — so callers never pass creation around.
  */
 export class DraftThread {
+  /** The harness the thread starts on, as the composer last chose it; null is Codex. */
+  harness = $state<HarnessKind | null>(null);
+  /** Whether the first message carries the offered Worktree context. On by default. */
+  includeWorktreeContext = $state(true);
   location = $state<DraftLocation>("project");
   /** The permanent worktree chosen, or the temporary one made at start. */
   worktreePath = $state("");
@@ -140,7 +140,7 @@ export class DraftThread {
     if (!session.id && !session.activeTurn && !session.starting) {
       session.starting = true;
       // Read before the thread exists: the offer is a draft's.
-      const context = this.deps.includeWorktreeContext() ? this.worktreeContext : null;
+      const context = this.includeWorktreeContext ? this.worktreeContext : null;
       try {
         const id = await session.live();
         nameFromOpening(id, input);
@@ -158,7 +158,7 @@ export class DraftThread {
   /** Create the thread `owner` drafts, where the user chose, and run it under its id. */
   async #create(owner: ThreadSession): Promise<string> {
     const workspace = this.deps.workspaceId();
-    const harness = this.deps.harness();
+    const harness = this.harness;
     const temporary = this.location === "temporary";
     const cwd = await this.#startDir();
     const created = await startThread(cwd, workspace, harness);

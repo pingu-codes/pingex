@@ -124,8 +124,6 @@
     projectPath: () => projectPath,
     workspaceId: () => workspaceId,
     session: () => session,
-    harness: () => composer?.harnessChoice() ?? null,
-    includeWorktreeContext: () => composer?.includeWorktreeContext() ?? false,
     onCreated: (id, createdCwd, inTempWorktree) => onThreadCreated?.(id, createdCwd, inTempWorktree),
   });
 
@@ -871,6 +869,10 @@
       runningSpeedTier={session.runningSpeedTier}
       onSubagentPolicyChange={changeSubagentPolicy}
       onModelChange={(modelId) => (activeModel = modelId)}
+      onDraftChoices={(choices) => {
+        draft.harness = choices.harness;
+        draft.includeWorktreeContext = choices.worktreeContext;
+      }}
       onLiveSettingsChange={(settings) => {
         if (session.activeTurn) void session.updateLiveSettings(settings);
       }}

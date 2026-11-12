@@ -60,8 +60,6 @@ function draft({ cwd = "/projects/example", ...overrides }: Partial<Omit<DraftDe
       projectPath: () => cwd,
       workspaceId: () => null,
       session: () => view.session,
-      harness: () => null,
-      includeWorktreeContext: () => true,
       onCreated,
       ...overrides,
     });
@@ -89,7 +87,8 @@ function seedPrWorktree() {
 
 describe("where a draft starts", () => {
   it("starts in the project's own directory, on the chosen harness", async () => {
-    const { draft: made, session, onCreated } = draft({ harness: () => "claude" });
+    const { draft: made, session, onCreated } = draft();
+    made.harness = "claude";
 
     expect(await made.send(session, said("Coordinate the release"))).toBe(true);
 
@@ -186,8 +185,9 @@ describe("Worktree context", () => {
   });
 
   it("sends nothing extra when the composer leaves it out", async () => {
-    const { draft: made, session } = draft({ cwd: PR_WORKTREE, includeWorktreeContext: () => false });
+    const { draft: made, session } = draft({ cwd: PR_WORKTREE });
     await vi.waitFor(() => expect(made.worktreeContext).not.toBeNull());
+    made.includeWorktreeContext = false;
 
     await made.send(session, said("Fix the tax rounding"));
 

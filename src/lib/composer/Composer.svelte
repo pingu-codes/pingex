@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ArrowUp, Map as MapIcon, Paperclip, Square, Target } from "@lucide/svelte";
+  import { untrack } from "svelte";
   import { openMemories } from "$lib/app/navigation.svelte";
   import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
@@ -77,6 +78,7 @@
     onSubagentPolicyChange,
     onModelChange,
     onLiveSettingsChange,
+    onDraftChoices,
   }: {
     busy?: boolean;
     disabled?: boolean;
@@ -123,6 +125,10 @@
     /** The user picked a model or effort; the owner decides whether a running
      *  turn can take it now (`turn/settings/update`) or from the next turn. */
     onLiveSettingsChange?: (settings: { model?: string | null; effort?: string | null; speedTier?: string }) => void;
+    /** What a draft starts with beyond its turn options, reported whenever it
+     *  changes: the harness, and whether the first message carries the
+     *  Worktree context. The draft holds them. */
+    onDraftChoices?: (choices: { harness: HarnessChoice | null; worktreeContext: boolean }) => void;
     /** The model the thread last ran on; backs the collaboration-mode settings
      *  when nothing is picked and the model list has not loaded yet. */
     threadModel?: string | null;
@@ -317,19 +323,12 @@
     if (settings.syncPermissionMode(mode) && mode !== "plan") dismissedPlan = plan;
   }
 
-  /**
-   * Which harness a draft starts on. Read by ThreadView at thread creation;
-   * an existing thread never switches.
-   */
-  export function harnessChoice(): HarnessChoice | null {
-    return prefs.harness;
-  }
-
-  /** Whether the draft's first message should carry its worktree context.
-   *  Read by ThreadView when the draft is sent. */
-  export function includeWorktreeContext(): boolean {
-    return prefs.worktreeContext;
-  }
+  // An existing thread never switches harness, and only a draft's first
+  // message carries the Worktree context.
+  $effect(() => {
+    const choices = { harness: prefs.harness, worktreeContext: prefs.worktreeContext };
+    untrack(() => onDraftChoices?.(choices));
+  });
 
   export function implementPlan() {
     leavePlanMode();
