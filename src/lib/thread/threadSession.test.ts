@@ -432,6 +432,28 @@ describe("session turns", () => {
     expect(mocks.interruptTurn).toHaveBeenCalledWith("thread-a", "turn-real");
   });
 
+  it("sends on a fork whose inherited turn was recorded mid-turn", async () => {
+    // The fork is working, so the read keeps the parent's turn as it was.
+    mocks.activeTurns.list = ["fork"];
+    mocks.readThread.mockResolvedValueOnce(detail("fork", [{ id: "parent-turn", status: "inProgress", items: [] }]));
+    const session = openSession("fork");
+    session.inheritedTurns = 1;
+    await settle();
+    expect(session.activeTurn).toBeNull();
+    expect(await session.send([{ type: "text", text: "Go" }])).toBe(true);
+    expect(mocks.startTurn).toHaveBeenCalledOnce();
+    expect(session.queue.entries).toHaveLength(0);
+  });
+
+  it("ends a running turn when Codex closes the thread, then lets go", async () => {
+    const session = await leaveWorking("thread-a");
+    mocks.activeTurns.list = [];
+    emit("thread/closed", { threadId: "thread-a" });
+    expect(session.activeTurn).toBeNull();
+    expect(session.thread?.turns[0].status).toBe("interrupted");
+    expect(peekSession("thread-a")).toBeNull();
+  });
+
   it("a draft joins the registry under the id it is given", () => {
     const session = draftSession("/repo");
     expect(session.thread?.cwd).toBe("/repo");

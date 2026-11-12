@@ -258,8 +258,17 @@ export class ThreadSession {
     });
   }
 
+  /** How many leading turns a fork carries from the thread it was forked
+   *  from. They ran there, so one recorded mid-turn is never this thread's
+   *  running turn: it cannot finish or be stopped here. */
+  inheritedTurns = $state(0);
+
   get activeTurn() {
-    return this.thread?.turns.find((candidate) => candidate.status === "inProgress") ?? null;
+    return (
+      this.thread?.turns.find(
+        (candidate, index) => index >= this.inheritedTurns && candidate.status === "inProgress",
+      ) ?? null
+    );
   }
 
   /** Whether the session is worth keeping when nothing is showing it. */
@@ -586,6 +595,13 @@ export class ThreadSession {
       // cache are both stale. Force a re-read on next load. Not while we are the
       // ones reverting — that path manages the transcript itself.
       if (!this.starting) commands.invalidateThreadCache(id).catch(() => {});
+      return;
+    }
+    if (method === "thread/closed") {
+      // Codex dropped the thread from memory: nothing can still be running in it.
+      finalizeRunningTurns(this.thread?.turns ?? [], "interrupted");
+      this.revision++;
+      this.#maybeIdle();
       return;
     }
     if (method === "thread/settings/updated") {

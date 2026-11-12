@@ -1,39 +1,11 @@
 <script lang="ts">
-  import { ChevronRight } from "@lucide/svelte";
-  import { Collapsible } from "@skeletonlabs/skeleton-svelte";
   import { untrack } from "svelte";
-  import TypingDots from "$lib/components/TypingDots.svelte";
-  import NativeSideQuestions from "$lib/panels/NativeSideQuestions.svelte";
   import SideComposer from "$lib/panels/SideComposer.svelte";
+  import SideExchanges from "$lib/panels/SideExchanges.svelte";
   import SideQuestionList from "$lib/panels/SideQuestionList.svelte";
-  import { forkThread, readThread, startTurn } from "$lib/services/api";
-  import {
-    activeTurns,
-    approvals,
-    type CodexEvent,
-    elicitations,
-    setThreadHandler,
-    userInputRequests,
-  } from "$lib/services/codexEvents.svelte";
-  import { commands } from "$lib/services/homeRouting";
-  import { threadIdOf } from "$lib/services/turnLifecycle";
-  import ApprovalCard from "$lib/thread/ApprovalCard.svelte";
-  import ElicitationCard from "$lib/thread/ElicitationCard.svelte";
-  import QuestionCard from "$lib/thread/QuestionCard.svelte";
-  import ReasoningBlock from "$lib/thread/ReasoningBlock.svelte";
-  import { applyThreadEvent, finalizeRunningTurns, upsertItem } from "$lib/thread/threadStream";
-  import {
-    completedSegmentKey,
-    messageParts,
-    segmentKey,
-    splitTurn,
-    turnDiffCount,
-    turnSegments,
-    workedLabel,
-  } from "$lib/thread/turnSegments";
-  import WorkItem from "$lib/thread/WorkItem.svelte";
-  import type { BootstrapData, SideQuestion, ThreadDetail, Turn } from "$lib/types";
-  import { errorMessage } from "$lib/utils/errors";
+  import SideTurns from "$lib/panels/SideTurns.svelte";
+  import { openSideConversation, type SideConversation } from "$lib/panels/sideConversation.svelte";
+  import type { BootstrapData, SideQuestion } from "$lib/types";
 
   let {
     parentThreadId,
@@ -49,376 +21,123 @@
     submission?: { id: number; text: string } | null;
   } = $props();
 
-  // How long Stop waits for Codex to confirm before the panel ends the turn on
-  // its own. Codex answers "no active turn" (no event follows) for a turn that
-  // already died; without this the composer would stay locked on it.
-  const STOP_GRACE_MS = 1500;
-
-  let sideThread = $state<ThreadDetail | null>(null);
-  let sideLoading = $state(false);
-  let starting = $state(false);
-  let sideError = $state<string | null>(null);
+  let conversation = $state.raw<SideConversation | null>(null);
+  let failure = $state<string | null>(null);
   let question = $state("");
   let lastParentId: string | null | undefined;
-  // The side thread `ask()` populated itself: the load effect must not replace it
-  // with a read that races the turn it just started.
-  let askedId: string | null = null;
-  let pendingTurnStart: Promise<Turn> | null = null;
-  let stopTimer: ReturnType<typeof setTimeout> | undefined;
-  let mode = $state<"fork" | "native" | null>(null);
-  let modeError = $state<string | null>(null);
   let lastSubmission: number | undefined;
 
+  // One conversation per parent thread. The panel can outlive a thread switch;
+  // a stale activeSideId would route the next question into the previous
+  // thread's side conversation.
   $effect(() => {
     const parent = parentThreadId;
-    mode = null;
-    modeError = null;
+    untrack(() => {
+      if (lastParentId !== undefined && parent !== lastParentId) {
+        activeSideId = null;
+        question = "";
+      }
+      lastParentId = parent;
+    });
+    conversation = null;
+    failure = null;
+    if (!parent) return;
     let current = true;
-    if (parent)
-      commands
-        .sideQuestionMode(parent)
-        .then((value) => {
-          if (current) mode = value;
-        })
-        .catch((cause) => {
-          if (current) modeError = String(cause);
-        });
+    let made: SideConversation | null = null;
+    openSideConversation(parent, { sideQuestions: () => sideQuestions, onDataChanged: (data) => onDataChanged(data) })
+      .then((opened) => {
+        if (!current) return opened.dispose();
+        made = opened;
+        opened.open(untrack(() => activeSideId));
+        conversation = opened;
+      })
+      .catch((cause) => {
+        if (current) failure = String(cause);
+      });
     return () => {
       current = false;
+      made?.dispose();
     };
   });
 
+  // The selection is the parent's to bind (its Back button clears it) and the
+  // conversation's to move (a first question opens what it created).
   $effect(() => {
-    if (mode !== "fork" || !submission || submission.id === lastSubmission) return;
+    const target = conversation;
+    const id = activeSideId;
+    if (target) untrack(() => target.open(id));
+  });
+  $effect(() => {
+    if (conversation) activeSideId = conversation.openId;
+  });
+
+  $effect(() => {
+    const target = conversation;
+    if (!target || !submission || submission.id === lastSubmission || target.loading) return;
     lastSubmission = submission.id;
     const text = submission.text;
     untrack(() => {
       question = text;
-      if (!busy) void ask();
+      if (!target.busy) void ask();
     });
   });
 
-  const mine = $derived(sideQuestions.filter((entry) => entry.parentThreadId === parentThreadId));
-  const active = $derived(mine.find((entry) => entry.sideThreadId === activeSideId) ?? null);
-  // The fork carries the parent's history so the model has full context, but the
-  // panel shows only the side conversation. Questions recorded before the fork
-  // point was tracked have no count and show the whole fork.
-  const visibleTurns = $derived(sideThread?.turns.slice(active?.inheritedTurns ?? 0) ?? []);
-  // Only the side conversation's own turns count. A fork made mid-turn used to
-  // inherit the parent's running turn as `inProgress`, which locked this
-  // composer on a turn it could neither finish nor stop.
-  const activeTurn = $derived(visibleTurns.find((turn) => turn.status === "inProgress") ?? null);
-  const busy = $derived(activeTurn !== null || starting);
-
-  const sideApprovals = $derived(approvals.list.filter((approval) => approval.threadId === activeSideId));
-  const sideQuestionsPending = $derived(userInputRequests.list.filter((request) => request.threadId === activeSideId));
-  const sideElicitations = $derived(elicitations.list.filter((entry) => entry.threadId === activeSideId));
-
-  // Same rule as the main transcript: dots for every gap where Codex is thinking
-  // rather than emitting; only text actively streaming in makes them redundant.
-  const showTypingIndicator = $derived.by(() => {
-    if (!activeTurn) return false;
-    if (sideApprovals.length > 0 || sideQuestionsPending.length > 0 || sideElicitations.length > 0) return false;
-    const last = activeTurn.items.at(-1);
-    return !(last?.type === "agentMessage" && last.streaming);
-  });
-
-  // The panel can outlive a thread switch; a stale activeSideId would route the
-  // next question into the previous thread's side conversation.
-  $effect(() => {
-    if (lastParentId === undefined || parentThreadId === lastParentId) {
-      lastParentId = parentThreadId;
-      return;
-    }
-    lastParentId = parentThreadId;
-    clearTimeout(stopTimer);
-    activeSideId = null;
-    sideThread = null;
-    starting = false;
-    sideLoading = false;
-    sideError = null;
-    question = "";
-  });
-
-  $effect(() => {
-    if (mode !== "fork") return;
-    const id = activeSideId;
-    if (!id) {
-      sideThread = null;
-      // A load still in flight for the closed question will see itself stale
-      // and skip this, leaving the skeleton up over whatever comes next.
-      sideLoading = false;
-      return;
-    }
-    if (id.startsWith("preview-")) return;
-    if (id === askedId) return;
-    sideLoading = true;
-    sideError = null;
-    untrack(() => void load(id));
-  });
-
-  async function load(id: string) {
-    try {
-      // The cached detail is keyed by the summary's `updated_at`, which does not
-      // move while a turn runs — for a working thread it is stale by construction.
-      if (activeTurns.list.includes(id)) await commands.invalidateThreadCache(id).catch(() => {});
-      const detail = await readThread(id);
-      if (id !== activeSideId) return;
-      // A turn left `inProgress` by a session that has since died would keep the
-      // composer locked forever — nothing can complete it, so show it as it is.
-      if (!activeTurns.list.includes(id)) finalizeRunningTurns(detail.turns, "interrupted");
-      sideThread = detail;
-    } catch (cause) {
-      if (id === activeSideId) sideError = errorMessage(cause);
-    } finally {
-      if (id === activeSideId) sideLoading = false;
-    }
-  }
-
-  $effect(() => setThreadHandler(handleEvent));
-
-  function handleEvent(event: CodexEvent) {
-    const { method, params } = event;
-    if (method === "disconnected") {
-      for (const turn of sideThread?.turns ?? []) {
-        if (turn.status === "inProgress") turn.status = "interrupted";
-      }
-      return;
-    }
-    if (!sideThread || !params || threadIdOf(event) !== activeSideId) return;
-    // Codex dropped the thread from memory: nothing can still be running in it.
-    if (method === "thread/closed") {
-      finalizeRunningTurns(sideThread.turns, "interrupted");
-      return;
-    }
-    const outcome = applyThreadEvent(sideThread, event);
-    if (outcome.streamError) sideError = outcome.streamError;
-    if (outcome.turnCompleted) {
-      clearTimeout(stopTimer);
-      if (activeSideId) commands.invalidateThreadCache(activeSideId).catch(() => {});
-    }
-  }
-
   async function ask() {
+    const target = conversation;
     const text = question.trim();
-    // The thread this question is about. The prop can change while the fork
-    // and read below are awaited; the fork still belongs to this one.
-    const parent = parentThreadId;
-    if (!text || !parent || busy) return;
+    if (!target || !text || target.busy || target.loading) return;
     question = "";
-    sideError = null;
-    starting = true;
-    const localTurnId = `local-${Date.now()}`;
-    try {
-      // Only reuse the open side question if it belongs to this thread — a
-      // stale id from a previous thread must fork fresh.
-      let id = activeSideId && mine.some((entry) => entry.sideThreadId === activeSideId) ? activeSideId : null;
-      if (!id) {
-        const forked = await forkThread(parent);
-        id = forked.id;
-        // Read the fork before recording it: the turns it carries at this point
-        // are the parent's, and the panel hides exactly that many.
-        const inherited = await readThread(id);
-        if (parent !== parentThreadId) {
-          // The user moved to another thread meanwhile: file the question under
-          // its own thread and let it run, without touching this panel.
-          onDataChanged(await commands.addSideQuestion(parent, id, text, inherited.turns.length));
-          void startTurn(id, [{ type: "text", text }]).catch(() => {});
-          return;
-        }
-        askedId = id;
-        sideLoading = false;
-        activeSideId = id;
-        sideThread = { ...inherited, turns: [...inherited.turns] };
-        onDataChanged(await commands.addSideQuestion(parent, id, text, inherited.turns.length));
-      }
-      sideThread?.turns.push({
-        id: localTurnId,
-        status: "inProgress",
-        items: [{ type: "userMessage", id: `local-item-${Date.now()}`, content: [{ type: "text", text }] }],
-      });
-      const start = startTurn(id, [{ type: "text", text }]);
-      pendingTurnStart = start;
-      const turn = await start;
-      const pending = sideThread?.turns.find((candidate) => candidate.id === localTurnId);
-      if (pending) {
-        pending.id = turn.id;
-        pending.status = turn.status ?? "inProgress";
-      }
-    } catch (cause) {
-      if (sideThread) sideThread.turns = sideThread.turns.filter((candidate) => candidate.id !== localTurnId);
-      sideError = errorMessage(cause);
-    } finally {
-      pendingTurnStart = null;
-      starting = false;
-    }
-  }
-
-  async function stop() {
-    const id = activeSideId;
-    let target = activeTurn;
-    if (!id || !target) return;
-    if (target.id.startsWith("local-")) {
-      // The optimistic turn is still waiting on `turn/start`; Codex has never
-      // heard of it. Wait for the real id, then interrupt that.
-      try {
-        await pendingTurnStart;
-      } catch {
-        return; // ask() already surfaced the error and removed the turn.
-      }
-      target = activeTurn;
-      if (id !== activeSideId || !target || target.id.startsWith("local-")) return;
-    }
-    try {
-      await commands.interruptTurn(id, target.id);
-    } catch (cause) {
-      sideError = errorMessage(cause);
-    }
-    // Stop is final: if no `turn/completed` confirms it, end the turn locally so
-    // the composer comes back.
-    clearTimeout(stopTimer);
-    stopTimer = setTimeout(() => {
-      if (id !== activeSideId || !sideThread) return;
-      finalizeRunningTurns(sideThread.turns, "interrupted");
-      commands.invalidateThreadCache(id).catch(() => {});
-    }, STOP_GRACE_MS);
-  }
-
-  async function deleteSide(entry: SideQuestion) {
-    try {
-      onDataChanged(await commands.removeSideQuestion(entry.sideThreadId));
-      if (activeSideId === entry.sideThreadId) {
-        clearTimeout(stopTimer);
-        activeSideId = null;
-        sideThread = null;
-      }
-    } catch (cause) {
-      sideError = errorMessage(cause);
-    }
-  }
-
-  function openSide(entry: SideQuestion) {
-    askedId = null;
-    activeSideId = entry.sideThreadId;
-    sideThread = null;
+    const asked = await target.ask(text);
+    if (!asked && conversation === target && !question) question = text;
   }
 </script>
 
-{#if mode === "native" && parentThreadId}
-  {#key parentThreadId}
-    <NativeSideQuestions {parentThreadId} {sideQuestions} bind:activeSideId {onDataChanged} {submission} />
-  {/key}
-{:else if mode === "fork"}
+{#if conversation}
+  {@const transcript = conversation.transcript}
   <div class="min-h-0 flex-1 overflow-y-auto p-3">
-    {#if !activeSideId}
-      {#if mine.length === 0}
-        <p class="text-xs leading-5 text-surface-500">
-          Ask a question about this thread without adding it to the main conversation. The side question runs on a fork
-          with full context.
-        </p>
-      {:else}
-        <SideQuestionList entries={mine} onOpen={openSide} onDelete={deleteSide} />
-      {/if}
-    {:else if sideLoading}
+    {#if conversation.about.pinned || (!conversation.openId && conversation.entries.length === 0)}
+      <p class="mb-3 text-xs leading-5 text-surface-500">{conversation.about.text}</p>
+    {/if}
+    {#if !conversation.openId}
+      <SideQuestionList
+        entries={conversation.entries}
+        onOpen={(entry) => conversation?.open(entry.sideThreadId)}
+        onDelete={(entry) => void conversation?.remove(entry)}
+      />
+    {:else if conversation.loading}
       <div class="space-y-2" aria-label="Loading side question">
         <div class="placeholder h-12 animate-pulse rounded-lg"></div>
         <div class="placeholder h-20 animate-pulse rounded-lg opacity-70"></div>
       </div>
-    {:else if sideThread}
-      <div class="side-transcript space-y-3 text-xs">
-        {#each visibleTurns as turn (turn.id)}
-          {@const parts = splitTurn(turn, sideThread?.harness)}
-          {@const collapseDiffs = turnDiffCount(turn) > 1}
-          {@const liveSegment = turn.status === "inProgress" ? parts.body.at(-1) : undefined}
-          {@const firstWork = parts.body.find((segment) => segment.kind === "work")}
-          {#each parts.users as item (item.id)}
-            <div class="flex justify-end">
-              <div
-                class="max-w-[90%] rounded-xl rounded-br-sm bg-primary-500/10 px-3 py-2 text-xs leading-5 whitespace-pre-wrap"
-              >
-                {messageParts(item)
-                  .map((part) => part.text ?? "")
-                  .join("")}
-              </div>
-            </div>
-          {/each}
-          {#each parts.body as segment (completedSegmentKey(segment))}
-            {#if segment.kind === "message"}
-              <WorkItem item={segment.item} model={turn.model} effort={turn.reasoningEffort} />
-            {:else if segment === liveSegment && !segment.collapsed}
-              {@const liveSegments = turnSegments(segment.items)}
-              {#each liveSegments as liveSeg, liveIndex (segmentKey(liveSeg))}
-                {#if liveSeg.kind === "reasoning"}
-                  <ReasoningBlock items={liveSeg.items} live={liveIndex === liveSegments.length - 1} />
-                {:else}
-                  <WorkItem item={liveSeg.item} {collapseDiffs} />
-                {/if}
-              {/each}
-            {:else}
-              <div>
-                <Collapsible class="min-w-0 items-stretch">
-                  <Collapsible.Trigger
-                    class="group flex items-center gap-1 text-xs text-surface-500 hover:text-surface-700-300"
-                  >
-                    <span>{segment === firstWork && turn.status !== "inProgress" ? workedLabel(turn) : "Worked"}</span>
-                    <ChevronRight size={12} class="transition group-data-[state=open]:rotate-90" />
-                  </Collapsible.Trigger>
-                  <Collapsible.Content>
-                    <div class="mt-2 space-y-3 border-l-2 border-surface-200-800 pl-3">
-                      {#each segment.items as item (item.id)}
-                        <WorkItem {item} {collapseDiffs} />
-                      {/each}
-                    </div>
-                  </Collapsible.Content>
-                </Collapsible>
-                <hr class="mt-2 border-surface-200-800">
-              </div>
-            {/if}
-          {/each}
-          {#if turn.status === "failed" && turn.error}
-            <div class="error-note p-3 space-y-2">
-              <div>{turn.error.message}</div>
-              {#if turn.error.misalignment?.detailedExplanation}
-                <p class="whitespace-pre-wrap opacity-90">{turn.error.misalignment.detailedExplanation}</p>
-              {/if}
-            </div>
-          {/if}
-        {/each}
-
-        {#each sideApprovals as approval (approval.requestId)}
-          <ApprovalCard {approval} />
-        {/each}
-        {#each sideQuestionsPending as request (request.requestId)}
-          <QuestionCard
-            {request}
-            onAnswered={(item) => sideThread && upsertItem(sideThread.turns, request.turnId, item)}
-          />
-        {/each}
-        {#each sideElicitations as elicitation (elicitation.requestId)}
-          <ElicitationCard {elicitation} />
-        {/each}
-
-        {#if showTypingIndicator}
-          <TypingDots />
-        {/if}
-      </div>
+    {:else if transcript?.shape === "turns"}
+      <SideTurns
+        threadId={conversation.openId}
+        thread={transcript.thread}
+        turns={transcript.turns}
+        activeTurn={transcript.activeTurn}
+      />
+    {:else if transcript}
+      <SideExchanges exchanges={transcript.exchanges} />
     {/if}
-    {#if sideError}
-      <div class="error-note mt-3">{sideError}</div>
+    <!-- A turns transcript shows its own progress; anything else gets a line. -->
+    {#if conversation.busy && transcript?.shape !== "turns"}
+      <p class="mt-3 text-xs text-surface-500" role="status">Answering side question…</p>
+    {/if}
+    {#if conversation.error}
+      <div class="error-note mt-3" role="alert">{conversation.error}</div>
     {/if}
   </div>
 
-  <SideComposer bind:value={question} followUp={!!activeSideId} {busy} onAsk={ask} onStop={stop} />
+  <SideComposer
+    bind:value={question}
+    followUp={!!conversation.openId}
+    busy={conversation.busy}
+    disabled={conversation.loading}
+    onAsk={() => void ask()}
+    onStop={() => void conversation?.stop()}
+  />
 {:else}
   <p class="p-3 text-xs text-surface-500">
-    {modeError ?? (parentThreadId ? "Loading side questions…" : "Open a conversation to ask a side question.")}
+    {failure ?? (parentThreadId ? "Loading side questions…" : "Open a conversation to ask a side question.")}
   </p>
 {/if}
-
-<style>
-  /* WorkItem sizes itself for the main transcript; the panel is narrow. */
-  .side-transcript :global(.text-sm) {
-    font-size: 0.75rem;
-    line-height: 1.5;
-  }
-</style>
