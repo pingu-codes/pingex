@@ -111,6 +111,7 @@ function setup({
   ...props
 }: {
   busy?: boolean;
+  canSteer?: boolean;
   disabled?: boolean;
   plan?: string | null;
   cwd?: string;
@@ -132,6 +133,7 @@ function setup({
   // unless the test is about what happens without one.
   if (prefs) savePrefs({ ...loadPrefs(), model: "gpt-5.6-terra", permissionPreset: "auto", ...prefs });
   const onSend = vi.fn();
+  const onSteer = vi.fn();
   const onInterrupt = vi.fn();
   const onCommand = vi.fn();
   const onSubagentPolicyChange = vi.fn();
@@ -140,6 +142,7 @@ function setup({
   const { rerender, component } = render(Composer, {
     ...props,
     onSend,
+    onSteer,
     onInterrupt,
     onCommand,
     onSubagentPolicyChange,
@@ -150,6 +153,7 @@ function setup({
     rerender,
     component,
     onSend,
+    onSteer,
     onInterrupt,
     onCommand,
     onSubagentPolicyChange,
@@ -172,6 +176,29 @@ describe("Composer", () => {
 
     expect(onSend).toHaveBeenCalledWith(textInput("hello Codex"), expect.anything());
     expect(textarea).toBeEmptyDOMElement();
+  });
+
+  it("steers on Enter and queues on Tab while a steerable turn runs", async () => {
+    const user = userEvent.setup();
+    const { onSend, onSteer, textarea } = setup({ threadId: "t", busy: true, canSteer: true });
+
+    await user.type(textarea, "also this{Enter}");
+    expect(onSteer).toHaveBeenCalledWith(textInput("also this"), expect.anything());
+    expect(onSend).not.toHaveBeenCalled();
+
+    await user.type(textarea, "after");
+    await user.keyboard("{Tab}");
+    expect(onSend).toHaveBeenCalledWith(textInput("after"), expect.anything());
+    expect(onSteer).toHaveBeenCalledTimes(1);
+  });
+
+  it("queues on Enter while busy when the turn cannot be steered", async () => {
+    const user = userEvent.setup();
+    const { onSend, onSteer, textarea } = setup({ threadId: "t", busy: true, canSteer: false });
+
+    await user.type(textarea, "later{Enter}");
+    expect(onSend).toHaveBeenCalledWith(textInput("later"), expect.anything());
+    expect(onSteer).not.toHaveBeenCalled();
   });
 
   it("keeps a newline and does not submit on Shift+Enter", async () => {

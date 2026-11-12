@@ -1,13 +1,25 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { scopedId } from "$lib/services/homeRouting";
 import {
   applyProcessEvent as applyTyped,
+  backgroundProcessCount,
   elapsedLabel,
   processByKey,
   processes,
+  reconcileBackground,
   resetProcesses,
   runningProcessCount,
+  stopAllBackground,
+  terminateProcess,
 } from "$lib/services/processes.svelte";
+
+const api = vi.hoisted(() => ({
+  listBackgroundTerminals: vi.fn(),
+  terminateBackgroundTerminal: vi.fn(),
+  cleanBackgroundTerminals: vi.fn(),
+}));
+vi.mock("$lib/services/api", () => api);
+
 import { type FakeEvent, fakeEvent } from "$lib/testing/codexEvents";
 
 const applyProcessEvent = (event: FakeEvent) => applyTyped(fakeEvent(event));
@@ -26,7 +38,106 @@ const started = (threadId: string, itemId: string, command = "sleep 60") => ({
   params: { threadId, turnId: "turn-1", item: { type: "commandExecution", id: itemId, command, cwd: "/repo" } },
 });
 
-beforeEach(resetProcesses);
+beforeEach(() => {
+  resetProcesses();
+  api.listBackgroundTerminals.mockReset().mockResolvedValue([]);
+  api.terminateBackgroundTerminal.mockReset().mockResolvedValue(true);
+  api.cleanBackgroundTerminals.mockReset().mockResolvedValue(undefined);
+});
+
+const startedWithPty = (threadId: string, itemId: string, processId: string, command = "bun run dev") => ({
+  method: "item/started",
+  params: {
+    threadId,
+    turnId: "turn-1",
+    item: { type: "commandExecution", id: itemId, command, cwd: "/repo", processId },
+  },
+});
+
+const terminal = (itemId: string, processId: string, command = "bun run dev") => ({
+  itemId,
+  processId,
+  command,
+  cwd: "/repo",
+});
+
+describe("background terminals", () => {
+  it("keeps a command with a PTY session running past its turn while Codex lists it", async () => {
+    api.listBackgroundTerminals.mockResolvedValue([terminal("c1", "1000")]);
+    applyProcessEvent(startedWithPty("t", "c1", "1000"));
+    applyProcessEvent(started("t", "c2"));
+    applyProcessEvent({ method: "turn/completed", params: { threadId: "t", turn: { id: "turn-1" } } });
+    expect(processByKey("t:c1")).toMatchObject({ status: "running", background: true });
+    expect(processByKey("t:c2")?.status).toBe("completed");
+    await reconcileBackground("t");
+    expect(api.listBackgroundTerminals).toHaveBeenCalledWith("t");
+    expect(processByKey("t:c1")?.status).toBe("running");
+    expect(backgroundProcessCount("t")).toBe(1);
+  });
+
+  it("finishes a background entry Codex no longer lists", async () => {
+    applyProcessEvent(startedWithPty("t", "c1", "1000"));
+    applyProcessEvent({ method: "turn/completed", params: { threadId: "t", turn: { id: "turn-1" } } });
+    await reconcileBackground("t");
+    expect(processByKey("t:c1")?.status).toBe("completed");
+  });
+
+  it("finishes it normally when its exit arrives after the turn", async () => {
+    api.listBackgroundTerminals.mockResolvedValue([terminal("c1", "1000")]);
+    applyProcessEvent(startedWithPty("t", "c1", "1000"));
+    applyProcessEvent({ method: "turn/completed", params: { threadId: "t", turn: { id: "turn-1" } } });
+    await reconcileBackground("t");
+    applyProcessEvent({
+      method: "item/completed",
+      params: { threadId: "t", turnId: "turn-1", item: { type: "commandExecution", id: "c1", exitCode: 0 } },
+    });
+    expect(processByKey("t:c1")).toMatchObject({ status: "completed", exitCode: 0 });
+  });
+
+  it("adds terminals this window never saw start", async () => {
+    api.listBackgroundTerminals.mockResolvedValue([terminal("old", "7", "vite")]);
+    await reconcileBackground("t");
+    expect(processByKey("t:old")).toMatchObject({
+      status: "running",
+      background: true,
+      processId: "7",
+      command: "vite",
+    });
+  });
+
+  it("leaves everything alone when the list cannot be read", async () => {
+    api.listBackgroundTerminals.mockRejectedValue(new Error("Codex is not running"));
+    applyProcessEvent(startedWithPty("t", "c1", "1000"));
+    applyProcessEvent({ method: "turn/completed", params: { threadId: "t", turn: { id: "turn-1" } } });
+    await reconcileBackground("t");
+    expect(processByKey("t:c1")?.status).toBe("running");
+  });
+
+  it("stops one terminal and keeps it reading as stopped when its exit lands", async () => {
+    applyProcessEvent(startedWithPty("t", "c1", "1000"));
+    const process = processByKey("t:c1")!;
+    await expect(terminateProcess(process)).resolves.toBe(true);
+    expect(api.terminateBackgroundTerminal).toHaveBeenCalledWith("t", "1000");
+    expect(process.status).toBe("interrupted");
+    applyProcessEvent({
+      method: "item/completed",
+      params: { threadId: "t", turnId: "turn-1", item: { type: "commandExecution", id: "c1", exitCode: 143 } },
+    });
+    expect(process.status).toBe("interrupted");
+  });
+
+  it("stops every background terminal of a thread", async () => {
+    api.listBackgroundTerminals.mockResolvedValue([terminal("c1", "1"), terminal("c2", "2")]);
+    applyProcessEvent(startedWithPty("t", "c1", "1"));
+    applyProcessEvent(startedWithPty("t", "c2", "2"));
+    applyProcessEvent({ method: "turn/completed", params: { threadId: "t", turn: { id: "turn-1" } } });
+    await reconcileBackground("t");
+    api.listBackgroundTerminals.mockResolvedValue([]);
+    await stopAllBackground("t");
+    expect(api.cleanBackgroundTerminals).toHaveBeenCalledWith("t");
+    expect(backgroundProcessCount("t")).toBe(0);
+  });
+});
 
 describe("applyProcessEvent", () => {
   it("disconnects only processes owned by the failed Home", () => {

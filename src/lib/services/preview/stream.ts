@@ -1,5 +1,5 @@
 import { previewEmit, previewEmitServerRequest } from "$lib/services/codexEvents.svelte";
-import type { CodexEvent, CodexEventOf } from "$lib/types";
+import type { CodexEvent, CodexEventOf, UserInputPart } from "$lib/types";
 import { nextPreviewId } from "./fixtures";
 
 const previewInterrupted = new Set<string>();
@@ -184,4 +184,15 @@ export function previewInterrupt(threadId: string, turnId: string): void {
     method: "turn/completed",
     params: { threadId, turn: { id: turnId, status: "interrupted", items: [] } },
   });
+}
+
+/** A steer lands as a `userMessage` item of the running turn, carrying the
+ *  client id it was sent with, once the turn reaches its next step. */
+export function previewSteer(threadId: string, turnId: string, input: UserInputPart[], clientId: string): void {
+  setTimeout(() => {
+    if (previewInterrupted.has(turnId)) return;
+    const item = { type: "userMessage", id: `preview-steer-${nextPreviewId()}`, clientId, content: input };
+    previewEmit({ method: "item/started", params: { threadId, turnId, item } } as CodexEvent);
+    previewEmit({ method: "item/completed", params: { threadId, turnId, item } } as CodexEvent);
+  }, 400);
 }

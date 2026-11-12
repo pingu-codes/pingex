@@ -11,6 +11,7 @@ import { isTauri } from "$lib/services/tauri";
 import type {
   AccountRateLimits,
   Attachment,
+  BackgroundTerminal,
   BootstrapData,
   CodexServerInfo,
   CreateWorkspaceInput,
@@ -89,6 +90,34 @@ export async function listHarnessModels(harness: HarnessKind): Promise<Model[]> 
 
 export async function startTurn(threadId: string, input: UserInputPart[], options?: TurnOptions): Promise<Turn> {
   return commands.startTurn(threadId, input, options ?? null) as Promise<Turn>;
+}
+
+/** Send a message into the running turn (`turn/steer`). Resolves to the
+ *  steered turn's id; rejects with a `STEER_REFUSED` error when Codex declines
+ *  this turn, so the caller can queue instead. */
+export async function steerTurn(
+  threadId: string,
+  turnId: string,
+  input: UserInputPart[],
+  clientId: string,
+): Promise<string> {
+  return commands.steerTurn(threadId, turnId, input, clientId);
+}
+
+/** Commands of a thread still running after their step — dev servers,
+ *  watchers. Empty for a thread Codex has not loaded. */
+export function listBackgroundTerminals(threadId: string): Promise<BackgroundTerminal[]> {
+  return commands.backgroundTerminalsList(threadId);
+}
+
+/** Stop one background terminal; `false` when it had already exited. */
+export function terminateBackgroundTerminal(threadId: string, processId: string): Promise<boolean> {
+  return commands.backgroundTerminalTerminate(threadId, processId);
+}
+
+/** Stop every background terminal of a thread. */
+export async function cleanBackgroundTerminals(threadId: string): Promise<void> {
+  await commands.backgroundTerminalsClean(threadId);
 }
 
 /**
@@ -308,6 +337,14 @@ export const isQueueUnsupported = (cause: unknown) => isUnsupported(cause, QUEUE
 export const REVERT_UNSUPPORTED = "codex-revert-unsupported";
 
 export const isRevertUnsupported = (cause: unknown) => isUnsupported(cause, REVERT_UNSUPPORTED);
+
+/** Prefix the Rust side puts on a `steer_turn` error when Codex declined to
+ *  steer — the turn ended, another one is running, or it is a review or
+ *  compaction. The message is still to be sent: queue it. Kept in step with
+ *  `STEER_REFUSED` in `src-tauri/src/threads/turn.rs`. */
+export const STEER_REFUSED = "codex-steer-refused";
+
+export const isSteerRefused = (cause: unknown) => isUnsupported(cause, STEER_REFUSED);
 
 /** Prefix the Rust side puts on a `turn/settings/update` error when this
  *  Codex predates the API (0.150.1 and earlier). Kept in step with

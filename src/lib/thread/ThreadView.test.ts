@@ -10,6 +10,7 @@ type ThreadEventHandler = (event: { method: string; params: Record<string, unkno
 
 const mocks = vi.hoisted(() => ({
   readThread: vi.fn(),
+  steerTurn: vi.fn().mockResolvedValue("turn-1"),
   // A folder outside Git unless a test says otherwise: the overview lists the
   // edits the thread reported.
   gitThreadChanges: vi.fn().mockResolvedValue({ scope: "branch", repos: [], snapshotAt: null, readAt: 0 }),
@@ -69,6 +70,11 @@ vi.mock("$lib/toaster", () => ({
 
 vi.mock("$lib/services/api", () => ({
   startReview: mocks.startReview,
+  listBackgroundTerminals: vi.fn().mockResolvedValue([]),
+  terminateBackgroundTerminal: vi.fn().mockResolvedValue(true),
+  cleanBackgroundTerminals: vi.fn().mockResolvedValue(undefined),
+  steerTurn: mocks.steerTurn,
+  isSteerRefused: () => false,
   setThreadGoal: mocks.setThreadGoal,
   getThreadGoal: mocks.getThreadGoal,
   setThreadGoalStatus: vi.fn(),
@@ -1225,7 +1231,7 @@ describe("ThreadView queueing when Codex cannot hold the queue", () => {
     emit("turn/completed", { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } });
   }
 
-  /** Render thread-1 mid-turn, so anything typed is queued rather than sent. */
+  /** Render thread-1 mid-turn: Enter would steer it, so these queue with Tab. */
   async function renderWorking() {
     mocks.readThread.mockResolvedValue(
       detail({
@@ -1264,12 +1270,26 @@ describe("ThreadView queueing when Codex cannot hold the queue", () => {
     expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
   });
 
+  it("steers the running turn on Enter instead of queueing", async () => {
+    const user = userEvent.setup();
+    await renderWorking();
+    await user.type(screen.getByRole("textbox", { name: composerLabel }), "Also do this{Enter}");
+    expect(mocks.steerTurn).toHaveBeenCalledWith(
+      "thread-1",
+      "turn-1",
+      expect.anything(),
+      expect.stringMatching(/^pingex-steer-/),
+    );
+    expect(screen.queryByText("Queued locally")).toBeNull();
+    expect(screen.getByText("Steering")).toBeInTheDocument();
+  });
+
   it("keeps the message and says it is only held here", async () => {
     const user = userEvent.setup();
     mocks.queueAdd.mockRejectedValue(unsupported);
     await renderWorking();
 
-    await user.type(screen.getByRole("textbox", { name: composerLabel }), "Then do this{Enter}");
+    await user.type(screen.getByRole("textbox", { name: composerLabel }), "Then do this{Tab}");
 
     expect(await screen.findByText("Queued locally")).toBeVisible();
     expect(screen.getByText("Then do this")).toBeVisible();
@@ -1281,7 +1301,7 @@ describe("ThreadView queueing when Codex cannot hold the queue", () => {
     const user = userEvent.setup();
     mocks.queueAdd.mockRejectedValue(unsupported);
     await renderWorking();
-    await user.type(screen.getByRole("textbox", { name: composerLabel }), "Then do this{Enter}");
+    await user.type(screen.getByRole("textbox", { name: composerLabel }), "Then do this{Tab}");
     await screen.findByText("Queued locally");
 
     await user.click(screen.getByRole("button", { name: "Edit queued message" }));
@@ -1301,7 +1321,7 @@ describe("ThreadView queueing when Codex cannot hold the queue", () => {
     mocks.openDialog.mockReset();
     await renderWorking();
     const composer = screen.getByRole("textbox", { name: composerLabel });
-    await user.type(composer, "Then do this{Enter}");
+    await user.type(composer, "Then do this{Tab}");
     await screen.findByText("Queued locally");
 
     await user.click(screen.getByRole("button", { name: "Remove queued message" }));
@@ -1318,7 +1338,7 @@ describe("ThreadView queueing when Codex cannot hold the queue", () => {
     mocks.openDialog.mockResolvedValue(null);
     await renderWorking();
     const composer = screen.getByRole("textbox", { name: composerLabel });
-    await user.type(composer, "Then do this{Enter}");
+    await user.type(composer, "Then do this{Tab}");
     await screen.findByText("Queued locally");
     await user.type(composer, "unsent");
 
@@ -1337,7 +1357,7 @@ describe("ThreadView queueing when Codex cannot hold the queue", () => {
     mocks.queueAdd.mockRejectedValue(new Error("queue cannot contain more than 100 submissions"));
     await renderWorking();
 
-    await user.type(screen.getByRole("textbox", { name: composerLabel }), "One too many{Enter}");
+    await user.type(screen.getByRole("textbox", { name: composerLabel }), "One too many{Tab}");
 
     expect(await screen.findByText(/queue cannot contain more than 100 submissions/)).toBeVisible();
     expect(screen.getByText("Queued locally")).toBeVisible();

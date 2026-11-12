@@ -295,7 +295,41 @@ describe("FloatingMenu", () => {
       finishedAt: null,
       output: "",
       exitCode: null,
+      processId: null,
+      background: false,
       ...overrides,
+    });
+
+    it("stops a background process, or all of them, without opening it", async () => {
+      const user = userEvent.setup();
+      const onOpenProcess = vi.fn();
+      const onStopProcess = vi.fn();
+      const onStopAllBackground = vi.fn();
+      setup({
+        processes: [process({ processId: "1000", background: true }), process({ key: "t:c2", itemId: "c2" })],
+        currentThreadId: "t",
+        onOpenProcess,
+        onStopProcess,
+        onStopAllBackground,
+      });
+
+      const rows = screen.getAllByRole("button", { name: "Open process sleep 60" });
+      expect(rows[0]).toHaveTextContent("background");
+      // Only the command with a PTY session can be stopped on its own.
+      const stops = screen.getAllByRole("button", { name: "Stop process sleep 60" });
+      expect(stops).toHaveLength(1);
+      await user.click(stops[0]);
+      expect(onStopProcess).toHaveBeenCalledWith(expect.objectContaining({ key: "t:c1" }));
+      expect(onOpenProcess).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole("button", { name: "Stop all background processes" }));
+      expect(onStopAllBackground).toHaveBeenCalled();
+    });
+
+    it("offers no stop controls when the harness keeps no background terminals", () => {
+      setup({ processes: [process({ processId: "1000", background: true })], currentThreadId: "t" });
+      expect(screen.queryByRole("button", { name: "Stop process sleep 60" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Stop all background processes" })).toBeNull();
     });
 
     it("lists a running process and opens it on click", async () => {

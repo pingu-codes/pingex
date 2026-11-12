@@ -84,7 +84,7 @@ import {
 } from "./memories";
 import { repositoryCommands } from "./repositories";
 import { stackCommands } from "./stack";
-import { previewCompact, previewInterrupt, previewStreamTurn } from "./stream";
+import { previewCompact, previewInterrupt, previewSteer, previewStreamTurn } from "./stream";
 
 type Commands = typeof commands;
 
@@ -386,6 +386,13 @@ export const previewCommands: PreviewCommands = {
   interruptTurn(threadId, turnId) {
     previewInterrupt(threadId, turnId);
   },
+  steerTurn(threadId, turnId, input, clientId) {
+    previewSteer(threadId, turnId, input as UserInputPart[], clientId);
+    return turnId;
+  },
+  backgroundTerminalsList: () => [],
+  backgroundTerminalTerminate: () => true,
+  backgroundTerminalsClean: () => null,
   threadsWithUnansweredQuestions: () => [],
   threadsWithActiveTurns: () => [],
   compactThread(threadId) {

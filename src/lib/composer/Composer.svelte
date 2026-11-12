@@ -51,6 +51,7 @@
 
   let {
     busy = false,
+    canSteer = false,
     disabled = false,
     hasQuestions = false,
     plan = null,
@@ -69,6 +70,7 @@
     threadHarness = null,
     worktreeContext = null,
     onSend,
+    onSteer,
     onInterrupt,
     onCommand,
     onGoal,
@@ -79,6 +81,9 @@
     onLiveSettingsChange,
   }: {
     busy?: boolean;
+    /** The running turn can take a message now (`turn/steer`): Enter steers it
+     *  and Tab queues for after. Otherwise a busy composer queues on Enter. */
+    canSteer?: boolean;
     disabled?: boolean;
     /** Codex asked the user questions that are still unanswered. */
     hasQuestions?: boolean;
@@ -103,6 +108,8 @@
     /** Resolving `false` means the message reached nothing — the harness
      *  refused it — and the composer gives the text back. */
     onSend: (input: UserInputPart[], options?: TurnOptions) => Promise<boolean> | boolean | undefined;
+    /** Send into the running turn; same contract as `onSend`. */
+    onSteer?: (input: UserInputPart[], options?: TurnOptions) => Promise<boolean> | boolean | undefined;
     onInterrupt: () => void;
     /** Thread-level slash commands (compact, new, fork, archive, rename).
      *  `argument` is whatever followed the command name, e.g. `/undo 2`. `typed`
@@ -154,6 +161,11 @@
     pickerOpen: () => pickerOpen,
     suppressQueries: () => reviewPicker,
     onSubmit: () => submit(),
+    onTab: () => {
+      if (!steering || !hasSendable) return false;
+      submit("queue");
+      return true;
+    },
     onHistory: (direction) => recall.recall(direction),
     onEdit: () => recall.reset(),
   });
@@ -427,7 +439,11 @@
     richEditor.insertSkill(skill.name, skill.path, skillLabel(skill));
   }
 
-  function submit() {
+  /** Enter steers rather than queues: a turn is running and can take it. */
+  const steering = $derived(busy && canSteer && Boolean(onSteer) && !goalMode);
+
+  /** `queue` is Tab mid-turn: send through `onSend`, which queues while busy. */
+  function submit(how: "default" | "queue" = "default") {
     // Enter belongs to the review picker while it is open, even when its list is
     // empty — its filter text is not a message.
     if (reviewPicker) return;
@@ -452,7 +468,7 @@
     attachments.forget();
     closePickers();
     draft.discard();
-    void dispatchSend(sent, snapshot);
+    void dispatchSend(sent, snapshot, how === "default" && steering ? "steer" : "send");
   }
 
   /**
@@ -488,13 +504,14 @@
   /** Send once a model can back the collaboration settings: the first send after
    *  launch may beat the model list, and a mode-less turn is what leaves a thread
    *  stuck in plan mode. Bounded so a failing model fetch never blocks sending. */
-  async function dispatchSend(sent: UserInputPart[], snapshot: ComposerPart[]) {
+  async function dispatchSend(sent: UserInputPart[], snapshot: ComposerPart[], how: "send" | "steer" = "send") {
     if (settings.needsModels) {
       await Promise.race([settings.ensureModels(), new Promise((resolve) => setTimeout(resolve, 3000))]);
     }
     let outcome: boolean | undefined;
     try {
-      outcome = await onSend(sent, turnOptions());
+      const handler = how === "steer" && onSteer ? onSteer : onSend;
+      outcome = await handler(sent, turnOptions());
     } catch {
       outcome = false;
     }
@@ -695,14 +712,24 @@
           label={invalidReason ??
             (hasQuestions
               ? "Answer questions"
-              : busy && hasSendable
-                ? "Queue message — sends when Codex finishes"
-                : "Send message")}
+              : steering && hasSendable
+                ? "Steer — send into the running turn (Tab queues it for after)"
+                : busy && hasSendable
+                  ? "Queue message — sends when Codex finishes"
+                  : "Send message")}
           class="shrink-0"
         >
           <button
-            onclick={submit}
-            aria-label={goalEditing ? "Update goal" : goalMode ? "Set goal" : busy ? "Queue message" : "Send message"}
+            onclick={() => submit()}
+            aria-label={goalEditing
+              ? "Update goal"
+              : goalMode
+                ? "Set goal"
+                : steering
+                  ? "Steer"
+                  : busy
+                    ? "Queue message"
+                    : "Send message"}
             disabled={disabled || !hasSendable || hasQuestions || Boolean(invalidReason)}
             class="grid size-7 place-items-center rounded-full preset-filled-primary-500 disabled:opacity-40"
           >

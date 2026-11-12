@@ -63,6 +63,20 @@ owns it — the app sets, pauses, caps and clears it over `thread/goal/*` and
 shows what Codex reports back. Codex-only today.
 _Avoid_: task, mission, loop
 
+**Steer**:
+A message sent into the turn that is running, which the agent reads at its
+next step without stopping (Codex `turn/steer`). Enter steers while a turn
+runs; Tab queues instead. A steer Codex declines (a review or compaction
+turn, or one that just ended) is queued; one the turn ended without reading
+goes back to the composer. A Capability.
+_Avoid_: inject, interject, send now (that stops the turn first)
+
+**Background terminal**:
+A command that outlives the step or turn that started it — a dev server, a
+watcher. Codex keeps it alive past turn end and Stop; it ends when it exits
+or the user stops it from the Processes list. A Capability.
+_Avoid_: background job, daemon, detached process
+
 **Token budget**:
 The cap on a Goal's spend, in tokens. Codex counts every turn it drives
 against it and parks the goal as `budgetLimited` once reached; raising or

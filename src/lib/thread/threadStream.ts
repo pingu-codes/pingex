@@ -122,7 +122,10 @@ function adoptStartedTurn(turns: Turn[], turnId: string): Turn {
 
 export function upsertItem(turns: Turn[], turnId: string, incoming: ThreadItem): void {
   const turn = ensureTurn(turns, turnId);
-  if (incoming.type === "userMessage") {
+  // The optimistic bubble stands in for the message `turn/start` sent. A
+  // message carrying a client id was steered into the turn later, so it is
+  // never that one, even when it beats the turn's own message here.
+  if (incoming.type === "userMessage" && !incoming.clientId) {
     const localIndex = turn.items.findIndex(
       (candidate) => candidate.type === "userMessage" && candidate.id.startsWith("local-"),
     );

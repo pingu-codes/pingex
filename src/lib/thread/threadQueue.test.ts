@@ -39,15 +39,17 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 /** A queue on a thread whose owner we script: `idle` flips when the fake turn
  *  ends, `send` records what reached Codex. */
-function harness(overrides: { threadId?: string | null; sendResult?: boolean } = {}) {
+function harness(overrides: { threadId?: string | null; sendResult?: boolean; steerResult?: boolean } = {}) {
   const state = { idle: false, threadId: overrides.threadId === undefined ? "thread-1" : overrides.threadId };
   const send = vi.fn(async (_input: UserInputPart[], _options?: TurnOptions) => overrides.sendResult ?? true);
+  const steer = vi.fn(async (_input: UserInputPart[], _options?: TurnOptions) => overrides.steerResult ?? true);
   const interrupt = vi.fn(async () => {});
   const onNotice = vi.fn();
   const onError = vi.fn();
   const queue = new ThreadQueue({
     threadId: () => state.threadId,
     send,
+    steer,
     interrupt,
     idle: () => state.idle,
     onNotice,
@@ -57,7 +59,7 @@ function harness(overrides: { threadId?: string | null; sendResult?: boolean } =
     state.idle = true;
     queue.maybeDrain();
   };
-  return { queue, state, send, interrupt, onNotice, onError, finishTurn };
+  return { queue, state, send, steer, interrupt, onNotice, onError, finishTurn };
 }
 
 beforeEach(() => {
@@ -147,6 +149,27 @@ describe("ThreadQueue on a Codex that holds the queue", () => {
     expect(texts(queue)).toEqual(["Second", "First"]);
     expect(mocks.queueReorder).toHaveBeenCalledWith("thread-1", [queue.entries[0].id, queue.entries[1].id]);
     expect(interrupt).toHaveBeenCalled();
+  });
+
+  it("steer takes the message off the server and into the running turn, without stopping it", async () => {
+    const { queue, steer, interrupt } = harness();
+    await queue.add(text("First"));
+    await queue.add(text("Second"));
+    const second = queue.entries[1];
+    await queue.steer(second);
+    expect(mocks.queueDelete).toHaveBeenCalledWith("thread-1", second.id);
+    expect(steer.mock.calls[0][0]).toEqual(text("Second"));
+    expect(interrupt).not.toHaveBeenCalled();
+    expect(texts(queue)).toEqual(["First"]);
+  });
+
+  it("puts a steered message back in its place when the steer reached nothing", async () => {
+    const { queue } = harness({ steerResult: false });
+    await queue.add(text("First"));
+    await queue.add(text("Second"));
+    await queue.add(text("Third"));
+    await queue.steer(queue.entries[1]);
+    expect(texts(queue)).toEqual(["First", "Second", "Third"]);
   });
 
   it("ignores a server re-list while its own write is in flight", async () => {

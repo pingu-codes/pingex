@@ -13,4 +13,5 @@ pub(crate) mod search;
 pub(crate) mod sections;
 pub(crate) mod side_questions;
 pub(crate) mod subagents;
+pub(crate) mod terminals;
 pub(crate) mod turn;

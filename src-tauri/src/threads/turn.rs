@@ -373,6 +373,61 @@ pub(crate) async fn interrupt_turn(
     Ok(())
 }
 
+/// Prefix on a `steer_turn` error when Codex declined to steer, so the
+/// frontend queues the message instead. Kept in step with `STEER_REFUSED` in
+/// `src/lib/services/api.ts`.
+pub(crate) const STEER_REFUSED: &str = "codex-steer-refused";
+
+/// Whether a `turn/steer` rejection is Codex declining this turn (it ended,
+/// another turn is running, or it is a review or compaction) rather than a
+/// failure. A refused message is still the user's to send: it goes to the queue.
+///
+/// The turn-id mismatch is a refusal, never a retry: unlike Stop, a steer must
+/// only ever reach the turn the user was looking at.
+pub fn steer_refused(error: &str) -> bool {
+    const REFUSALS: [&str; 5] = [
+        "no active turn to steer",
+        "but found `",
+        "cannot steer a review turn",
+        "cannot steer a compact turn",
+        "activeTurnNotSteerable",
+    ];
+    REFUSALS.iter().any(|refusal| error.contains(refusal))
+}
+
+/// Send a message into the turn running now (`turn/steer`). Returns the turn
+/// id Codex steered. A refusal comes back prefixed by [`STEER_REFUSED`].
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn steer_turn(
+    thread_id: String,
+    expected_turn_id: String,
+    input: Vec<Json>,
+    client_id: String,
+    app: AppHandle,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let ctx = state.ctx(&window);
+    if let Some((_, driver)) = ctx.harness_thread(&thread_id).await? {
+        return Err(unsupported(driver.kind(), "steering"));
+    }
+    ctx.session.ensure_resumed(&app, &thread_id).await?;
+    let request = requests::turn_steer(
+        &thread_id,
+        &expected_turn_id,
+        input.into_iter().map(|item| item.0).collect(),
+        &client_id,
+    );
+    match ctx.session.send(&app, request).await {
+        Ok(response) => Ok(str_at(&response, "turnId")
+            .unwrap_or(&expected_turn_id)
+            .to_string()),
+        Err(error) if steer_refused(&error) => Err(format!("{STEER_REFUSED}: {error}")),
+        Err(error) => Err(error),
+    }
+}
+
 /// Change the model and/or reasoning effort of the turn that is running right
 /// now (`turn/settings/update`, Codex ≥0.151). Returns the server's
 /// `{status}` — `applied` or `targetUnavailable` — and, on a Codex without the
@@ -720,6 +775,23 @@ mod tests {
         // Exactly the shape that reaches us: the error object stringified.
         let error = r#"Codex request failed: {"code":-32600,"message":"expected active turn id 019fd778-0946 but found 019fd778-09cf"}"#;
         assert_eq!(active_turn_mismatch(error), Some("019fd778-09cf"));
+    }
+
+    #[test]
+    fn steer_refusals_are_told_apart_from_failures() {
+        let refusals = [
+            r#"Codex request failed: {"code":-32600,"message":"no active turn to steer"}"#,
+            r#"Codex request failed: {"code":-32600,"message":"expected active turn id `a` but found `b`"}"#,
+            r#"Codex request failed: {"code":-32600,"message":"cannot steer a review turn","data":{"codexErrorInfo":{"activeTurnNotSteerable":{"turnKind":"review"}}}}"#,
+            r#"Codex request failed: {"code":-32600,"message":"cannot steer a compact turn"}"#,
+        ];
+        for refusal in refusals {
+            assert!(steer_refused(refusal), "{refusal}");
+        }
+        assert!(!steer_refused(
+            r#"Codex request failed: {"code":-32603,"message":"failed to steer turn: channel closed"}"#
+        ));
+        assert!(!steer_refused("Codex is not running"));
     }
 
     #[test]

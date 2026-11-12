@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   compactThread: vi.fn(),
   revertThread: vi.fn(),
   updateTurnSettings: vi.fn().mockResolvedValue("applied"),
+  steerTurn: vi.fn(),
   interruptTurn: vi.fn().mockResolvedValue(undefined),
   queueAdd: vi.fn(),
   queueDelete: vi.fn().mockResolvedValue(true),
@@ -33,6 +34,8 @@ vi.mock("$lib/services/api", () => ({
   isRevertUnsupported: (cause: unknown) => String(cause).includes("unsupported"),
   updateTurnSettings: mocks.updateTurnSettings,
   isTurnSettingsUnsupported: (cause: unknown) => String(cause).includes("unsupported"),
+  steerTurn: mocks.steerTurn,
+  isSteerRefused: (cause: unknown) => String(cause).includes("codex-steer-refused"),
   isQueueUnsupported: () => true,
   queueAdd: mocks.queueAdd,
   queueDelete: mocks.queueDelete,
@@ -111,6 +114,7 @@ beforeEach(() => {
   mocks.revertThread.mockReset().mockResolvedValue(undefined);
   mocks.interruptTurn.mockClear();
   mocks.startTurn.mockReset();
+  mocks.steerTurn.mockReset().mockResolvedValue("thread-a-turn");
   mocks.updateTurnSettings.mockReset().mockResolvedValue("applied");
   mocks.startTurn.mockResolvedValue({ id: "turn-real", status: "inProgress" });
   mocks.requestAutoName.mockClear();
@@ -440,6 +444,78 @@ describe("session turns", () => {
     expect(session.thread?.id).toBe("thread-new");
     expect(openSession("thread-new")).toBe(session);
     expect(mocks.readThread).not.toHaveBeenCalled();
+  });
+});
+
+describe("session steering", () => {
+  const text = (value: string) => [{ type: "text" as const, text: value }];
+  const steeredItem = (clientId: string) => ({
+    threadId: "thread-a",
+    turnId: "thread-a-turn",
+    item: { type: "userMessage", id: "u-2", clientId, content: text("also this") },
+  });
+
+  it("steers the running turn and settles once the message lands", async () => {
+    const session = await leaveWorking("thread-a");
+    expect(session.canSteer).toBe(true);
+    expect(await session.steer(text("also this"))).toBe(true);
+    const [threadId, turnId, input, clientId] = mocks.steerTurn.mock.calls[0];
+    expect([threadId, turnId, input]).toEqual(["thread-a", "thread-a-turn", text("also this")]);
+    expect(session.pendingSteers.map((steer) => steer.clientId)).toEqual([clientId]);
+    expect(session.queue.entries).toHaveLength(0);
+    emit("item/started", steeredItem(clientId));
+    expect(session.pendingSteers).toHaveLength(0);
+    expect(session.thread?.turns[0].items.map((item) => item.clientId)).toEqual([clientId]);
+  });
+
+  it("queues a message Codex would not steer, and says so", async () => {
+    mocks.steerTurn.mockRejectedValue(new Error("codex-steer-refused: cannot steer a review turn"));
+    const session = await leaveWorking("thread-a");
+    expect(await session.steer(text("later"))).toBe(true);
+    expect(session.pendingSteers).toHaveLength(0);
+    expect(session.queue.entries).toHaveLength(1);
+    expect(session.notice).toMatch(/queued/);
+  });
+
+  it("gives the message back when the steer failed outright", async () => {
+    mocks.steerTurn.mockRejectedValue(new Error("Codex is not running"));
+    const session = await leaveWorking("thread-a");
+    expect(await session.steer(text("lost?"))).toBe(false);
+    expect(session.pendingSteers).toHaveLength(0);
+    expect(session.queue.entries).toHaveLength(0);
+  });
+
+  it("queues rather than steers a turn Codex has not named yet", async () => {
+    mocks.readThread.mockResolvedValueOnce(detail("thread-a"));
+    mocks.startTurn.mockImplementation(() => new Promise(() => {}));
+    const session = openSession("thread-a");
+    await settle();
+    void session.send(text("Go"));
+    expect(session.canSteer).toBe(false);
+    expect(await session.steer(text("too soon"))).toBe(true);
+    expect(mocks.steerTurn).not.toHaveBeenCalled();
+    expect(session.queue.entries).toHaveLength(1);
+  });
+
+  it("hands back a steer the turn ended without taking", async () => {
+    const session = await leaveWorking("thread-a");
+    const returned = vi.fn();
+    session.onSteersReturned = returned;
+    await session.steer(text("never read"));
+    emit("turn/completed", { threadId: "thread-a", turn: { id: "thread-a-turn", status: "interrupted", items: [] } });
+    expect(returned).toHaveBeenCalledWith([text("never read")]);
+    expect(session.pendingSteers).toHaveLength(0);
+  });
+
+  it("does not steer a harness that cannot", async () => {
+    mocks.readThread.mockResolvedValueOnce({ ...detail("thread-c"), harness: "maki" });
+    const session = openSession("thread-c");
+    await settle();
+    session.thread?.turns.push({ id: "maki-turn", status: "inProgress", items: [] });
+    expect(session.canSteer).toBe(false);
+    await session.steer(text("later"));
+    expect(mocks.steerTurn).not.toHaveBeenCalled();
+    expect(session.queue.entries).toHaveLength(1);
   });
 });
 

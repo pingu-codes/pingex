@@ -301,6 +301,53 @@ pub fn turn_interrupt(thread_id: &str, turn_id: &str) -> Request {
     )
 }
 
+/// `turn/steer`: add the user's message to the turn that is running now.
+/// `expectedTurnId` is a precondition: Codex refuses rather than steer some
+/// other turn. `clientUserMessageId` comes back as the `userMessage` item's
+/// `clientId`, which is how the frontend knows the steer landed.
+pub fn turn_steer(
+    thread_id: &str,
+    expected_turn_id: &str,
+    input: Vec<Value>,
+    client_id: &str,
+) -> Request {
+    request(
+        "turn/steer",
+        json!({
+            "threadId": thread_id,
+            "expectedTurnId": expected_turn_id,
+            "input": input,
+            "clientUserMessageId": client_id,
+        }),
+    )
+}
+
+/// One page of `thread/backgroundTerminals/list` (experimental): commands
+/// still running after the step that started them.
+pub fn background_terminals_list(thread_id: &str, cursor: Option<&str>) -> Request {
+    let mut params = json!({"threadId": thread_id});
+    if let Some(cursor) = cursor {
+        params["cursor"] = json!(cursor);
+    }
+    request("thread/backgroundTerminals/list", params)
+}
+
+/// `thread/backgroundTerminals/terminate`: stop one background terminal.
+pub fn background_terminal_terminate(thread_id: &str, process_id: &str) -> Request {
+    request(
+        "thread/backgroundTerminals/terminate",
+        json!({"threadId": thread_id, "processId": process_id}),
+    )
+}
+
+/// `thread/backgroundTerminals/clean`: stop every background terminal of a thread.
+pub fn background_terminals_clean(thread_id: &str) -> Request {
+    request(
+        "thread/backgroundTerminals/clean",
+        json!({"threadId": thread_id}),
+    )
+}
+
 pub fn turn_speed_update(
     thread_id: &str,
     turn_id: &str,
@@ -606,5 +653,38 @@ mod goal_tests {
             .as_object()
             .unwrap()
             .contains_key("tokenBudget"));
+    }
+}
+
+#[cfg(test)]
+mod steer_and_terminal_tests {
+    use super::*;
+
+    #[test]
+    fn steer_names_the_turn_and_the_client_message() {
+        let request = turn_steer(
+            "t",
+            "turn-1",
+            vec![json!({"type": "text", "text": "hi"})],
+            "c-1",
+        );
+        assert_eq!(request.method, "turn/steer");
+        assert_eq!(request.params["expectedTurnId"], "turn-1");
+        assert_eq!(request.params["clientUserMessageId"], "c-1");
+        assert_eq!(request.params["input"][0]["text"], "hi");
+    }
+
+    #[test]
+    fn terminal_list_sends_a_cursor_only_when_paging() {
+        let first = background_terminals_list("t", None);
+        assert!(first.params.get("cursor").is_none());
+        let next = background_terminals_list("t", Some("c"));
+        assert_eq!(next.params["cursor"], "c");
+        let stop = background_terminal_terminate("t", "42");
+        assert_eq!(stop.params["processId"], "42");
+        assert_eq!(
+            background_terminals_clean("t").method,
+            "thread/backgroundTerminals/clean"
+        );
     }
 }

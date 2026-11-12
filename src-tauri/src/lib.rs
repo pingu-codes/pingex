@@ -83,6 +83,7 @@ pub mod e2e {
     };
     pub use crate::threads::autoname::NAMER_INSTRUCTIONS;
     pub use crate::threads::side_questions::MAX_TITLE_CHARS;
+    pub use crate::threads::turn::steer_refused;
     pub use crate::util::host::{orphan_pids, Host};
     pub use crate::util::process::{run as run_process, CommandOutput, Run};
 }
@@ -590,6 +591,10 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             threads::turn::start_thread,
             threads::turn::start_turn,
             threads::turn::interrupt_turn,
+            threads::turn::steer_turn,
+            threads::terminals::background_terminals_list,
+            threads::terminals::background_terminal_terminate,
+            threads::terminals::background_terminals_clean,
             threads::turn::update_turn_settings,
             threads::turn::respond_approval,
             threads::turn::respond_user_input,

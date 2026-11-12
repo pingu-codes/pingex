@@ -64,6 +64,9 @@ export interface RichEditorDeps {
   suppressQueries?: () => boolean;
   /** Plain Enter. */
   onSubmit: () => void;
+  /** Plain Tab with no picker open, asked before focus moves. `true`
+   *  consumes it (the composer queues a message mid-turn). */
+  onTab?: () => boolean;
   /** ↑/↓ with no modifiers, asked before the caret moves. `true` consumes. */
   onHistory?: (direction: "older" | "newer") => boolean;
   /** The content changed — typed, edited, set or restored. */
@@ -258,6 +261,17 @@ export class RichEditor {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       this.deps.onSubmit();
+      return;
+    }
+    if (
+      event.key === "Tab" &&
+      !event.shiftKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      this.deps.onTab?.()
+    ) {
+      event.preventDefault();
       return;
     }
     if (event.key === "Enter" && event.shiftKey && root) {

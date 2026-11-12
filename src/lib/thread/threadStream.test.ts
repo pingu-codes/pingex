@@ -43,6 +43,23 @@ describe("upsertItem", () => {
     expect(turns[0].items[0].id).toBe("server-1");
   });
 
+  it("never lets a steered message take the optimistic bubble's place", () => {
+    const turns: Turn[] = [
+      {
+        id: "turn-1",
+        status: "inProgress",
+        items: [{ type: "userMessage", id: "local-item-1", content: [{ type: "text", text: "hi" }] }],
+      },
+    ];
+    upsertItem(turns, "turn-1", {
+      type: "userMessage",
+      id: "server-2",
+      clientId: "pingex-steer-1",
+      content: [{ type: "text", text: "also" }],
+    });
+    expect(turns[0].items.map((item) => item.id)).toEqual(["local-item-1", "server-2"]);
+  });
+
   it("updates an existing item by id and appends unknown items", () => {
     const turns: Turn[] = [
       { id: "turn-1", status: "inProgress", items: [{ type: "agentMessage", id: "i1", text: "a" }] },

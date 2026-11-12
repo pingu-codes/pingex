@@ -52,6 +52,7 @@
     onImplementPlanFresh,
     implementDisabled = false,
     onStopProcessTurn,
+    onStopProcess,
     showSystemPromptInThread = false,
     onToggleSystemPromptInThread,
   }: {
@@ -68,6 +69,8 @@
     onImplementPlan?: () => void;
     /** Interrupt the turn a running process belongs to; only for the open thread. */
     onStopProcessTurn?: (process: RunningProcess) => void;
+    /** Stop one command that has a PTY session (a background terminal). */
+    onStopProcess?: (process: RunningProcess) => void;
     /** Implement the plan in a fresh thread; absent when there is no live thread. */
     onImplementPlanFresh?: () => void;
     implementDisabled?: boolean;
@@ -191,7 +194,11 @@
       {:else if view.kind === "process"}
         {@const process = processByKey(view.processKey)}
         <!-- Interrupting is only possible for the open thread's own turn. -->
-        <ProcessDetail {process} onStopTurn={process?.threadId === parentThreadId ? onStopProcessTurn : undefined} />
+        <ProcessDetail
+          {process}
+          onStopTurn={process?.threadId === parentThreadId ? onStopProcessTurn : undefined}
+          {onStopProcess}
+        />
       {/if}
     </div>
     {#if view.kind === "plan" && onImplementPlan}

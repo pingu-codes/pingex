@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Pencil, Send, X } from "@lucide/svelte";
+  import { CornerDownRight, Pencil, Send, X } from "@lucide/svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import { InlineEdit } from "$lib/thread/inlineEdit.svelte";
   import { editedParts, messageText } from "$lib/thread/messageText";
@@ -10,6 +10,7 @@
     entry,
     canSendNow,
     onSendNow,
+    onSteer,
     onEdit,
     onCancel,
   }: {
@@ -17,6 +18,9 @@
     /** Whether "send now" makes sense — a turn is running or this isn't the head. */
     canSendNow: boolean;
     onSendNow: () => void;
+    /** Send it into the running turn without stopping it; absent when the
+     *  turn cannot take one. */
+    onSteer?: () => void;
     onEdit: (input: UserInputPart[]) => void;
     onCancel: () => void;
   } = $props();
@@ -50,6 +54,16 @@
   {:else}
     <span class="min-w-0 flex-1 truncate pt-0.5">{queuedText(entry.input)}</span>
     <div class="flex shrink-0 items-center gap-2.5">
+      {#if onSteer}
+        <TooltipButton
+          label="Steer into this turn (keeps it running)"
+          aria-label="Steer into this turn"
+          onclick={onSteer}
+          class="btn-icon btn-icon-sm rounded-md text-primary-500 transition hover:preset-tonal-primary"
+        >
+          <CornerDownRight size={14} />
+        </TooltipButton>
+      {/if}
       {#if canSendNow}
         <TooltipButton
           label="Send now (stops the current turn)"
