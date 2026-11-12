@@ -138,7 +138,7 @@ pub(crate) enum CodexNotification {
     #[serde(rename = "mcpServer/startupStatus/updated")]
     McpServerStartupStatusUpdated(McpServerParams),
     #[serde(rename = "mcpServer/oauthLogin/completed")]
-    McpServerOauthLoginCompleted(McpServerParams),
+    McpServerOauthLoginCompleted(McpOauthLoginCompletedParams),
     #[serde(rename = "project/changed")]
     ProjectChanged(ProjectChangedParams),
     #[serde(rename = "remoteControl/status/changed")]
@@ -332,6 +332,19 @@ params!(ServerRequestResolvedParams { thread_id: Option<String>, request_id: Opt
 params!(RateLimitsUpdatedParams { #[specta(type = Json)] rate_limits: Option<Json> });
 params!(AccountUpdatedParams { auth_mode: Option<String>, plan_type: Option<String> });
 params!(McpServerParams { thread_id: Option<String>, name: Option<String>, server_name: Option<String> });
+params!(
+    /// How a sign-in started by `mcpServer/oauth/login` ended. `login_id`
+    /// matches the one the login response returned; older servers omit it.
+    /// A timeout arrives here too, as `success: false`.
+    McpOauthLoginCompletedParams {
+        thread_id: Option<String>,
+        name: Option<String>,
+        server_name: Option<String>,
+        login_id: Option<String>,
+        success: Option<bool>,
+        error: Option<String>,
+    }
+);
 params!(ProjectChangedParams { project_id: Option<String>, change_type: Option<String> });
 params!(RemoteControlStatusChangedParams { #[specta(type = Json)] status: Option<Json>, server_name: Option<String> });
 
@@ -650,7 +663,7 @@ mod tests {
         );
         round_trips(
             "mcpServer/oauthLogin/completed",
-            json!({"name": "s", "serverName": "s"}),
+            json!({"name": "s", "serverName": "s", "loginId": "l", "success": false, "error": "timed out"}),
         );
         round_trips(
             "project/changed",

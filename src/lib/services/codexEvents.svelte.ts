@@ -86,13 +86,22 @@ export const activeTurns = $state<{ list: string[] }>({ list: [] });
 
 /**
  * Bumped whenever Codex reports MCP state changed — a server finished starting,
- * or an OAuth login completed. Views watch `nonce` and refetch;
- * `lastLoginServer` lets the one that started a sign-in clear its pending state.
+ * or an OAuth login completed. Views watch `nonce` and refetch; `lastLogin`
+ * lets the one that started a sign-in end its wait and show a failure.
  */
-export const mcpStatus = $state<{ nonce: number; lastLoginServer: string | null }>({
+export const mcpStatus = $state<{ nonce: number; lastLogin: McpLoginOutcome | null }>({
   nonce: 0,
-  lastLoginServer: null,
+  lastLogin: null,
 });
+
+/** How the latest `mcpServer/oauthLogin/completed` said a sign-in ended. */
+export interface McpLoginOutcome {
+  server: string;
+  /** Older Codex omits it. */
+  loginId: string | null;
+  success: boolean;
+  error: string | null;
+}
 
 /** Bumped on `skills/changed`: the skill set on disk moved under Codex, so
  *  pickers re-run `skills/list` rather than serving a stale list. */
@@ -298,10 +307,20 @@ function dispatch(event: CodexEvent, homeKey?: string) {
     case "mcpServer/startupStatus/updated":
       mcpStatus.nonce += 1;
       break;
-    case "mcpServer/oauthLogin/completed":
+    case "mcpServer/oauthLogin/completed": {
+      const server = event.params.name ?? event.params.serverName;
+      mcpStatus.lastLogin = server
+        ? {
+            server,
+            loginId: event.params.loginId ?? null,
+            // Treat a missing flag as success; the status refetch shows the truth.
+            success: event.params.success !== false,
+            error: event.params.error ?? null,
+          }
+        : null;
       mcpStatus.nonce += 1;
-      mcpStatus.lastLoginServer = event.params.name ?? event.params.serverName ?? null;
       break;
+    }
   }
   for (const handler of [...threadHandlers]) handler(event);
 }

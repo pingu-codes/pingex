@@ -435,8 +435,15 @@ pub fn mcp_server_status_list() -> Request {
     request("mcpServerStatus/list", json!({}))
 }
 
+/// How long Codex waits for the browser round-trip before it reports the
+/// sign-in as failed. Codex's own default; sent so the value is ours to know.
+pub const MCP_OAUTH_TIMEOUT_SECS: i64 = 300;
+
 pub fn mcp_oauth_login(name: &str) -> Request {
-    request("mcpServer/oauth/login", json!({"name": name}))
+    request(
+        "mcpServer/oauth/login",
+        json!({"name": name, "timeoutSecs": MCP_OAUTH_TIMEOUT_SECS}),
+    )
 }
 
 pub fn mcp_config_reload() -> Request {

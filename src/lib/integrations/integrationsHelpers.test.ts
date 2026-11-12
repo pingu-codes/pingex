@@ -6,6 +6,8 @@ import {
   contributionSummary,
   envKeysValid,
   formatArgs,
+  oauthFailureMessage,
+  oauthLoginStart,
   overrideEnabled,
   overrideValue,
   parseArgs,
@@ -116,6 +118,34 @@ describe("authAction", () => {
     expect(authAction(status({ authStatus: "bearerToken" }))).toBe("env");
     expect(authAction(status({ authStatus: "unsupported" }))).toBeNull();
     expect(authAction(null)).toBeNull();
+  });
+});
+
+describe("oauthLoginStart", () => {
+  it("reads the URL Codex wants opened and the login it belongs to", () => {
+    expect(oauthLoginStart({ authorizationUrl: "https://auth.example/authorize?x=1", loginId: "l1" })).toEqual({
+      url: "https://auth.example/authorize?x=1",
+      loginId: "l1",
+    });
+    // Older Codex returns no loginId.
+    expect(oauthLoginStart({ authorizationUrl: "http://localhost:1/a" })).toEqual({
+      url: "http://localhost:1/a",
+      loginId: null,
+    });
+  });
+
+  it("refuses a response without a web URL", () => {
+    expect(oauthLoginStart(null)).toBeNull();
+    expect(oauthLoginStart({})).toBeNull();
+    expect(oauthLoginStart({ authorizationUrl: "file:///etc/passwd" })).toBeNull();
+  });
+});
+
+describe("oauthFailureMessage", () => {
+  it("says why a sign-in did not complete", () => {
+    expect(oauthFailureMessage(null, true)).toBe("Sign-in timed out. Try again.");
+    expect(oauthFailureMessage("access_denied")).toBe("Sign-in failed: access_denied");
+    expect(oauthFailureMessage("  ")).toBe("Sign-in failed. Try again.");
   });
 });
 

@@ -792,6 +792,11 @@ export const previewCommands: PreviewCommands = {
   listMcpServerStatus: () => previewMcpServerStatus(),
   mcpOauthLogin(name) {
     previewMcpOauthLogin(name);
+    // Codex's response shape: the app opens the URL itself.
+    return {
+      authorizationUrl: `https://example.com/oauth/authorize?server=${encodeURIComponent(name)}`,
+      loginId: name,
+    };
   },
   listSkillsFor: () => ({ data: [{ skills: structuredClone(previewIntegrations.skills) }] }),
   setSkillEnabled(name, enabled, path) {

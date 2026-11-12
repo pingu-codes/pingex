@@ -9,10 +9,12 @@
 //! - `mcpServerStatus/list` — per-server `serverInfo`, `tools` (name → full
 //!   schema), `resources`, and an `authStatus` of
 //!   `unsupported | notLoggedIn | bearerToken | oAuth`.
-//! - `mcpServer/oauth/login` — starts the OAuth dance. Codex owns the whole
-//!   flow (callback port, credential storage) and reports back with an
-//!   `mcpServer/oauthLogin/completed` notification, so we only kick it off.
-//!   Streamable-HTTP servers only; stdio servers report `unsupported`.
+//! - `mcpServer/oauth/login` — starts the OAuth dance. Codex runs the callback
+//!   listener and stores the credentials, but does not open a browser: it
+//!   returns `{ authorizationUrl, loginId }` and the frontend opens that URL.
+//!   The outcome (including a timeout) arrives as an
+//!   `mcpServer/oauthLogin/completed` notification. Streamable-HTTP servers
+//!   only; stdio servers report `unsupported`.
 //! - `config/mcpServer/reload` — re-reads `config.toml` without a restart.
 //! - `skills/list` / `skills/config/write` — real skill metadata and the
 //!   enable/disable hook, replacing the directory scrape this module used to do.
@@ -43,9 +45,10 @@ pub(crate) async fn list_mcp_server_status(
         .map(Json)
 }
 
-/// Start an OAuth login for one server. Resolves as soon as Codex has the flow
-/// under way — completion arrives later as an `mcpServer/oauthLogin/completed`
-/// notification, which the frontend listens for.
+/// Start an OAuth login for one server. Resolves with Codex's
+/// `{ authorizationUrl, loginId }` as soon as the callback listener is up; the
+/// frontend opens the URL. Completion arrives later as an
+/// `mcpServer/oauthLogin/completed` notification.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn mcp_oauth_login(

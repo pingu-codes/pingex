@@ -723,9 +723,10 @@ export const commands = {
 	setMcpEnabled: (name: string, enabled: boolean, window: HomeRoute | null = null) => __TAURI_INVOKE<IntegrationsList>("set_mcp_enabled", { name, enabled, window }),
 	listMcpServerStatus: (window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("list_mcp_server_status", { window }),
 	/**
-	 *  Start an OAuth login for one server. Resolves as soon as Codex has the flow
-	 *  under way — completion arrives later as an `mcpServer/oauthLogin/completed`
-	 *  notification, which the frontend listens for.
+	 *  Start an OAuth login for one server. Resolves with Codex's
+	 *  `{ authorizationUrl, loginId }` as soon as the callback listener is up; the
+	 *  frontend opens the URL. Completion arrives later as an
+	 *  `mcpServer/oauthLogin/completed` notification.
 	 */
 	mcpOauthLogin: (name: string, window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("mcp_oauth_login", { name, window }),
 	listSkillsFor: (cwds: string[], window: HomeRoute | null = null) => __TAURI_INVOKE<unknown>("list_skills_for", { cwds, window }),
@@ -1281,7 +1282,7 @@ export type CodexNotification = { method: "thread/started"; params: ThreadStarte
  *  Codex is re-authenticating with a model provider mid-turn (unreleased
  *  Codex); the turn resumes on its own once `Completed` arrives.
  */
-{ method: "modelProvider/authRecoveryStarted"; params: AuthRecoveryParams } | { method: "modelProvider/authRecoveryCompleted"; params: AuthRecoveryParams } | { method: "error"; params: ErrorParams } | { method: "warning"; params: NoticeParams } | { method: "guardianWarning"; params: NoticeParams } | { method: "deprecationNotice"; params: NoticeParams } | { method: "configWarning"; params: NoticeParams } | { method: "serverRequest/resolved"; params: ServerRequestResolvedParams } | { method: "account/rateLimits/updated"; params: RateLimitsUpdatedParams } | { method: "account/updated"; params: AccountUpdatedParams } | { method: "skills/changed"; params: EmptyParams } | { method: "mcpServer/startupStatus/updated"; params: McpServerParams } | { method: "mcpServer/oauthLogin/completed"; params: McpServerParams } | { method: "project/changed"; params: ProjectChangedParams } | { method: "remoteControl/status/changed"; params: RemoteControlStatusChangedParams } | 
+{ method: "modelProvider/authRecoveryStarted"; params: AuthRecoveryParams } | { method: "modelProvider/authRecoveryCompleted"; params: AuthRecoveryParams } | { method: "error"; params: ErrorParams } | { method: "warning"; params: NoticeParams } | { method: "guardianWarning"; params: NoticeParams } | { method: "deprecationNotice"; params: NoticeParams } | { method: "configWarning"; params: NoticeParams } | { method: "serverRequest/resolved"; params: ServerRequestResolvedParams } | { method: "account/rateLimits/updated"; params: RateLimitsUpdatedParams } | { method: "account/updated"; params: AccountUpdatedParams } | { method: "skills/changed"; params: EmptyParams } | { method: "mcpServer/startupStatus/updated"; params: McpServerParams } | { method: "mcpServer/oauthLogin/completed"; params: McpOauthLoginCompletedParams } | { method: "project/changed"; params: ProjectChangedParams } | { method: "remoteControl/status/changed"; params: RemoteControlStatusChangedParams } | 
 /**
  *  A method this build does not model, carrying the raw line so nothing
  *  is lost. Tagged `unknown` — no Codex method is spelled that way.
@@ -2064,6 +2065,20 @@ export type ManagedPrWorktree = {
 	/**  The repository's clone, as the desk is keyed. */
 	repoDir: string,
 	number: number,
+};
+
+/**
+ *  How a sign-in started by `mcpServer/oauth/login` ended. `login_id`
+ *  matches the one the login response returned; older servers omit it.
+ *  A timeout arrives here too, as `success: false`.
+ */
+export type McpOauthLoginCompletedParams = {
+	threadId?: string | null,
+	name?: string | null,
+	serverName?: string | null,
+	loginId?: string | null,
+	success?: boolean | null,
+	error?: string | null,
 };
 
 /**

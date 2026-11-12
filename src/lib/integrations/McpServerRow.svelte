@@ -3,7 +3,7 @@
   live, its controls, and (folded) its tools, resources and server info.
 -->
 <script lang="ts">
-  import { ChevronRight, ExternalLink, LogIn, Plug, X } from "@lucide/svelte";
+  import { Check, ChevronRight, Copy, ExternalLink, LoaderCircle, LogIn, Plug, X } from "@lucide/svelte";
   import { Collapsible } from "@skeletonlabs/skeleton-svelte";
   import ConfirmDeleteButton from "$lib/integrations/ConfirmDeleteButton.svelte";
   import {
@@ -27,6 +27,7 @@
   import OverrideSelect from "$lib/integrations/OverrideSelect.svelte";
   import { commands } from "$lib/services/homeRouting";
   import type { IntegrationSetting, McpServerStatus, McpServerSummary } from "$lib/types";
+  import { flashKey } from "$lib/utils/flash.svelte";
 
   let {
     server,
@@ -37,12 +38,14 @@
     checking = false,
     busy = false,
     open = false,
-    signingIn = false,
+    pendingSignIn = null,
+    signInError = null,
     onOpenChange,
     onToggle,
     onEdit,
     onRemove,
     onSignIn,
+    onCancelSignIn,
     onSetting,
   }: {
     server: McpServerSummary;
@@ -57,13 +60,16 @@
     busy?: boolean;
     /** Whether the details are expanded. */
     open?: boolean;
-    /** An OAuth sign-in is in flight. */
-    signingIn?: boolean;
+    /** An OAuth sign-in waiting on the browser, with the link it opened. */
+    pendingSignIn?: { url: string } | null;
+    /** Why the last sign-in did not complete. */
+    signInError?: string | null;
     onOpenChange: (open: boolean) => void;
     onToggle: () => void;
     onEdit: () => void;
     onRemove: () => Promise<unknown>;
     onSignIn: () => void;
+    onCancelSignIn: () => void;
     onSetting: (value: OverrideValue) => void;
   } = $props();
 
@@ -92,6 +98,16 @@
   );
   const runtime = $derived(runtimeStatusLabel(live));
   const plugin = $derived(pluginNote(setting, ownerEnabled));
+  const copied = flashKey<"link">(1200);
+
+  async function copyLink(url: string) {
+    try {
+      await commands.copyText(url);
+      copied.trigger("link");
+    } catch {
+      // The link stays on screen to select by hand.
+    }
+  }
 </script>
 
 <div id="mcp-row-{server.name}" class="card border border-surface-200-800 bg-surface-50-950 p-3">
@@ -126,6 +142,12 @@
       <div class="mt-2 text-[11px] text-warning-600-400">
         This server needs you to sign in before its tools are available.
       </div>
+      {#if signInError && !pendingSignIn}
+        <div class="mt-1 flex items-start gap-1.5 text-[11px] text-error-500">
+          <X size={12} class="mt-0.5 shrink-0" />
+          <span>{signInError}</span>
+        </div>
+      {/if}
     {:else if auth === "env"}
       <div class="mt-2 text-[11px] text-surface-500">
         Authenticated from <span class="font-mono">{server.bearerTokenEnvVar ?? "a bearer token"}</span> in your
@@ -138,12 +160,20 @@
         <button
           type="button"
           onclick={onSignIn}
-          disabled={signingIn}
+          disabled={Boolean(pendingSignIn)}
           class="btn btn-sm preset-filled-primary-500 text-xs"
         >
-          <LogIn size={12} />
-          {signingIn ? "Waiting for browser…" : "Sign in"}
+          {#if pendingSignIn}
+            <LoaderCircle size={12} class="animate-spin" />
+            Waiting for browser…
+          {:else}
+            <LogIn size={12} />
+            Sign in
+          {/if}
         </button>
+        {#if pendingSignIn}
+          <button type="button" onclick={onCancelSignIn} class="btn btn-sm hover:preset-tonal text-xs">Cancel</button>
+        {/if}
       {:else if auth === "signedIn"}
         <span class="text-[11px] text-success-500">Signed in</span>
       {/if}
@@ -178,6 +208,31 @@
         <ConfirmDeleteButton label="Remove {server.name}" confirmLabel="Confirm remove" onConfirm={onRemove} />
       {/if}
     </div>
+
+    {#if pendingSignIn && auth === "signIn" && !projectPath}
+      {@const url = pendingSignIn.url}
+      <div class="mt-2 flex min-w-0 items-center gap-1.5 text-[11px] text-surface-500">
+        <span class="shrink-0">Didn't open?</span>
+        <button
+          type="button"
+          onclick={() => commands.openExternalUrl(url)}
+          class="btn btn-sm hover:preset-tonal shrink-0 text-xs"
+        >
+          <ExternalLink size={12} />
+          Open again
+        </button>
+        <button type="button" onclick={() => copyLink(url)} class="btn btn-sm hover:preset-tonal shrink-0 text-xs">
+          {#if copied.current === "link"}
+            <Check size={12} />
+            Copied
+          {:else}
+            <Copy size={12} />
+            Copy link
+          {/if}
+        </button>
+        <span class="min-w-0 flex-1 truncate font-mono select-all" title={url}>{url}</span>
+      </div>
+    {/if}
 
     {#if hasDetails}
       <Collapsible.Content>

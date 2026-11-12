@@ -1,13 +1,17 @@
 <script lang="ts">
   import { Plus, Puzzle } from "@lucide/svelte";
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import { openDialog } from "$lib/app/dialogs.svelte";
   import RefreshIcon from "$lib/components/RefreshIcon.svelte";
   import Segmented from "$lib/components/Segmented.svelte";
   import AddSkillDialog from "$lib/integrations/AddSkillDialog.svelte";
   import {
     type IntegrationFilter,
+    MCP_OAUTH_TIMEOUT_SECS,
+    type OauthLoginStart,
     type OverrideValue,
+    oauthFailureMessage,
+    oauthLoginStart,
     overrideEnabled,
     overrideValue,
     retainFailedInventory,
@@ -23,7 +27,7 @@
     type NewSkillInput,
     saveMcpServer,
   } from "$lib/services/api";
-  import { mcpStatus as mcpStatusEvents, skillsStatus } from "$lib/services/codexEvents.svelte";
+  import { type McpLoginOutcome, mcpStatus as mcpStatusEvents, skillsStatus } from "$lib/services/codexEvents.svelte";
   import { commands } from "$lib/services/homeRouting";
   import type {
     IntegrationSetting,
@@ -80,8 +84,20 @@
   const actionError = $derived(actions.error ?? liveStatus.error);
   /** Servers whose tool list is expanded. */
   let expanded = $state<Record<string, boolean>>({});
-  /** Servers with an OAuth sign-in in flight, cleared by the completion event. */
-  let signingIn = $state<Record<string, boolean>>({});
+  /**
+   * OAuth sign-ins waiting on the browser, keyed by runtime name (what the
+   * completion notification carries). Ended by that notification, by Cancel,
+   * or by `signInTimers` if the notification never comes.
+   */
+  let signingIn = $state<Record<string, OauthLoginStart>>({});
+  /** Why the last sign-in for a server did not complete. */
+  let signInError = $state<Record<string, string>>({});
+  /** Fallback for a completion that never arrives; Codex gives up first. */
+  const signInTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  $effect(() => () => {
+    for (const timer of signInTimers.values()) clearTimeout(timer);
+    signInTimers.clear();
+  });
 
   const load = (forceReload = false) => inventory.reload(forceReload);
 
@@ -138,10 +154,25 @@
   // change what this view should show, and neither is something we initiated.
   $effect(() => {
     if (mcpStatusEvents.nonce === 0) return;
-    const server = mcpStatusEvents.lastLoginServer;
-    if (server) delete signingIn[server];
+    const login = untrack(() => mcpStatusEvents.lastLogin);
+    if (login) untrack(() => finishSignIn(login));
     void refreshStatus();
   });
+
+  /** End the wait for a sign-in Codex reported on, unless it was an older attempt. */
+  function finishSignIn(login: McpLoginOutcome) {
+    const pending = signingIn[login.server];
+    if (!pending) return;
+    if (pending.loginId && login.loginId && pending.loginId !== login.loginId) return;
+    endSignIn(login.server);
+    if (!login.success) signInError[login.server] = oauthFailureMessage(login.error);
+  }
+
+  function endSignIn(name: string) {
+    clearTimeout(signInTimers.get(name));
+    signInTimers.delete(name);
+    delete signingIn[name];
+  }
 
   function apply(next: IntegrationsList) {
     inventory.set(retainFailedInventory(data, next));
@@ -200,19 +231,35 @@
   }
 
   /**
-   * Start an OAuth sign-in. Codex opens the browser and drives the whole flow;
-   * we stay pending until it reports back, since there is nothing to poll.
+   * Start an OAuth sign-in. Codex listens for the callback and stores the
+   * token, but leaves opening the browser to us: it returns the URL, which the
+   * row also offers to open again or copy. We stay pending until Codex reports
+   * back, since there is nothing to poll.
    */
   async function signIn(server: McpServerSummary) {
-    // Keyed by runtime name: that is what the completion notification carries.
     const name = runtimeName(server);
-    signingIn[name] = true;
-    const started = await actions.run(async () => {
-      await commands.mcpOauthLogin(name);
+    delete signInError[name];
+    await actions.run(async () => {
+      const start = oauthLoginStart(await commands.mcpOauthLogin(name));
+      if (!start) throw new Error(`Codex did not return a sign-in link for ${name}.`);
+      signingIn[name] = start;
+      clearTimeout(signInTimers.get(name));
+      signInTimers.set(
+        name,
+        setTimeout(
+          () => {
+            endSignIn(name);
+            signInError[name] = oauthFailureMessage(null, true);
+          },
+          (MCP_OAUTH_TIMEOUT_SECS + 15) * 1000,
+        ),
+      );
+      // A browser that fails to open is not a failed sign-in: the row shows
+      // the link to open again or copy.
+      void Promise.resolve(commands.openExternalUrl(start.url)).catch(() => {});
       // In browser preview there is no completion event, so reflect it now.
       await refreshStatus();
     });
-    if (!started) delete signingIn[name];
   }
 
   async function toggleSkill(skill: SkillSummary) {
@@ -383,12 +430,14 @@
             {checking}
             busy={updating}
             open={Boolean(expanded[server.name])}
-            signingIn={Boolean(signingIn[runtimeName(server)])}
+            pendingSignIn={signingIn[runtimeName(server)] ?? null}
+            signInError={signInError[runtimeName(server)] ?? null}
             onOpenChange={(open) => (expanded[server.name] = open)}
             onToggle={() => toggleEnabled(server)}
             onEdit={() => editServer(server)}
             onRemove={() => removeServer(server.name)}
             onSignIn={() => signIn(server)}
+            onCancelSignIn={() => endSignIn(runtimeName(server))}
             onSetting={(value) => changeSetting("mcp", server.name, value)}
           />
         {/each}

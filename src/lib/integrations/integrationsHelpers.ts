@@ -205,6 +205,38 @@ export function authAction(status?: McpServerStatus | null): "signIn" | "signedI
 }
 
 /**
+ * How long Codex waits for the browser round-trip. Mirrors
+ * `MCP_OAUTH_TIMEOUT_SECS` in `src-tauri/src/codex/requests.rs`, which sends it.
+ */
+export const MCP_OAUTH_TIMEOUT_SECS = 300;
+
+/** A sign-in Codex has started and is waiting on the browser for. */
+export interface OauthLoginStart {
+  url: string;
+  /** Matches the completion notification; older Codex omits it. */
+  loginId: string | null;
+}
+
+/**
+ * Read `mcpServer/oauth/login`'s response. Codex does not open the browser
+ * itself, so the URL is the whole point; anything that isn't a web URL is
+ * refused rather than handed to the OS.
+ */
+export function oauthLoginStart(response: unknown): OauthLoginStart | null {
+  if (!response || typeof response !== "object") return null;
+  const { authorizationUrl, loginId } = response as { authorizationUrl?: unknown; loginId?: unknown };
+  if (typeof authorizationUrl !== "string" || !/^https?:\/\//i.test(authorizationUrl)) return null;
+  return { url: authorizationUrl, loginId: typeof loginId === "string" ? loginId : null };
+}
+
+/** The line a server row shows after a sign-in did not complete. */
+export function oauthFailureMessage(error: string | null | undefined, timedOut = false): string {
+  if (timedOut) return "Sign-in timed out. Try again.";
+  const detail = error?.trim();
+  return detail ? `Sign-in failed: ${detail}` : "Sign-in failed. Try again.";
+}
+
+/**
  * Render a tool's arguments as `name: type` lines, required ones first.
  * Only the top level — nested object schemas are shown as `object` rather than
  * expanded, which keeps a row readable without a full schema viewer.

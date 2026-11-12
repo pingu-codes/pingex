@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IntegrationsList, McpServerStatus } from "$lib/types";
@@ -17,6 +17,7 @@ const deleteSkill = vi.fn();
 const revealInFinder = vi.fn();
 const openInZed = vi.fn();
 const openExternalUrl = vi.fn();
+const copyText = vi.fn();
 
 vi.mock("$lib/services/api", () => ({
   listMcpServerStatus: () => listMcpServerStatus(),
@@ -36,12 +37,14 @@ vi.mock("$lib/services/homeRouting", () => ({
     revealInFinder: (path: string) => revealInFinder(path),
     openInZed: (path: string) => openInZed(path),
     openExternalUrl: (url: string) => openExternalUrl(url),
+    copyText: (text: string) => copyText(text),
   },
 }));
 
 import { closeAllDialogs } from "$lib/app/dialogs.svelte";
 import DialogHost from "$lib/components/DialogHost.svelte";
 import IntegrationsSection from "$lib/integrations/IntegrationsSection.svelte";
+import { MCP_OAUTH_TIMEOUT_SECS } from "$lib/integrations/integrationsHelpers";
 import { mcpStatus, skillsStatus } from "$lib/services/codexEvents.svelte";
 
 /** The section plus the host its add/edit dialogs open in. */
@@ -177,12 +180,20 @@ function statuses(): Record<string, McpServerStatus> {
   };
 }
 
+const LOGIN = { authorizationUrl: "https://auth.linear.example/authorize?state=abc", loginId: "login-1" };
+
+/** Deliver `mcpServer/oauthLogin/completed` the way the event store does. */
+function complete(outcome: NonNullable<typeof mcpStatus.lastLogin>) {
+  mcpStatus.lastLogin = outcome;
+  mcpStatus.nonce += 1;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   closeAllDialogs();
   skillsStatus.nonce = 0;
   mcpStatus.nonce = 0;
-  mcpStatus.lastLoginServer = null;
+  mcpStatus.lastLogin = null;
   listIntegrations.mockResolvedValue(fixture());
   listMcpServerStatus.mockResolvedValue(statuses());
 });
@@ -442,7 +453,7 @@ describe("IntegrationsSection", () => {
 
   it("offers a sign-in for a server that needs OAuth, and not for one that does not", async () => {
     const user = userEvent.setup();
-    mcpOauthLogin.mockResolvedValue(undefined);
+    mcpOauthLogin.mockResolvedValue(LOGIN);
     render(IntegrationsSection, {});
     const linear = (await screen.findByText("linear")).closest("[id^='mcp-row-']") as HTMLElement;
     const github = screen.getByText("GitHub").closest("[id^='mcp-row-']") as HTMLElement;
@@ -450,6 +461,95 @@ describe("IntegrationsSection", () => {
 
     await user.click(within(linear).getByRole("button", { name: /Sign in/ }));
     expect(mcpOauthLogin).toHaveBeenCalledWith("linear");
+  });
+
+  it("opens the link Codex returns and offers it again and to copy", async () => {
+    const user = userEvent.setup();
+    mcpOauthLogin.mockResolvedValue(LOGIN);
+    render(IntegrationsSection, {});
+    const row = (await screen.findByText("linear")).closest("[id^='mcp-row-']") as HTMLElement;
+
+    await user.click(within(row).getByRole("button", { name: /Sign in/ }));
+    expect(openExternalUrl).toHaveBeenCalledWith(LOGIN.authorizationUrl);
+    expect(within(row).getByRole("button", { name: /Waiting for browser/ })).toBeDisabled();
+    expect(within(row).getByText(LOGIN.authorizationUrl)).toBeInTheDocument();
+
+    await user.click(within(row).getByRole("button", { name: /Open again/ }));
+    expect(openExternalUrl).toHaveBeenCalledTimes(2);
+    await user.click(within(row).getByRole("button", { name: /Copy link/ }));
+    expect(copyText).toHaveBeenCalledWith(LOGIN.authorizationUrl);
+    expect(within(row).getByRole("button", { name: /Copied/ })).toBeInTheDocument();
+  });
+
+  it("keeps the link on screen when the browser will not open", async () => {
+    const user = userEvent.setup();
+    mcpOauthLogin.mockResolvedValue(LOGIN);
+    openExternalUrl.mockRejectedValueOnce(new Error("no browser"));
+    render(IntegrationsSection, {});
+    const row = (await screen.findByText("linear")).closest("[id^='mcp-row-']") as HTMLElement;
+
+    await user.click(within(row).getByRole("button", { name: /Sign in/ }));
+    expect(within(row).getByRole("button", { name: /Copy link/ })).toBeInTheDocument();
+  });
+
+  it("cancels a sign-in and ignores its late completion", async () => {
+    const user = userEvent.setup();
+    mcpOauthLogin.mockResolvedValue(LOGIN);
+    render(IntegrationsSection, {});
+    const row = (await screen.findByText("linear")).closest("[id^='mcp-row-']") as HTMLElement;
+
+    await user.click(within(row).getByRole("button", { name: /Sign in/ }));
+    await user.click(within(row).getByRole("button", { name: "Cancel" }));
+    expect(within(row).getByRole("button", { name: /Sign in/ })).toBeEnabled();
+    expect(within(row).queryByText(LOGIN.authorizationUrl)).not.toBeInTheDocument();
+
+    const reads = listMcpServerStatus.mock.calls.length;
+    complete({ server: "linear", loginId: LOGIN.loginId, success: false, error: "timed out" });
+    await waitFor(() => expect(listMcpServerStatus.mock.calls.length).toBeGreaterThan(reads));
+    expect(within(row).queryByText(/Sign-in failed/)).not.toBeInTheDocument();
+  });
+
+  it("says why a sign-in failed", async () => {
+    const user = userEvent.setup();
+    mcpOauthLogin.mockResolvedValue(LOGIN);
+    render(IntegrationsSection, {});
+    const row = (await screen.findByText("linear")).closest("[id^='mcp-row-']") as HTMLElement;
+
+    await user.click(within(row).getByRole("button", { name: /Sign in/ }));
+    complete({ server: "linear", loginId: LOGIN.loginId, success: false, error: "access_denied" });
+    expect(await within(row).findByText("Sign-in failed: access_denied")).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: /Sign in/ })).toBeEnabled();
+  });
+
+  it("keeps waiting when the completion is for an earlier attempt", async () => {
+    const user = userEvent.setup();
+    mcpOauthLogin.mockResolvedValue(LOGIN);
+    render(IntegrationsSection, {});
+    const row = (await screen.findByText("linear")).closest("[id^='mcp-row-']") as HTMLElement;
+
+    await user.click(within(row).getByRole("button", { name: /Sign in/ }));
+    const reads = listMcpServerStatus.mock.calls.length;
+    complete({ server: "linear", loginId: "older", success: false, error: "superseded" });
+    await waitFor(() => expect(listMcpServerStatus.mock.calls.length).toBeGreaterThan(reads));
+    expect(within(row).getByRole("button", { name: /Waiting for browser/ })).toBeInTheDocument();
+  });
+
+  it("gives up waiting if Codex never reports back", async () => {
+    mcpOauthLogin.mockResolvedValue(LOGIN);
+    render(IntegrationsSection, {});
+    const row = (await screen.findByText("linear")).closest("[id^='mcp-row-']") as HTMLElement;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await fireEvent.click(within(row).getByRole("button", { name: /Sign in/ }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(within(row).getByRole("button", { name: /Waiting for browser/ })).toBeInTheDocument();
+
+      await vi.advanceTimersByTimeAsync((MCP_OAUTH_TIMEOUT_SECS + 15) * 1000);
+      expect(within(row).getByText("Sign-in timed out. Try again.")).toBeInTheDocument();
+      expect(within(row).getByRole("button", { name: /Sign in/ })).toBeEnabled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("signs in a plugin server under its runtime name and clears the wait on completion", async () => {
@@ -476,7 +576,7 @@ describe("IntegrationsSection", () => {
       ...statuses(),
       honeycomb: { name: "honeycomb", serverInfo: null, tools: {}, authStatus: "notLoggedIn", pluginId: "demo@local" },
     });
-    mcpOauthLogin.mockResolvedValue(undefined);
+    mcpOauthLogin.mockResolvedValue({ authorizationUrl: "https://honeycomb.example/authorize" });
     render(IntegrationsSection, {});
     const row = (await screen.findByText("demo@local/honeycomb")).closest("[id^='mcp-row-']") as HTMLElement;
 
@@ -484,8 +584,7 @@ describe("IntegrationsSection", () => {
     expect(mcpOauthLogin).toHaveBeenCalledWith("honeycomb");
     expect(within(row).getByRole("button", { name: /Waiting for browser/ })).toBeInTheDocument();
 
-    mcpStatus.lastLoginServer = "honeycomb";
-    mcpStatus.nonce += 1;
+    complete({ server: "honeycomb", loginId: null, success: true, error: null });
     await waitFor(() => expect(within(row).getByRole("button", { name: /Sign in/ })).toBeInTheDocument());
   });
 
