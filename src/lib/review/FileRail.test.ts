@@ -32,6 +32,8 @@ function setup(props: { currentPath?: string | null; collapsedDirs?: string[] } 
   return { ...view, onJump };
 }
 
+const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+
 /** A tree row by its visible name. */
 const row = (name: string) => screen.getByText(name).closest('[role="treeitem"]') as HTMLElement;
 
@@ -77,6 +79,22 @@ describe("FileRail", () => {
   it("opens the folders above the current file", () => {
     setup({ currentPath: "src/lib/deep/b.ts", collapsedDirs: ["src/lib", "src/lib/deep"] });
     expect(screen.getByText("b.ts")).toBeVisible();
+  });
+
+  it("leaves the rail's scroll alone when a folder folds", async () => {
+    const user = userEvent.setup();
+    const { container } = setup({ currentPath: "README.md" });
+    const rail = container.querySelector("[data-rail-scroll]") as HTMLElement;
+    // The current row sits below the rail's view, as when the reader has
+    // scrolled the rail up to fold a folder far from the file they're on.
+    const rect = (top: number, bottom: number) => ({ top, bottom }) as DOMRect;
+    vi.spyOn(rail, "getBoundingClientRect").mockReturnValue(rect(0, 100));
+    vi.spyOn(row("README.md"), "getBoundingClientRect").mockReturnValue(rect(400, 420));
+    await nextFrame();
+    rail.scrollTop = 50;
+    await user.click(screen.getByText("deep"));
+    await nextFrame();
+    expect(rail.scrollTop).toBe(50);
   });
 
   it("collapses and expands every folder at once", async () => {

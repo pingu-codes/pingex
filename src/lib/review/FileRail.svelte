@@ -85,11 +85,11 @@
     });
   });
 
-  // Keep the highlighted row in the rail's view. By hand: `scrollIntoView`
-  // would also move the page.
+  // Keep the highlighted row in the rail's view as the current file changes.
+  // Not on folding: the reader folding a directory elsewhere in the rail keeps
+  // their place. By hand: `scrollIntoView` would also move the page.
   $effect(() => {
     void currentPath;
-    void expanded;
     const rail = list;
     if (!rail) return;
     const frame = requestAnimationFrame(() => {
