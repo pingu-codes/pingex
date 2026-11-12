@@ -160,12 +160,12 @@ export class ThreadSession {
     }
   }
 
-  /** Own the request even while a draft is being created by the view. */
-  async review(target: ReviewTarget, ensureLiveThread?: () => Promise<string>): Promise<void> {
-    if (!this.available() || !this.thread || (!this.id && !ensureLiveThread)) return;
+  /** Own the request even while a draft is being created for it. */
+  async review(target: ReviewTarget): Promise<void> {
+    if (!this.available() || !this.thread || (!this.id && !this.#start)) return;
     await this.#runOperation("review", async (current) => {
       const request = async (): Promise<Turn | null> => {
-        const id = this.id ?? (await ensureLiveThread!());
+        const id = await this.live();
         if (!current()) return null;
         const turn = await startReview(id, target);
         if (!current()) return null;
@@ -243,7 +243,22 @@ export class ThreadSession {
     this.goal = goal;
   }
 
-  constructor(id: string | null, draftCwd?: string) {
+  /** How a draft creates its thread (`draftThread.svelte.ts`); null once live. */
+  readonly #start: ((owner: ThreadSession) => Promise<string>) | null;
+
+  /**
+   * The thread id to run work on, creating the thread first when this is
+   * still a draft. Callers hold `starting` (or an operation) around it, so no
+   * two creations race; it leaves a draft running under its new id either way.
+   */
+  async live(): Promise<string> {
+    if (this.id) return this.id;
+    if (!this.#start) throw new Error("This draft has nowhere to start.");
+    return this.#start(this);
+  }
+
+  constructor(id: string | null, draftCwd?: string, start?: (owner: ThreadSession) => Promise<string>) {
+    this.#start = start ?? null;
     this.id = id;
     if (!id) this.thread = { id: "", preview: "", cwd: draftCwd ?? "", turns: [] };
     this.queue = new ThreadQueue({
@@ -367,8 +382,8 @@ export class ThreadSession {
    * means it reached nothing, so a caller holding the only copy (the queue's
    * drain) must put it back.
    *
-   * A draft has to be created by the view first (that needs the composer's
-   * choices); `attach` it, then call this.
+   * A draft has to become live first (`live()`, which its draft's first
+   * message does in `DraftThread.send`), then call this.
    */
   async send(input: UserInputPart[], options?: TurnOptions): Promise<boolean> {
     const thread = this.thread;
