@@ -608,25 +608,19 @@ describe("ThreadView inline message editing", () => {
     await user.click(screen.getByRole("button", { name: "Send" }));
   }
 
-  it("forks before the edited turn, sends on the fork and opens it", async () => {
+  it("sends the edit on a new Branch and opens it", async () => {
     mocks.forkThread.mockResolvedValue({ id: "fork-1" });
     mocks.startTurn.mockResolvedValue({ id: "turn-2", status: "inProgress" });
 
     await edit("Do different work");
 
     await vi.waitFor(() => expect(onSelectVersion).toHaveBeenCalledWith("fork-1"));
-    expect(mocks.forkThread).toHaveBeenCalledWith("thread-1", "turn-1");
-    // First turn edited: the fork inherited nothing.
-    expect(mocks.addThreadBranch).toHaveBeenCalledWith("thread-1", "fork-1", "turn-1", 0);
     expect(onDataChanged).toHaveBeenCalledWith(branchData);
     expect(mocks.startTurn).toHaveBeenCalledWith(
       "fork-1",
       [{ type: "text", text: "Do different work" }],
       expect.anything(),
     );
-    expect(mocks.setThreadBranchEditTurn).toHaveBeenCalledWith("fork-1", "turn-2");
-    // Nothing was rewound: the original stays as it was.
-    expect(mocks.revertThread).not.toHaveBeenCalled();
     expect(mocks.openDialog).not.toHaveBeenCalled();
     expect(screen.getByText("Final answer")).toBeVisible();
   });
@@ -660,19 +654,6 @@ describe("ThreadView inline message editing", () => {
       { type: "text", text: "Do different work" },
       { type: "skill", name: "deploy" },
     ]);
-  });
-
-  it("reports a failed fork without sending or moving", async () => {
-    mocks.forkThread.mockRejectedValue(new Error("fork refused"));
-
-    await edit("Do different work");
-
-    await vi.waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("fork refused"));
-    expect(mocks.addThreadBranch).not.toHaveBeenCalled();
-    expect(mocks.startTurn).not.toHaveBeenCalled();
-    expect(onSelectVersion).not.toHaveBeenCalled();
-    expect(screen.getByText("Do the work")).toBeVisible();
-    expect(screen.getByText("Final answer")).toBeVisible();
   });
 
   it("cancels an in-place edit with Escape without forking", async () => {

@@ -13,14 +13,14 @@
   import Composer from "$lib/composer/Composer.svelte";
   import type { SlashCommandId } from "$lib/composer/slashCommands";
   import RightPanel, { type PanelView } from "$lib/panels/RightPanel.svelte";
-  import { forkThread, isPromptPartsTextUnsupported } from "$lib/services/api";
+  import { isPromptPartsTextUnsupported } from "$lib/services/api";
   import { approvals, elicitations, turnPlans, userInputRequests } from "$lib/services/codexEvents.svelte";
   import { commands } from "$lib/services/homeRouting";
   import { processes } from "$lib/services/processes.svelte";
   import { invalidate, query } from "$lib/services/queryCache.svelte";
   import ApprovalCard from "$lib/thread/ApprovalCard.svelte";
   import { contextStats as deriveContextStats } from "$lib/thread/contextUsage";
-  import { type DraftLocation, DraftThread, startThreadWith } from "$lib/thread/draftThread.svelte";
+  import { type DraftLocation, DraftThread, editAsBranch, startThreadWith } from "$lib/thread/draftThread.svelte";
   import ElicitationCard from "$lib/thread/ElicitationCard.svelte";
   import FloatingMenu from "$lib/thread/FloatingMenu.svelte";
   import { collectFileChanges } from "$lib/thread/fileChanges";
@@ -285,40 +285,12 @@
     return sent;
   }
 
-  /** Editing a past user message forks the thread to just before that turn and
-   *  sends the edit on the fork, so the original and every later edit survive
-   *  as versions the bubble can page between. The fork's session is primed and
-   *  sent to before the view moves there, so the edit is already streaming when
-   *  the remounted view picks the session up. */
+  /** Editing a past user message sends the edit on a new Branch, so the
+   *  original and every later edit survive as Versions the bubble can page
+   *  between. The Branch is already streaming when the view moves there. */
   async function submitEdit(turn: Turn, parts: UserInputPart[]) {
-    if (!thread || !liveThreadId || turn.id.startsWith("local-") || activeTurn) return;
-    const threadIdAtEdit = liveThreadId;
-    const index = thread.turns.findIndex((candidate) => candidate.id === turn.id);
-    if (index === -1) return;
-    session.streamError = null;
-    session.starting = true;
-    try {
-      const forked = await forkThread(threadIdAtEdit, turn.id);
-      onDataChanged?.(await commands.addThreadBranch(threadIdAtEdit, forked.id, turn.id, index));
-      const forkSession = openSession(forked.id);
-      try {
-        await forkSession.load();
-        const sent = await forkSession.send(parts, composer?.turnOptions());
-        if (!sent) throw new Error(forkSession.streamError ?? "Could not send the edited message");
-        const editTurnId = forkSession.thread?.turns.at(-1)?.id;
-        if (editTurnId && !editTurnId.startsWith("local-")) {
-          commands.setThreadBranchEditTurn(forked.id, editTurnId).catch(() => {});
-        }
-      } finally {
-        // Retained while its turn runs; the view that opens it takes it over.
-        releaseSession(forkSession);
-      }
-      onSelectVersion?.(forked.id);
-    } catch (cause) {
-      fail(cause);
-    } finally {
-      session.starting = false;
-    }
+    const branch = await editAsBranch(session, turn, parts, (data) => onDataChanged?.(data));
+    if (branch) onSelectVersion?.(branch);
   }
 
   const threadApprovals = $derived(approvals.list.filter((approval) => approval.threadId === liveThreadId));

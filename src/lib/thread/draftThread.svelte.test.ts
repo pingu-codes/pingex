@@ -4,8 +4,8 @@ import { appData, trackNewThread } from "$lib/app/appData.svelte";
 import { type PreviewCommands, previewCommands } from "$lib/services/preview/commands";
 import { seedPreviewDesk } from "$lib/services/preview/desk";
 import { deskRepository, prCheckout } from "$lib/services/preview/factories";
-import { type DraftDeps, DraftThread, startThreadWith } from "$lib/thread/draftThread.svelte";
-import { resetSessions } from "$lib/thread/sessions.svelte";
+import { type DraftDeps, DraftThread, editAsBranch, startThreadWith } from "$lib/thread/draftThread.svelte";
+import { openSession, peekSession, resetSessions } from "$lib/thread/sessions.svelte";
 import type { ThreadSession } from "$lib/thread/threadSession.svelte";
 import type { BootstrapData, UserInputPart } from "$lib/types";
 
@@ -299,5 +299,99 @@ describe("naming a new thread", () => {
     expect(startTurn).toHaveBeenCalledWith(thread.id, said("Implement the plan"), { model: "gpt-5.2-codex" });
     expect(appData.data?.projects[0].threads[0]?.title).toBe("Implement the plan");
     await vi.waitFor(() => expect(autoName).toHaveBeenCalledWith(thread.id, "Implement the plan"));
+  });
+});
+
+describe("an edit becoming a Branch", () => {
+  const PARENT = "thread-parent";
+  const turn = (id: string, text: string) => ({
+    id,
+    status: "completed" as const,
+    items: [{ id: `${id}-user`, type: "userMessage" as const, content: said(text) }],
+  });
+  let forkThread: Spy<"forkThread">;
+  let addThreadBranch: Spy<"addThreadBranch">;
+  let setEditTurn: Spy<"setThreadBranchEditTurn">;
+  let revertThread: Spy<"revertThread">;
+
+  beforeEach(() => {
+    forkThread = vi.spyOn(fakes, "forkThread").mockImplementation(() => ({ id: "fork-1" }));
+    addThreadBranch = vi.spyOn(fakes, "addThreadBranch");
+    setEditTurn = vi.spyOn(fakes, "setThreadBranchEditTurn");
+    revertThread = vi.spyOn(fakes, "revertThread");
+    startTurn.mockImplementation(() => ({ id: "turn-edit", status: "inProgress", items: [] }));
+    vi.spyOn(fakes, "readThread").mockImplementation((id) =>
+      id === PARENT
+        ? { id, preview: "", cwd: "/projects/example", turns: [turn("turn-1", "Plan it"), turn("turn-2", "Do it")] }
+        : // The fork holds the history before the edited turn.
+          { id, preview: "", cwd: "/projects/example", turns: [turn("turn-1", "Plan it")] },
+    );
+  });
+
+  async function parent(): Promise<ThreadSession> {
+    const session = openSession(PARENT);
+    await vi.waitFor(() => expect(session.thread?.turns).toHaveLength(2));
+    return session;
+  }
+
+  it("forks strictly before the edited turn, records the Branch and sends the edit there", async () => {
+    const session = await parent();
+    session.turnOptions = () => ({ model: "gpt-5.2-codex" });
+    const onRecorded = vi.fn();
+    const edited = turn("turn-2", "Do it");
+
+    expect(await editAsBranch(session, edited, said("Do it differently"), onRecorded)).toBe("fork-1");
+
+    expect(forkThread).toHaveBeenCalledWith(PARENT, "turn-2", null, null);
+    // One turn before the edited one came across.
+    expect(addThreadBranch).toHaveBeenCalledWith(PARENT, "fork-1", "turn-2", 1);
+    expect(onRecorded).toHaveBeenCalledWith(expect.objectContaining({ threadBranches: expect.any(Array) }));
+    expect(startTurn).toHaveBeenCalledWith("fork-1", said("Do it differently"), { model: "gpt-5.2-codex" });
+    await vi.waitFor(() => expect(setEditTurn).toHaveBeenCalledWith("fork-1", "turn-edit"));
+    // The edit is streaming on its Branch before any view opens it.
+    expect(peekSession("fork-1")?.activeTurn?.id).toBe("turn-edit");
+    // The original is never rewound.
+    expect(revertThread).not.toHaveBeenCalled();
+    expect(session.thread?.turns.map((candidate) => candidate.id)).toEqual(["turn-1", "turn-2"]);
+    expect(session.starting).toBe(false);
+  });
+
+  it("makes nothing while a turn runs, or for a turn Codex has not confirmed", async () => {
+    const session = await parent();
+
+    expect(await editAsBranch(session, turn("local-1", "Do it"), said("Again"))).toBeNull();
+    expect(await editAsBranch(session, turn("turn-9", "Gone"), said("Again"))).toBeNull();
+    session.thread?.turns.push({ id: "turn-3", status: "inProgress", items: [] });
+    expect(await editAsBranch(session, turn("turn-2", "Do it"), said("Again"))).toBeNull();
+
+    expect(forkThread).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed fork and leaves the thread as it was", async () => {
+    forkThread.mockImplementation(() => {
+      throw new Error("fork refused");
+    });
+    const session = await parent();
+
+    expect(await editAsBranch(session, turn("turn-2", "Do it"), said("Again"))).toBeNull();
+
+    expect(session.streamError).toBe("fork refused");
+    expect(session.starting).toBe(false);
+    expect(addThreadBranch).not.toHaveBeenCalled();
+    expect(startTurn).not.toHaveBeenCalled();
+  });
+
+  it("reports an edit its Branch would not take, keeping the recorded Branch", async () => {
+    startTurn.mockImplementation(() => {
+      throw new Error("turn refused");
+    });
+    const session = await parent();
+    const onRecorded = vi.fn();
+
+    expect(await editAsBranch(session, turn("turn-2", "Do it"), said("Again"), onRecorded)).toBeNull();
+
+    expect(session.streamError).toBe("turn refused");
+    expect(onRecorded).toHaveBeenCalled();
+    expect(setEditTurn).not.toHaveBeenCalled();
   });
 });

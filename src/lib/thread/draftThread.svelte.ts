@@ -10,16 +10,18 @@
 
 import { nameNewThread } from "$lib/app/appData.svelte";
 import { linkExpectedThread } from "$lib/review/prLinks.svelte";
-import { gitWorktreeAdd, type StartedThread, startThread, startTurn } from "$lib/services/api";
+import { forkThread, gitWorktreeAdd, type StartedThread, startThread, startTurn } from "$lib/services/api";
 import { commands } from "$lib/services/homeRouting";
 import { requestAutoName } from "$lib/thread/autoName";
 import { messageText, messageTitle } from "$lib/thread/messageText";
-import { attachSession, draftSession } from "$lib/thread/sessions.svelte";
+import { attachSession, draftSession, openSession, releaseSession } from "$lib/thread/sessions.svelte";
 import type { ThreadSession } from "$lib/thread/threadSession.svelte";
 import { withWorktreeContext } from "$lib/thread/worktreeContext";
 import type {
+  BootstrapData,
   GitRepoInfo,
   HarnessKind,
+  Turn,
   TurnOptions,
   UserInputPart,
   WorktreeBranchRequest,
@@ -178,6 +180,55 @@ export class DraftThread {
     const path = await commands.gitWorktreeAddTemp(this.repoDir);
     this.worktreePath = path;
     return path;
+  }
+}
+
+/**
+ * Edit a past user message as a new Branch: fork the thread strictly before
+ * the message's turn, record the Branch (`onRecorded` gets the data that says
+ * so), send the edit on the fork with the view's turn options, and record the
+ * edit's turn. The fork's session is primed and sent to before this resolves,
+ * so the edit is already streaming when a view opens it.
+ *
+ * Resolves the Branch's thread id, or null when nothing was made: the message
+ * cannot be edited right now, or a step failed, which `session` reports. The
+ * original thread is never rewound.
+ */
+export async function editAsBranch(
+  session: ThreadSession,
+  turn: Turn,
+  parts: UserInputPart[],
+  onRecorded?: (data: BootstrapData) => void,
+): Promise<string | null> {
+  const thread = session.thread;
+  const parent = session.id;
+  if (!thread || !parent || turn.id.startsWith("local-") || session.activeTurn) return null;
+  const index = thread.turns.findIndex((candidate) => candidate.id === turn.id);
+  if (index === -1) return null;
+  session.streamError = null;
+  session.starting = true;
+  try {
+    const forked = await forkThread(parent, turn.id);
+    onRecorded?.(await commands.addThreadBranch(parent, forked.id, turn.id, index));
+    const fork = openSession(forked.id);
+    try {
+      await fork.load();
+      const sent = await fork.send(parts, session.turnOptions?.());
+      if (!sent) throw new Error(fork.streamError ?? "Could not send the edited message");
+      const editTurnId = fork.thread?.turns.at(-1)?.id;
+      if (editTurnId && !editTurnId.startsWith("local-")) {
+        commands.setThreadBranchEditTurn(forked.id, editTurnId).catch(() => {});
+      }
+    } finally {
+      // Retained while its turn runs; the view that opens it takes it over.
+      releaseSession(fork);
+    }
+    return forked.id;
+  } catch (cause) {
+    session.streamError = errorMessage(cause);
+    return null;
+  } finally {
+    session.starting = false;
   }
 }
 
