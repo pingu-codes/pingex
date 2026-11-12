@@ -9,6 +9,7 @@
  * What each page had open (filters, tab, scroll) is its own, in `places.ts`.
  */
 import { appData, projectByPath, projectForCwd, projects, threadById } from "$lib/app/appData.svelte";
+import { pageThreadStart } from "$lib/app/pageThread";
 import { stackHolding } from "$lib/inbox/inboxStore.svelte";
 import { touchThread } from "$lib/layout/sessionFocus.svelte";
 import { newestLeaf, rootThreadId } from "$lib/thread/messageVersions";
@@ -221,6 +222,11 @@ export function openParentThread(): void {
 
 /** Start a draft thread in a project (defaults to the current one). */
 export function newThread(inProject?: Project): void {
+  const start = inProject ? null : pageThreadStart();
+  if (start) {
+    void start();
+    return;
+  }
   const project = inProject ?? currentProject() ?? projects().find((candidate) => !candidate.archived) ?? null;
   if (!project) return;
   setView({ projectPath: project.path, draftCwd: project.path });

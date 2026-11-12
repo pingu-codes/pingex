@@ -101,6 +101,27 @@ separate answers.
    row marks nothing. Point 7 is unchanged: a managed worktree needs no second
    store.
 
+   Checking out a stack also has the `gh stack` extension track it in the
+   worktree, when it is installed, so `gh stack view`, `up`/`down` and `rebase`
+   work there for the agent and the user. Pingex shells out to it
+   (`review/github/stack_tracking.rs`) rather than writing its metadata, which
+   is a versioned file of the extension's own in the git common directory:
+   `gh stack checkout <PR>` on the worktree's own PR imports the stack without
+   prompting or moving the branch, and `gh stack unstack --local <number>`
+   first drops a copy whose branches no longer match GitHub's. `gh stack sync`
+   is never run, because it rebases and pushes. This is best effort: a failure
+   is a warning on the checkout, and the row records whether it tracks the
+   stack (`local_stack`).
+
+   A row can be written by a read of the stack for a worktree "Work on PR" made
+   for one of its PRs, so its other branches may be missing. A draft that opens
+   in a Stack worktree therefore checks the stack out again in the background
+   (`src/lib/stack/refreshStackWorktree.ts`): that makes the missing branches,
+   re-tracks the stack with `gh stack`, and refreshes the row, and the draft's
+   Worktree context is read again. A "New thread" from a Stack or PR page starts
+   in that stack's or PR's worktree, checking it out if needed
+   (`src/lib/app/pageThread.ts`), never in the project the sidebar showed last.
+
 10. **A same-repository PR's branch, checked out anywhere, is that PR's worktree,
     whoever wrote the PR.** The location rule is one function,
     `pr_checkouts::locate`, which the inbox, PR page and Stack page all read

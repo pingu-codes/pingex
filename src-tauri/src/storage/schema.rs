@@ -372,6 +372,7 @@ CREATE TABLE IF NOT EXISTS review_inbox_snapshots (
      stack_name TEXT NOT NULL,
      base_ref TEXT NOT NULL,
      prs TEXT NOT NULL,
+     local_stack INTEGER NOT NULL DEFAULT 0,
      updated_at INTEGER NOT NULL
  );
  CREATE TABLE IF NOT EXISTS review_restacks (
@@ -437,7 +438,7 @@ CREATE TABLE IF NOT EXISTS review_inbox_snapshots (
 /// Columns added after their table shipped. Re-running these on an up-to-date
 /// database fails harmlessly ("duplicate column"), which is the only expected
 /// error, so the result is ignored.
-const ADDED_COLUMNS: [&str; 16] = [
+const ADDED_COLUMNS: [&str; 17] = [
     "ALTER TABLE repository_settings ADD COLUMN github_login TEXT",
     "ALTER TABLE harness_threads ADD COLUMN plan_exit_mode TEXT",
     "ALTER TABLE harness_threads ADD COLUMN permission_mode TEXT",
@@ -454,6 +455,7 @@ const ADDED_COLUMNS: [&str; 16] = [
     "ALTER TABLE side_questions ADD COLUMN inherited_turns INTEGER",
     "ALTER TABLE projects ADD COLUMN worktree INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE harness_threads ADD COLUMN native_session_id TEXT",
+    "ALTER TABLE stack_worktrees ADD COLUMN local_stack INTEGER NOT NULL DEFAULT 0",
 ];
 
 pub(super) async fn initialize(database: &Database, codex_home: &Path) -> Result<(), String> {

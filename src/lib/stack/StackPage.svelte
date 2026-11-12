@@ -15,7 +15,8 @@
   import { onMount, tick, untrack } from "svelte";
   import { projectForCwd } from "$lib/app/appData.svelte";
   import { openDialog } from "$lib/app/dialogs.svelte";
-  import { openReview, openThreadInCwd, type PrMove } from "$lib/app/navigation.svelte";
+  import { newThreadInDir, openReview, openThreadInCwd, type PrMove } from "$lib/app/navigation.svelte";
+  import { providePageThread } from "$lib/app/pageThread";
   import { place } from "$lib/app/places";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import RefreshIcon from "$lib/components/RefreshIcon.svelte";
@@ -131,6 +132,18 @@
       for (const pr of around) if (pr) prefetch("reviewPrDetail", repoDir, pr.number);
     });
   });
+
+  /** "New thread" here: a draft in the stack's worktree, checking the stack
+   *  out first when it has none (which asks before making one). */
+  async function newThreadInStack(): Promise<void> {
+    const existing = stack.overview?.worktree?.path;
+    if (existing) return newThreadInDir(existing);
+    await stack.checkOut();
+    const made = stack.overview?.worktree?.path;
+    if (made) newThreadInDir(made);
+  }
+
+  onMount(() => providePageThread("stack", newThreadInStack));
 
   onMount(() => {
     void ensurePrLinks();

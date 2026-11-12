@@ -12,6 +12,7 @@ import { nameNewThread } from "$lib/app/appData.svelte";
 import { linkExpectedThread } from "$lib/review/prLinks.svelte";
 import { forkThread, gitWorktreeAdd, type StartedThread, startThread, startTurn } from "$lib/services/api";
 import { commands } from "$lib/services/homeRouting";
+import { refreshStackWorktree } from "$lib/stack/refreshStackWorktree";
 import { requestAutoName } from "$lib/thread/autoName";
 import { messageText, messageTitle } from "$lib/thread/messageText";
 import { attachSession, draftSession, openSession, releaseSession } from "$lib/thread/sessions.svelte";
@@ -98,13 +99,20 @@ export class DraftThread {
     $effect(() => {
       const dir = deps.cwd();
       if (deps.threadId() || !dir) return;
-      commands
-        .reviewWorktreeContext(dir)
-        .then((context) => {
-          if (dir === deps.cwd()) this.#context = context;
+      const read = () =>
+        commands.reviewWorktreeContext(dir).then((context) => {
+          if (dir === deps.cwd() && !deps.threadId()) this.#context = context;
+          return context;
+        });
+      // The stored context shows at once; a stack's is then read again from
+      // GitHub, and its worktree caught up, before the first message goes.
+      read()
+        .then(async (context) => {
+          if (context?.purpose.kind !== "stack") return;
+          if (await refreshStackWorktree(context.purpose.repoDir, context.purpose.number)) await read();
         })
         .catch(() => {
-          this.#context = null;
+          if (dir === deps.cwd()) this.#context = null;
         });
     });
   }

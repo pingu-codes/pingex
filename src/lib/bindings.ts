@@ -647,6 +647,11 @@ export const commands = {
 	reviewWorktreeContext: (dir: string, window: HomeRoute | null = null) => __TAURI_INVOKE<{
 	purpose: WorktreePurpose,
 	text: string,
+	/**
+	 *  Where the worktree's git branch is in the stack, when it is one of
+	 *  the stack's PRs.
+	 */
+	position: StackPosition | null,
 } | null>("review_worktree_context", { dir, window }),
 	/**
 	 *  Drop what closed PRs left behind, given `open_numbers`: every open PR
@@ -3232,6 +3237,11 @@ export type StackCheckout = {
 	created: boolean,
 	createdBranches: string[],
 	kept: KeptBranch[],
+	/**
+	 *  Why the provider's stack tool (`gh stack`) doesn't track the stack in
+	 *  the worktree, when it is installed and should.
+	 */
+	localStackWarning: string | null,
 };
 
 /**
@@ -3290,6 +3300,15 @@ export type StackOverview = {
 	mergedBranches: number[],
 	/**  A restack stopped at a conflict, waiting to continue or abort. */
 	restack: RestackProgress | null,
+};
+
+/**
+ *  A PR's place in its stack, counted from the bottom: 1 is the PR on the
+ *  stack's base.
+ */
+export type StackPosition = {
+	position: number,
+	total: number,
 };
 
 export type StackPr = {
@@ -3772,6 +3791,11 @@ export type WorktreeBranchRequest =
 export type WorktreeContext = {
 	purpose: WorktreePurpose,
 	text: string,
+	/**
+	 *  Where the worktree's git branch is in the stack, when it is one of
+	 *  the stack's PRs.
+	 */
+	position: StackPosition | null,
 };
 
 /**
@@ -3845,7 +3869,12 @@ number: number; name: string;
 /**  The git branch the bottom PR merges into. */
 baseRef: string; 
 /**  The open PRs, bottom first, as last read from GitHub. */
-prs: StackMarkerPr[] };
+prs: StackMarkerPr[]; 
+/**
+ *  The provider's own stack tool (`gh stack`) tracks the stack in
+ *  the worktree.
+ */
+localStack?: boolean };
 
 /* Tauri Specta runtime */
 type EventEmit<T> = [T] extends [null] ? () => Promise<void> : (payload: T) => Promise<void>;

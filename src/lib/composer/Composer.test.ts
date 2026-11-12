@@ -357,6 +357,7 @@ describe("Composer", () => {
       worktreeContext: {
         purpose: { kind: "managedPr", repoDir: "/repo", number: 7 },
         text: "This directory is a worktree for pull request #7.",
+        position: null,
       },
     });
 

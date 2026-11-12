@@ -25,6 +25,7 @@ pub(crate) async fn write_stack_worktree(
         name,
         base_ref,
         prs,
+        local_stack,
     } = purpose
     else {
         return Ok(());
@@ -39,14 +40,15 @@ pub(crate) async fn write_stack_worktree(
     .await?;
     db::exec(
         &connection,
-        "INSERT INTO stack_worktrees(path, repo_key, stack_number, stack_name, base_ref, prs, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        "INSERT INTO stack_worktrees(path, repo_key, stack_number, stack_name, base_ref, prs, local_stack, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(path) DO UPDATE SET
              repo_key = excluded.repo_key,
              stack_number = excluded.stack_number,
              stack_name = excluded.stack_name,
              base_ref = excluded.base_ref,
              prs = excluded.prs,
+             local_stack = excluded.local_stack,
              updated_at = excluded.updated_at",
         params![
             path,
@@ -55,6 +57,7 @@ pub(crate) async fn write_stack_worktree(
             name.as_str(),
             base_ref.as_str(),
             prs,
+            i64::from(*local_stack),
             unix_secs()
         ],
     )
@@ -94,7 +97,7 @@ async fn read_stack_worktrees(
     let connection = db::conn(database)?;
     db::rows(
         &connection,
-        "SELECT path, repo_key, stack_number, stack_name, base_ref, prs FROM stack_worktrees",
+        "SELECT path, repo_key, stack_number, stack_name, base_ref, prs, local_stack FROM stack_worktrees",
         (),
         |row| {
             let prs: Vec<StackMarkerPr> =
@@ -107,6 +110,7 @@ async fn read_stack_worktrees(
                     name: db::text(row, 3)?,
                     base_ref: db::text(row, 4)?,
                     prs,
+                    local_stack: db::int(row, 6)? != 0,
                 },
             ))
         },
@@ -177,6 +181,7 @@ mod tests {
                     head_ref: format!("feat/{number}"),
                 })
                 .collect(),
+            local_stack: false,
         }
     }
 

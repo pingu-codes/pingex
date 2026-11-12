@@ -23,6 +23,17 @@ use super::types::{
     StackListing,
 };
 
+/// The stack a worktree holds, for the provider's local stack tool to track.
+pub(crate) struct LocalStack<'a> {
+    pub(crate) worktree: &'a std::path::Path,
+    /// The provider's stack number.
+    pub(crate) number: i64,
+    /// The PR whose branch the worktree is on.
+    pub(crate) current_pr: i64,
+    /// The open PRs' git branches, bottom first.
+    pub(crate) branches: &'a [String],
+}
+
 pub(crate) trait GitHubProvider: Send + Sync {
     // --- Account and repository ---
 
@@ -61,6 +72,13 @@ pub(crate) trait GitHubProvider: Send + Sync {
     fn stacks(&self) -> Result<StackListing, String>;
     /// The logs of the PR's failing checks at its head.
     fn failed_check_logs(&self, number: i64) -> Result<Vec<CheckLog>, String>;
+
+    // --- Local ---
+
+    /// Have the provider's own stack tool track `stack` in its worktree, so
+    /// the agent and the user can drive the stack with it there. Changes only
+    /// local state. `Ok(false)` when the tool isn't installed.
+    fn track_stack_locally(&self, stack: &LocalStack<'_>) -> Result<bool, String>;
 
     // --- Review writes ---
 

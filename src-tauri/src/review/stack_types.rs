@@ -113,6 +113,9 @@ pub(crate) struct StackCheckout {
     pub(crate) created: bool,
     pub(crate) created_branches: Vec<String>,
     pub(crate) kept: Vec<KeptBranch>,
+    /// Why the provider's stack tool (`gh stack`) doesn't track the stack in
+    /// the worktree, when it is installed and should.
+    pub(crate) local_stack_warning: Option<String>,
 }
 
 /// One PR as GitHub has it, for counting how far behind its base it is.

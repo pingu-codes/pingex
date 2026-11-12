@@ -163,6 +163,9 @@ function announceStackCheckout(repoDir: string, result: StackCheckout, open: num
   for (const { branch, reason } of result.kept) {
     toaster.warning({ title: `${branch} left as it is`, description: reason });
   }
+  if (result.localStackWarning) {
+    toaster.warning({ title: "gh stack doesn't track the stack", description: result.localStackWarning });
+  }
 }
 
 /** The setup command, with a toast while it runs. */

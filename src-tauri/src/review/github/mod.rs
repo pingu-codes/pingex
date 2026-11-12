@@ -13,6 +13,7 @@ mod parse;
 mod reads;
 mod repos;
 mod run;
+mod stack_tracking;
 mod stacks;
 mod writes;
 
@@ -25,7 +26,7 @@ use turso::Database;
 pub(crate) use self::account::describe_account;
 use self::account::Scope;
 use self::run::Gh;
-use super::provider::GitHubProvider;
+use super::provider::{GitHubProvider, LocalStack};
 use super::types::{
     CheckLog, CommentRef, GitHubAccount, GitHubRepo, InboxRead, MergeRequest, NewPr, PrDetail,
     PrHead, PrSummary, ProviderStatus, RepositoryAccount, ReviewRequests, ReviewSubmission,
@@ -138,6 +139,10 @@ impl GitHubProvider for GhCli {
 
     fn failed_check_logs(&self, number: i64) -> Result<Vec<CheckLog>, String> {
         checks::failed_check_logs(&self.gh()?, &self.repo()?, number)
+    }
+
+    fn track_stack_locally(&self, stack: &LocalStack<'_>) -> Result<bool, String> {
+        stack_tracking::track_stack(&self.gh()?, stack)
     }
 
     fn submit_review(&self, number: i64, review: &ReviewSubmission) -> Result<(), String> {

@@ -4,10 +4,13 @@ import { appData, trackNewThread } from "$lib/app/appData.svelte";
 import { type PreviewCommands, previewCommands } from "$lib/services/preview/commands";
 import { seedPreviewDesk } from "$lib/services/preview/desk";
 import { deskRepository, prCheckout } from "$lib/services/preview/factories";
+import { refreshStackWorktree } from "$lib/stack/refreshStackWorktree";
 import { type DraftDeps, DraftThread, editAsBranch, startThreadWith } from "$lib/thread/draftThread.svelte";
 import { openSession, peekSession, resetSessions } from "$lib/thread/sessions.svelte";
 import type { ThreadSession } from "$lib/thread/threadSession.svelte";
-import type { BootstrapData, UserInputPart } from "$lib/types";
+import type { BootstrapData, UserInputPart, WorktreeContext } from "$lib/types";
+
+vi.mock("$lib/stack/refreshStackWorktree", () => ({ refreshStackWorktree: vi.fn(async () => false) }));
 
 // The preview's command fakes answer everything here — repositories, worktrees,
 // PR worktree context, thread creation. Spies watch the calls; a turn is only
@@ -215,6 +218,52 @@ describe("Worktree context", () => {
     const { draft: hub } = draft({ cwd: PR_WORKTREE, workspaceId: () => "workspace-1" });
     await settled(hub);
     expect(hub.worktreeContext).toBeNull();
+  });
+});
+
+describe("Worktree context in a Stack worktree", () => {
+  const STACK_WORKTREE = "/wt/billing";
+  const stackContext = (prs: number[], text: string): WorktreeContext => ({
+    purpose: {
+      kind: "stack",
+      repoDir: "/projects/example",
+      number: 7,
+      name: "billing",
+      baseRef: "main",
+      prs: prs.map((number) => ({ number, title: `PR ${number}`, headRef: `billing/${number}` })),
+      localStack: false,
+    },
+    text,
+    position: { position: prs.length, total: prs.length },
+  });
+
+  it("shows the stored context, then the one read after catching the stack up", async () => {
+    const refresh = vi.mocked(refreshStackWorktree).mockResolvedValue(true);
+    let fresh = false;
+    vi.spyOn(fakes, "reviewWorktreeContext").mockImplementation(() =>
+      fresh ? stackContext([101, 102, 103], "fresh") : stackContext([101, 102], "stored"),
+    );
+    refresh.mockImplementation(async () => {
+      fresh = true;
+      return true;
+    });
+
+    const { draft: made } = draft({ cwd: STACK_WORKTREE });
+
+    await vi.waitFor(() => expect(made.worktreeContext?.text).toBe("fresh"));
+    expect(refresh).toHaveBeenCalledWith("/projects/example", 7);
+    expect(made.worktreeContext?.position).toEqual({ position: 3, total: 3 });
+  });
+
+  it("keeps the stored context when the stack can't be read", async () => {
+    const refresh = vi.mocked(refreshStackWorktree).mockResolvedValue(false);
+    const read = vi.spyOn(fakes, "reviewWorktreeContext").mockImplementation(() => stackContext([101, 102], "stored"));
+
+    const { draft: made } = draft({ cwd: STACK_WORKTREE });
+
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalled());
+    expect(made.worktreeContext?.text).toBe("stored");
+    expect(read).toHaveBeenCalledTimes(1);
   });
 });
 

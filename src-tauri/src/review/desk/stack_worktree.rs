@@ -8,14 +8,19 @@
 //! Nothing here moves work. A local git branch that has diverged from GitHub,
 //! or is checked out and behind it, stays where it is and is reported. Safe to
 //! run again: it only fills in what is missing.
+//!
+//! The provider's own stack tool (`gh stack`) is then made to track the stack
+//! in its worktree, when it is installed, so it works there too. That is best
+//! effort: a failure is reported, never fatal.
 
 use std::path::Path;
 
 use super::ReviewDesk;
 use crate::git::{checkouts as checkouts_git, stack as git};
 use crate::review::checkout_types::CheckoutTarget;
+use crate::review::provider::LocalStack;
 use crate::review::stack_types::{KeptBranch, StackCheckout, StackInput, StackInputPr};
-use crate::review::worktree_context::{worktree_context, WorktreeContext};
+use crate::review::worktree_context::{stack_position, worktree_context, WorktreeContext};
 use crate::review::worktree_purpose::WorktreePurpose;
 use crate::storage;
 
@@ -35,7 +40,7 @@ impl ReviewDesk {
                 run.worktree
             ));
         }
-        let purpose = WorktreePurpose::stack(&self.repo_key(), &input);
+        let tracked_input = input.clone();
         let (created_branches, kept, has_worktree) = self
             .blocking("Checking out the stack failed", move |desk| {
                 let open = input.open_prs();
@@ -59,7 +64,13 @@ impl ReviewDesk {
         } else {
             self.ensure_pr_worktree(top).await?
         };
+        let (local_stack, local_stack_warning) = match checkout.path.clone() {
+            Some(path) => self.track_locally(path, tracked_input.clone()).await,
+            None => (false, None),
+        };
         if let Some(path) = checkout.path.as_deref() {
+            let purpose = WorktreePurpose::stack(&self.repo_key(), &tracked_input)
+                .tracked_locally(local_stack);
             self.record_stack_worktree(path, &purpose).await?;
         }
         Ok(StackCheckout {
@@ -67,11 +78,72 @@ impl ReviewDesk {
             created: !has_worktree,
             created_branches,
             kept,
+            local_stack_warning,
         })
+    }
+
+    /// Have the provider's stack tool track `input`'s stack in the worktree at
+    /// `path`, keeping the worktree on its git branch. Returns whether it
+    /// tracks it, and why not when it should have. A worktree that is detached
+    /// or on a branch outside the stack is left alone: the tool would switch
+    /// it.
+    async fn track_locally(&self, path: String, input: StackInput) -> (bool, Option<String>) {
+        self.blocking("Tracking the stack with gh stack failed", move |desk| {
+            Ok(desk.track_locally_now(Path::new(&path), &input))
+        })
+        .await
+        .unwrap_or_else(|error| (false, Some(error)))
+    }
+
+    fn track_locally_now(&self, dir: &Path, input: &StackInput) -> (bool, Option<String>) {
+        let open = input.open_prs();
+        let before = match checkouts_git::branch_of(&self.host, dir) {
+            Ok(branch) => branch,
+            Err(error) => return (false, Some(error)),
+        };
+        let Some(current) = before
+            .as_deref()
+            .and_then(|branch| open.iter().find(|pr| pr.head_ref == branch))
+        else {
+            return (false, None);
+        };
+        let branches: Vec<String> = open.iter().map(|pr| pr.head_ref.clone()).collect();
+        let result = self.github.track_stack_locally(&LocalStack {
+            worktree: dir,
+            number: input.number,
+            current_pr: current.number,
+            branches: &branches,
+        });
+        let mut warnings = Vec::new();
+        let after = checkouts_git::branch_of(&self.host, dir).ok().flatten();
+        if after.as_deref() != Some(current.head_ref.as_str()) {
+            match git::switch(&self.host, dir, &current.head_ref) {
+                Ok(()) => warnings.push(format!(
+                    "gh stack moved the worktree off `{}`; it is back on it",
+                    current.head_ref
+                )),
+                Err(error) => warnings.push(format!(
+                    "gh stack moved the worktree off `{}` and switching back failed: {error}",
+                    current.head_ref
+                )),
+            }
+        }
+        let tracked = match result {
+            Ok(tracked) => tracked,
+            Err(error) => {
+                warnings.push(format!("gh stack doesn't track this stack: {error}"));
+                false
+            }
+        };
+        (tracked, (!warnings.is_empty()).then(|| warnings.join(". ")))
     }
 
     /// Remember that the worktree at `path` holds this stack, for listings and
     /// worktree context. The main clone is never a Stack worktree.
+    ///
+    /// A purpose that doesn't say the stack tool tracks the stack keeps the
+    /// stored word that it does while the git branches are the same: a read
+    /// of the stack (`stack_overview`) doesn't ask the tool.
     pub(super) async fn record_stack_worktree(
         &self,
         path: &str,
@@ -80,14 +152,19 @@ impl ReviewDesk {
         if path == self.repo_key() {
             return Ok(());
         }
-        if storage::read_worktree_purpose(&self.database, path)
-            .await?
-            .as_ref()
-            == Some(purpose)
-        {
+        let stored = storage::read_worktree_purpose(&self.database, path).await?;
+        let purpose = match &stored {
+            Some(
+                stored @ WorktreePurpose::Stack {
+                    local_stack: true, ..
+                },
+            ) if stored.same_branches(purpose) => purpose.clone().tracked_locally(true),
+            _ => purpose.clone(),
+        };
+        if stored.as_ref() == Some(&purpose) {
             return Ok(());
         }
-        storage::write_stack_worktree(&self.database, path, purpose).await
+        storage::write_stack_worktree(&self.database, path, &purpose).await
     }
 
     /// What to tell an agent starting in the worktree at `path`, when it is a
@@ -115,6 +192,7 @@ impl ReviewDesk {
             };
             Ok(fits.then(|| WorktreeContext {
                 text: worktree_context(&purpose, branch.as_deref()),
+                position: stack_position(&purpose, branch.as_deref()),
                 purpose,
             }))
         })
@@ -169,7 +247,9 @@ mod tests {
 
     use super::super::stack_support::StackFixture;
     use crate::review::checkout_types::StepConfirm;
+    use crate::review::fake::{LocalStackTool, TrackedLocally};
     use crate::review::requirements::DeskAction;
+    use crate::review::worktree_context::StackPosition;
     use crate::review::worktree_purpose::WorktreePurpose;
     use crate::storage;
     use crate::util::host::Host;
@@ -244,9 +324,18 @@ mod tests {
             WorktreePurpose::stack(&stack.desk().repo_key(), &stack.input())
         );
         assert!(
-            context.text.contains("The worktree is on `feat/maki`"),
+            context
+                .text
+                .contains("branch `feat/maki`, based on #415 ← the worktree is on this branch"),
             "{}",
             context.text
+        );
+        assert_eq!(
+            context.position,
+            Some(StackPosition {
+                position: 3,
+                total: 3
+            })
         );
 
         // On a git branch outside the stack, it is no longer the stack's.
@@ -255,6 +344,157 @@ mod tests {
         // The main clone is never a Stack worktree.
         let main = stack.desk().repo_key();
         assert_eq!(stack.desk().worktree_context(main).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn without_gh_stack_a_checkout_says_nothing_about_it() {
+        let Some(stack) = remote_only().await else {
+            return;
+        };
+        let result = stack
+            .desk()
+            .ensure_stack_worktree(stack.input())
+            .await
+            .unwrap();
+        let path = result.checkout.path.unwrap();
+
+        assert_eq!(result.local_stack_warning, None);
+        assert_eq!(
+            stack.inner.github.tracked_locally(),
+            vec![TrackedLocally {
+                worktree: Path::new(&path).to_path_buf(),
+                number: 7,
+                current_pr: 418,
+                branches: vec![
+                    "feat/driver".into(),
+                    "feat/claude".into(),
+                    "feat/maki".into()
+                ],
+            }]
+        );
+        let context = stack.desk().worktree_context(path).await.unwrap().unwrap();
+        assert!(!context.text.contains("gh stack"), "{}", context.text);
+    }
+
+    #[tokio::test]
+    async fn gh_stack_tracks_the_checked_out_stack_and_a_read_keeps_that() {
+        let Some(stack) = remote_only().await else {
+            return;
+        };
+        stack
+            .inner
+            .github
+            .set_local_stack_tool(LocalStackTool::Tracks);
+        let result = stack
+            .desk()
+            .ensure_stack_worktree(stack.input())
+            .await
+            .unwrap();
+        let path = result.checkout.path.unwrap();
+        assert_eq!(result.local_stack_warning, None);
+
+        // A read of the stack doesn't ask gh stack, and keeps its word.
+        let read = WorktreePurpose::stack(&stack.desk().repo_key(), &stack.input());
+        stack
+            .desk()
+            .record_stack_worktree(&path, &read)
+            .await
+            .unwrap();
+
+        let context = stack
+            .desk()
+            .worktree_context(path.clone())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(context.purpose, read.clone().tracked_locally(true));
+        assert!(context.text.contains("`gh stack` tracks this stack here"));
+
+        // Different branches are a different stack to gh stack.
+        let mut fewer = stack.input();
+        fewer.prs.pop();
+        let changed = WorktreePurpose::stack(&stack.desk().repo_key(), &fewer);
+        stack
+            .desk()
+            .record_stack_worktree(&path, &changed)
+            .await
+            .unwrap();
+        let purpose = storage::read_worktree_purpose(&stack.desk().database, &path)
+            .await
+            .unwrap();
+        assert_eq!(purpose, Some(changed));
+    }
+
+    #[tokio::test]
+    async fn a_gh_stack_failure_is_a_warning_and_the_checkout_goes_ahead() {
+        let Some(stack) = remote_only().await else {
+            return;
+        };
+        stack
+            .inner
+            .github
+            .set_local_stack_tool(LocalStackTool::Fails(
+                "gh stack could not import the stack".into(),
+            ));
+        let result = stack
+            .desk()
+            .ensure_stack_worktree(stack.input())
+            .await
+            .unwrap();
+
+        assert!(result.created);
+        assert_eq!(
+            result.local_stack_warning.as_deref(),
+            Some("gh stack doesn't track this stack: gh stack could not import the stack")
+        );
+        let path = result.checkout.path.unwrap();
+        let context = stack.desk().worktree_context(path).await.unwrap().unwrap();
+        assert!(!context.text.contains("`gh stack` tracks"));
+    }
+
+    #[tokio::test]
+    async fn gh_stack_moving_the_worktree_is_undone() {
+        let Some(stack) = remote_only().await else {
+            return;
+        };
+        stack
+            .inner
+            .github
+            .set_local_stack_tool(LocalStackTool::SwitchesTo("feat/claude".into()));
+        let result = stack
+            .desk()
+            .ensure_stack_worktree(stack.input())
+            .await
+            .unwrap();
+        let path = result.checkout.path.unwrap();
+
+        assert_eq!(
+            stack.git_in(Path::new(&path), &["branch", "--show-current"]),
+            "feat/maki"
+        );
+        assert_eq!(
+            result.local_stack_warning.as_deref(),
+            Some("gh stack moved the worktree off `feat/maki`; it is back on it")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_worktree_off_the_stack_is_not_handed_to_gh_stack() {
+        let Some(stack) = StackFixture::new().await else {
+            return;
+        };
+        stack
+            .inner
+            .github
+            .set_local_stack_tool(LocalStackTool::Tracks);
+        let worktree = stack.worktree_on("feat/driver");
+        stack.git_in(&worktree, &["switch", "-q", "--detach"]);
+
+        let (tracked, warning) = stack.desk().track_locally_now(&worktree, &stack.input());
+
+        assert!(!tracked);
+        assert_eq!(warning, None);
+        assert!(stack.inner.github.tracked_locally().is_empty());
     }
 
     #[tokio::test]

@@ -32,6 +32,10 @@ pub(crate) enum WorktreePurpose {
         base_ref: String,
         /// The open PRs, bottom first, as last read from GitHub.
         prs: Vec<StackMarkerPr>,
+        /// The provider's own stack tool (`gh stack`) tracks the stack in
+        /// the worktree.
+        #[serde(default)]
+        local_stack: bool,
     },
 }
 
@@ -59,6 +63,44 @@ impl WorktreePurpose {
                     head_ref: pr.head_ref.clone(),
                 })
                 .collect(),
+            local_stack: false,
+        }
+    }
+
+    /// This, with the provider's stack tool tracking it or not.
+    pub(crate) fn tracked_locally(mut self, tracked: bool) -> Self {
+        if let Self::Stack { local_stack, .. } = &mut self {
+            *local_stack = tracked;
+        }
+        self
+    }
+
+    /// The same stack with the same git branches, bottom first, so that a
+    /// stack tool tracking one tracks the other.
+    pub(crate) fn same_branches(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::Stack {
+                    repo_dir,
+                    number,
+                    prs,
+                    ..
+                },
+                Self::Stack {
+                    repo_dir: other_dir,
+                    number: other_number,
+                    prs: other_prs,
+                    ..
+                },
+            ) => {
+                repo_dir == other_dir
+                    && number == other_number
+                    && prs
+                        .iter()
+                        .map(|pr| &pr.head_ref)
+                        .eq(other_prs.iter().map(|pr| &pr.head_ref))
+            }
+            _ => false,
         }
     }
 

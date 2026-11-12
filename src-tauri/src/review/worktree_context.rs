@@ -24,6 +24,35 @@ const CLOSE: &str = "</worktree_context>";
 pub(crate) struct WorktreeContext {
     pub(crate) purpose: WorktreePurpose,
     pub(crate) text: String,
+    /// Where the worktree's git branch is in the stack, when it is one of
+    /// the stack's PRs.
+    pub(crate) position: Option<StackPosition>,
+}
+
+/// A PR's place in its stack, counted from the bottom: 1 is the PR on the
+/// stack's base.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StackPosition {
+    pub(crate) position: u32,
+    pub(crate) total: u32,
+}
+
+/// Where `branch` is in a Stack `purpose`; `None` for anything else.
+pub(crate) fn stack_position(
+    purpose: &WorktreePurpose,
+    branch: Option<&str>,
+) -> Option<StackPosition> {
+    let WorktreePurpose::Stack { prs, .. } = purpose else {
+        return None;
+    };
+    let index = prs
+        .iter()
+        .position(|pr| Some(pr.head_ref.as_str()) == branch)?;
+    Some(StackPosition {
+        position: u32::try_from(index + 1).ok()?,
+        total: u32::try_from(prs.len()).ok()?,
+    })
 }
 
 /// The context for a worktree with `purpose`, on `branch` now (`None` when
@@ -45,34 +74,58 @@ pub(crate) fn worktree_context(purpose: &WorktreePurpose, branch: Option<&str>) 
             out.push_str(" has no upstream, so commits stay local. Don't push and don't set an upstream: the user pushes to the PR from Pingex.");
         }
         WorktreePurpose::Stack {
+            number,
             name,
             base_ref,
             prs,
+            local_stack,
             ..
         } => {
             let _ = writeln!(
                 out,
-                "This directory is the worktree of the stack \"{name}\": pull requests that build on each other, each on its own git branch. Bottom first, on top of `{base_ref}`:"
+                "This directory is the worktree of GitHub stack #{number} \"{name}\": pull requests that build on each other, each on its own git branch. Bottom first:"
             );
+            let mut below: Option<i64> = None;
             for (index, pr) in prs.iter().enumerate() {
+                let base = match below {
+                    Some(number) => format!("#{number}"),
+                    None => format!("`{base_ref}`"),
+                };
+                let here = if branch == Some(pr.head_ref.as_str()) {
+                    " ← the worktree is on this branch"
+                } else {
+                    ""
+                };
                 let _ = writeln!(
                     out,
-                    "{}. #{} {} (`{}`)",
+                    "{}. #{} {}: branch `{}`, based on {base}{here}",
                     index + 1,
                     pr.number,
                     pr.title,
-                    pr.head_ref
+                    pr.head_ref,
                 );
+                below = Some(pr.number);
             }
-            if let Some(current) = branch.and_then(|name| prs.iter().find(|pr| pr.head_ref == name))
-            {
-                let _ = writeln!(
-                    out,
-                    "The worktree is on `{}` (#{}) now.",
-                    current.head_ref, current.number
-                );
+            if let (Some(first), Some(last)) = (prs.first(), prs.last()) {
+                if prs.len() > 1 {
+                    let _ = writeln!(
+                        out,
+                        "Positions count from the bottom: PR 1 (\"the first PR\") is #{}, and the top is #{}.",
+                        first.number, last.number
+                    );
+                }
             }
-            out.push_str("Before you change anything, work out which pull request the change belongs to, and commit it on that PR's branch. Switch with `git switch <branch>`; the worktree must be clean first. A change to a lower PR leaves the ones above it needing a restack: rebase each of them onto the branch below it, bottom first, and say that you did.\nThis list is from Pingex's last read of the stack.");
+            let _ = writeln!(
+                out,
+                "This applies only to stack #{number}. If the user asks about a pull request or stack not listed here, say that this worktree isn't on it, and establish its number, head and base (`gh pr view <n> --json number,headRefName,baseRefName`) before you answer."
+            );
+            out.push_str("Before you change anything, work out which pull request the change belongs to, and commit it on that PR's branch. ");
+            if *local_stack {
+                out.push_str("`gh stack` tracks this stack here: `gh stack view` shows it, `gh stack up` and `gh stack down` switch PR, and the worktree must be clean first. A change to a lower PR leaves the ones above it needing a restack: run `gh stack rebase`, and say that you did. Don't run `gh stack sync`, `submit` or `push` unless the user asks: they push.");
+            } else {
+                out.push_str("Switch with `git switch <branch>`; the worktree must be clean first. A change to a lower PR leaves the ones above it needing a restack: rebase each of them onto the branch below it, bottom first, and say that you did.");
+            }
+            out.push_str("\nThis list is from Pingex's last read of the stack.");
         }
     }
     out
@@ -116,24 +169,61 @@ mod tests {
                     head_ref: "billing/charge".into(),
                 },
             ],
+            local_stack: false,
         }
     }
 
     #[test]
-    fn a_stack_lists_its_prs_bottom_first_and_names_the_one_checked_out() {
+    fn a_stack_numbers_its_prs_from_the_bottom_with_their_bases() {
         let text = worktree_context(&stack(), Some("billing/charge"));
-        assert!(text.starts_with("This directory is the worktree of the stack \"billing\""));
-        assert!(text.contains("on top of `main`:\n1. #101 Add the ledger (`billing/ledger`)\n2. #102 Charge from the ledger (`billing/charge`)\n"));
-        assert!(text.contains("The worktree is on `billing/charge` (#102) now.\n"));
+        assert!(text.starts_with("This directory is the worktree of GitHub stack #7 \"billing\""));
+        assert!(text.contains(
+            "Bottom first:\n1. #101 Add the ledger: branch `billing/ledger`, based on `main`\n2. #102 Charge from the ledger: branch `billing/charge`, based on #101 ← the worktree is on this branch\n"
+        ));
+        assert!(text.contains("PR 1 (\"the first PR\") is #101, and the top is #102."));
         assert!(text.contains("work out which pull request the change belongs to"));
-        assert!(text.contains("rebase each of them onto the branch below it"));
     }
 
     #[test]
-    fn a_detached_stack_worktree_names_no_current_pr() {
+    fn a_stack_context_holds_only_for_its_own_stack() {
+        let text = worktree_context(&stack(), Some("billing/charge"));
+        assert!(text.contains("This applies only to stack #7."));
+        assert!(text.contains("establish its number, head and base"));
+    }
+
+    #[test]
+    fn without_gh_stack_a_restack_is_done_by_hand() {
+        let text = worktree_context(&stack(), Some("billing/charge"));
+        assert!(text.contains("rebase each of them onto the branch below it"));
+        assert!(!text.contains("gh stack"));
+    }
+
+    #[test]
+    fn with_gh_stack_the_agent_drives_the_stack_with_it() {
+        let text = worktree_context(&stack().tracked_locally(true), Some("billing/charge"));
+        assert!(text.contains("`gh stack` tracks this stack here"));
+        assert!(text.contains("run `gh stack rebase`"));
+        assert!(!text.contains("rebase each of them onto the branch below it"));
+    }
+
+    #[test]
+    fn a_detached_stack_worktree_marks_no_pr() {
         let text = worktree_context(&stack(), None);
-        assert!(!text.contains("The worktree is on"));
+        assert!(!text.contains("the worktree is on this branch"));
         assert!(text.contains("2. #102"));
+        assert_eq!(stack_position(&stack(), None), None);
+    }
+
+    #[test]
+    fn the_position_counts_from_the_bottom() {
+        assert_eq!(
+            stack_position(&stack(), Some("billing/charge")),
+            Some(StackPosition {
+                position: 2,
+                total: 2
+            })
+        );
+        assert_eq!(stack_position(&stack(), Some("elsewhere")), None);
     }
 
     #[test]

@@ -10,7 +10,7 @@
  * (`src-tauri/src/review/worktree_context.rs`).
  */
 
-import type { UserInputPart } from "$lib/types";
+import type { StackPosition, UserInputPart } from "$lib/types";
 
 /** Mirror `OPEN` and `CLOSE` in `src-tauri/src/review/worktree_context.rs`. */
 const OPEN = "<worktree_context>";
@@ -41,4 +41,11 @@ export function splitWorktreeContext(content: UserInputPart[]): {
     if (text) rest.push({ ...part, text });
   }
   return { content: rest, context };
+}
+
+/** The composer pill's words: the worktree's kind, and for a stack where its
+ *  git branch is, counted from the bottom ("Stack context · 2 of 3"). */
+export function contextPillLabel(kind: string, position: StackPosition | null): string {
+  const label = `${kind} context`;
+  return position ? `${label} · ${position.position} of ${position.total}` : label;
 }

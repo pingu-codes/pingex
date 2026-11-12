@@ -537,6 +537,7 @@ mod tests {
                         head_ref: head_ref.to_string(),
                     })
                     .collect(),
+                local_stack: false,
             }),
             ..RepoFacts::default()
         }

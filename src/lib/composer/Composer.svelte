@@ -37,6 +37,7 @@
   import { openSettings, settingsNav } from "$lib/services/settingsNav.svelte";
   import type { ContextStats } from "$lib/thread/contextUsage";
   import { freshPlanPrompt } from "$lib/thread/planHandoff";
+  import { contextPillLabel } from "$lib/thread/worktreeContext";
   import type {
     ReviewTarget,
     SkillSummary,
@@ -854,7 +855,7 @@
           >
             <kind.icon size={12} />
             {kind.label}
-            context
+            {contextPillLabel(kind.label, worktreeContext.position)}
           </TooltipButton>
         {/if}
       {/snippet}

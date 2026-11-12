@@ -8,6 +8,7 @@
   import { onMount } from "svelte";
   import { threadById } from "$lib/app/appData.svelte";
   import { openThreadInCwd, type PrMove } from "$lib/app/navigation.svelte";
+  import { providePageThread } from "$lib/app/pageThread";
   import { defaultReviewHarness, refreshAgentReviews, rerunAgentReview } from "$lib/review/agentReviews.svelte";
   import type { LineSlot } from "$lib/review/FileDiff.svelte";
   import FindingCard from "$lib/review/FindingCard.svelte";
@@ -70,6 +71,14 @@
   // The same reads as the page's: one entry each, so no second request.
   const detailQuery = query("reviewPrDetail", () => [repoDir, number]);
   const detail = $derived<PrDetail | null>(detailQuery.value ?? null);
+
+  // "New thread" here is Work on this PR: a draft in the PR's worktree.
+  $effect(() => {
+    const shown = detail;
+    const work = onWorkOnPr;
+    if (!shown || !work) return;
+    return providePageThread("pr", () => work(shown));
+  });
   const checkoutQuery = query("reviewCheckoutState", () => (detail ? [repoDir, targetOf(detail)] : null));
   /** Undefined until answered, and when the read fails: the page then says
    *  nothing about a worktree rather than that there isn't one. */

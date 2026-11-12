@@ -255,8 +255,15 @@ _Avoid_: review checkout, temp worktree
 **Stack worktree**:
 The one worktree a **Stack** lives in, on one of its git branches, with a local
 branch for each open PR. Switching PR switches its branch. A stack's PR counts as
-at the Worktree step even when the worktree is on a neighbouring branch.
+at the Worktree step even when the worktree is on a neighbouring branch. When the
+`gh stack` extension is installed, it tracks the stack there too.
 _Avoid_: stack checkout (that's the action), per-PR stack worktree
+
+**Position** (in a **Stack**):
+A pull request's place in its stack, counted from the bottom among the open
+PRs: 1 is the PR on the stack's base, so "the first PR" is position 1. Shown as
+"2 of 3" on inbox rows, the Stack page and the composer's Worktree context pill.
+_Avoid_: layer, level, depth, index
 
 **Worktree purpose**:
 What Pingex knows a worktree is for: a managed **PR worktree** and its PR, or a
@@ -269,9 +276,10 @@ _Avoid_: worktree kind, worktree type
 
 **Worktree context**:
 What a new thread's first message tells the agent about the worktree it starts
-in, when that worktree has a **Worktree purpose**: the stack's PRs bottom first
-and to put each change on the PR it belongs to, or whose PR a managed worktree
-holds and not to push. On by default, switched off per draft in the composer.
+in, when that worktree has a **Worktree purpose**: the stack's GitHub number,
+its PRs by **Position** with each one's branch and base, that it holds only for
+that stack, and to put each change on the PR it belongs to; or whose PR a
+managed worktree holds and not to push. On by default, switched off per draft in the composer.
 It follows the user's words inside `<worktree_context>` and shows as a folded
 chip, so it works on every harness and never titles the thread.
 _Avoid_: PR context, stack prompt

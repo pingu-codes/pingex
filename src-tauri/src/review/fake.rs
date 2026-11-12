@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use super::github::describe_account;
-use super::provider::GitHubProvider;
+use super::provider::{GitHubProvider, LocalStack};
 use super::types::{
     CheckLog, CommentRef, GitHubAccount, GitHubRepo, InboxPr, InboxRead, MergeRequest, NewPr,
     PrDetail, PrHead, PrSummary, ProviderStatus, RepositoryAccount, ReviewRequests,
@@ -53,8 +53,32 @@ pub(crate) enum Sent {
     },
 }
 
+/// How the fake's local stack tool (`gh stack`) behaves.
+#[derive(Clone, Debug, Default)]
+pub(crate) enum LocalStackTool {
+    /// Not installed.
+    #[default]
+    Missing,
+    Tracks,
+    Fails(String),
+    /// Tracks the stack but leaves the worktree on another git branch, as a
+    /// `checkout` of the wrong PR would.
+    SwitchesTo(String),
+}
+
+/// One `track_stack_locally` call.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TrackedLocally {
+    pub(crate) worktree: PathBuf,
+    pub(crate) number: i64,
+    pub(crate) current_pr: i64,
+    pub(crate) branches: Vec<String>,
+}
+
 #[derive(Default)]
 struct State {
+    local_stack_tool: LocalStackTool,
+    tracked_locally: Vec<TrackedLocally>,
     viewer: String,
     /// Signed in alongside `viewer`.
     other_logins: Vec<String>,
@@ -92,6 +116,15 @@ impl FakeGitHub {
                 ..State::default()
             }),
         }
+    }
+
+    pub(crate) fn set_local_stack_tool(&self, tool: LocalStackTool) {
+        self.state().local_stack_tool = tool;
+    }
+
+    /// The stacks the local stack tool was asked to track, oldest first.
+    pub(crate) fn tracked_locally(&self) -> Vec<TrackedLocally> {
+        self.state().tracked_locally.clone()
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
@@ -288,6 +321,36 @@ impl GitHubProvider for FakeGitHub {
 
     fn stacks(&self) -> Result<StackListing, String> {
         Ok(self.state().stacks.clone())
+    }
+
+    fn track_stack_locally(&self, stack: &LocalStack<'_>) -> Result<bool, String> {
+        let tool = {
+            let mut state = self.state();
+            state.tracked_locally.push(TrackedLocally {
+                worktree: stack.worktree.to_path_buf(),
+                number: stack.number,
+                current_pr: stack.current_pr,
+                branches: stack.branches.to_vec(),
+            });
+            state.local_stack_tool.clone()
+        };
+        match tool {
+            LocalStackTool::Missing => Ok(false),
+            LocalStackTool::Tracks => Ok(true),
+            LocalStackTool::Fails(message) => Err(message),
+            LocalStackTool::SwitchesTo(branch) => {
+                let output = std::process::Command::new("git")
+                    .arg("-C")
+                    .arg(stack.worktree)
+                    .args(["switch", "-q", &branch])
+                    .output()
+                    .map_err(|error| error.to_string())?;
+                if !output.status.success() {
+                    return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+                }
+                Ok(true)
+            }
+        }
     }
 
     fn failed_check_logs(&self, number: i64) -> Result<Vec<CheckLog>, String> {

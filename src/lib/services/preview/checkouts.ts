@@ -120,6 +120,7 @@ export const checkoutCommands = {
       created,
       createdBranches: created ? open.map((pr) => pr.headRef) : [],
       kept: [],
+      localStackWarning: null,
     };
   },
   reviewPlanStep(repoDir, target, action): StepPlan {
@@ -202,6 +203,7 @@ export const checkoutCommands = {
       return {
         purpose: { kind: "managedPr", repoDir: name.slice(0, name.lastIndexOf("#")), number },
         text: `This directory is a worktree for pull request #${number}, which is someone else's or comes from a fork. Pingex made it and removes it once the PR has closed and it holds no work.\nIt is on the local branch \`pr/${number}\`, which has no upstream, so commits stay local. Don't push and don't set an upstream: the user pushes to the PR from Pingex.`,
+        position: null,
       };
     }
     return null;

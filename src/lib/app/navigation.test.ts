@@ -6,6 +6,7 @@ import {
   currentProject,
   goBack,
   goHome,
+  newThread,
   newThreadInDir,
   openGit,
   openProjectDetail,
@@ -19,6 +20,7 @@ import {
   setView,
   view,
 } from "$lib/app/navigation.svelte";
+import { providePageThread } from "$lib/app/pageThread";
 import { inboxes } from "$lib/inbox/inboxStore.svelte";
 import { isTouched, resetTouched } from "$lib/layout/sessionFocus.svelte";
 import type { BootstrapData, Project } from "$lib/types";
@@ -102,6 +104,37 @@ describe("navigation", () => {
     expect(view.draftCwd).toBeNull();
     expect(view.threadId).toBe("thread-1");
     expect(view.projectPath).toBe("/projects/api");
+  });
+
+  it("starts New thread the way the page shown says, and in the project once it has gone", () => {
+    newThreadInDir("/projects/api/wt-feature");
+    openStackPage("/projects/api", 7);
+    const started: string[] = [];
+    const leaveStack = providePageThread("stack", () => {
+      started.push("stack");
+    });
+    const leavePr = providePageThread("pr", () => {
+      started.push("pr");
+    });
+
+    // A Stack page shows a PR beside the stack: the stack's way wins.
+    newThread();
+    expect(started).toEqual(["stack"]);
+    expect(view.draftCwd).toBeNull();
+
+    leaveStack();
+    newThread();
+    expect(started).toEqual(["stack", "pr"]);
+
+    // A project chosen in the sidebar is the user's pick, page or not.
+    newThread(api);
+    expect(started).toEqual(["stack", "pr"]);
+    expect(view.draftCwd).toBe("/projects/api");
+
+    leavePr();
+    openStackPage("/projects/api", 7);
+    newThread();
+    expect(view.draftCwd).toBe("/projects/api");
   });
 
   it("remounts on navigation but not when a draft becomes a thread", () => {

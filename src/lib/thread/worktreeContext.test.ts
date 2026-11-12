@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { splitWorktreeContext, withWorktreeContext } from "$lib/thread/worktreeContext";
+import { contextPillLabel, splitWorktreeContext, withWorktreeContext } from "$lib/thread/worktreeContext";
 import type { UserInputPart } from "$lib/types";
 
 const CONTEXT = 'This directory is the worktree of the stack "billing".\n1. #101 Add the ledger (`billing/ledger`)';
@@ -38,5 +38,12 @@ describe("worktree context", () => {
     expect(splitWorktreeContext(typed)).toEqual({ content: typed, context: null });
     const unclosed: UserInputPart[] = [{ type: "text", text: "What does <worktree_context> mean?" }];
     expect(splitWorktreeContext(unclosed)).toEqual({ content: unclosed, context: null });
+  });
+});
+
+describe("the composer pill", () => {
+  it("says where a stack's worktree is, counted from the bottom", () => {
+    expect(contextPillLabel("Stack", { position: 2, total: 3 })).toBe("Stack context · 2 of 3");
+    expect(contextPillLabel("PR", null)).toBe("PR context");
   });
 });
