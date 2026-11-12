@@ -24,7 +24,6 @@
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import { peopleByLogin } from "$lib/inbox/inbox";
-  import { stepHint } from "$lib/review/actions";
   import ChecksTab from "$lib/review/ChecksTab.svelte";
   import ConversationTab from "$lib/review/ConversationTab.svelte";
   import { DiffReading, type PageKeys } from "$lib/review/diffReading.svelte";
@@ -33,6 +32,7 @@
   import FindBar from "$lib/review/FindBar.svelte";
   import type { PendingReviewStore } from "$lib/review/pendingReview.svelte";
   import { mergeMethod } from "$lib/review/prActions";
+  import { CHECK_OUT_FIRST } from "$lib/review/prOnDisk";
   import { PrUnderReview } from "$lib/review/prUnderReview.svelte";
   import ReviewHeader from "$lib/review/ReviewHeader.svelte";
   import ReviewThread, { type HandTarget } from "$lib/review/ReviewThread.svelte";
@@ -66,7 +66,6 @@
   import { baseInput, driftLabel } from "$lib/stack/stack";
   import type {
     CheckLog,
-    CheckoutStep,
     GitHubPerson,
     Inbox,
     PendingEntry,
@@ -89,7 +88,6 @@
     onAskAgent,
     onRunLocally,
     headerActions,
-    step = "noCheckout",
     checkout = null,
     checkoutKnown = false,
     findingCounts,
@@ -112,14 +110,12 @@
     inbox?: Inbox | null;
     onOpenPr?: (number: number, move?: PrMove) => void;
     onAskAgent?: (request: AskAgentRequest) => void;
-    /** Run locally or Open in editor: creates a worktree when the PR has none.
-     *  Without it both are unavailable. */
+    /** Run locally or Open in editor, in the PR's worktree. Without it, or
+     *  until the PR is checked out, both are unavailable. */
     onRunLocally?: (detail: PrDetail, action: "runLocally" | "openInEditor") => void;
     /** More of the header's actions, beside Run locally. */
     headerActions?: Snippet;
-    /** The checkout step the PR is at. */
-    step?: CheckoutStep;
-    /** Where the PR is on disk, for the header's badge. */
+    /** Where the PR is on disk, for the header's badge and what needs it. */
     checkout?: PrCheckout | null;
     /** `checkout` has been read: `null` then means no worktree. */
     checkoutKnown?: boolean;
@@ -138,6 +134,9 @@
     /** Threads already on this PR: "Hand to agent" offers them. */
     prThreads?: HandTarget[];
   } = $props();
+
+  /** Why what works in the PR's worktree is unavailable: it isn't checked out. */
+  const checkoutHint = $derived(checkoutKnown && !checkout ? CHECK_OUT_FIRST : null);
 
   const NO_THREADS: CommentThread[] = [];
   const NO_PENDING: PendingEntry[] = [];
@@ -323,7 +322,12 @@
 
   function fileMenu(isViewed: boolean): MenuEntry[] {
     return [
-      { id: "ask", label: "Ask agent about this file", disabled: !onAskAgent },
+      {
+        id: "ask",
+        label: "Ask agent about this file",
+        disabled: !onAskAgent || !!checkoutHint,
+        title: checkoutHint ?? undefined,
+      },
       { kind: "separator" },
       { id: "viewed", label: isViewed ? "Mark not viewed" : "Mark viewed", shortcut: "V" },
       { id: "above", label: "Mark this and above viewed", shortcut: "Shift+V" },
@@ -334,8 +338,8 @@
         id: "editor",
         label: "Open in editor",
         shortcut: "CmdOrCtrl+E",
-        disabled: !onRunLocally,
-        title: stepHint(step, "openInEditor") ?? undefined,
+        disabled: !onRunLocally || !!checkoutHint,
+        title: checkoutHint ?? undefined,
       },
       { id: "copy", label: "Copy path" },
     ];
@@ -630,8 +634,8 @@
         <button
           type="button"
           class="btn btn-sm hover:preset-tonal text-xs"
-          title={stepHint(step, "runLocally") ?? "Run locally"}
-          disabled={!onRunLocally}
+          title={checkoutHint ?? "Run locally"}
+          disabled={!onRunLocally || !!checkoutHint}
           onclick={() => detail && onRunLocally?.(detail, "runLocally")}
         >
           Run locally
@@ -700,6 +704,7 @@
                 onSelectLine={(side, line, extend) => reading.selectLine(file.path, side, line, extend)}
                 onCompose={(mode) => reading.compose(mode)}
                 onAskAgent={() => askAboutSelection(file)}
+                askHint={checkoutHint}
                 onAddEntry={(body, replacement) => reading.add(body, replacement)}
                 onCancelComposer={() => reading.compose(null)}
                 onRemoveEntry={(id) => pending.remove(id)}
@@ -838,6 +843,7 @@
     onEdit={editComment}
     onDelete={deleteComment}
     agentThreads={prThreads}
+    startHint={checkoutHint}
     onHandToAgent={(comment, askOnly, threadId) =>
       askAgent({
         threadId,

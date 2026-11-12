@@ -2,15 +2,12 @@ import { flushSync } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 import { appData, trackNewThread } from "$lib/app/appData.svelte";
 import { type PreviewCommands, previewCommands } from "$lib/services/preview/commands";
-import { seedPreviewDesk } from "$lib/services/preview/desk";
-import { deskRepository, prCheckout } from "$lib/services/preview/factories";
-import { refreshStackWorktree } from "$lib/stack/refreshStackWorktree";
+import { desk, seedPreviewDesk } from "$lib/services/preview/desk";
+import { deskRepository, inboxPr, prCheckout } from "$lib/services/preview/factories";
 import { type DraftDeps, DraftThread, editAsBranch, startThreadWith } from "$lib/thread/draftThread.svelte";
 import { openSession, peekSession, resetSessions } from "$lib/thread/sessions.svelte";
 import type { ThreadSession } from "$lib/thread/threadSession.svelte";
-import type { BootstrapData, UserInputPart, WorktreeContext } from "$lib/types";
-
-vi.mock("$lib/stack/refreshStackWorktree", () => ({ refreshStackWorktree: vi.fn(async () => false) }));
+import type { BootstrapData, CheckOutOutcome, UserInputPart, WorktreeContext } from "$lib/types";
 
 // The preview's command fakes answer everything here — repositories, worktrees,
 // PR worktree context, thread creation. Spies watch the calls; a turn is only
@@ -82,7 +79,8 @@ function seedPrWorktree() {
     repositories: [
       deskRepository("pingex/app", {
         repository: { path: "/projects/app" },
-        checkouts: [prCheckout(7, { path: PR_WORKTREE, managed: true, step: "worktree" })],
+        prs: [inboxPr({ number: 7, title: "Tax rounding", author: "jo-r", headRef: "tax-rounding" })],
+        checkouts: [prCheckout(7, { path: PR_WORKTREE })],
       }),
     ],
   });
@@ -187,6 +185,31 @@ describe("Worktree context", () => {
     await vi.waitFor(() => expect(autoName).toHaveBeenCalledWith(session.id, "Fix the tax rounding"));
   });
 
+  it("files the thread under the PR the moment it starts, before its first turn", async () => {
+    const { draft: made, session } = draft({ cwd: PR_WORKTREE });
+    await vi.waitFor(() => expect(made.pr).toEqual({ repoDir: "/projects/app", number: 7 }));
+
+    await made.send(session, said("Fix the tax rounding"));
+
+    const link = desk().links.get(session.id ?? "");
+    expect(link).toMatchObject({ prNumber: 7, checkoutPath: PR_WORKTREE });
+  });
+
+  it("deletes a thread whose link can't be written, and the draft says why", async () => {
+    vi.spyOn(fakes, "reviewLinkThread").mockImplementation(() => {
+      throw new Error("the desk is gone");
+    });
+    const deleteThread = vi.spyOn(fakes, "deleteThread");
+    const { draft: made, session } = draft({ cwd: PR_WORKTREE });
+    await vi.waitFor(() => expect(made.worktreeContext).not.toBeNull());
+
+    expect(await made.send(session, said("Fix the tax rounding"))).toBe(false);
+
+    expect(deleteThread).toHaveBeenCalledOnce();
+    expect(startTurn).not.toHaveBeenCalled();
+    expect(session.streamError).toMatch(/couldn't be filed under #7, so it was deleted: the desk is gone/);
+  });
+
   it("sends nothing extra when the composer leaves it out", async () => {
     const { draft: made, session } = draft({ cwd: PR_WORKTREE });
     await vi.waitFor(() => expect(made.worktreeContext).not.toBeNull());
@@ -237,15 +260,23 @@ describe("Worktree context in a Stack worktree", () => {
     position: { position: prs.length, total: prs.length },
   });
 
+  const checkedOut: CheckOutOutcome = {
+    kind: "checkedOut",
+    checkout: prCheckout(103, { path: STACK_WORKTREE, stack: 7 }),
+    created: false,
+    createdBranches: [],
+    kept: [],
+    localStackWarning: null,
+  };
+
   it("shows the stored context, then the one read after catching the stack up", async () => {
-    const refresh = vi.mocked(refreshStackWorktree).mockResolvedValue(true);
     let fresh = false;
     vi.spyOn(fakes, "reviewWorktreeContext").mockImplementation(() =>
       fresh ? stackContext([101, 102, 103], "fresh") : stackContext([101, 102], "stored"),
     );
-    refresh.mockImplementation(async () => {
+    const refresh = vi.spyOn(fakes, "reviewCheckOutStack").mockImplementation(() => {
       fresh = true;
-      return true;
+      return checkedOut;
     });
 
     const { draft: made } = draft({ cwd: STACK_WORKTREE });
@@ -256,7 +287,9 @@ describe("Worktree context in a Stack worktree", () => {
   });
 
   it("keeps the stored context when the stack can't be read", async () => {
-    const refresh = vi.mocked(refreshStackWorktree).mockResolvedValue(false);
+    const refresh = vi.spyOn(fakes, "reviewCheckOutStack").mockImplementation(() => {
+      throw new Error("A restack is stopped");
+    });
     const read = vi.spyOn(fakes, "reviewWorktreeContext").mockImplementation(() => stackContext([101, 102], "stored"));
 
     const { draft: made } = draft({ cwd: STACK_WORKTREE });

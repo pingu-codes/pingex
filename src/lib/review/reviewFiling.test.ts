@@ -11,7 +11,6 @@ const link = (threadId: string, overrides: Partial<PrLink> = {}): PrLink => ({
   repoKey: "/code/pingex",
   prNumber: 409,
   mine: false,
-  step: "noCheckout",
   checkoutPath: null,
   gitBranch: "jo-r/usage-meter",
   startSha: "3c1e9a2000000000000000000000000000000000",
@@ -26,11 +25,11 @@ describe("fileReviewThreads", () => {
   const tests = threadSummary({ id: "tests", title: "Stack review with tests", updatedAt: 40 });
   const mine = threadSummary({ id: "mine", title: "Address review on #415", updatedAt: 10 });
 
-  it("files threads on other people's PRs and my PRs without a worktree under Reviews", () => {
+  it("files threads on other people's PRs, and my PRs' threads from before worktrees, under Reviews", () => {
     const filing = fileReviewThreads([repo("/code/pingex", [diff, plain, mine])], [tests], {
       diff: link("diff"),
-      tests: link("tests", { prNumber: 403, step: "worktree" }),
-      mine: link("mine", { prNumber: 415, mine: true, step: "worktree" }),
+      tests: link("tests", { prNumber: 403, checkoutPath: "/wt/pr-403" }),
+      mine: link("mine", { prNumber: 415, mine: true, checkoutPath: "/wt/feat-415" }),
     });
 
     expect(filing.reviews["/code/pingex"].map((row) => row.thread.id)).toEqual(["tests", "diff"]);
@@ -44,7 +43,9 @@ describe("fileReviewThreads", () => {
   });
 
   it("keeps someone else's PR thread under Reviews even in a worktree", () => {
-    const filing = fileReviewThreads([repo("/code/pingex", [diff])], [], { diff: link("diff", { step: "worktree" }) });
+    const filing = fileReviewThreads([repo("/code/pingex", [diff])], [], {
+      diff: link("diff", { checkoutPath: "/wt/pr-409" }),
+    });
     expect(filing.reviews["/code/pingex"]).toHaveLength(1);
   });
 

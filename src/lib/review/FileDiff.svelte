@@ -60,6 +60,7 @@
     onSelectLine,
     onCompose,
     onAskAgent,
+    askHint = null,
     onAddEntry,
     onCancelComposer,
     onRemoveEntry,
@@ -90,6 +91,8 @@
     onCompose: (mode: Composer["mode"]) => void;
     /** Absent: no Ask agent beside a selection. */
     onAskAgent?: () => void;
+    /** Why Ask agent can't run yet (the PR isn't checked out). */
+    askHint?: string | null;
     onAddEntry: (body: string, replacement: string | null) => void;
     onCancelComposer: () => void;
     onRemoveEntry: (id: string) => void;
@@ -378,6 +381,8 @@
             <button
               type="button"
               class="btn btn-sm hover:preset-tonal text-[11px] text-primary-500"
+              disabled={!!askHint}
+              title={askHint ?? undefined}
               onclick={onAskAgent}
             >
               <Sparkles size={12} aria-hidden="true" />Ask agent

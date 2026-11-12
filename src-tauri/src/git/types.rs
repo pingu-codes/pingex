@@ -103,9 +103,11 @@ pub(crate) struct WorktreeEntry {
     /// A temporary worktree under `<codex_home>/worktrees-tmp/`: scaffolding
     /// for one thread rather than a project of its own.
     pub(crate) is_temp: bool,
-    /// A PR worktree Pingex manages (locked with `checkouts::PR_WORKTREE_LOCK`):
-    /// in the Worktrees list with its PR, but not nested in the sidebar, where
-    /// its threads already file under the PR.
+    /// Someone else's PR or a fork's, in the worktree Pingex made for it
+    /// (locked with `checkouts::PR_WORKTREE_LOCK`, on `pr/<n>`): in the
+    /// Worktrees list with its PR, but not nested in the sidebar, where its
+    /// threads already file under the PR. Pingex makes my PRs' and stacks'
+    /// worktrees too, on their real branches; those nest as worktrees do.
     pub(crate) is_managed_pr_worktree: bool,
     /// What Pingex knows this worktree is for: a managed PR worktree's PR, or
     /// the stack a Stack worktree holds. Filled in by the `git_worktrees`

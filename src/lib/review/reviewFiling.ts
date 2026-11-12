@@ -21,9 +21,11 @@ export interface ReviewFiling {
   taken: Set<string>;
 }
 
-/** Whether a link files its thread under Reviews rather than by cwd. */
+/** Whether a link files its thread under Reviews rather than by cwd: an
+ *  open PR that isn't mine, or a thread from before every PR thread ran in
+ *  the PR's worktree. My PRs' threads sit with their worktrees. */
 export function filedUnderReviews(link: PrLink): boolean {
-  return link.closedAt === null && (!link.mine || link.step !== "worktree");
+  return link.closedAt === null && (!link.mine || link.checkoutPath === null);
 }
 
 export function fileReviewThreads(

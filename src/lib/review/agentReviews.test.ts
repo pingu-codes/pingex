@@ -3,7 +3,7 @@ import { agentReviews, enqueueAgentReview, startStackReview } from "$lib/review/
 import { previewEmit } from "$lib/services/codexEvents.svelte";
 import { commands } from "$lib/services/homeRouting";
 import { seedPreviewDesk } from "$lib/services/preview/desk";
-import { deskRepository, inboxPr } from "$lib/services/preview/factories";
+import { deskRepository, inboxPr, prCheckout } from "$lib/services/preview/factories";
 import type { AgentReviewRequest, CheckoutTarget, InboxPr, ThreadDetail } from "$lib/types";
 
 vi.mock("$lib/services/homeRouting", async (importOriginal) => {
@@ -29,6 +29,8 @@ function target(number: number): CheckoutTarget {
     headSha: String(number).repeat(40).slice(0, 40),
     mine: false,
     stack: null,
+    headRepo: null,
+    stackBranches: [],
   };
 }
 
@@ -36,7 +38,6 @@ function request(number: number): AgentReviewRequest {
   return {
     targets: [target(number)],
     harness: "claude",
-    step: "noCheckout",
     focus: ["correctness"],
     keepDrafts: true,
     rerunOnNewCommits: false,
@@ -60,7 +61,11 @@ describe("the agent review queue", () => {
     const prs = [412, 415, 418].map((number) =>
       inboxPr({ number, title: `PR ${number}`, headRef: `feature-${number}` }),
     );
-    seedPreviewDesk({ repositories: [deskRepository("ciaran/codex-custom", { repository: { path: repoDir }, prs })] });
+    // Each checked out: an agent review works in the PR's worktree.
+    const checkouts = prs.map((pr) => prCheckout(pr.number, { path: `/wt/pr-${pr.number}` }));
+    seedPreviewDesk({
+      repositories: [deskRepository("ciaran/codex-custom", { repository: { path: repoDir }, prs, checkouts })],
+    });
     vi.mocked(commands.startThread).mockClear();
     vi.mocked(commands.startTurn).mockClear();
   });

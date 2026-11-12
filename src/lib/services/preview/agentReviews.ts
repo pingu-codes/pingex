@@ -37,10 +37,11 @@ function find(id: string): AgentReview {
 
 function enqueue(repoDir: string, request: AgentReviewRequest, sinceSha: string | null = null): AgentReview {
   if (request.targets.length === 0) throw new Error("Pick a pull request to review");
-  if (request.focus.includes("runTests") && request.step === "noCheckout") {
-    throw new Error("Running tests needs a worktree");
-  }
   const top = request.targets.at(-1);
+  // The agent works in the PR's worktree, as `agent_reviews::enqueue` insists.
+  if (top && !desk().checkouts.has(`${repoDir}#${top.number}`)) {
+    throw new Error(`Check out #${top.number} before an agent review`);
+  }
   const created = review({
     id: `ar-preview-${++desk().next}`,
     repoDir,

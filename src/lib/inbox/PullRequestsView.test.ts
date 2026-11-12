@@ -31,8 +31,7 @@ function setup(handlers: Partial<InboxHandlers> = {}) {
     openPr: vi.fn(),
     newThread: vi.fn(),
     startAgentReviews: vi.fn(),
-    createWorktrees: vi.fn(),
-    openInWorktree: vi.fn(),
+    checkOut: vi.fn(),
     fixCi: vi.fn(),
     openStack: vi.fn(),
     restack: vi.fn(),
@@ -170,6 +169,21 @@ describe("Pull requests inbox", () => {
     expect(await within(row(409)).findByRole("button", { name: "Review" })).toBeInTheDocument();
     expect(await within(row(409)).findByText(/Agent review ready · 3\s+findings/)).toBeInTheDocument();
     expect(within(row(401)).getByText("Agent review running")).toBeInTheDocument();
+  });
+
+  it("asks for Check out where a row's work needs the worktree, and holds that work back until then", async () => {
+    const { user, handlers } = setup();
+    await loaded();
+
+    // #126 asks for my review and isn't checked out: Start review needs its worktree.
+    const checkOut = await within(row(126)).findByRole("button", { name: "Check out" });
+    await user.click(checkOut);
+    expect(handlers.checkOut).toHaveBeenCalledWith(MAIN, [expect.objectContaining({ number: 126 })]);
+    expect(within(row(126)).getByRole("button", { name: "New thread" })).toBeDisabled();
+
+    row(126).focus();
+    await user.keyboard("t");
+    expect(handlers.newThread).not.toHaveBeenCalled();
   });
 
   it("opens a PR from a plain click on its row", async () => {

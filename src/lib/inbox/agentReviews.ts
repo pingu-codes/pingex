@@ -4,13 +4,12 @@
 // (`$lib/review/agentReviews.svelte`).
 
 import { agentReviews, refreshAgentReviews } from "$lib/review/agentReviews.svelte";
-import type { AgentReview, CheckoutStep, HarnessKind } from "$lib/types";
+import type { AgentReview, HarnessKind } from "$lib/types";
 
 export type AgentReviewRow = {
   id: string;
   number: number;
   harness: HarnessKind;
-  step: CheckoutStep;
   status: "queued" | "running" | "ready" | "failed";
   /** Unix milliseconds; `null` while queued. */
   startedAt: number | null;
@@ -23,7 +22,6 @@ function row(review: AgentReview): AgentReviewRow {
     id: review.id,
     number: review.number,
     harness: review.request.harness,
-    step: review.request.step,
     status: review.status === "done" ? "ready" : review.status,
     startedAt: review.startedAt,
     findings: review.findings,

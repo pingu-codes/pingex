@@ -68,6 +68,7 @@
   import RefreshIcon from "$lib/components/RefreshIcon.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import { inboxes, needsYouByRepo, startInboxSync, syncInbox } from "$lib/inbox/inboxStore.svelte";
+  import { workHandlers } from "$lib/inbox/inboxWork";
   import PullRequestsView from "$lib/inbox/PullRequestsView.svelte";
   import HomePage from "$lib/layout/HomePage.svelte";
   import HomePicker from "$lib/layout/HomePicker.svelte";
@@ -77,7 +78,6 @@
   import ProjectDetail from "$lib/panels/ProjectDetail.svelte";
   import EmptyInbox from "$lib/repositories/EmptyInbox.svelte";
   import { agentReviewHandlers } from "$lib/review/inboxAgentReviews";
-  import { checkoutHandlers } from "$lib/review/inboxCheckouts";
   import ReviewView from "$lib/review/ReviewView.svelte";
   import { prPlace } from "$lib/review/reviewPage";
   import { commands } from "$lib/services/homeRouting";
@@ -294,7 +294,7 @@
                     if (options.changesSince) prPlace(repoDir, pr.number).changes = "since";
                     openReview(target, pr.number);
                   },
-                  ...checkoutHandlers((repoDir) => projectForCwd(repoDir)?.name ?? repoDir),
+                  ...workHandlers(),
                   openStack: (repoDir, group) => openStackPage(repoDir, group.stack.number),
                   restack: (repoDir, group) => openStackPage(repoDir, group.stack.number, { restack: true }),
                   ...agentReviewHandlers((repoDir, pr) => {

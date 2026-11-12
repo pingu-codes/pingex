@@ -313,21 +313,21 @@ export function reviewThread(
   }));
 }
 
-/** PR `number` with no checkout, or where `overrides` puts it. */
+/** PR `number` checked out in its own worktree, or where `overrides` puts it. */
 export function prCheckout(number: number, overrides: Partial<PrCheckout> = {}): PrCheckout {
   return {
     number,
-    step: "noCheckout",
-    path: null,
+    path: `/wt/pr-${number}`,
     headSha: null,
-    gitBranch: null,
+    gitBranch: `pr/${number}`,
     setupPending: null,
     ahead: 0,
     behind: 0,
     dirty: false,
-    managed: false,
-    onPrBranch: false,
+    adopted: false,
+    onPrBranch: true,
     mainCheckout: false,
+    stack: null,
     ...overrides,
   };
 }
@@ -346,7 +346,6 @@ export function agentReview(
     request: {
       targets: [{ number: pr.number, headRef: pr.headRef, headSha: pr.headSha, mine: false, stack: null }],
       harness: "claude",
-      step: "noCheckout",
       focus: ["correctness", "tests"],
       keepDrafts: true,
       rerunOnNewCommits: false,

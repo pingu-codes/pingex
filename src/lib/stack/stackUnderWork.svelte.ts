@@ -26,9 +26,8 @@ import { untrack } from "svelte";
 import { projects } from "$lib/app/appData.svelte";
 import { inboxes, resyncInbox, syncInbox } from "$lib/inbox/inboxStore.svelte";
 import { startStackReview } from "$lib/review/agentReviews.svelte";
-import { checkOutStack, stepUpFor } from "$lib/review/checkoutSteps";
-import { checkoutTarget } from "$lib/review/checkoutTarget";
-import { rememberPrLink } from "$lib/review/prLinks.svelte";
+import { CHECK_OUT_FIRST, checkOut, runningIn, switchToPr } from "$lib/review/prOnDisk";
+import { linkOrDelete } from "$lib/review/prThreadLink";
 import { startThreadWithTurn } from "$lib/services/api";
 import { commands } from "$lib/services/homeRouting";
 import { query, readFresh } from "$lib/services/queryCache.svelte";
@@ -41,9 +40,9 @@ import {
   mergeFollowUp,
   stackInputFor,
 } from "$lib/stack/stack";
+import { nameFromOpening } from "$lib/thread/draftThread.svelte";
 import { toastError, toaster, toastFailure } from "$lib/toaster";
 import type {
-  CheckoutTarget,
   Inbox,
   PrCheckout,
   RestackPlan,
@@ -72,7 +71,7 @@ export type StackQuestion =
   /** Run this restack, which waits for `running` threads in its worktree. */
   | { kind: "restack"; plan: RestackPlan; from: number | null; running: number }
   /** Push to someone else's git branch from the stack's worktree. */
-  | { kind: "pushToTheirBranch"; target: CheckoutTarget; worktreePath: string }
+  | { kind: "pushToTheirBranch"; pr: StackInputPr; worktreePath: string }
   /** Rebase into `order` (bottom first), force-push and retarget. */
   | { kind: "reorder"; order: number[] }
   /** Squash `pr` into `parent` and close it. */
@@ -130,14 +129,13 @@ export class StackUnderWork {
       ? [this.repoDir, this.#input, null]
       : null,
   );
-  readonly #checkoutsQuery = query("reviewPrCheckouts", () =>
-    this.#openPrs.length > 0 ? [this.repoDir, this.#openPrs.map((pr) => this.#targetFor(pr))] : null,
-  );
-  readonly #checkouts = $derived(
-    this.#checkoutsQuery.value
-      ? new Map(this.#checkoutsQuery.value.map((checkout) => [checkout.number, checkout]))
-      : null,
-  );
+  readonly #checkoutsQuery = query("reviewPrCheckouts", () => (this.#openPrs.length > 0 ? [this.repoDir] : null));
+  readonly #checkouts = $derived.by(() => {
+    const read = this.#checkoutsQuery.value;
+    if (!read) return null;
+    const open = new Set(this.#openPrs.map((pr) => pr.number));
+    return new Map(read.filter((checkout) => open.has(checkout.number)).map((checkout) => [checkout.number, checkout]));
+  });
   readonly #followUp = $derived(
     this.#input && this.#overview
       ? mergeFollowUp(
@@ -214,6 +212,17 @@ export class StackUnderWork {
     return this.#checkouts;
   }
 
+  /** The stack is checked out: its open PRs are in its worktree. `null`
+   *  until read. What runs in the worktree waits for this. */
+  get checkedOut(): boolean | null {
+    return this.#checkouts === null ? null : this.#checkouts.size > 0;
+  }
+
+  /** Why what runs in the stack's worktree is unavailable, if it is. */
+  get checkoutHint(): string | null {
+    return this.checkedOut === false ? CHECK_OUT_FIRST : null;
+  }
+
   /** The restack in progress or just finished. */
   get progress(): RestackProgress | null {
     return this.#progress;
@@ -250,18 +259,15 @@ export class StackUnderWork {
     if (restack && !this.#progress) await this.restack();
   }
 
-  /** Restack from `from` (or the bottom) onto the base, making the stack's
-   *  worktree first if it has none. True once the stack sits on the base:
-   *  restacked, or already there. */
+  /** Restack from `from` (or the bottom) onto the base, in the stack's
+   *  worktree. True once the stack sits on the base: restacked, or already
+   *  there. */
   async restack(from: number | null = null): Promise<boolean> {
     const input = this.#input;
     if (!input) return false;
+    if (!this.#refuseUnlessCheckedOut()) return false;
     try {
-      let plan = await commands.reviewRestackPlan(this.repoDir, input, from);
-      if (!plan.worktree) {
-        if (!(await this.#ensureWorktree(this.#openPrs.at(-1)))) return false;
-        plan = await commands.reviewRestackPlan(this.repoDir, input, from);
-      }
+      const plan = await commands.reviewRestackPlan(this.repoDir, input, from);
       if (plan.steps.every((step) => step.unchanged)) {
         toaster.info({ title: `Already on ${input.baseRef}`, description: "Nothing to restack." });
         return true;
@@ -329,18 +335,18 @@ export class StackUnderWork {
     const progress = this.#progress;
     const pr = conflict && this.#openPrs.find((candidate) => candidate.number === conflict.number);
     if (!conflict || !progress || !pr) return null;
-    // Not `startPrThread`: mid-rebase the worktree is on no git branch, so
-    // that would start a read-only thread, which can't resolve anything.
+    // Not `startPrThread`: mid-rebase the worktree is on no git branch, and
+    // switching it to the PR's would end the rebase.
     try {
-      const { thread } = await startThreadWithTurn(
-        progress.worktree,
-        [{ type: "text", text: conflictPrompt(conflict.headRef, progress.ontoRef, conflict.conflicts) }],
-        {
-          beforeTurn: async (started) => {
-            rememberPrLink(await commands.reviewLinkThread(this.repoDir, started.id, this.#targetFor(pr)));
-          },
+      const prompt = [
+        { type: "text" as const, text: conflictPrompt(conflict.headRef, progress.ontoRef, conflict.conflicts) },
+      ];
+      const { thread } = await startThreadWithTurn(progress.worktree, prompt, {
+        beforeTurn: async (started) => {
+          await linkOrDelete(this.repoDir, started.id, pr.number);
         },
-      );
+      });
+      nameFromOpening(thread.id, prompt);
       return { threadId: thread.id, cwd: progress.worktree };
     } catch (cause) {
       toastFailure(cause);
@@ -348,40 +354,18 @@ export class StackUnderWork {
     }
   }
 
-  /** Push every open git branch, or only PR `only`'s. Without a worktree it
-   *  steps up to one first; from one, pushing to someone else's git branch
-   *  is asked every time. */
+  /** Push every open git branch, or only PR `only`'s, from the stack's
+   *  worktree. Pushing to someone else's git branch is asked every time. */
   async push(only: number | null = null): Promise<boolean> {
     const input = this.#input;
     const pushing = this.#openPrs.filter((candidate) => only === null || candidate.number === only);
     const pr = pushing.at(-1);
-    if (!input || !pr) return false;
-    const worktree = this.#overview?.worktree;
-    if (!worktree) {
-      // Steps up to a worktree, asking first about someone else's git branch.
-      if (
-        !(await stepUpFor({
-          repoDir: this.repoDir,
-          repoName: this.repoName,
-          target: this.#targetFor(pr),
-          action: "push",
-        }))
-      )
-        return false;
-    } else {
-      // The stack's worktree holds every one of its git branches, whichever
-      // is checked out.
-      const other = pushing.find((candidate) => !this.#isMine(candidate));
-      if (
-        other &&
-        !(await this.#confirm({
-          kind: "pushToTheirBranch",
-          target: this.#targetFor(other),
-          worktreePath: worktree.path,
-        }))
-      )
-        return false;
-    }
+    if (!input || !pr || !this.#refuseUnlessCheckedOut()) return false;
+    // The stack's worktree holds every one of its git branches, whichever
+    // is checked out.
+    const other = pushing.find((candidate) => !this.#isMine(candidate));
+    const worktreePath = this.#checkouts?.get(pr.number)?.path ?? this.#overview?.worktree?.path ?? "";
+    if (other && !(await this.#confirm({ kind: "pushToTheirBranch", pr: other, worktreePath }))) return false;
     return this.#work("push", async () => {
       const report = await commands.reviewPushStack(this.repoDir, input, only);
       toaster.success({
@@ -429,30 +413,34 @@ export class StackUnderWork {
     }
   }
 
-  /** Put PR `number`'s git branch in the stack's worktree, making the
-   *  worktree if there is none. Without a PR: a worktree for the whole stack
-   *  and a local git branch for each PR, or just what is missing. */
+  /** Check the stack out: one worktree and a local git branch for each PR,
+   *  or just what is missing. With a PR, put the checked-out stack's
+   *  worktree on that PR's git branch, once no thread runs there. */
   async checkOut(number: number | null = null): Promise<boolean> {
-    const input = this.#input;
-    if (!input) return false;
+    if (!this.#input) return false;
+    // Both toast their own failures; the stack only re-reads afterwards.
+    let done = false;
     if (number === null) {
-      const top = this.#openPrs.at(-1);
-      if (!top) return false;
-      const request = { repoDir: this.repoDir, repoName: this.repoName, input, target: this.#targetFor(top) };
-      return this.#work("checkout", () => checkOutStack(request));
+      await this.#work("checkout", async () => {
+        done = (await checkOut(this.repoDir, { stack: this.number })) !== null;
+      });
+      return done;
     }
+    if (!this.#refuseUnlessCheckedOut()) return false;
     const pr = this.#openPrs.find((candidate) => candidate.number === number);
-    const path = await this.#ensureWorktree(pr);
-    if (!pr || !path || this.#overview?.worktree?.branch === pr.headRef) return false;
-    return this.#work("checkout", () => commands.gitCheckoutBranch(path, pr.headRef, false));
+    if (!pr || this.#checkouts?.get(number)?.onPrBranch) return false;
+    await this.#work("checkout", async () => {
+      done = (await switchToPr(this.repoDir, number, projects)) !== null;
+    });
+    return done;
   }
 
   /** One agent review over the open PRs, bottom first, filed under the top one. */
   async reviewWhole(): Promise<void> {
     const prs = this.#openPrs.flatMap((pr) => this.#prByNumber.get(pr.number) ?? []);
-    if (prs.length === 0) return;
+    if (prs.length === 0 || !this.#refuseUnlessCheckedOut()) return;
     try {
-      await startStackReview(this.repoDir, prs, { viewer: this.#inbox?.viewer ?? null });
+      await startStackReview(this.repoDir, prs);
       toaster.success({
         title: "Stack review queued",
         description: `One agent review over ${prs.map((pr) => `#${pr.number}`).join(", ")}, filed under #${prs.at(-1)?.number}.`,
@@ -521,44 +509,24 @@ export class StackUnderWork {
     ]);
   }
 
-  /** The stack's worktree, creating one on `pr`'s git branch if it has none. */
-  async #ensureWorktree(pr: StackInputPr | undefined): Promise<string | null> {
-    const worktree = this.#overview?.worktree;
-    if (worktree) return worktree.path;
-    if (!pr) return null;
-    const checkout = await stepUpFor({
-      repoDir: this.repoDir,
-      repoName: this.repoName,
-      target: this.#targetFor(pr),
-      action: "restack",
-    });
-    if (!checkout?.path) return null;
-    await this.#reload();
-    return checkout.path;
+  /** Whether the stack is checked out; says so when it isn't. */
+  #refuseUnlessCheckedOut(): boolean {
+    if (this.checkedOut === false) {
+      toastError(`${CHECK_OUT_FIRST}: the stack isn't checked out`);
+      return false;
+    }
+    return true;
   }
 
   /** Threads running now in the worktree at `path`. */
   async #runningIn(path: string): Promise<number> {
-    const active = new Set(await commands.threadsWithActiveTurns().catch(() => [] as string[]));
-    const prefix = path.replace(/\/+$/, "");
-    return projects()
-      .flatMap((project) => project.threads)
-      .filter((thread) => active.has(thread.id) && (thread.cwd === prefix || thread.cwd.startsWith(`${prefix}/`)))
-      .length;
+    return (await runningIn(projects(), path).catch(() => [] as string[])).length;
   }
 
-  /** The viewer wrote this PR: pushing to its git branch needs no asking. */
+  /** The viewer wrote this PR, as the inbox's triage says: pushing to its git
+   *  branch needs no asking. */
   #isMine(pr: StackInputPr): boolean {
-    return !!this.#inbox && this.#prByNumber.get(pr.number)?.author === this.#inbox.viewer;
-  }
-
-  #targetFor(pr: StackInputPr): CheckoutTarget {
-    const input = this.#input;
-    return checkoutTarget(
-      pr,
-      this.#isMine(pr),
-      input ? { name: input.name, branches: this.#openPrs.map((open) => open.headRef) } : null,
-    );
+    return !!this.#inbox?.triage.find((entry) => entry.number === pr.number)?.mine;
   }
 }
 

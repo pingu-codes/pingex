@@ -83,8 +83,8 @@ describe("Stack page", () => {
     const push = spy("reviewPushStack");
     const user = setup();
     await loaded();
-    const repo = inboxes[MAIN];
-    if (repo?.inbox) repo.inbox.viewer = "jo-r";
+    // The inbox's triage says whose each PR is.
+    for (const entry of inboxes[MAIN]?.inbox?.triage ?? []) entry.mine = false;
 
     const header = screen.getByRole("heading", { name: "driver-trait" }).parentElement as HTMLElement;
     await user.click(within(header).getByRole("button", { name: "Push stack" }));

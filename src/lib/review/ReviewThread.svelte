@@ -33,6 +33,7 @@
     onCopy,
     onOpenUrl,
     agentThreads = [],
+    startHint = null,
   }: {
     thread: CommentThread;
     viewer: string;
@@ -53,6 +54,8 @@
     onOpenUrl: (url: string) => void;
     /** Threads already on the PR, offered first under Hand to agent. */
     agentThreads?: HandTarget[];
+    /** Why a new thread can't start yet (the PR isn't checked out). */
+    startHint?: string | null;
   } = $props();
 
   let reply = $state("");
@@ -79,8 +82,13 @@
             hint: target.hint,
           })),
           ...(agentThreads.length > 0 ? ([{ kind: "separator" }] satisfies MenuEntry[]) : []),
-          { id: "agent-new", label: "New thread with this comment" },
-          { id: "agent-ask", label: "Ask only, no edits" },
+          {
+            id: "agent-new",
+            label: "New thread with this comment",
+            disabled: !!startHint,
+            title: startHint ?? undefined,
+          },
+          { id: "agent-ask", label: "Ask only, no edits", disabled: !!startHint, title: startHint ?? undefined },
         ],
       },
       {

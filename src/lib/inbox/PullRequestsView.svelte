@@ -51,16 +51,15 @@
   import SinceYouLooked from "$lib/inbox/SinceYouLooked.svelte";
   import StackCard from "$lib/inbox/StackCard.svelte";
   import CompareCommitsDialog from "$lib/review/CompareCommitsDialog.svelte";
-  import { inboxPrTarget } from "$lib/review/prTarget";
+  import { CHECK_OUT_FIRST } from "$lib/review/prOnDisk";
   import { commands } from "$lib/services/homeRouting";
   import { query } from "$lib/services/queryCache.svelte";
   import { driftLabel, myBaseInputs, stackInputFor } from "$lib/stack/stack";
-  import { toastFailure } from "$lib/toaster";
-  import type { CheckoutTarget, InboxPr, PrBaseInput, PrCheckout } from "$lib/types";
+  import { toastError, toastFailure } from "$lib/toaster";
+  import type { InboxPr, PrBaseInput, PrCheckout } from "$lib/types";
   import { relativeTime } from "$lib/utils/format";
   import { basename } from "$lib/utils/path";
   import { readFlag, writeFlag } from "$lib/utils/storedFlag";
-  import { ensureWorktrees, worktreeMap } from "$lib/worktrees/worktreeMap.svelte";
   import { threadCountForPath } from "$lib/worktrees/worktrees";
 
   let {
@@ -133,7 +132,6 @@
       : 0,
   );
   const order = $derived(sectionOrder(sections));
-  const worktrees = $derived(worktreeMap.byRepo[repoPath] ?? []);
   const agentRuns = $derived(repoAgentReviews(repoPath));
   const agentByNumber = $derived(
     new Map(
@@ -163,16 +161,15 @@
   });
   const behindQuery = query("reviewPrsBehind", () => behindArgs);
   const behind = $derived(new Map((behindQuery.value ?? []).map((row) => [row.number, row.behind])));
-  // Where each open PR is on disk, for the rows' worktree icons. Over the whole
-  // inbox, not the filtered rows, so changing a filter doesn't read again.
-  const checkoutArgs = $derived.by((): [string, CheckoutTarget[]] | null => {
-    if (!inbox || inbox.prs.length === 0) return null;
-    const viewer = inbox.viewer;
-    return [repoPath, inbox.prs.map((pr) => inboxPrTarget(repoPath, pr, viewer))];
-  });
-  const checkoutQuery = query("reviewPrCheckouts", () => checkoutArgs);
+  // Which PRs are checked out, and where, for the rows' worktree icons and
+  // what needs the worktree. Over the whole repository, so changing a filter
+  // doesn't read again.
+  const checkoutQuery = query("reviewPrCheckouts", () => (inbox ? [repoPath] : null));
   const checkouts = $derived(new Map((checkoutQuery.value ?? []).map((checkout) => [checkout.number, checkout])));
   const checkoutsKnown = $derived(checkoutQuery.value !== undefined);
+  /** Where PR `number` is checked out, `null` when it isn't, `undefined` until read. */
+  const checkoutOfPr = (number: number): PrCheckout | null | undefined =>
+    checkoutsKnown ? (checkouts.get(number) ?? null) : undefined;
   /** The stack's worktree, as one of its open PRs has it: the one on its own branch if any. */
   function stackCheckout(group: StackGroup): PrCheckout | null {
     const members = group.stack.prs.flatMap((entry) => checkouts.get(entry.number) ?? []);
@@ -225,7 +222,6 @@
   });
 
   onMount(() => {
-    ensureWorktrees([repoPath]);
     if (!inboxes[repoPath]?.inbox) void sync();
     else {
       if (scroller) scroller.scrollTop = left.scrollTop;
@@ -270,6 +266,7 @@
       .filter((number) => selected.has(number))
       .flatMap((number) => inbox?.prs.find((pr) => pr.number === number) ?? []),
   );
+  const allSelectedCheckedOut = $derived(selectedPrs.every((pr) => checkouts.has(pr.number)));
 
   // --- Actions ---
 
@@ -302,14 +299,20 @@
     }
   }
 
+  /** The actions that run in the PR's worktree. */
+  const IN_WORKTREE = new Set(["newThread", "agentReview", "fixCi", "primary:fixCi", "primary:agentReview"]);
+
   function run(id: string, row: InboxRow, group: StackGroup | null) {
     const pr = row.pr;
-    if (id.startsWith("worktree:")) {
-      const path = id.slice("worktree:".length);
-      handlers.openInWorktree(repoPath, pr, path === "new" ? null : path);
+    // Shortcuts reach here even while the menu entry is disabled.
+    if (IN_WORKTREE.has(id) && checkoutsKnown && !checkouts.has(pr.number)) {
+      toastError(`${CHECK_OUT_FIRST}: #${pr.number} isn't checked out`);
       return;
     }
     switch (id) {
+      case "checkOut":
+      case "primary:checkOut":
+        return handlers.checkOut(repoPath, [pr]);
       case "open":
       case "primary:open":
       case "primary:review":
@@ -377,9 +380,11 @@
 </script>
 
 {#snippet prRow(row: InboxRow, depth: number, group: StackGroup | null)}
+  {@const checkout = checkoutOfPr(row.pr.number)}
   {@const action = primaryAction(row, {
     stackAbove: group !== null && stackPosition(group, row.pr.number).position > 1 && !row.triage.mine,
     agentReview: agentState(row.pr.number),
+    checkedOut: checkout === undefined ? undefined : checkout !== null,
   })}
   <PrRow
     {row}
@@ -389,15 +394,13 @@
     agentFindings={agentByNumber.get(row.pr.number)?.findings ?? 0}
     selected={selected.has(row.pr.number)}
     selecting={selectedPrs.length > 0}
-    menu={prMenu(row.pr, {
-      worktrees,
-    })}
-    ciEntries={ciMenu()}
+    menu={prMenu(row.pr, { checkout })}
+    ciEntries={ciMenu(!!checkout)}
     stack={group
       ? { ...stackPosition(group, row.pr.number), first: depth === 0, last: depth === group.rows.length - 1 }
       : null}
     drift={rowDrift(row.pr, group)}
-    checkout={checkouts.get(row.pr.number) ?? null}
+    checkout={checkout ?? null}
     checkoutKnown={checkoutsKnown}
     dimmed={group?.dimmed.has(row.pr.number) ?? false}
     {chosen}
@@ -618,6 +621,8 @@
         <button
           type="button"
           class="btn btn-sm text-[11px] preset-tonal"
+          disabled={!allSelectedCheckedOut}
+          title={allSelectedCheckedOut ? undefined : CHECK_OUT_FIRST}
           onclick={() => handlers.startAgentReviews(repoPath, selectedPrs)}
         >
           Start agent reviews
@@ -625,9 +630,14 @@
         <button
           type="button"
           class="btn btn-sm text-[11px] hover:preset-tonal"
-          onclick={() => handlers.createWorktrees(repoPath, selectedPrs)}
+          disabled={allSelectedCheckedOut}
+          onclick={() =>
+            handlers.checkOut(
+              repoPath,
+              selectedPrs.filter((pr) => !checkouts.has(pr.number)),
+            )}
         >
-          Create worktrees
+          Check out
         </button>
         <button
           type="button"

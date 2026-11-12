@@ -8,7 +8,7 @@
     "dev:work": "CODEX_HOME=\"$HOME/.codex-work\" bun run tauri dev --config src-tauri/tauri.dev.conf.json",
     "frontend:dev": "bun --bun vite --force",
     "build": "bun --bun vite build",
-    "check": "bun --bun svelte-check --tsconfig ./tsconfig.json",
+    "check": "bun --bun svelte-check --tsconfig ./tsconfig.json && bun scripts/check-seams.ts",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",

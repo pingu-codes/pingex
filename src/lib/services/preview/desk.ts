@@ -45,7 +45,8 @@ import type {
 } from "$lib/types";
 import type { DeskCommands } from "./commands";
 import { demoDesk } from "./demoDesk";
-import { largeDiffFiles, NO_ANCHOR, prDetail, prSummary } from "./factories";
+import { largeDiffFiles, NO_ANCHOR, prDetail, prSummary, worktreeEntry } from "./factories";
+import { previewWorktrees } from "./fixtures";
 
 // --- what a seed states -------------------------------------------------------
 
@@ -176,6 +177,28 @@ export function desk(): DeskState {
 /** Replace the desk with exactly `seed`: nothing of the demo stays. */
 export function seedPreviewDesk(seed: DeskSeed = {}): void {
   state = build(structuredClone(seed));
+  listCheckouts(state.checkouts);
+}
+
+/** The worktrees a seed's checkouts are in, in the preview's worktree
+ *  listing, in place of those an earlier desk checked out. */
+function listCheckouts(checkouts: Map<string, PrCheckout>): void {
+  for (let index = previewWorktrees.length - 1; index >= 0; index -= 1) {
+    if (previewWorktrees[index].lockReason === "pingex pr worktree") previewWorktrees.splice(index, 1);
+  }
+  for (const checkout of checkouts.values()) {
+    if (checkout.adopted || previewWorktrees.some((entry) => entry.path === checkout.path)) continue;
+    previewWorktrees.push(
+      worktreeEntry({
+        path: checkout.path,
+        head: null,
+        branch: checkout.gitBranch,
+        locked: true,
+        lockReason: "pingex pr worktree",
+        isManagedPrWorktree: /^pr\/\d+$/.test(checkout.gitBranch ?? ""),
+      }),
+    );
+  }
 }
 
 /** Back to the demo the browser preview opens on. */
@@ -195,6 +218,30 @@ function build(seed: DeskSeed): DeskState {
     const { repository } = entry;
     const dir = repository.path ?? repository.slug;
     for (const checkout of entry.checkouts ?? []) checkouts.set(`${dir}#${checkout.number}`, checkout);
+    // A seeded stack worktree is a checked-out stack: a row per open PR.
+    for (const stack of entry.stacks ?? []) {
+      const worktree = stack.worktree;
+      if (!worktree) continue;
+      const merged = new Set(stack.merged ?? []);
+      for (const number of stack.prs.filter((pr) => !merged.has(pr))) {
+        const pr = entry.prs?.find((candidate) => candidate.number === number);
+        if (checkouts.has(`${dir}#${number}`)) continue;
+        checkouts.set(`${dir}#${number}`, {
+          number,
+          path: worktree.path,
+          headSha: pr?.headSha ?? null,
+          gitBranch: worktree.branch,
+          setupPending: null,
+          ahead: 0,
+          behind: 0,
+          dirty: !worktree.clean,
+          adopted: false,
+          onPrBranch: worktree.branch === pr?.headRef,
+          mainCheckout: false,
+          stack: stack.number,
+        });
+      }
+    }
     if (entry.settings) settings.set(dir, { ...defaultSettings(dir, "origin"), ...entry.settings, repoKey: dir });
     if (repository.slug) data.set(repository.slug, repoData(entry, viewer));
   }
@@ -300,8 +347,6 @@ export function defaultSettings(repoKey: string, prSource: RepositorySettings["p
   return {
     repoKey,
     setupCommand: null,
-    reviewCheckoutPolicy: "ask",
-    skipCheckoutConfirm: false,
     worktreeDir: null,
     prSource,
     updatedAt: 0,

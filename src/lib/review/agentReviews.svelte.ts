@@ -10,11 +10,11 @@
 //                                         a stack's PRs, bottom first
 //   rerunAgentReview(review, targets)     "Re-run on new commits"
 
+import { projects } from "$lib/app/appData.svelte";
 import { HARNESS_INFO, HARNESS_KINDS } from "$lib/bindings";
-import { onInboxSynced } from "$lib/inbox/inboxStore.svelte";
+import { inboxes, onInboxSynced } from "$lib/inbox/inboxStore.svelte";
 import { acceptedEntry } from "$lib/review/findingText";
-import { inboxPrTarget } from "$lib/review/prTarget";
-import { startPrThread } from "$lib/review/prThreads";
+import { startPrThread } from "$lib/review/prOnDisk";
 import { readThread } from "$lib/services/api";
 import { activeTurns, setThreadHandler } from "$lib/services/codexEvents.svelte";
 import { availableHomes, commands } from "$lib/services/homeRouting";
@@ -56,20 +56,37 @@ export function installedHarnesses(): HarnessKind[] {
 }
 
 /** The harness a review defaults to: the first installed one that can work
- *  read-only, since a review at No checkout needs that. */
+ *  read-only, so "Ask only" turns on its thread stay read-only. */
 export function defaultReviewHarness(installed = installedHarnesses()): HarnessKind {
   return installed.find((kind) => can(kind, "readOnlySandbox")) ?? installed[0] ?? "codex";
 }
 
-/** A diff review of `targets` with the defaults: no checkout, drafts only. */
+/** A review of `targets` with the defaults, in the worktree, drafts only. */
 export function defaultRequest(targets: CheckoutTarget[], harness = defaultReviewHarness()): AgentReviewRequest {
   return {
     targets,
     harness,
-    step: "noCheckout",
     focus: [...DEFAULT_FOCUS],
     keepDrafts: true,
     rerunOnNewCommits: false,
+  };
+}
+
+/** A PR's head as a review request names it. Whether it is mine is the
+ *  inbox triage's word; the desk reads the rest from its own store. */
+export function reviewTarget(
+  repoDir: string,
+  pr: { number: number; headRef: string; headSha: string; headRepo?: string | null },
+): CheckoutTarget {
+  const triage = inboxes[repoDir]?.inbox?.triage.find((entry) => entry.number === pr.number);
+  return {
+    number: pr.number,
+    headRef: pr.headRef,
+    headSha: pr.headSha,
+    mine: triage?.mine ?? false,
+    stack: null,
+    headRepo: pr.headRepo ?? null,
+    stackBranches: [],
   };
 }
 
@@ -94,9 +111,9 @@ export async function enqueueAgentReview(repoDir: string, request: AgentReviewRe
 export async function startStackReview(
   repoDir: string,
   prs: InboxPr[],
-  options: { viewer?: string | null; harness?: HarnessKind } = {},
+  options: { harness?: HarnessKind } = {},
 ): Promise<AgentReview> {
-  const targets = prs.map((pr) => inboxPrTarget(repoDir, pr, options.viewer));
+  const targets = prs.map((pr) => reviewTarget(repoDir, pr));
   return enqueueAgentReview(repoDir, defaultRequest(targets, options.harness));
 }
 
@@ -111,7 +128,7 @@ export async function rerunAgentReview(review: AgentReview, targets: CheckoutTar
 }
 
 /** After an inbox sync: queue the re-runs that "Re-run when new commits
- *  land" asked for. */
+ *  land" asked for. The desk skips PRs that are no longer checked out. */
 export async function rerunOnNewCommits(repoDir: string, heads: CheckoutTarget[]): Promise<void> {
   if (heads.length === 0) return;
   const queued = await commands.reviewRerunOnNewCommits(repoDir, heads).catch(() => []);
@@ -123,7 +140,7 @@ export async function rerunOnNewCommits(repoDir: string, heads: CheckoutTarget[]
 onInboxSynced((repoDir, inbox) => {
   void rerunOnNewCommits(
     repoDir,
-    inbox.prs.map((pr) => inboxPrTarget(repoDir, pr, inbox.viewer)),
+    inbox.prs.map((pr) => reviewTarget(repoDir, pr)),
   );
 });
 
@@ -150,11 +167,10 @@ async function startRun(review: AgentReview): Promise<void> {
   try {
     if (!target) throw new Error("The agent review has no pull request");
     const prompt = await commands.reviewAgentReviewPrompt(review.repoDir, review.id);
-    const { thread } = await startPrThread({
-      repoDir: review.repoDir,
-      target,
-      input: [{ type: "text", text: prompt }],
+    const { thread } = await startPrThread(review.repoDir, target.number, {
+      prompt: [{ type: "text", text: prompt }],
       harness: review.request.harness,
+      projects,
     });
     const started = { ...review, threadId: thread.id };
     running.set(thread.id, started);

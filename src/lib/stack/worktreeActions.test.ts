@@ -17,7 +17,7 @@ vi.mock("$lib/services/homeRouting", async (importOriginal) => {
     ...actual,
     commands: {
       ...actual.commands,
-      gitCheckoutBranch: vi.fn(async () => null),
+      reviewSwitchStackBranch: vi.fn(actual.commands.reviewSwitchStackBranch),
       threadsWithActiveTurns: vi.fn(async () => []),
       copyText: vi.fn(async () => null),
     },
@@ -50,7 +50,9 @@ describe("the sidebar worktree menu", () => {
     await user.click(within(dialog).getByRole("button", { name: "Switch" }));
     await done;
 
-    await waitFor(() => expect(commands.gitCheckoutBranch).toHaveBeenCalledWith(PATH, "feat/maki-acp", false));
+    // Through the desk, which refuses a dirty worktree, never a raw git switch.
+    await waitFor(() => expect(commands.reviewSwitchStackBranch).toHaveBeenCalledWith(MAIN, 418));
+    expect((await commands.reviewPrCheckout(MAIN, 418))?.onPrBranch).toBe(true);
   });
 
   describe("waiting for running threads", () => {
@@ -66,7 +68,7 @@ describe("the sidebar worktree menu", () => {
 
     it("doesn't check out when it can't tell what's running, and stops when asked", async () => {
       vi.mocked(commands.threadsWithActiveTurns).mockResolvedValueOnce([]).mockRejectedValue("no answer");
-      vi.mocked(commands.gitCheckoutBranch).mockClear();
+      vi.mocked(commands.reviewSwitchStackBranch).mockClear();
       const create = vi.spyOn(toaster, "create");
       const { done } = await chooseSwitch();
 
@@ -78,14 +80,35 @@ describe("the sidebar worktree menu", () => {
         },
         { timeout: 5000 },
       );
-      expect(commands.gitCheckoutBranch).not.toHaveBeenCalled();
+      expect(commands.reviewSwitchStackBranch).not.toHaveBeenCalled();
 
       vi.mocked(commands.threadsWithActiveTurns).mockReset().mockResolvedValue([]);
       stop.onClick?.();
       await done;
-      expect(commands.gitCheckoutBranch).not.toHaveBeenCalled();
+      expect(commands.reviewSwitchStackBranch).not.toHaveBeenCalled();
       create.mockRestore();
     }, 10_000);
+  });
+
+  it("refuses to switch a worktree with uncommitted changes, and says why", async () => {
+    render(DialogHost);
+    const user = userEvent.setup();
+    const failure = vi.spyOn(toaster, "error");
+    vi.mocked(commands.reviewSwitchStackBranch).mockRejectedValueOnce(
+      new Error(`${PATH} has uncommitted changes. Commit or stash them, then switch`),
+    );
+
+    const done = worktreeAction("switchToPr", project);
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("radio", { name: /#418 feat\/maki-acp/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Switch" }));
+    await done;
+
+    expect(failure).toHaveBeenCalledWith(
+      expect.objectContaining({ description: expect.stringMatching(/uncommitted/) }),
+    );
+    expect((await commands.reviewPrCheckout(MAIN, 418))?.onPrBranch).toBe(false);
+    failure.mockRestore();
   });
 
   it("copies the worktree's path", async () => {

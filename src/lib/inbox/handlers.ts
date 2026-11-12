@@ -10,19 +10,17 @@ export type InboxHandlers = {
   /** Open the PR for review; `changesSince` asks for only what changed
    *  since my last review. */
   openPr: (repoDir: string, pr: InboxPr, options: { changesSince?: boolean }) => void;
-  /** A new thread about the PR. */
+  /** Work on this PR: a draft thread in its worktree. Needs it checked out. */
   newThread: (repoDir: string, pr: InboxPr) => void;
   /** Queue an agent review per PR (the Start review dialog for one). */
   startAgentReviews: (repoDir: string, prs: InboxPr[]) => void;
-  /** A worktree per PR on its git branch. */
-  createWorktrees: (repoDir: string, prs: InboxPr[]) => void;
-  /** Open the PR in an existing worktree, or in a new one (`null`). */
-  openInWorktree: (repoDir: string, pr: InboxPr, worktreePath: string | null) => void;
-  /** Start a thread at the worktree step seeded with the failing checks. */
+  /** Check each PR out (a stack's PR checks out its stack). */
+  checkOut: (repoDir: string, prs: InboxPr[]) => void;
+  /** Start a thread in the PR's worktree seeded with the failing checks. */
   fixCi: (repoDir: string, pr: InboxPr) => void;
   /** The Stack page for a stack card. */
   openStack: (repoDir: string, group: StackGroup) => void;
   restack: (repoDir: string, group: StackGroup) => void;
-  /** A worktree for the stack, and a local git branch for each of its PRs. */
+  /** Check the stack out: one worktree, a local git branch per PR. */
   checkOutStack: (repoDir: string, group: StackGroup) => void;
 };

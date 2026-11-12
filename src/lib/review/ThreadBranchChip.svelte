@@ -32,7 +32,7 @@
     return `the branch is now ${plural(progress.ahead, "commit")} ahead`;
   });
   const summary = $derived(`Thread started at ${short(start)} · ${moved}`);
-  const noCheckout = $derived(link.step === "noCheckout" || !link.checkoutPath);
+  const noCheckout = $derived(!link.checkoutPath);
   const checkoutTitle = "This thread started without a checkout";
 
   const entries = $derived<MenuEntry[]>([

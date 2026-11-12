@@ -1,21 +1,27 @@
 <script lang="ts">
+  import { CHECK_OUT_FIRST } from "$lib/review/prOnDisk";
   import type { PrCheckout } from "$lib/types";
   /**
-   * A PR page's worktree state and what to do with it: Work on this PR, what the
-   * worktree holds that the PR doesn't, and pushing it back. Below it all sits the
-   * point of a worktree: agents can change things here, and nothing reaches the
-   * PR until someone pushes.
+   * A PR page's worktree state and what to do with it: Check out until the PR
+   * is checked out, then Work on this PR, what the worktree holds that the PR
+   * doesn't, and pushing it back. Agents can change things in the worktree;
+   * nothing reaches the PR until someone pushes.
    */
   import { plural } from "$lib/utils/format";
 
   let {
     checkout = null,
+    known = true,
     mine,
+    onCheckOut,
     onWork,
     onPush,
   }: {
     checkout?: PrCheckout | null;
+    /** `checkout` has been read: `null` then means it isn't checked out. */
+    known?: boolean;
     mine: boolean;
+    onCheckOut?: () => void;
     onWork?: () => void;
     onPush?: () => void;
   } = $props();
@@ -36,11 +42,15 @@
 {#if ahead > 0 && onPush}
   <button type="button" class="btn btn-sm preset-tonal text-xs" onclick={onPush}>Push to PR</button>
 {/if}
+{#if known && !checkout && onCheckOut}
+  <button type="button" class="btn btn-sm preset-filled-primary-500 text-xs" onclick={onCheckOut}>Check out</button>
+{/if}
 {#if onWork}
   <button
     type="button"
-    class="btn btn-sm text-xs {mine ? "preset-filled-primary-500" : "hover:preset-tonal"}"
-    title={checkout?.path ?? "Creates a worktree"}
+    class="btn btn-sm text-xs {mine && checkout ? "preset-filled-primary-500" : "hover:preset-tonal"}"
+    title={checkout?.path ?? CHECK_OUT_FIRST}
+    disabled={!checkout}
     onclick={onWork}
   >
     Work on this PR

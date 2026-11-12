@@ -1,30 +1,32 @@
-// Checkout steps and PR links for the browser preview and the desk UI tests:
-// PR worktrees and thread links on the preview desk, with the step plan the
-// backend's `review/desk/steps.rs` makes. The recorded cases in
-// `tests/fixtures/desk/step_plans.json` hold both to the same plans.
+// Checking PRs out, and PR links, for the browser preview and the desk UI
+// tests: what the backend's `review/desk/check_out.rs` does, on the preview
+// desk. A checkout puts its worktree in the preview's worktree listing
+// (`previewWorktrees`), so the sidebar shows it, and Undo takes it out again.
 
-import { DESK_ACTION_STEPS } from "$lib/bindings";
+import { stackName } from "$lib/stack/stack";
 import type {
-  CheckoutStep,
-  CheckoutTarget,
+  CheckOutOutcome,
+  InboxPr,
   PrCheckout,
   PrLink,
+  PrStack,
   RepositorySettings,
-  StackWorktree,
-  StepPlan,
+  WorktreeContext,
 } from "$lib/types";
 import type { DeskCommands } from "./commands";
 import { desk, deskRepo, liveRepo } from "./desk";
-import { prCheckout } from "./factories";
+import { prCheckout, worktreeEntry } from "./factories";
+import { previewWorktrees } from "./fixtures";
 import { repositoryCommands } from "./repositories";
 import { setStackWorktree, stackWorktree } from "./stack";
 
-const RANK: Record<CheckoutStep, number> = { noCheckout: 0, worktree: 1 };
+/** The lock every worktree Pingex makes carries (`PR_WORKTREE_LOCK`). */
+const LOCK = "pingex pr worktree";
 
 const key = (repoDir: string, number: number) => `${repoDir}#${number}`;
 
-/** A path segment from a git branch or folder name, as `steps.rs` makes it:
- *  lower case, `[a-z0-9._-]`, every other character a `-`. */
+/** A path segment from a git branch or folder name, as `check_out.rs` makes
+ *  it: lower case, `[a-z0-9._-]`, every other character a `-`. */
 function segment(name: string): string {
   const slug = name
     .trim()
@@ -41,53 +43,36 @@ function settingsFor(repoDir: string): RepositorySettings {
   return repositoryCommands.reviewRepositorySettings(repoDir);
 }
 
-/** Whether the PR's worktree goes on its real branch, as `placement` decides. */
-function ownBranch(repoDir: string, target: CheckoutTarget): boolean {
+/** Where every new PR or stack worktree goes, as `new_worktree_path` says. */
+function worktreeDir(repoDir: string): string {
+  return settingsFor(repoDir).worktreeDir ?? `${desk().home}/worktrees/${repoName(repoDir)}`;
+}
+
+function prOf(repoDir: string, number: number): InboxPr {
+  const pr = liveRepo(repoDir).inbox.prs.find((candidate) => candidate.number === number);
+  if (!pr) throw new Error(`#${number} is not an open pull request`);
+  return pr;
+}
+
+/** A lone PR's branch: its own when it is mine and in this repository. */
+function loneBranch(repoDir: string, pr: InboxPr): string {
   const slug = deskRepo(repoDir)?.slug.toLowerCase();
-  return target.stack !== null || (target.mine && !!slug && target.headRepo?.toLowerCase() === slug);
+  const own = pr.author === desk().viewer && !!slug && pr.headRepo?.toLowerCase() === slug;
+  return own ? pr.headRef : `pr/${pr.number}`;
 }
 
-function worktreePath(repoDir: string, target: CheckoutTarget): string {
-  const { home } = desk();
-  if (!ownBranch(repoDir, target)) return `${home}/pr-worktrees/${repoName(repoDir)}/pr-${target.number}`;
-  const group = settingsFor(repoDir).worktreeDir ?? `${home}/worktrees/${repoName(repoDir)}`;
-  return `${group}/${segment(target.headRef)}`;
+/** The open stack PR `number` is an open member of. */
+function stackOf(repoDir: string, number: number): PrStack | undefined {
+  return liveRepo(repoDir).stacks.stacks.find(
+    (stack) =>
+      stack.open && stack.prs.some((entry) => entry.number === number && entry.state === "open" && !entry.merged),
+  );
 }
 
-function checkoutOf(repoDir: string, number: number): PrCheckout {
-  return desk().checkouts.get(key(repoDir, number)) ?? prCheckout(number);
-}
+const openPrs = (stack: PrStack) => stack.prs.filter((entry) => entry.state === "open" && !entry.merged);
 
-/** The worktree a stack neighbour of `target` made, on one of the stack's
- *  git branches, as `pr_checkouts::candidates` finds it. */
-function neighbours(repoDir: string, target: CheckoutTarget): StackWorktree | null {
-  for (const [name, checkout] of desk().checkouts) {
-    if (!name.startsWith(`${repoDir}#`) || checkout.number === target.number || !checkout.path) continue;
-    if (checkout.gitBranch && target.stackBranches?.includes(checkout.gitBranch))
-      return { path: checkout.path, branch: checkout.gitBranch, clean: !checkout.dirty };
-  }
-  return null;
-}
-
-/** Where `target` is, as `pr_checkouts::locate` finds it: its own worktree, or
- *  its stack's, which may be on another of the stack's git branches. */
-function located(repoDir: string, target: CheckoutTarget): PrCheckout {
-  const own = checkoutOf(repoDir, target.number);
-  const shared =
-    target.stack === null
-      ? null
-      : (stackWorktree(repoDir, target.number) ?? (own.path ? null : neighbours(repoDir, target)));
-  if (!shared) return own;
-  if (own.path && own.path !== shared.path) return own;
-  return {
-    ...own,
-    step: "worktree",
-    path: shared.path,
-    headSha: target.headSha,
-    gitBranch: shared.branch,
-    dirty: !shared.clean,
-    onPrBranch: shared.branch === target.headRef,
-  };
+function rows(repoDir: string): PrCheckout[] {
+  return [...desk().checkouts.entries()].filter(([name]) => name.startsWith(`${repoDir}#`)).map(([, row]) => row);
 }
 
 function put(repoDir: string, checkout: PrCheckout): PrCheckout {
@@ -95,138 +80,228 @@ function put(repoDir: string, checkout: PrCheckout): PrCheckout {
   return { ...checkout };
 }
 
-export const checkoutCommands = {
-  reviewCheckoutState: (repoDir, target) => located(repoDir, target),
-  reviewPrCheckouts: (repoDir, targets) =>
-    targets.map((target) => located(repoDir, target)).filter((checkout) => checkout.path !== null),
-  reviewEnsureStackWorktree(repoDir, input) {
-    const open = input.prs.filter((pr) => pr.open && !pr.merged);
-    const top = open.at(-1);
-    if (!top) throw new Error("This stack has no open pull requests");
-    const created = stackWorktree(repoDir, top.number) === null;
-    const path = `${settingsFor(repoDir).worktreeDir ?? `${desk().home}/worktrees/${repoName(repoDir)}`}/${segment(top.headRef)}`;
-    if (created) setStackWorktree(repoDir, top.number, { path, branch: top.headRef, clean: true });
-    const target: CheckoutTarget = {
-      number: top.number,
-      headRef: top.headRef,
-      headSha: top.headSha,
-      mine: false,
-      stack: input.name,
-      headRepo: null,
-      stackBranches: open.map((pr) => pr.headRef),
-    };
+function addWorktree(path: string, branch: string): void {
+  previewWorktrees.push(
+    worktreeEntry({
+      path,
+      head: null,
+      branch,
+      locked: true,
+      lockReason: LOCK,
+      isManagedPrWorktree: /^pr\/\d+$/.test(branch),
+    }),
+  );
+}
+
+/** A worktree listed on one of `branches`, as `branch_in_use` finds it. */
+function inUse(branches: string[]) {
+  return previewWorktrees.find((entry) => !entry.missingDir && entry.branch && branches.includes(entry.branch));
+}
+
+function checkedOut(checkout: PrCheckout, created: boolean, createdBranches: string[] = []): CheckOutOutcome {
+  return { kind: "checkedOut", checkout, created, createdBranches, kept: [], localStackWarning: null };
+}
+
+/** Every open PR of `stack` checked out at `path`, the worktree on `current`. */
+function putStack(
+  repoDir: string,
+  stack: PrStack,
+  path: string,
+  current: string,
+  extra: Partial<PrCheckout>,
+): PrCheckout[] {
+  return openPrs(stack).map((entry) =>
+    put(
+      repoDir,
+      prCheckout(entry.number, {
+        ...extra,
+        path,
+        headSha: entry.headSha,
+        gitBranch: current,
+        onPrBranch: entry.headRef === current,
+        stack: stack.number,
+      }),
+    ),
+  );
+}
+
+function checkOutStack(repoDir: string, stack: PrStack): CheckOutOutcome {
+  const open = openPrs(stack);
+  const top = open.at(-1);
+  if (!top) throw new Error("This stack has no open pull requests");
+  const existing = rows(repoDir).find((row) => row.stack === stack.number);
+  if (!existing) {
+    const found = inUse(open.map((entry) => entry.headRef));
+    if (found) {
+      const number = open.find((entry) => entry.headRef === found.branch)?.number ?? top.number;
+      return { kind: "branchInUse", number, branch: found.branch ?? "", path: found.path, mainClone: found.isMain };
+    }
+  }
+  const path = existing?.path ?? `${worktreeDir(repoDir)}/${segment(top.headRef)}`;
+  if (!existing) {
+    addWorktree(path, top.headRef);
+    setStackWorktree(repoDir, top.number, { path, branch: top.headRef, clean: true });
+  }
+  const current = stackWorktree(repoDir, top.number)?.branch ?? top.headRef;
+  const made = putStack(repoDir, stack, path, current, {
+    adopted: existing?.adopted ?? false,
+    setupPending: existing ? existing.setupPending : settingsFor(repoDir).setupCommand,
+  });
+  const checkout = made.find((row) => row.number === top.number) ?? made[0];
+  return checkedOut(checkout, !existing, existing ? [] : open.map((entry) => entry.headRef));
+}
+
+/** What an agent starting in a worktree is told, as `worktree_context.rs` writes it. */
+function contextAt(dir: string): WorktreeContext | null {
+  for (const [name, row] of desk().checkouts) {
+    if (row.path !== dir) continue;
+    const repoDir = name.slice(0, name.lastIndexOf("#"));
+    if (row.stack === null) {
+      const branch = row.gitBranch ?? "";
+      return {
+        purpose: { kind: "managedPr", repoDir, number: row.number },
+        text: branch.startsWith("pr/")
+          ? `This directory is the worktree for pull request #${row.number}.\nThe PR is someone else's or comes from a fork, so it is on the local branch \`${branch}\`, which has no upstream: commits stay local. Don't push and don't set an upstream: the user pushes to the PR from Pingex.`
+          : `This directory is the worktree for pull request #${row.number}.\nIt is on the PR's own git branch \`${branch}\`, which tracks the PR's branch on GitHub. Don't push unless asked: a push updates the PR.`,
+        position: null,
+      };
+    }
+    const stack = liveRepo(repoDir).stacks.stacks.find((candidate) => candidate.number === row.stack);
+    if (!stack) return null;
+    const open = openPrs(stack);
+    const at = open.findIndex((entry) => entry.headRef === row.gitBranch);
+    const titled = (number: number) => liveRepo(repoDir).inbox.prs.find((pr) => pr.number === number)?.title ?? "";
     return {
-      checkout: located(repoDir, target),
-      created,
-      createdBranches: created ? open.map((pr) => pr.headRef) : [],
-      kept: [],
-      localStackWarning: null,
+      purpose: {
+        kind: "stack",
+        repoDir,
+        number: stack.number,
+        name: stackName(stack),
+        baseRef: stack.baseRef,
+        prs: open.map((entry) => ({ number: entry.number, title: titled(entry.number), headRef: entry.headRef })),
+        localStack: false,
+      },
+      text: `This directory is the worktree of GitHub stack #${stack.number} "${stackName(stack)}".`,
+      position: at === -1 ? null : { position: at + 1, total: open.length },
     };
+  }
+  return null;
+}
+
+export const checkoutCommands = {
+  reviewCheckOut(repoDir, number) {
+    const stack = stackOf(repoDir, number);
+    if (stack) return checkOutStack(repoDir, stack);
+    const existing = desk().checkouts.get(key(repoDir, number));
+    if (existing) return checkedOut({ ...existing }, false);
+    const pr = prOf(repoDir, number);
+    const branch = loneBranch(repoDir, pr);
+    const found = inUse([branch]);
+    if (found) return { kind: "branchInUse", number, branch, path: found.path, mainClone: found.isMain };
+    const path = `${worktreeDir(repoDir)}/${segment(branch)}`;
+    addWorktree(path, branch);
+    const checkout = put(
+      repoDir,
+      prCheckout(number, {
+        path,
+        headSha: pr.headSha,
+        gitBranch: branch,
+        setupPending: settingsFor(repoDir).setupCommand,
+      }),
+    );
+    return checkedOut(checkout, true);
   },
-  reviewPlanStep(repoDir, target, action): StepPlan {
-    const current = located(repoDir, target);
-    const settings = settingsFor(repoDir);
-    const needed = DESK_ACTION_STEPS[action];
-    const stepUp = RANK[needed] > RANK[current.step] ? needed : null;
-    const switchBranch = needed === "worktree" && target.stack !== null && current.path !== null && !current.onPrBranch;
-    const plan: StepPlan = {
-      current: { ...current },
-      stepUp,
-      confirm: null,
-      confirmPush: action === "push" && !target.mine,
-      refused: null,
-      worktreePath: current.path ?? worktreePath(repoDir, target),
-      switchBranch,
-    };
-    const followsPolicy = action === "agentReviewWithTests" || action === "runLocally" || action === "openInEditor";
-    if (stepUp === "worktree" && followsPolicy) {
-      if (settings.reviewCheckoutPolicy === "never") plan.refused = "PR worktrees are turned off for this repository";
-      else if (settings.reviewCheckoutPolicy === "ask" && !settings.skipCheckoutConfirm)
-        plan.confirm = "createWorktree";
-    } else if (stepUp === "worktree") {
-      plan.confirm = "createWorktree";
-    } else if (switchBranch) {
-      plan.confirm = "switchBranch";
-    } else if (action === "push" && !target.mine) {
-      plan.confirm = "pushToTheirBranch";
+  reviewCheckOutStack(repoDir, number) {
+    const stack = liveRepo(repoDir).stacks.stacks.find((candidate) => candidate.number === number && candidate.open);
+    if (!stack) throw new Error("That stack is not open on GitHub");
+    return checkOutStack(repoDir, stack);
+  },
+  reviewAdoptWorktree(repoDir, number, path) {
+    const entry = previewWorktrees.find((candidate) => candidate.path === path);
+    if (!entry?.branch) throw new Error(`${path} is not a worktree of this repository`);
+    const stack = stackOf(repoDir, number);
+    if (stack) {
+      setStackWorktree(repoDir, number, { path, branch: entry.branch, clean: true });
+      const made = putStack(repoDir, stack, path, entry.branch, { adopted: true, mainCheckout: entry.isMain });
+      return made.find((row) => row.number === number) ?? made[0];
     }
-    return plan;
+    return put(
+      repoDir,
+      prCheckout(number, {
+        path,
+        headSha: prOf(repoDir, number).headSha,
+        gitBranch: entry.branch,
+        adopted: true,
+        mainCheckout: entry.isMain,
+      }),
+    );
   },
-  reviewEnsurePrWorktree(repoDir, target) {
-    const current = located(repoDir, target);
-    if (current.path && target.stack !== null && !current.onPrBranch) {
-      if (current.dirty) throw new Error(`${current.path} has uncommitted changes. Commit or stash them, then switch`);
-      setStackWorktree(repoDir, target.number, { path: current.path, branch: target.headRef, clean: true });
-      return put(repoDir, { ...current, gitBranch: target.headRef, onPrBranch: true });
-    }
-    if (current.step !== "noCheckout") return { ...current };
-    return put(repoDir, {
-      number: target.number,
-      step: "worktree",
-      path: worktreePath(repoDir, target),
-      headSha: target.headSha,
-      gitBranch: ownBranch(repoDir, target) ? target.headRef : `pr/${target.number}`,
-      setupPending: settingsFor(repoDir).setupCommand,
-      ahead: 0,
-      behind: 0,
-      dirty: false,
-      managed: !ownBranch(repoDir, target),
-      onPrBranch: true,
-      mainCheckout: false,
-    });
+  reviewSwitchStackBranch(repoDir, number) {
+    const row = desk().checkouts.get(key(repoDir, number));
+    const stack = row?.stack == null ? undefined : liveRepo(repoDir).stacks.stacks.find((s) => s.number === row.stack);
+    if (!row || !stack) throw new Error(`#${number} is not checked out in a stack's worktree`);
+    const branch = stack.prs.find((entry) => entry.number === number)?.headRef ?? "";
+    if (row.adopted)
+      throw new Error(`Pingex doesn't switch a worktree it found. Switch ${row.path} to ${branch} there`);
+    if (row.dirty) throw new Error(`${row.path} has uncommitted changes. Commit or stash them, then switch`);
+    setStackWorktree(repoDir, number, { path: row.path, branch, clean: true });
+    const listed = previewWorktrees.find((entry) => entry.path === row.path);
+    if (listed) listed.branch = branch;
+    const made = putStack(repoDir, stack, row.path, branch, { adopted: false, setupPending: row.setupPending });
+    return made.find((entry) => entry.number === number) ?? made[0];
   },
+  reviewPrCheckout: (repoDir, number) => {
+    const row = desk().checkouts.get(key(repoDir, number));
+    return row ? { ...row } : null;
+  },
+  reviewPrCheckouts: (repoDir) => rows(repoDir).map((row) => ({ ...row })),
   reviewRunCheckoutSetup(repoDir, number) {
-    const current = checkoutOf(repoDir, number);
-    put(repoDir, { ...current, setupPending: null });
+    const path = desk().checkouts.get(key(repoDir, number))?.path;
+    for (const row of rows(repoDir)) if (row.path === path) put(repoDir, { ...row, setupPending: null });
     return null;
   },
   reviewRemovePrWorktree(repoDir, number) {
-    desk().checkouts.delete(key(repoDir, number));
+    const row = desk().checkouts.get(key(repoDir, number));
+    if (!row) return null;
+    const together = rows(repoDir).filter((other) => other.path === row.path);
+    if (!row.adopted) {
+      if (together.some((other) => other.dirty || (other.onPrBranch && other.ahead > 0))) {
+        throw new Error("This worktree has local changes or unpushed commits, so it was kept");
+      }
+      const index = previewWorktrees.findIndex((entry) => entry.path === row.path);
+      if (index >= 0) previewWorktrees.splice(index, 1);
+      if (row.stack !== null) setStackWorktree(repoDir, number, null);
+    }
+    for (const other of together) desk().checkouts.delete(key(repoDir, other.number));
     return null;
   },
   reviewPushToPr(repoDir, number) {
-    put(repoDir, { ...checkoutOf(repoDir, number), ahead: 0 });
+    const row = desk().checkouts.get(key(repoDir, number));
+    if (row) put(repoDir, { ...row, ahead: 0 });
     return null;
   },
   reviewManagedWorktreeAt(dir) {
-    for (const [name, checkout] of desk().checkouts) {
-      if (checkout.path === dir && checkout.managed) {
-        return { repoDir: name.slice(0, name.lastIndexOf("#")), number: checkout.number };
+    for (const [name, row] of desk().checkouts) {
+      if (row.path === dir && row.stack === null && !row.adopted && row.gitBranch?.startsWith("pr/")) {
+        return { repoDir: name.slice(0, name.lastIndexOf("#")), number: row.number };
       }
     }
     return null;
   },
-  reviewWorktreeContext(dir) {
-    for (const [name, checkout] of desk().checkouts) {
-      if (checkout.path !== dir || !checkout.managed) continue;
-      const number = checkout.number;
-      return {
-        purpose: { kind: "managedPr", repoDir: name.slice(0, name.lastIndexOf("#")), number },
-        text: `This directory is a worktree for pull request #${number}, which is someone else's or comes from a fork. Pingex made it and removes it once the PR has closed and it holds no work.\nIt is on the local branch \`pr/${number}\`, which has no upstream, so commits stay local. Don't push and don't set an upstream: the user pushes to the PR from Pingex.`,
-        position: null,
-      };
-    }
-    return null;
-  },
+  reviewWorktreeContext: (dir) => contextAt(dir),
   reviewPruneClosed: () => ({ removedCheckouts: [], closed: [] }),
-  reviewSetCheckoutPolicy(repoDir, policy, skipConfirm) {
-    return repositoryCommands.reviewSaveRepositorySettings(repoDir, {
-      ...settingsFor(repoDir),
-      reviewCheckoutPolicy: policy,
-      skipCheckoutConfirm: skipConfirm,
-    });
-  },
-  reviewLinkThread(repoDir, threadId, target) {
-    const checkout = checkoutOf(repoDir, target.number);
+  reviewLinkThread(repoDir, threadId, number) {
+    const row = desk().checkouts.get(key(repoDir, number));
+    if (!row) throw new Error(`Check out #${number} first`);
+    const pr = prOf(repoDir, number);
     const link: PrLink = {
       threadId,
       repoKey: repoDir,
-      prNumber: target.number,
-      mine: target.mine,
-      step: checkout.step,
-      checkoutPath: checkout.path,
-      gitBranch: checkout.gitBranch ?? target.headRef,
-      startSha: checkout.headSha ?? target.headSha,
+      prNumber: number,
+      mine: pr.author === desk().viewer,
+      checkoutPath: row.path,
+      gitBranch: row.gitBranch ?? pr.headRef,
+      startSha: row.headSha ?? pr.headSha,
       createdAt: Math.floor(Date.now() / 1000),
       closedAt: null,
     };

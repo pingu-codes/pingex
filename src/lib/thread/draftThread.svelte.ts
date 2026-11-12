@@ -9,10 +9,9 @@
  */
 
 import { nameNewThread } from "$lib/app/appData.svelte";
-import { linkExpectedThread } from "$lib/review/prLinks.svelte";
+import { linkThreadStartedIn, prOfContext } from "$lib/review/prThreadLink";
 import { forkThread, gitWorktreeAdd, type StartedThread, startThread, startTurn } from "$lib/services/api";
 import { commands } from "$lib/services/homeRouting";
-import { refreshStackWorktree } from "$lib/stack/refreshStackWorktree";
 import { requestAutoName } from "$lib/thread/autoName";
 import { messageText, messageTitle } from "$lib/thread/messageText";
 import { attachSession, draftSession, openSession, releaseSession } from "$lib/thread/sessions.svelte";
@@ -76,12 +75,19 @@ export class DraftThread {
   repoInfo = $state<GitRepoInfo | null>(null);
   /** What the draft's own directory is for, when it is a PR or Stack worktree. */
   #context = $state<WorktreeContext | null>(null);
+
   /** Where new worktrees branch from. */
   readonly repoDir = $derived.by(() => this.repoInfo?.root ?? (this.deps.projectPath() || this.deps.cwd()));
   /** The Worktree context on offer: only when the thread really starts in that worktree. */
   readonly worktreeContext = $derived.by(() =>
     !this.deps.threadId() && !this.deps.workspaceId() && this.location === "project" ? this.#context : null,
   );
+
+  /** The PR the draft was opened for: the one whose worktree it is in. Its
+   *  thread is filed under it the moment it starts. */
+  get pr(): { repoDir: string; number: number } | null {
+    return this.deps.threadId() || this.location !== "project" ? null : prOfContext(this.#context);
+  }
 
   constructor(private readonly deps: DraftDeps) {
     $effect(() => {
@@ -109,7 +115,9 @@ export class DraftThread {
       read()
         .then(async (context) => {
           if (context?.purpose.kind !== "stack") return;
-          if (await refreshStackWorktree(context.purpose.repoDir, context.purpose.number)) await read();
+          // Loaded on use: the module starts PR threads, which name themselves here.
+          const { refreshStackCheckout } = await import("$lib/review/prOnDisk");
+          if (await refreshStackCheckout(context.purpose.repoDir, context.purpose.number)) await read();
         })
         .catch(() => {
           if (dir === deps.cwd()) this.#context = null;
@@ -170,7 +178,9 @@ export class DraftThread {
     const temporary = this.location === "temporary";
     const cwd = await this.#startDir();
     const created = await startThread(cwd, workspace, harness);
-    await linkExpectedThread(created.id, cwd);
+    // A thread started in a PR's worktree is about that PR. A link that can't
+    // be written deletes the thread, and the draft says why.
+    if (!workspace) await linkThreadStartedIn(created.id, cwd);
     if (!attachSession(owner, created.id)) throw new Error("Thread creation was interrupted.");
     if (owner.thread) {
       owner.thread.harness = created.harness ?? null;
@@ -261,6 +271,7 @@ export async function startThreadWith(
   } = {},
 ): Promise<StartedThread> {
   const thread = await startThread(where.cwd, where.workspaceId, where.harness);
+  if (!where.workspaceId) await linkThreadStartedIn(thread.id, where.cwd);
   beforeTurn?.(thread);
   await startTurn(thread.id, input, options);
   afterTurn?.(thread);

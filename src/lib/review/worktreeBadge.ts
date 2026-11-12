@@ -5,7 +5,7 @@ import type { PrCheckout } from "$lib/types";
 import { plural } from "$lib/utils/format";
 import { basename } from "$lib/utils/path";
 
-/** On the PR's own branch, in a worktree on another one, or not on disk. */
+/** On the PR's own branch, in a worktree on another one, or not checked out. */
 export type BadgeState = "here" | "elsewhere" | "none";
 
 export type WorktreeBadgeFacts = {
@@ -21,10 +21,10 @@ export type WorktreeBadgeFacts = {
   label: string;
 };
 
-const NO_WORKTREE = "No local worktree";
+const NO_WORKTREE = "Not checked out";
 
 export function worktreeBadge(checkout: PrCheckout | null, noneHint: string): WorktreeBadgeFacts {
-  if (!checkout?.path) {
+  if (!checkout) {
     return {
       state: "none",
       name: NO_WORKTREE,
@@ -34,7 +34,7 @@ export function worktreeBadge(checkout: PrCheckout | null, noneHint: string): Wo
       label: `${NO_WORKTREE}. ${noneHint}`,
     };
   }
-  const { path, gitBranch, onPrBranch, dirty, ahead, behind, managed, mainCheckout } = checkout;
+  const { path, gitBranch, onPrBranch, dirty, ahead, behind, adopted, mainCheckout } = checkout;
   const name = mainCheckout ? "Main checkout" : basename(path);
   const lines: string[] = [];
   if (onPrBranch) lines.push(gitBranch ? `On ${gitBranch}` : "Detached HEAD");
@@ -42,7 +42,11 @@ export function worktreeBadge(checkout: PrCheckout | null, noneHint: string): Wo
   if (dirty) lines.push("Uncommitted changes");
   if (ahead > 0) lines.push(`${plural(ahead, "local commit")} not on the PR`);
   if (behind > 0) lines.push(`Behind the PR by ${plural(behind, "commit")}`);
-  if (managed) lines.push("Pingex removes this once the PR closes, if it holds no work");
+  lines.push(
+    adopted
+      ? "Found checked out here: Pingex never switches, updates or removes it"
+      : "Pingex removes this once the PR closes, if it holds no work",
+  );
   return {
     state: onPrBranch ? "here" : "elsewhere",
     name,

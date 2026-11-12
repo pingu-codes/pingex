@@ -13,6 +13,7 @@
   import type { InboxRow, People, PersonFacet, StackGroup } from "$lib/inbox/inbox";
   import { isRowControl } from "$lib/inbox/inbox";
   import LoginAvatar from "$lib/inbox/LoginAvatar.svelte";
+  import { CHECK_OUT_FIRST } from "$lib/review/prOnDisk";
   import WorktreeBadge from "$lib/review/WorktreeBadge.svelte";
   import { behindLabel } from "$lib/stack/stack";
   import type { PrCheckout } from "$lib/types";
@@ -106,7 +107,8 @@
             {
               id: "restack",
               label: "Restack",
-              disabled: !onRestack,
+              disabled: !onRestack || (checkoutKnown && !checkout),
+              title: checkoutKnown && !checkout ? CHECK_OUT_FIRST : undefined,
             },
             { id: "compare", label: "Compare", disabled: !onCompare },
           ]}
@@ -125,7 +127,15 @@
         <span class="text-surface-500">{plural(threadCount, "thread")}</span>
       {/if}
       {#if onRestack}
-        <button type="button" class="btn btn-sm text-xs hover:preset-tonal" onclick={onRestack}>Restack</button>
+        <button
+          type="button"
+          class="btn btn-sm text-xs hover:preset-tonal"
+          disabled={checkoutKnown && !checkout}
+          title={checkoutKnown && !checkout ? CHECK_OUT_FIRST : undefined}
+          onclick={onRestack}
+        >
+          Restack
+        </button>
       {/if}
     {:else}
       <LoginAvatar

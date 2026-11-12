@@ -48,10 +48,8 @@
   import RepositoryMark from "$lib/repositories/RepositoryMark.svelte";
   import { ensureRepositories } from "$lib/repositories/repositoryStore.svelte";
   import SidebarRepositories from "$lib/repositories/SidebarRepositories.svelte";
-  import { STEP_LABELS } from "$lib/review/actions";
   import { ensurePrLinks, prLinks } from "$lib/review/prLinks.svelte";
   import { fileReviewThreads, withoutTaken } from "$lib/review/reviewFiling";
-  import StepDot from "$lib/review/StepDot.svelte";
   import { accountUsage } from "$lib/services/accountUsage.svelte";
   import { activeTurns, approvals, unansweredQuestions, userInputRequests } from "$lib/services/codexEvents.svelte";
   import { remoteConnections } from "$lib/services/connections.svelte";
@@ -614,10 +612,10 @@
         {@const link = prLinks.byThread[thread.id]}
         <span
           class="inline-flex shrink-0 items-center gap-1 rounded px-1 font-mono text-[10px] text-surface-500 preset-tonal"
-          title="#{link.prNumber} · started at {STEP_LABELS[link.step].toLowerCase()}"
+          title="#{link.prNumber}{link.checkoutPath ? ` · started in ${basename(link.checkoutPath)}` : ""}"
           data-testid="pr-chip"
         >
-          <StepDot step={link.step} />#{link.prNumber}
+          #{link.prNumber}
         </span>
       {/if}
       {#if sideQuestionCount(thread.id) > 0}

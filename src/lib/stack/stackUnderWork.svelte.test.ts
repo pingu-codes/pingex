@@ -44,6 +44,11 @@ async function open(answer: boolean = true, seed: Partial<StackSeed> = {}) {
   return { stack, asked };
 }
 
+/** The inbox's triage says none of the PRs is the viewer's. */
+function theirs() {
+  for (const entry of inboxes[MAIN]?.inbox?.triage ?? []) entry.mine = false;
+}
+
 /** Rewrite stack 7 in the inbox, as a sync that saw GitHub change would. */
 function onGitHub(change: (prs: { number: number; merged: boolean; state: string }[]) => void) {
   const stack = inboxes[MAIN]?.stacks?.stacks.find((candidate) => candidate.number === 7);
@@ -92,10 +97,9 @@ describe("reading the stack", () => {
     expect(plan).not.toHaveBeenCalled();
   });
 
-  it("is someone else's when the viewer wrote none of its open PRs", async () => {
+  it("is someone else's when the inbox's triage says none of its open PRs is mine", async () => {
     const { stack } = await open();
-    const inbox = inboxes[MAIN]?.inbox;
-    if (inbox) inbox.viewer = "jo-r";
+    theirs();
 
     expect(stack.theirs).toBe(true);
   });
@@ -185,7 +189,7 @@ describe("restacking", () => {
 
     expect(thread?.cwd).toBe(WORKTREE);
     expect(started).toHaveBeenCalledWith(WORKTREE, null, null);
-    expect(link).toHaveBeenCalledWith(MAIN, thread?.threadId, expect.objectContaining({ number: 415 }));
+    expect(link).toHaveBeenCalledWith(MAIN, thread?.threadId, 415);
     expect(order(started)[0]).toBeLessThan(order(link)[0]);
     expect(order(link)[0]).toBeLessThan(order(turn)[0]);
   });
@@ -209,19 +213,54 @@ describe("pushing", () => {
   it("asks before pushing to someone else's git branch from the worktree, and pushes nothing when declined", async () => {
     const push = spy("reviewPushStack");
     const { stack, asked } = await open(false);
-    const inbox = inboxes[MAIN]?.inbox;
-    if (inbox) inbox.viewer = "jo-r";
+    theirs();
 
     expect(await stack.push(415)).toBe(false);
 
     expect(asked).toEqual([
       {
         kind: "pushToTheirBranch",
-        target: expect.objectContaining({ number: 415, headRef: "feat/claude-driver", mine: false }),
+        pr: expect.objectContaining({ number: 415, headRef: "feat/claude-driver" }),
         worktreePath: WORKTREE,
       },
     ]);
     expect(push).not.toHaveBeenCalled();
+  });
+});
+
+describe("checking it out", () => {
+  it("waits for the stack to be checked out to restack, push or review it", async () => {
+    const restack = spy("reviewRestack");
+    const push = spy("reviewPushStack");
+    const review = spy("reviewEnqueueAgentReview");
+    const { stack } = await open(true, { worktree: null });
+    await vi.waitFor(() => expect(stack.checkedOut).toBe(false));
+
+    expect(stack.checkoutHint).toBe("Check out first");
+    expect(await stack.restack()).toBe(false);
+    expect(await stack.push()).toBe(false);
+    await stack.reviewWhole();
+
+    expect(restack).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+    expect(review).not.toHaveBeenCalled();
+  });
+
+  it("checks the whole stack out, then switches its worktree to a PR", async () => {
+    const { stack } = await open(true, { worktree: null });
+    await vi.waitFor(() => expect(stack.checkedOut).toBe(false));
+
+    expect(await stack.checkOut()).toBe(true);
+    await vi.waitFor(() => expect(stack.checkedOut).toBe(true));
+    const top = stack.checkouts?.get(418);
+    expect(top?.onPrBranch).toBe(true);
+    expect(new Set([...(stack.checkouts?.values() ?? [])].map((checkout) => checkout.path))).toEqual(
+      new Set([top?.path]),
+    );
+
+    expect(await stack.checkOut(412)).toBe(true);
+    await vi.waitFor(() => expect(stack.checkouts?.get(412)?.onPrBranch).toBe(true));
+    expect(stack.checkouts?.get(418)?.onPrBranch).toBe(false);
   });
 });
 

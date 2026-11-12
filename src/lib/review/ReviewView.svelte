@@ -1,19 +1,21 @@
 <script lang="ts">
-  import { ArrowLeft, Bot, FileDiff, GitBranch, GitPullRequest, LogIn } from "@lucide/svelte";
+  import { ArrowLeft, Bot, FileDiff, GitBranch, GitPullRequest, LogIn, Upload } from "@lucide/svelte";
   import { onMount } from "svelte";
-  import type { PrMove } from "$lib/app/navigation.svelte";
+  import { projects } from "$lib/app/appData.svelte";
+  import { openDialog } from "$lib/app/dialogs.svelte";
+  import { newThreadInDir, type PrMove } from "$lib/app/navigation.svelte";
+  import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import DiffBlock from "$lib/components/DiffBlock.svelte";
   import RefreshIcon from "$lib/components/RefreshIcon.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import { inboxes } from "$lib/inbox/inboxStore.svelte";
   import AgentReviewPage from "$lib/review/AgentReviewPage.svelte";
-  import { stepUpFor, workOnPr } from "$lib/review/checkoutSteps";
-  import { detailTarget } from "$lib/review/prTarget";
+  import { checkOut, switchToPr } from "$lib/review/prOnDisk";
   import { changeStat, fileChange, reviewPrompt } from "$lib/review/review";
   import { commands } from "$lib/services/homeRouting";
   import { fetchQuery, invalidate } from "$lib/services/queryCache.svelte";
   import { toaster, toastFailure } from "$lib/toaster";
-  import type { CheckoutTarget, PrDetail, PrFile, ProviderStatus, PrSummary } from "$lib/types";
+  import type { PrDetail, PrFile, ProviderStatus, PrSummary } from "$lib/types";
   import { errorMessage } from "$lib/utils/errors";
 
   let {
@@ -52,34 +54,46 @@
     localFiles.find((file) => file.path === selectedPath) ?? localFiles[0] ?? null,
   );
 
-  const targetOf = (detail: PrDetail): CheckoutTarget => detailTarget(repoDir, detail);
-
-  /** Run locally / Open in editor: step up to the PR's worktree (asking per
-   *  the repository's policy, with an Undo toast), then use it. */
-  async function runLocally(detail: PrDetail, action: "runLocally" | "openInEditor") {
-    const checkout =
-      action === "runLocally"
-        ? await workOnPr({ repoDir, repoName, target: targetOf(detail), action })
-        : await stepUpFor({ repoDir, repoName, target: targetOf(detail), action });
-    if (!checkout?.path) return;
-    if (action === "openInEditor") {
-      await commands.openInZed(checkout.path).catch(toastFailure);
-    }
+  /** Run locally / Open in editor / Work on this PR: in the PR's worktree,
+   *  on its own branch (a stack's worktree switches first). The buttons wait
+   *  for Check out. */
+  async function inWorktree(detail: PrDetail): Promise<string | null> {
+    const checkout = await switchToPr(repoDir, detail.summary.number, projects);
+    return checkout?.path ?? null;
   }
 
-  /** Work on this PR: a draft thread in its worktree, always asked for. */
+  async function runLocally(detail: PrDetail, action: "runLocally" | "openInEditor") {
+    const path = await inWorktree(detail);
+    if (!path) return;
+    if (action === "openInEditor") await commands.openInZed(path).catch(toastFailure);
+    else newThreadInDir(path);
+  }
+
+  /** Work on this PR: a draft thread in its worktree. */
   async function startWork(detail: PrDetail) {
-    await workOnPr({ repoDir, repoName, target: targetOf(detail), action: "workOnPr" });
+    const path = await inWorktree(detail);
+    if (path) newThreadInDir(path);
   }
 
   /** Push to PR: the worktree's commits go to the PR's branch, without forcing.
    *  Pushing to someone else's branch is asked every time. */
   async function pushToPr(detail: PrDetail) {
-    const checkout = await stepUpFor({ repoDir, repoName, target: targetOf(detail), action: "push" });
-    if (!checkout) return;
+    const number = detail.summary.number;
+    const mine = inboxes[repoDir]?.inbox?.triage.find((entry) => entry.number === number)?.mine ?? false;
+    if (
+      !mine &&
+      !(await openDialog(ConfirmDialog, {
+        title: `Push to ${detail.summary.headRef}?`,
+        body: `${detail.summary.headRef} belongs to the author of #${number}. Pushing changes their pull request.`,
+        confirmLabel: "Push to their branch",
+        tone: "warning" as const,
+        icon: Upload,
+      }))
+    )
+      return;
     try {
-      await commands.reviewPushToPr(repoDir, detail.summary.number);
-      toaster.success({ title: `Pushed to #${detail.summary.number}` });
+      await commands.reviewPushToPr(repoDir, number);
+      toaster.success({ title: `Pushed to #${number}` });
     } catch (cause) {
       toastFailure(cause);
     }
@@ -148,6 +162,7 @@
       inbox={inboxes[repoDir]?.inbox ?? null}
       onRunLocally={runLocally}
       onWorkOnPr={startWork}
+      onCheckOut={() => void checkOut(repoDir, { pr: initialPr as number })}
       onPushToPr={pushToPr}
     />
   {/key}

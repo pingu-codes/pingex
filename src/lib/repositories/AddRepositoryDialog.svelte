@@ -31,16 +31,7 @@
   } from "$lib/repositories/repositories";
   import { addedSlugs, ensureRepositories, refreshRepositories } from "$lib/repositories/repositoryStore.svelte";
   import { commands } from "$lib/services/homeRouting";
-  import type {
-    FolderFacts,
-    GitHubAccount,
-    GitHubRepo,
-    Host,
-    KnownClone,
-    PrSource,
-    ReviewCheckoutPolicy,
-    ReviewRequests,
-  } from "$lib/types";
+  import type { FolderFacts, GitHubAccount, GitHubRepo, Host, KnownClone, PrSource, ReviewRequests } from "$lib/types";
   import { submitState } from "$lib/utils/actionState.svelte";
   import { errorMessage } from "$lib/utils/errors";
   import { plural } from "$lib/utils/format";
@@ -49,7 +40,7 @@
   // remotes are read for you, or by URL. A GitHub repository is added PRs only
   // (nothing cloned), cloned into a folder on a Host, or linked to a clone
   // Pingex already knows. A folder brings its PR source and the repository's
-  // defaults (worktrees, setup command, PR worktree policy).
+  // defaults (worktrees, setup command).
   let {
     knownFolders,
     addFolder,
@@ -187,14 +178,8 @@
   let prSource = $state<PrSource>("origin");
   let worktreeDir = $state("");
   let setupCommand = $state("");
-  let policy = $state<ReviewCheckoutPolicy>("ask");
 
   const sources = $derived(facts ? sourceOptions(facts.remotes) : []);
-  const policyOptions = [
-    { value: "ask", label: "Ask first" },
-    { value: "whenNeeded", label: "Create when needed" },
-    { value: "never", label: "Never" },
-  ] as const;
 
   /** A folder picked inside a distribution runs there unless a Host was chosen. */
   function folderTyped(value: string) {
@@ -216,7 +201,6 @@
       const known = stored && stored.updatedAt > 0 ? stored : null;
       setupCommand = known?.setupCommand ?? read.setupCommand ?? "";
       worktreeDir = known?.worktreeDir ?? "";
-      policy = known?.reviewCheckoutPolicy ?? "ask";
     } catch (cause) {
       folderError = errorMessage(cause);
     }
@@ -235,7 +219,6 @@
       prSource,
       setupCommand: setupCommand.trim() || null,
       worktreeDir: worktreeDir.trim() || null,
-      reviewCheckoutPolicy: policy,
     });
     if (linkSlug) await commands.reviewLinkClone(facts.root, linkSlug);
     // A folder that clones a PRs-only repository replaces it.
@@ -549,15 +532,6 @@
                 spellcheck="false"
                 bind:value={setupCommand}
               >
-            </div>
-            <div class="flex flex-wrap items-center gap-2 px-3 py-2">
-              <span class="w-32 font-medium">PR worktrees</span>
-              <Segmented
-                value={policy}
-                options={policyOptions}
-                label="PR worktrees"
-                onChange={(next) => (policy = next)}
-              />
             </div>
           </div>
         </div>

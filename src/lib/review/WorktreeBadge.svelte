@@ -14,7 +14,7 @@
     checkout,
     known,
     variant,
-    noneHint = "Work on this PR creates one.",
+    noneHint = "Check out makes its worktree.",
   }: {
     checkout: PrCheckout | null;
     /** The read has answered: `null` then means there is no worktree. */

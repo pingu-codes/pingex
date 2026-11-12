@@ -6,7 +6,6 @@ import type { PrCheckout } from "$lib/types";
 
 const worktree = (overrides: Partial<PrCheckout> = {}): PrCheckout => ({
   number: 12,
-  step: "worktree",
   path: "/wt/pr-12",
   headSha: "abc",
   gitBranch: "pr/12",
@@ -14,9 +13,10 @@ const worktree = (overrides: Partial<PrCheckout> = {}): PrCheckout => ({
   ahead: 0,
   behind: 0,
   dirty: false,
-  managed: true,
+  adopted: false,
   onPrBranch: true,
   mainCheckout: false,
+  stack: null,
   ...overrides,
 });
 
@@ -43,8 +43,18 @@ describe("a PR's worktree actions", () => {
     expect(onPush).toHaveBeenCalledOnce();
   });
 
-  it("makes work the primary action on my own PR", () => {
-    render(PrWorktreeActions, { checkout: null, mine: true, onWork: vi.fn() });
+  it("makes work the primary action on my own checked-out PR", () => {
+    render(PrWorktreeActions, { checkout: worktree(), mine: true, onWork: vi.fn() });
     expect(screen.getByRole("button", { name: "Work on this PR" }).className).toContain("preset-filled-primary-500");
+  });
+
+  it("offers Check out until the PR is checked out, and work waits for it", async () => {
+    const onCheckOut = vi.fn();
+    render(PrWorktreeActions, { checkout: null, known: true, mine: true, onCheckOut, onWork: vi.fn() });
+    const work = screen.getByRole("button", { name: "Work on this PR" });
+    expect(work).toBeDisabled();
+    expect(work).toHaveAttribute("title", "Check out first");
+    await userEvent.click(screen.getByRole("button", { name: "Check out" }));
+    expect(onCheckOut).toHaveBeenCalledOnce();
   });
 });

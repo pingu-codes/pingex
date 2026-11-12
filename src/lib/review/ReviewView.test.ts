@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import ReviewView from "$lib/review/ReviewView.svelte";
 import { commands } from "$lib/services/homeRouting";
 import { seedPreviewDesk } from "$lib/services/preview/desk";
-import { addedFile, deskRepository, inboxPr, prDetail } from "$lib/services/preview/factories";
+import { addedFile, deskRepository, inboxPr, prCheckout, prDetail } from "$lib/services/preview/factories";
 
 vi.mock("$lib/services/homeRouting", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/services/homeRouting")>();
@@ -22,16 +22,21 @@ vi.mock("$lib/services/homeRouting", async (importOriginal) => {
 // In browser mode (isTauri() === false) the review API serves the preview
 // desk, so the whole view renders without Tauri.
 describe("ReviewView", () => {
-  beforeEach(() => {
-    const pr = inboxPr({ number: 128, title: "Add pull-request review view" });
-    const loader = ["import { readFileSync } from 'fs';", "", "export function load(path: string) {", "  if (!path) {"];
-    const files = [addedFile("src/lib/loader.ts", [...loader, "    throw new Error('path is required');", "  }"])];
+  const pr = inboxPr({ number: 128, title: "Add pull-request review view" });
+  const loader = ["import { readFileSync } from 'fs';", "", "export function load(path: string) {", "  if (!path) {"];
+  const files = [addedFile("src/lib/loader.ts", [...loader, "    throw new Error('path is required');", "  }"])];
+  const seed = (checkedOut: boolean) =>
     seedPreviewDesk({
       repositories: [
-        deskRepository("me/repo", { repository: { path: "/repo" }, prs: [pr], details: [prDetail(pr, { files })] }),
+        deskRepository("me/repo", {
+          repository: { path: "/repo" },
+          prs: [pr],
+          details: [prDetail(pr, { files })],
+          checkouts: checkedOut ? [prCheckout(128, { path: "/wt/pr-128" })] : [],
+        }),
       ],
     });
-  });
+  beforeEach(() => seed(true));
 
   it("opened onto a PR, does not read the PR list it never shows", async () => {
     vi.mocked(commands.reviewListPrs).mockClear();
@@ -68,9 +73,26 @@ describe("ReviewView", () => {
     const prompt = (input as { text: string }[])[0].text;
     expect(prompt).toContain("src/lib/loader.ts:4");
     expect(prompt).toContain("if (!path) {");
-    // Filed under the PR, and read-only at No checkout.
-    expect((await commands.reviewPrLinks()).find((link) => link.threadId === threadId)?.prNumber).toBe(128);
-    expect(options).toMatchObject({ sandboxMode: "read-only" });
+    // Filed under the PR, in its worktree, where it may write.
+    const link = (await commands.reviewPrLinks()).find((entry) => entry.threadId === threadId);
+    expect(link).toMatchObject({ prNumber: 128, checkoutPath: "/wt/pr-128" });
+    expect(options).toMatchObject({ sandboxMode: "workspace-write" });
+  });
+
+  it("asks nothing of an agent, nor runs locally, until the PR is checked out", async () => {
+    seed(false);
+    const user = userEvent.setup();
+    render(ReviewView, { repoDir: "/repo", repoName: "repo", initialPr: 128, onBack: vi.fn(), onAskCodex: vi.fn() });
+
+    const loader = within(await screen.findByRole("region", { name: "src/lib/loader.ts" }));
+    await user.click(loader.getByRole("button", { name: "Select line 4" }));
+    const ask = within(screen.getByRole("toolbar", { name: "Line 4" })).getByRole("button", { name: "Ask agent" });
+    await waitFor(() => expect(ask).toBeDisabled());
+    expect(ask).toHaveAttribute("title", "Check out first");
+    expect(screen.getByRole("button", { name: "Run locally" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Work on this PR" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Check out" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Run locally" })).toBeEnabled());
   });
 
   it("asks to go to a PR picked in the list", async () => {

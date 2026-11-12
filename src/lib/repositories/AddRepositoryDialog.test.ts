@@ -116,7 +116,7 @@ describe("AddRepositoryDialog", () => {
     expect(within(sources).getByText(/Only ones that ask for you or that you wrote/)).toBeInTheDocument();
     expect(screen.getByLabelText("Setup command")).toHaveValue("bun install");
 
-    await user.click(screen.getByRole("radio", { name: "Create when needed" }));
+    expect(screen.queryByRole("radio", { name: "Create when needed" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Add repository" }));
 
     await waitFor(() => expect(close).toHaveBeenCalledWith(true));
@@ -125,7 +125,6 @@ describe("AddRepositoryDialog", () => {
     expect(settings).toMatchObject({
       prSource: "upstream",
       setupCommand: "bun install",
-      reviewCheckoutPolicy: "whenNeeded",
     });
   });
 

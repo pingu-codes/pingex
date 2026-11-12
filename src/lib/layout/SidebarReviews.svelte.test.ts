@@ -30,7 +30,6 @@ function link(threadId: string, overrides: Partial<PrLink> = {}): PrLink {
     repoKey: repo,
     prNumber: 126,
     mine: false,
-    step: "noCheckout",
     checkoutPath: null,
     gitBranch: "octo/worktrees",
     startSha: "6".repeat(40),
@@ -84,7 +83,7 @@ describe("Sidebar Reviews group", () => {
           ],
         }),
       ],
-      links: [link("diff"), link("mine", { prNumber: 128, mine: true, step: "worktree", checkoutPath: "/wt/review" })],
+      links: [link("diff"), link("mine", { prNumber: 128, mine: true, checkoutPath: "/wt/review" })],
     });
     resetPrLinks();
     closeAllDialogs();
@@ -110,7 +109,7 @@ describe("Sidebar Reviews group", () => {
     await userEvent.click(await screen.findByRole("button", { name: /#128/ }));
 
     await waitFor(() => expect(prLinks.byThread.diff?.prNumber).toBe(128));
-    expect(prLinks.byThread.diff).toMatchObject({ mine: true, step: "noCheckout", startSha: "6".repeat(40) });
+    expect(prLinks.byThread.diff).toMatchObject({ mine: true, startSha: "6".repeat(40) });
     // Now my PR without a worktree: still under Reviews, with the new number.
     await waitFor(() =>
       expect(within(screen.getByTestId("reviews-group")).getByTestId("pr-chip").textContent).toContain("#128"),

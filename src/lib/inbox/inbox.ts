@@ -382,17 +382,32 @@ export type PrimaryActionId =
   | "changesSince"
   | "reviewStack"
   | "startReview"
+  | "checkOut"
   | "open";
 
 export type PrimaryAction = { id: PrimaryActionId; label: string };
 
 /**
  * The one action a row offers, from its state. `stackAbove` is set for a
- * review request that sits above another PR in the author's stack.
+ * review request that sits above another PR in the author's stack;
+ * `checkedOut` is false once the PR is known not to be checked out.
  */
 export function primaryAction(
+  row: InboxRow,
+  context: { stackAbove?: boolean; agentReview?: AgentReviewState | null; checkedOut?: boolean } = {},
+): PrimaryAction {
+  const chosen = chosenAction(row, context);
+  // What works in the PR's worktree asks for Check out first.
+  if (context.checkedOut === false && NEEDS_WORKTREE.has(chosen.id)) return { id: "checkOut", label: "Check out" };
+  return chosen;
+}
+
+/** The primary actions that run in the PR's worktree. */
+const NEEDS_WORKTREE = new Set<PrimaryActionId>(["fixCi", "agentReview", "startReview"]);
+
+function chosenAction(
   { pr, triage }: InboxRow,
-  context: { stackAbove?: boolean; agentReview?: AgentReviewState | null } = {},
+  context: { stackAbove?: boolean; agentReview?: AgentReviewState | null },
 ): PrimaryAction {
   const action = (id: PrimaryActionId, label: string): PrimaryAction => ({ id, label });
   if (triage.mine) {

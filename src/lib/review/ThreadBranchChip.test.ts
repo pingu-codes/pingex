@@ -25,7 +25,6 @@ const link: PrLink = {
   repoKey: "/Users/ciaran/Projects/codex-custom",
   prNumber: 415,
   mine: true,
-  step: "noCheckout",
   checkoutPath: null,
   gitBranch: "feat/claude-driver",
   startSha: "3c1e9a2".padEnd(40, "0"),

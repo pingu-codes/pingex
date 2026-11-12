@@ -1,14 +1,12 @@
 // The inbox's "Start agent review": the Start review dialog for one PR, and
-// a diff review per PR, without asking, for a multi-select batch
-// (`InboxHandlers.startAgentReviews`). The dialog's choice of code step is
-// the confirmation, so the worktree is made without asking again.
+// a review per PR, without asking, for a multi-select batch
+// (`InboxHandlers.startAgentReviews`). An agent review works in the PR's
+// worktree, so the PR is checked out first; the inbox offers it only then.
 
 import { openDialog } from "$lib/app/dialogs.svelte";
 import type { InboxHandlers } from "$lib/inbox/handlers";
-import { inboxes } from "$lib/inbox/inboxStore.svelte";
-import { defaultRequest, enqueueAgentReview } from "$lib/review/agentReviews.svelte";
-import { createPrWorktree } from "$lib/review/checkoutSteps";
-import { inboxPrTarget } from "$lib/review/prTarget";
+import { defaultRequest, enqueueAgentReview, reviewTarget } from "$lib/review/agentReviews.svelte";
+import { CHECK_OUT_FIRST } from "$lib/review/prOnDisk";
 import StartReviewDialog from "$lib/review/StartReviewDialog.svelte";
 import { commands } from "$lib/services/homeRouting";
 import { toastError, toaster, toastFailure } from "$lib/toaster";
@@ -20,12 +18,11 @@ export function agentReviewHandlers(
 ): Required<Pick<InboxHandlers, "startAgentReviews">> {
   return {
     async startAgentReviews(repoDir, prs) {
-      const viewer = inboxes[repoDir]?.inbox?.viewer ?? null;
       if (prs.length !== 1) {
         let queued = 0;
         for (const pr of prs) {
           try {
-            await enqueueAgentReview(repoDir, defaultRequest([inboxPrTarget(repoDir, pr, viewer)]));
+            await enqueueAgentReview(repoDir, defaultRequest([reviewTarget(repoDir, pr)]));
             queued++;
           } catch (cause) {
             toastError(`#${pr.number}: ${errorMessage(cause)}`);
@@ -35,32 +32,23 @@ export function agentReviewHandlers(
         return;
       }
       const [pr] = prs;
-      const target = inboxPrTarget(repoDir, pr, viewer);
       try {
-        const [plan, settings] = await Promise.all([
-          commands.reviewPlanStep(repoDir, target, "agentReviewWithTests").catch(() => null),
-          commands.reviewRepositorySettings(repoDir).catch(() => null),
-        ]);
+        const checkout = await commands.reviewPrCheckout(repoDir, pr.number);
+        if (!checkout) {
+          toastError(`${CHECK_OUT_FIRST}: #${pr.number} isn't checked out`);
+          return;
+        }
         const result = await openDialog(StartReviewDialog, {
           pr,
-          target,
-          worktreePath: plan?.worktreePath ?? "",
-          setupCommand: settings?.setupCommand ?? null,
-          refusedCheckout: plan?.refused ?? null,
+          target: reviewTarget(repoDir, pr),
+          worktreePath: checkout.path,
         });
         if (!result) return;
         if (result.kind === "open") {
           openPr(repoDir, pr);
           return;
         }
-        const { request } = result;
-        if (request.step === "worktree" && plan?.current.step !== "worktree") {
-          await createPrWorktree(repoDir, target);
-        } else if (request.step === "worktree" && plan?.switchBranch) {
-          // The review has to run on this PR's branch, not the stack's current one.
-          await commands.reviewEnsurePrWorktree(repoDir, target);
-        }
-        await enqueueAgentReview(repoDir, request);
+        await enqueueAgentReview(repoDir, result.request);
         toaster.success({ title: `Agent review queued on #${pr.number}` });
         openPr(repoDir, pr);
       } catch (cause) {

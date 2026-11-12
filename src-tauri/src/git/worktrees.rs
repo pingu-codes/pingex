@@ -193,7 +193,11 @@ pub(crate) fn read_worktrees(
             .as_deref()
             .is_some_and(|branch| branch_counts.get(branch).copied().unwrap_or(0) > 1);
         let root = codex_worktree_root(host, &item.path, &roots);
-        let is_managed_pr_worktree = super::checkouts::is_managed_lock(item.lock_reason.as_deref());
+        // Every PR or stack worktree Pingex makes carries the lock; only
+        // someone else's PR or a fork's, on `pr/<n>`, stays out of the
+        // sidebar's tree.
+        let is_managed_pr_worktree = super::checkouts::is_managed_lock(item.lock_reason.as_deref())
+            && item.branch.as_deref().is_none_or(is_pr_branch);
 
         // A worktree that cannot be inspected still gets a row, tagged with why.
         let mut state = None;
@@ -245,6 +249,15 @@ pub(crate) fn read_worktrees(
         });
     }
     Ok(entries)
+}
+
+/// Whether `branch` is a `pr/<n>` branch (or its `-local` fallback).
+fn is_pr_branch(branch: &str) -> bool {
+    let Some(rest) = branch.strip_prefix("pr/") else {
+        return false;
+    };
+    let digits = rest.strip_suffix("-local").unwrap_or(rest);
+    !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())
 }
 
 #[cfg(test)]

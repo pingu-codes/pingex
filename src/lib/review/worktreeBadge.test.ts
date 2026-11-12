@@ -5,7 +5,6 @@ import WorktreeBadge from "./WorktreeBadge.svelte";
 
 const checkout: PrCheckout = {
   number: 12,
-  step: "worktree",
   path: "/worktrees/repo/feat-x",
   headSha: "abc",
   gitBranch: "feat/x",
@@ -13,21 +12,22 @@ const checkout: PrCheckout = {
   ahead: 0,
   behind: 0,
   dirty: false,
-  managed: false,
+  adopted: false,
   onPrBranch: true,
   mainCheckout: false,
+  stack: null,
 };
 
 describe("WorktreeBadge", () => {
   it("draws nothing until the read has answered", () => {
     render(WorktreeBadge, { checkout: null, known: false, variant: "chip" });
     expect(screen.queryByRole("img")).toBeNull();
-    expect(screen.queryByText("No local worktree")).toBeNull();
+    expect(screen.queryByText("Not checked out")).toBeNull();
   });
 
   it("says there is no worktree once it knows", () => {
     render(WorktreeBadge, { checkout: null, known: true, variant: "chip" });
-    expect(screen.getByRole("img", { name: /^No local worktree/ })).toHaveTextContent("No local worktree");
+    expect(screen.getByRole("img", { name: /^Not checked out/ })).toHaveTextContent("Not checked out");
   });
 
   it("shows the folder's name on a page and the whole path to assistive tech", () => {

@@ -983,6 +983,13 @@ export const previewWorktrees: WorktreeEntry[] = [
     status: null,
     state: "missingDir",
   }),
+  // #128's git branch, checked out by hand: Check out offers to adopt it.
+  worktreeEntry({
+    path: "/Users/ciaran/worktrees/codex-custom/pr-review-by-hand",
+    head: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+    branch: "feature/pr-review",
+    upstream: "origin/feature/pr-review",
+  }),
 ];
 
 export const previewCommits: GitCommit[] = [

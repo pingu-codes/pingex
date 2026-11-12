@@ -23,8 +23,8 @@
   import Segmented from "$lib/components/Segmented.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import { inboxes } from "$lib/inbox/inboxStore.svelte";
-  import CheckoutStepDialog from "$lib/review/CheckoutStepDialog.svelte";
   import { ensurePrLinks, prLinks } from "$lib/review/prLinks.svelte";
+  import { CHECK_OUT_FIRST } from "$lib/review/prOnDisk";
   import ReviewView from "$lib/review/ReviewView.svelte";
   import { loadStackTreeCollapsed, saveStackTreeCollapsed } from "$lib/review/reviewPrefs";
   import { prefetch } from "$lib/services/queryCache.svelte";
@@ -38,6 +38,7 @@
   import { branchMenu, driftLabel, dropped, moved, openOrder } from "$lib/stack/stack";
   import { type StackQuestion, StackUnderWork } from "$lib/stack/stackUnderWork.svelte";
   import WorktreeCard from "$lib/stack/WorktreeCard.svelte";
+  import { toastError } from "$lib/toaster";
   import type { StackInputPr } from "$lib/types";
   import { plural } from "$lib/utils/format";
   import { basename } from "$lib/utils/path";
@@ -133,14 +134,12 @@
     });
   });
 
-  /** "New thread" here: a draft in the stack's worktree, checking the stack
-   *  out first when it has none (which asks before making one). */
-  async function newThreadInStack(): Promise<void> {
-    const existing = stack.overview?.worktree?.path;
-    if (existing) return newThreadInDir(existing);
-    await stack.checkOut();
-    const made = stack.overview?.worktree?.path;
-    if (made) newThreadInDir(made);
+  /** "New thread" here: a draft in the stack's worktree, once the stack is
+   *  checked out. */
+  function newThreadInStack(): void {
+    const path = [...(stack.checkouts?.values() ?? [])][0]?.path ?? stack.overview?.worktree?.path;
+    if (path && stack.checkedOut) newThreadInDir(path);
+    else toastError(`${CHECK_OUT_FIRST}: the stack isn't checked out`);
   }
 
   onMount(() => providePageThread("stack", newThreadInStack));
@@ -191,12 +190,11 @@
           running: question.running,
         }));
       case "pushToTheirBranch":
-        return !!(await openDialog(CheckoutStepDialog, {
-          confirm: "pushToTheirBranch" as const,
-          action: "push" as const,
-          target: question.target,
-          repoName,
-          worktreePath: question.worktreePath,
+        return !!(await openDialog(ConfirmDialog, {
+          title: `Push to ${question.pr.headRef}?`,
+          body: `${question.pr.headRef} belongs to the author of #${question.pr.number}. Pushing from ${basename(question.worktreePath)} changes their pull request.`,
+          confirmLabel: "Push to their branch",
+          tone: "warning" as const,
         }));
       case "reorder": {
         const next = question.order;
@@ -361,7 +359,8 @@
       <button
         type="button"
         class="btn btn-sm text-xs {stack.theirs ? "preset-filled-primary-500" : "hover:preset-tonal"}"
-        disabled={openPrs.length === 0 || stack.busy !== null}
+        disabled={openPrs.length === 0 || stack.busy !== null || !!stack.checkoutHint}
+        title={stack.checkoutHint ?? undefined}
         onclick={() => void stack.reviewWhole()}
       >
         <Sparkles size={14} aria-hidden="true" />Review whole stack
@@ -369,7 +368,8 @@
       <button
         type="button"
         class="btn btn-sm text-xs preset-tonal"
-        disabled={!input || blocked}
+        disabled={!input || blocked || !!stack.checkoutHint}
+        title={stack.checkoutHint ?? undefined}
         onclick={() => void stack.push()}
       >
         Push stack
@@ -377,7 +377,8 @@
       <button
         type="button"
         class="btn btn-sm text-xs {stack.theirs ? "hover:preset-tonal" : "preset-filled-primary-500"}"
-        disabled={!input || blocked}
+        disabled={!input || blocked || !!stack.checkoutHint}
+        title={stack.checkoutHint ?? undefined}
         onclick={() => void stack.restack()}
       >
         <RefreshIcon spinning={stack.busy === "restack"} size={14} />Restack onto

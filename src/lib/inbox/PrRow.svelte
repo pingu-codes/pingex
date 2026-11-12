@@ -35,6 +35,7 @@
     stateTone,
   } from "$lib/inbox/inbox";
   import LoginAvatar from "$lib/inbox/LoginAvatar.svelte";
+  import { CHECK_OUT_FIRST } from "$lib/review/prOnDisk";
   import WorktreeBadge from "$lib/review/WorktreeBadge.svelte";
   import type { PrCheckout } from "$lib/types";
   import { plural } from "$lib/utils/format";
@@ -77,7 +78,7 @@
     drift?: string | null;
     /** Where the PR is on disk. */
     checkout?: PrCheckout | null;
-    /** `checkout` has been read: `null` then means no worktree. */
+    /** `checkout` has been read: `null` then means it isn't checked out. */
     checkoutKnown?: boolean;
     /** Shown so its stack reads whole, though the filters don't keep it. */
     dimmed?: boolean;
@@ -91,6 +92,8 @@
 
   const pr = $derived(row.pr);
   const triage = $derived(row.triage);
+  /** What runs in the PR's worktree waits for it to be checked out. */
+  const checkedOut = $derived(!checkoutKnown || checkout !== null);
   const review = $derived(reviewBadge(pr));
   const ci = $derived(ciBadge(pr));
   const reviewing = $derived(reviewers(pr));
@@ -312,7 +315,8 @@
           <TooltipButton
             class="row-action size-[22px] group-hover/pr:opacity-100 group-focus/pr:opacity-100"
             aria-label="New thread"
-            label="New thread on this PR (T)"
+            label={checkedOut ? "New thread on this PR (T)" : CHECK_OUT_FIRST}
+            disabled={!checkedOut}
             onclick={() => onAction("newThread")}
           >
             <SquarePen size={12} />
@@ -320,7 +324,8 @@
           <TooltipButton
             class="row-action size-[22px] group-hover/pr:opacity-100 group-focus/pr:opacity-100"
             aria-label="Start agent review"
-            label="Start agent review (R)"
+            label={checkedOut ? "Start agent review (R)" : CHECK_OUT_FIRST}
+            disabled={!checkedOut}
             onclick={() => onAction("agentReview")}
           >
             <Sparkles size={12} />

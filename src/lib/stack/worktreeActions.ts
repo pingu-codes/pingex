@@ -9,10 +9,11 @@ import { newThreadInDir } from "$lib/app/navigation.svelte";
 import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
 import { inboxes } from "$lib/inbox/inboxStore.svelte";
 import { prLinks } from "$lib/review/prLinks.svelte";
+import { runningIn, switchToPr } from "$lib/review/prOnDisk";
 import { commands } from "$lib/services/homeRouting";
 import SwitchToPrDialog from "$lib/stack/SwitchToPrDialog.svelte";
 import { stackInputFor } from "$lib/stack/stack";
-import { toastError, toaster, toastFailure, toastProgress } from "$lib/toaster";
+import { toastError, toaster } from "$lib/toaster";
 import type { Project, StackInputPr, WorktreeEntry } from "$lib/types";
 import { plural } from "$lib/utils/format";
 import { basename, trimSlash } from "$lib/utils/path";
@@ -26,9 +27,6 @@ export type WorktreeAction =
   | "copyPath"
   | "archiveThreads"
   | "removeWorktree";
-
-/** How long Switch to PR waits between looks at the running threads. */
-const WAIT_MS = 2000;
 
 /** The repository a worktree belongs to, and its `git worktree list` entry. */
 function worktreeOf(path: string): { repo: string; entry: WorktreeEntry } | null {
@@ -51,45 +49,24 @@ export function stackAt(repo: string, branch: string | null): StackInputPr[] {
   return [];
 }
 
-async function runningIn(project: Project): Promise<string[]> {
-  const active = new Set(await commands.threadsWithActiveTurns());
-  return project.threads.filter((thread) => active.has(thread.id)).map((thread) => thread.id);
-}
-
-async function switchToPr(project: Project) {
+async function switchStackWorktree(project: Project) {
   const found = worktreeOf(project.path);
   const prs = found ? stackAt(found.repo, found.entry.branch) : [];
   if (!found || prs.length === 0) {
     toastError("This worktree isn't on a stack's git branch");
     return;
   }
-  const running = await runningIn(project).catch(() => [] as string[]);
+  const running = await runningIn([project], project.path).catch(() => [] as string[]);
   const branch = await openDialog(SwitchToPrDialog, {
     name: basename(project.path),
     prs,
     current: found.entry.branch,
     running: running.map((id) => ({ prNumber: prLinks.byThread[id]?.prNumber ?? null })),
   });
-  if (!branch) return;
-  let waiting: string | null = null;
-  let stopped = false;
-  // A failed read says nothing, so it keeps waiting: switching under a running
-  // thread is what this is here to avoid.
-  while (!stopped && (await runningIn(project).catch(() => ["unknown"])).length > 0) {
-    waiting ??= toastProgress(`Waiting to switch ${basename(project.path)}`, "Threads are still running here", {
-      label: "Stop waiting",
-      onClick: () => (stopped = true),
-    });
-    await new Promise((resolve) => setTimeout(resolve, WAIT_MS));
-  }
-  if (waiting) toaster.dismiss(waiting);
-  if (stopped) return;
-  try {
-    await commands.gitCheckoutBranch(project.path, branch, false);
-    toaster.success({ title: `${basename(project.path)} is on ${branch}` });
-  } catch (cause) {
-    toastFailure(cause);
-  }
+  const pr = prs.find((candidate) => candidate.headRef === branch);
+  if (!pr) return;
+  // The desk switches the stack's worktree once no thread runs in it.
+  await switchToPr(found.repo, pr.number, () => [project]);
 }
 
 export async function worktreeAction(action: WorktreeAction, project: Project): Promise<void> {
@@ -97,7 +74,7 @@ export async function worktreeAction(action: WorktreeAction, project: Project): 
     case "newThreadHere":
       return newThreadInDir(project.path);
     case "switchToPr":
-      return switchToPr(project);
+      return switchStackWorktree(project);
     case "pullLatest": {
       const result = await commands.gitPull(project.path);
       toaster.success({ title: `Pulled ${basename(project.path)}`, description: result.summary });

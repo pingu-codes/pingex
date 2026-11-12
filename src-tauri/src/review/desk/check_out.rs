@@ -811,18 +811,12 @@ mod tests {
         git_in(fixture, dir, &["rev-parse", "HEAD"])
     }
 
-    /// Whether the worktree listing (what the Worktrees list reads) flags
-    /// `path` as one Pingex made.
-    fn listed_as_pingex_made(fixture: &Fixture, path: &str) -> bool {
-        let home = Path::new("/nowhere");
-        crate::git::worktrees::read_worktrees(&Host::Native, &fixture.repo.repo, home)
+    /// Whether `path` carries the lock Pingex marks the worktrees it makes with.
+    fn listed_as_pingex_made(_fixture: &Fixture, path: &str) -> bool {
+        crate::git::checkouts::lock_reason(&Host::Native, Path::new(path))
             .unwrap()
-            .into_iter()
-            .find(|entry| {
-                std::fs::canonicalize(&entry.path).ok() == std::fs::canonicalize(path).ok()
-            })
-            .expect("listed")
-            .is_managed_pr_worktree
+            .as_deref()
+            == Some(PR_WORKTREE_LOCK)
     }
 
     async fn set_setup(fixture: &Fixture, setup: Option<&str>) {

@@ -344,7 +344,7 @@ export function demoDesk(): DeskSeed {
     threadId: "preview-agent-401",
   });
   const queued = run("agent-review-3", 403, {});
-  queued.request = { ...queued.request, harness: "codex", step: "worktree" };
+  queued.request = { ...queued.request, harness: "codex" };
   const finding = {
     agentReviewId: done.id,
     prNumber: THREADED_PR,

@@ -6,18 +6,22 @@
 -->
 <script lang="ts">
   import { onMount } from "svelte";
-  import { threadById } from "$lib/app/appData.svelte";
+  import { projects, threadById } from "$lib/app/appData.svelte";
   import { openThreadInCwd, type PrMove } from "$lib/app/navigation.svelte";
   import { providePageThread } from "$lib/app/pageThread";
-  import { defaultReviewHarness, refreshAgentReviews, rerunAgentReview } from "$lib/review/agentReviews.svelte";
+  import {
+    defaultReviewHarness,
+    refreshAgentReviews,
+    rerunAgentReview,
+    reviewTarget,
+  } from "$lib/review/agentReviews.svelte";
   import type { LineSlot } from "$lib/review/FileDiff.svelte";
   import FindingCard from "$lib/review/FindingCard.svelte";
   import { FindingsStore } from "$lib/review/findings.svelte";
   import PrWorktreeActions from "$lib/review/PrWorktreeActions.svelte";
   import { PendingReviewStore } from "$lib/review/pendingReview.svelte";
   import { ensurePrLinks, prLinks } from "$lib/review/prLinks.svelte";
-  import { detailTarget } from "$lib/review/prTarget";
-  import { readOnly, startPrThread } from "$lib/review/prThreads";
+  import { checkoutOf, readOnly, startPrThread } from "$lib/review/prOnDisk";
   import ReviewPage from "$lib/review/ReviewPage.svelte";
   import type { HandTarget } from "$lib/review/ReviewThread.svelte";
   import { findingTexts } from "$lib/review/reviewFind";
@@ -28,7 +32,7 @@
   import { commands } from "$lib/services/homeRouting";
   import { query } from "$lib/services/queryCache.svelte";
   import { toaster, toastFailure } from "$lib/toaster";
-  import type { AgentReview, CheckoutStep, CheckoutTarget, Finding, Inbox, PrCheckout, PrDetail } from "$lib/types";
+  import type { AgentReview, CheckoutTarget, Finding, Inbox, PrDetail } from "$lib/types";
   import { harnessName } from "$lib/utils/capabilities";
   import { plural, relativeTime } from "$lib/utils/format";
   import { basename } from "$lib/utils/path";
@@ -43,6 +47,7 @@
     onOpenPr,
     onRunLocally,
     onWorkOnPr,
+    onCheckOut,
     onPushToPr,
   }: {
     repoDir: string;
@@ -56,9 +61,10 @@
     viewer?: string | null;
     onOpenPr?: (number: number, move?: PrMove) => void;
     onRunLocally?: (detail: PrDetail, action: "runLocally" | "openInEditor") => void;
-    /** The PR's worktree, if it has one. */
-    /** Work on this PR: a thread in its worktree, making one if needed. */
+    /** Work on this PR: a draft thread in its worktree. */
     onWorkOnPr?: (detail: PrDetail) => void;
+    /** Check the PR out (its stack, for a stack's PR). */
+    onCheckOut?: () => void;
     /** Push the worktree's commits to the PR. */
     onPushToPr?: (detail: PrDetail) => void;
   } = $props();
@@ -72,17 +78,21 @@
   const detailQuery = query("reviewPrDetail", () => [repoDir, number]);
   const detail = $derived<PrDetail | null>(detailQuery.value ?? null);
 
-  // "New thread" here is Work on this PR: a draft in the PR's worktree.
-  $effect(() => {
-    const shown = detail;
-    const work = onWorkOnPr;
-    if (!shown || !work) return;
-    return providePageThread("pr", () => work(shown));
-  });
-  const checkoutQuery = query("reviewCheckoutState", () => (detail ? [repoDir, targetOf(detail)] : null));
+  const checkoutQuery = checkoutOf(
+    () => repoDir,
+    () => number,
+  );
   /** Undefined until answered, and when the read fails: the page then says
    *  nothing about a worktree rather than that there isn't one. */
   const checkout = $derived(checkoutQuery.value);
+  // "New thread" here is Work on this PR: a draft in the PR's worktree, once
+  // it is checked out.
+  $effect(() => {
+    const shown = detail;
+    const work = onWorkOnPr;
+    if (!shown || !work || !checkout) return;
+    return providePageThread("pr", () => work(shown));
+  });
   const repoName = $derived(basename(repoDir));
   const latest = $derived(findings.latest);
   const anyRun = $derived(findings.runs.length > 0 || findings.findings.length > 0);
@@ -134,7 +144,7 @@
     }
   });
 
-  const targetOf = (pr: PrDetail): CheckoutTarget => detailTarget(repoDir, pr, viewer);
+  const targetOf = (pr: PrDetail): CheckoutTarget => reviewTarget(repoDir, { ...pr.summary, headSha: pr.headSha });
 
   function openThread(threadId: string) {
     const link = prLinks.byThread[threadId];
@@ -147,19 +157,15 @@
     const text = askAgentPrompt(request);
     try {
       if (request.threadId) {
-        const link = prLinks.byThread[request.threadId];
-        const editable = link?.step === "worktree" && !request.askOnly;
-        await startTurn(request.threadId, [{ type: "text", text }], editable ? undefined : readOnly(undefined));
+        await startTurn(request.threadId, [{ type: "text", text }], request.askOnly ? readOnly(undefined) : undefined);
         openThread(request.threadId);
         return;
       }
-      if (!detail) return;
-      const { thread } = await startPrThread({
-        repoDir,
-        target: targetOf(detail),
-        input: [{ type: "text", text }],
+      const { thread } = await startPrThread(repoDir, number, {
+        prompt: [{ type: "text", text }],
         harness: defaultReviewHarness(),
         options: request.askOnly ? readOnly(undefined) : undefined,
+        projects,
       });
       openThread(thread.id);
     } catch (cause) {
@@ -177,8 +183,7 @@
     const where = `${finding.path}:${finding.line}`;
     const text = `Why did you raise "${finding.title}" at ${where}? Show the evidence, and say how sure you are.`;
     try {
-      const editable = run.request.step === "worktree";
-      await startTurn(run.threadId, [{ type: "text", text }], editable ? undefined : readOnly(undefined));
+      await startTurn(run.threadId, [{ type: "text", text }]);
       openThread(run.threadId);
     } catch (cause) {
       toastFailure(cause);
@@ -208,11 +213,6 @@
     await guard(() => rerunAgentReview(latest, [targetOf(detail as PrDetail)]));
   }
 
-  const STEP_MODE: Record<CheckoutStep, string> = {
-    noCheckout: "diff review, no checkout",
-    worktree: "worktree",
-  };
-
   function age(run: AgentReview): string {
     const at = run.finishedAt ?? run.startedAt ?? run.createdAt;
     return relativeTime(at / 1000, { granularity: "minute" });
@@ -240,7 +240,9 @@
 {#snippet headerActions()}
   <PrWorktreeActions
     {checkout}
-    mine={!!viewer && detail?.summary.author === viewer}
+    known={checkout !== undefined}
+    mine={inbox?.triage.find((entry) => entry.number === number)?.mine ?? false}
+    {onCheckOut}
     onWork={detail && onWorkOnPr ? () => detail && onWorkOnPr(detail) : undefined}
     onPush={detail && onPushToPr ? () => detail && onPushToPr(detail) : undefined}
   />
@@ -255,8 +257,7 @@
   {onOpenPr}
   onAskAgent={askAgent}
   {onRunLocally}
-  step={checkout?.step ?? "noCheckout"}
-  {checkout}
+  checkout={checkout ?? null}
   checkoutKnown={checkout !== undefined}
   {headerActions}
   {pending}
@@ -307,7 +308,7 @@
     <div class="eyebrow mt-2">Agent review</div>
     <section aria-label="Agent review" class="panel-card flex flex-col gap-1.5 px-3 py-2.5 text-xs">
       <div class="flex items-center gap-2">
-        <span class="grow">{harnessName(latest.request.harness)} · {STEP_MODE[latest.request.step]}</span>
+        <span class="grow">{harnessName(latest.request.harness)} · in the worktree</span>
         <span class="text-surface-500">{age(latest)}</span>
       </div>
       <div class="text-surface-500">
