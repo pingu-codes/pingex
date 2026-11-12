@@ -19,8 +19,9 @@
 //! | `pending` | The pending review: stored per PR, submitted as one review |
 //! | `viewed` | Files marked viewed, keyed by blob id |
 //! | `pr` | Changes to the PR itself: merge, close, retarget, mark ready, checks, new PRs |
-//! | `checkouts` | No checkout: PR refs, diffs and files by SHA |
-//! | `steps` | PR worktrees: placement, following the head, removal, the step plan |
+//! | `checkouts` | PR refs, diffs and files by SHA, with nothing checked out |
+//! | `check_out` | Check out: the PR from the inbox, its worktree, adopting one, following the head, removal |
+//! | `pr_checkouts` | Where checked-out PRs are, read-only |
 //! | `pr_push` | Pushing a PR worktree back to the PR |
 //! | `links` | The PR link on threads |
 //! | `repositories` | The account's repositories, for Add repository |
@@ -38,6 +39,7 @@
 
 mod activity;
 mod agent_reviews;
+mod check_out;
 mod checkouts;
 mod cleanup;
 mod links;
@@ -54,7 +56,6 @@ mod stack_edits;
 #[cfg(test)]
 mod stack_support;
 mod stack_worktree;
-mod steps;
 mod sync;
 #[cfg(test)]
 mod test_support;

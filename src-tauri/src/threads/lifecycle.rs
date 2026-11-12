@@ -486,7 +486,6 @@ pub(crate) async fn fork_thread(
 
 #[cfg(test)]
 mod tests {
-    use crate::review::requirements::CheckoutStep;
     use crate::storage::{self, PrLink};
 
     #[tokio::test]
@@ -500,7 +499,6 @@ mod tests {
                 repo_key: "/repo".into(),
                 pr_number: 7,
                 mine: false,
-                step: CheckoutStep::Worktree,
                 checkout_path: Some("/wt".into()),
                 git_branch: Some("pr/7".into()),
                 start_sha: None,

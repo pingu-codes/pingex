@@ -1,41 +1,56 @@
-//! The PR link on threads: which PR a thread is about, and what was checked
-//! out when it started (step, checkout, git branch, start commit).
+//! The PR link on threads: which PR a thread is about, and where it started
+//! (worktree, git branch, start commit).
 //!
-//! The PR decides where the sidebar groups a thread; the checkout decides
-//! where it runs. "Move to PR" changes only the PR, never the recorded start.
+//! Every PR thread starts in the PR's worktree, so a link is made only for a
+//! checked-out PR. The PR decides where the sidebar groups a thread; the
+//! worktree decides where it runs. "Move to PR" changes only the PR, never
+//! the recorded start.
 
 use std::path::Path;
 
 use super::ReviewDesk;
 use crate::git::{checkouts as git, objects};
-use crate::review::checkout_types::{BranchProgress, CheckoutTarget};
-use crate::review::requirements::CheckoutStep;
+use crate::review::checkout_types::BranchProgress;
 use crate::storage::{self, PrLink};
 use crate::util::time::unix_secs;
 
+/// A new link, and whether making it moved the worktree's HEAD.
+pub(crate) struct NewLink {
+    pub(crate) link: PrLink,
+    /// The worktree fast-forwarded to the PR's head, so start tips recorded
+    /// before the link no longer say where the thread started.
+    pub(crate) moved: bool,
+}
+
 impl ReviewDesk {
-    /// Record that `thread_id` is about `target`, starting from whatever the
-    /// PR has checked out now, brought level with the PR where that is safe.
+    /// Record that `thread_id` is about PR `number`, starting from its
+    /// worktree, brought level with the PR where that is safe. Refused for a
+    /// PR that is not checked out.
     pub(crate) async fn link_thread(
         &self,
         thread_id: String,
-        target: CheckoutTarget,
-    ) -> Result<PrLink, String> {
-        let state = self.synced_checkout(target.clone()).await?;
+        number: i64,
+    ) -> Result<NewLink, String> {
+        let target = self.target_for(number).await?;
+        let before = self.pr_checkout(number).await?;
+        let state = self
+            .synced_pr_checkout(number, Some(target.head_sha.clone()))
+            .await?
+            .ok_or_else(|| format!("Check out #{number} first"))?;
+        let moved = before.is_some_and(|before| before.head_sha != state.head_sha);
         let link = PrLink {
             thread_id,
             repo_key: self.repo_key(),
-            pr_number: target.number,
+            pr_number: number,
             mine: target.mine,
-            step: state.step,
-            checkout_path: state.path,
+            checkout_path: Some(state.path),
             git_branch: state.git_branch.or(Some(target.head_ref)),
             start_sha: state.head_sha.or(Some(target.head_sha)),
             created_at: unix_secs(),
             closed_at: None,
         };
         storage::write_pr_link(&self.database, &link).await?;
-        Ok(link)
+        Ok(NewLink { link, moved })
     }
 
     /// File `thread_id` under open PR `number` instead, or under no PR.
@@ -128,12 +143,10 @@ impl ReviewDesk {
         start: bool,
     ) -> Result<(), String> {
         let link = self.link(&thread_id).await?;
-        let path = match (&link.step, &link.checkout_path) {
-            (CheckoutStep::NoCheckout, _) | (_, None) => {
-                return Err("This thread started without a checkout".to_string())
-            }
-            (_, Some(path)) => path.clone(),
-        };
+        let path = link
+            .checkout_path
+            .clone()
+            .ok_or_else(|| "This thread started without a checkout".to_string())?;
         let branch = self.working_branch(&link).await?;
         self.blocking("Checking out failed", move |desk| {
             let dir = Path::new(&path);
@@ -174,57 +187,55 @@ impl ReviewDesk {
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_support::fixture;
-    use crate::review::checkout_types::CheckoutTarget;
-    use crate::review::requirements::CheckoutStep;
+    use super::super::test_support::{fixture, VIEWER};
+    use crate::review::checkout_types::CheckOutOutcome;
     use crate::review::types::InboxPr;
 
-    fn target(pr: &InboxPr) -> CheckoutTarget {
-        CheckoutTarget {
-            number: pr.number,
-            head_ref: pr.head_ref.clone(),
-            head_sha: pr.head_sha.clone(),
-            ..CheckoutTarget::default()
-        }
-    }
-
     #[tokio::test]
-    async fn a_thread_records_the_pr_and_what_was_checked_out_when_it_started() {
+    async fn a_thread_records_the_pr_and_the_worktree_it_started_in() {
         let Some(fixture) = fixture().await else {
             return;
         };
         let pr = fixture.open_pr(31, "feature", "src/lib.rs");
+        fixture.desk.sync_inbox().await.unwrap();
 
-        let diff = fixture
-            .desk
-            .link_thread("diff".into(), target(&pr))
-            .await
-            .unwrap();
-        let path = fixture
-            .desk
-            .ensure_pr_worktree(target(&pr))
-            .await
-            .unwrap()
-            .path;
-        let tests = fixture
-            .desk
-            .link_thread("tests".into(), target(&pr))
-            .await
-            .unwrap();
+        let refused = fixture.desk.link_thread("early".into(), 31).await;
+        assert!(refused.is_err(), "a PR thread runs in the worktree");
 
-        assert_eq!(diff.step, CheckoutStep::NoCheckout);
-        assert_eq!(diff.checkout_path, None);
-        assert_eq!(diff.git_branch.as_deref(), Some("feature"));
-        assert_eq!(diff.start_sha.as_deref(), Some(pr.head_sha.as_str()));
-        assert_eq!(tests.step, CheckoutStep::Worktree);
-        assert_eq!(tests.checkout_path, path);
+        let path = fixture.check_out(31).await.path;
+        let tests = fixture.desk.link_thread("tests".into(), 31).await.unwrap();
+
+        assert!(!tests.moved);
+        let tests = tests.link;
+        assert_eq!(tests.checkout_path.as_deref(), Some(path.as_str()));
         assert_eq!(tests.git_branch.as_deref(), Some("pr/31"));
         assert_eq!(tests.start_sha.as_deref(), Some(pr.head_sha.as_str()));
+        assert!(!tests.mine);
         let links = crate::storage::read_pr_links(&fixture.desk.database)
             .await
             .unwrap();
         let ids: Vec<&str> = links.iter().map(|link| link.thread_id.as_str()).collect();
-        assert_eq!(ids, ["diff", "tests"]);
+        assert_eq!(ids, ["tests"]);
+    }
+
+    #[tokio::test]
+    async fn a_link_that_catches_the_worktree_up_says_it_moved() {
+        let Some(fixture) = fixture().await else {
+            return;
+        };
+        let pr = fixture.open_pr(36, "feature", "src/lib.rs");
+        fixture.check_out(36).await;
+        let second = fixture.push_to_pr(36, "feature", "src/two.rs");
+        fixture.relist(&InboxPr {
+            head_sha: second.clone(),
+            ..pr
+        });
+        fixture.desk.sync_inbox().await.unwrap();
+
+        let made = fixture.desk.link_thread("t".into(), 36).await.unwrap();
+
+        assert!(made.moved);
+        assert_eq!(made.link.start_sha.as_deref(), Some(second.as_str()));
     }
 
     #[tokio::test]
@@ -233,11 +244,8 @@ mod tests {
             return;
         };
         let pr = fixture.open_pr(32, "feature", "src/lib.rs");
-        let link = fixture
-            .desk
-            .link_thread("t".into(), target(&pr))
-            .await
-            .unwrap();
+        fixture.check_out(32).await;
+        let link = fixture.desk.link_thread("t".into(), 32).await.unwrap().link;
         assert!(!link.mine);
         fixture.desk.sync_inbox().await.unwrap();
 
@@ -257,15 +265,12 @@ mod tests {
         let Some(fixture) = fixture().await else {
             return;
         };
-        let pr = fixture.open_pr(32, "feature", "src/lib.rs");
+        fixture.open_pr(32, "feature", "src/lib.rs");
         let mut my_pr = fixture.open_pr(40, "mine", "src/mine.rs");
-        my_pr.author = super::super::test_support::VIEWER.to_string();
+        my_pr.author = VIEWER.to_string();
         fixture.github.put_pr(my_pr);
-        let before = fixture
-            .desk
-            .link_thread("t".into(), target(&pr))
-            .await
-            .unwrap();
+        fixture.check_out(32).await;
+        let before = fixture.desk.link_thread("t".into(), 32).await.unwrap().link;
 
         fixture
             .desk
@@ -281,13 +286,13 @@ mod tests {
         assert!(after.mine);
         assert_eq!(
             (
-                after.step,
+                after.checkout_path,
                 after.git_branch,
                 after.start_sha,
                 after.created_at
             ),
             (
-                before.step,
+                before.checkout_path,
                 before.git_branch,
                 before.start_sha,
                 before.created_at
@@ -316,18 +321,8 @@ mod tests {
             return;
         };
         let pr = fixture.open_pr(33, "feature", "src/lib.rs");
-        let path = fixture
-            .desk
-            .ensure_pr_worktree(target(&pr))
-            .await
-            .unwrap()
-            .path
-            .unwrap();
-        fixture
-            .desk
-            .link_thread("t".into(), target(&pr))
-            .await
-            .unwrap();
+        let path = fixture.check_out(33).await.path;
+        fixture.desk.link_thread("t".into(), 33).await.unwrap();
         let dir = std::path::Path::new(&path);
         std::fs::write(dir.join("more.rs"), "more").unwrap();
         fixture.repo.git_in(dir, &["add", "more.rs"]);
@@ -365,13 +360,17 @@ mod tests {
         let Some(fixture) = fixture().await else {
             return;
         };
-        let pr = fixture.open_pr(35, "feature", "src/lib.rs");
+        fixture.open_my_pr(35, "feature", "src/lib.rs");
         fixture.repo.switch("feature");
-        let here = CheckoutTarget {
-            head_repo: Some(super::super::test_support::SLUG.to_string()),
-            ..target(&pr)
+        let CheckOutOutcome::BranchInUse {
+            path, main_clone, ..
+        } = fixture.check_out_now(35).await
+        else {
+            panic!("the branch is in use in the main clone");
         };
-        let link = fixture.desk.link_thread("t".into(), here).await.unwrap();
+        assert!(main_clone);
+        fixture.desk.adopt_worktree(35, path).await.unwrap();
+        let link = fixture.desk.link_thread("t".into(), 35).await.unwrap().link;
         assert!(link.checkout_path.is_some(), "{link:?}");
         fixture.repo.commit("src/more.rs", "more", "more");
 
@@ -386,19 +385,9 @@ mod tests {
         let Some(fixture) = fixture().await else {
             return;
         };
-        let pr = fixture.open_pr(34, "feature", "src/lib.rs");
-        let path = fixture
-            .desk
-            .ensure_pr_worktree(target(&pr))
-            .await
-            .unwrap()
-            .path
-            .unwrap();
-        fixture
-            .desk
-            .link_thread("t".into(), target(&pr))
-            .await
-            .unwrap();
+        fixture.open_pr(34, "feature", "src/lib.rs");
+        let path = fixture.check_out(34).await.path;
+        fixture.desk.link_thread("t".into(), 34).await.unwrap();
         let dir = std::path::Path::new(&path);
         fixture
             .desk

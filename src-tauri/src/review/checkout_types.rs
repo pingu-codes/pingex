@@ -1,10 +1,12 @@
-//! Wire types for checkout steps, PR worktrees and the PR link on threads.
+//! Wire types for PR worktrees and the PR link on threads.
 
 use serde::{Deserialize, Serialize};
 
-use super::requirements::CheckoutStep;
+use super::stack_types::KeptBranch;
 
-/// The PR a checkout operation is for, as the inbox row has it.
+/// A PR as the desk works on it: its head, whether it is mine and its place
+/// in a stack. The desk derives it (`ReviewDesk::target_for`); agent review
+/// requests still carry the heads they were queued for.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CheckoutTarget {
@@ -20,23 +22,22 @@ pub(crate) struct CheckoutTarget {
     /// The `owner/name` the PR's head lives in; `None` when it was deleted.
     #[serde(default)]
     pub(crate) head_repo: Option<String>,
-    /// The git branches of the stack's open PRs, bottom first. A stack shares
-    /// one worktree, so this PR may be there on one of its neighbours.
+    /// The git branches of the stack's open PRs, bottom first.
     #[serde(default)]
     pub(crate) stack_branches: Vec<String>,
 }
 
-/// Where a PR's code is now.
+/// A checked-out PR's worktree, as it is on disk now. A PR that is not
+/// checked out has none.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PrCheckout {
     pub(crate) number: i64,
-    pub(crate) step: CheckoutStep,
     /// The worktree's directory, on the repository's Host.
-    pub(crate) path: Option<String>,
+    pub(crate) path: String,
     /// The commit checked out there.
     pub(crate) head_sha: Option<String>,
-    /// The worktree's git branch.
+    /// The git branch checked out there.
     pub(crate) git_branch: Option<String>,
     /// The setup command still to run in a new worktree.
     pub(crate) setup_pending: Option<String>,
@@ -46,9 +47,10 @@ pub(crate) struct PrCheckout {
     pub(crate) behind: i64,
     /// Uncommitted or untracked files here.
     pub(crate) dirty: bool,
-    /// Pingex looks after this worktree and removes it once its PR has closed
-    /// and it holds no work. Otherwise it is the user's.
-    pub(crate) managed: bool,
+    /// Pingex found this worktree rather than made it, so it never switches,
+    /// fast-forwards or removes it. Otherwise Pingex removes it once its PR
+    /// (or every PR of its stack) has closed and it holds no work.
+    pub(crate) adopted: bool,
     /// The worktree is on this PR's own git branch. False when it is on
     /// another branch, as a stack's worktree is for all but one of its PRs;
     /// `ahead` and `behind` then count from this PR's local branch, and
@@ -56,59 +58,42 @@ pub(crate) struct PrCheckout {
     pub(crate) on_pr_branch: bool,
     /// The directory is the repository's main clone, not a linked worktree.
     pub(crate) main_checkout: bool,
+    /// GitHub's number for the stack whose worktree this is.
+    pub(crate) stack: Option<i64>,
 }
 
-impl PrCheckout {
-    pub(crate) fn none(number: i64) -> Self {
-        Self {
-            number,
-            step: CheckoutStep::NoCheckout,
-            path: None,
-            head_sha: None,
-            git_branch: None,
-            setup_pending: None,
-            ahead: 0,
-            behind: 0,
-            dirty: false,
-            managed: false,
-            on_pr_branch: false,
-            main_checkout: false,
-        }
-    }
-}
-
-/// What has to be confirmed before stepping up.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum StepConfirm {
-    /// The PR has no checkout: create a worktree for it.
-    CreateWorktree,
-    /// Pushing to a git branch someone else owns. Asked every time.
-    PushToTheirBranch,
-    /// The stack's worktree is on another of its git branches: switch it.
-    SwitchBranch,
-}
-
-/// How to get a PR to the step an action needs.
+/// What Check out did.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct StepPlan {
-    pub(crate) current: PrCheckout,
-    /// The step to move up to, or `None` when the PR already has enough.
-    pub(crate) step_up: Option<CheckoutStep>,
-    /// What to confirm first: the step up, or, with no step up, the push
-    /// to someone else's git branch.
-    pub(crate) confirm: Option<StepConfirm>,
-    /// The action pushes to someone else's git branch, which is confirmed
-    /// every time: after the step up when `confirm` was for that.
-    pub(crate) confirm_push: bool,
-    /// Why the action cannot go ahead (the repository says Never).
-    pub(crate) refused: Option<String>,
-    /// Where a new worktree would go, for the confirmation.
-    pub(crate) worktree_path: String,
-    /// The action needs the stack's worktree switched to this PR's git branch
-    /// from `current.git_branch`. `review_ensure_pr_worktree` does the switch.
-    pub(crate) switch_branch: bool,
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub(crate) enum CheckOutOutcome {
+    /// The PR (or every open PR of its stack) is checked out.
+    CheckedOut {
+        /// The PR asked for; for a stack, its top open PR.
+        checkout: PrCheckout,
+        /// A new worktree was made; otherwise it had one.
+        created: bool,
+        /// Local git branches made for a stack's PRs.
+        created_branches: Vec<String>,
+        /// A stack's git branches left where they were.
+        kept: Vec<KeptBranch>,
+        /// Why the provider's stack tool (`gh stack`) doesn't track the stack
+        /// in the worktree, when it is installed and should.
+        local_stack_warning: Option<String>,
+    },
+    /// The git branch the worktree would be on is checked out at `path`
+    /// already. `review_adopt_worktree` makes that the PR's worktree.
+    BranchInUse {
+        /// The PR whose branch it is.
+        number: i64,
+        branch: String,
+        path: String,
+        /// `path` is the repository's main clone.
+        main_clone: bool,
+    },
 }
 
 /// The PR a Pingex-managed worktree belongs to, found from its directory.

@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 
 use super::test_support::{fixture, Fixture, SLUG, VIEWER};
 use super::ReviewDesk;
-use crate::review::checkout_types::CheckoutTarget;
+use crate::review::checkout_types::{CheckOutOutcome, PrCheckout};
 use crate::review::stack_types::{StackInput, StackInputPr};
-use crate::review::types::InboxPr;
+use crate::review::types::{InboxPr, PrStack, StackListing, StackPr};
 
 pub(super) const STACK: [(i64, &str, &str); 3] = [
     (412, "feat/driver", "driver.rs"),
@@ -27,6 +27,7 @@ impl StackFixture {
     pub(super) async fn new() -> Option<Self> {
         let inner = fixture().await?;
         let mut base = "main".to_string();
+        let main = inner.repo.git(&["rev-parse", "main"]);
         for (number, branch, path) in STACK {
             inner.repo.switch(&base);
             inner.repo.branch(branch);
@@ -43,16 +44,78 @@ impl StackFixture {
                 head_ref: branch.to_string(),
                 head_sha: head,
                 base_ref: base.clone(),
+                base_sha: if base == "main" {
+                    main.clone()
+                } else {
+                    String::new()
+                },
+                head_repo: Some(SLUG.to_string()),
                 updated_at: "2026-11-05T10:00:00Z".to_string(),
                 ..InboxPr::default()
             });
             base = branch.to_string();
         }
         inner.repo.switch("main");
-        Some(Self {
+        let stack = Self {
             inner,
             merged: Default::default(),
-        })
+        };
+        stack.list_stack();
+        Some(stack)
+    }
+
+    /// List the stack on the fake GitHub as #7, with the merged PRs marked.
+    pub(super) fn list_stack(&self) {
+        let merged = self.merged.lock().unwrap().clone();
+        self.inner.github.put_stacks(StackListing {
+            supported: true,
+            stacks: vec![PrStack {
+                number: 7,
+                base_ref: "main".to_string(),
+                open: STACK.iter().any(|(number, _, _)| !merged.contains(number)),
+                prs: STACK
+                    .iter()
+                    .map(|(number, branch, _)| StackPr {
+                        number: *number,
+                        state: if merged.contains(number) {
+                            "closed"
+                        } else {
+                            "open"
+                        }
+                        .to_string(),
+                        is_draft: false,
+                        merged: merged.contains(number),
+                        head_ref: branch.to_string(),
+                        head_sha: self.remote_tip(branch),
+                    })
+                    .collect(),
+            }],
+        });
+    }
+
+    /// Sync the inbox, then check out PR `number`, which checks out the stack.
+    pub(super) async fn check_out(&self, number: i64) -> CheckOutOutcome {
+        self.list_stack();
+        self.desk().sync_inbox().await.unwrap();
+        self.desk().check_out(number).await.unwrap()
+    }
+
+    /// `check_out(418)`, which must have checked the stack out.
+    pub(super) async fn checked_out(&self) -> PrCheckout {
+        match self.check_out(418).await {
+            CheckOutOutcome::CheckedOut { checkout, .. } => checkout,
+            other => panic!("the stack was not checked out: {other:?}"),
+        }
+    }
+
+    /// GitHub moves PR `number`'s head to `head`, and the inbox lists it.
+    pub(super) fn relist(&self, number: i64, head: &str) {
+        let mut prs = crate::review::provider::GitHubProvider::inbox(&*self.inner.github)
+            .unwrap()
+            .prs;
+        let pr = prs.iter_mut().find(|pr| pr.number == number).unwrap();
+        pr.head_sha = head.to_string();
+        self.inner.github.put_pr(pr.clone());
     }
 
     pub(super) fn desk(&self) -> &ReviewDesk {
@@ -135,6 +198,7 @@ impl StackFixture {
     /// Mark PR `number` merged, as GitHub's stack listing then shows it.
     pub(super) fn mark_merged(&self, number: i64) {
         self.merged.lock().unwrap().push(number);
+        self.list_stack();
     }
 
     /// The stack as the inbox would hand it over now.
@@ -155,26 +219,6 @@ impl StackFixture {
                     open: !merged.contains(number),
                     merged: merged.contains(number),
                 })
-                .collect(),
-        }
-    }
-
-    /// PR `number` as a member of this stack, at GitHub's head.
-    pub(super) fn target(&self, number: i64) -> CheckoutTarget {
-        let (_, branch, _) = STACK
-            .iter()
-            .find(|(entry, _, _)| *entry == number)
-            .expect("a PR in the stack");
-        CheckoutTarget {
-            number,
-            head_ref: branch.to_string(),
-            head_sha: self.remote_tip(branch),
-            mine: true,
-            stack: Some("driver".to_string()),
-            head_repo: Some(SLUG.to_string()),
-            stack_branches: STACK
-                .iter()
-                .map(|(_, branch, _)| branch.to_string())
                 .collect(),
         }
     }

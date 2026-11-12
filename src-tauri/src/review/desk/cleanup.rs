@@ -1,17 +1,18 @@
 //! Cleanup: what a closed PR leaves behind. Its refs go when it is first
-//! seen closed, its managed worktree 7 days later unless it holds work, and
-//! threads linked to it leave the sidebar's Reviews group.
+//! seen closed, and the worktree Pingex made for it 7 days later (a stack's
+//! once every PR in it has closed), unless it holds work; an adopted worktree
+//! is only forgotten. Threads linked to it leave the sidebar's Reviews group.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
-use super::steps::Removal;
+use super::check_out::Removal;
 use super::{pr_number, ReviewDesk};
 use crate::git::{checkouts as git, objects};
 use crate::review::checkout_types::PruneReport;
-use crate::storage;
+use crate::storage::{self, StoredCheckout};
 use crate::util::time::unix_secs;
 
-/// How long a closed PR's managed worktree is kept.
+/// How long a closed PR's worktree is kept.
 const KEEP_CLOSED_CHECKOUT_SECS: i64 = 7 * 24 * 60 * 60;
 
 impl ReviewDesk {
@@ -79,29 +80,44 @@ impl ReviewDesk {
                     // Reopened: its seven days start again if it closes again.
                     storage::mark_checkout_open(&self.database, &key, checkout.pr_number).await?;
                 }
+            } else if checkout.closed_at.is_none() {
+                storage::mark_checkout_closed(&self.database, &key, checkout.pr_number, now)
+                    .await?;
+                report.closed.push(checkout.pr_number);
+            }
+        }
+
+        // A worktree goes once every PR checked out in it (one, or a whole
+        // stack) has been closed for seven days.
+        let mut by_path: BTreeMap<String, Vec<StoredCheckout>> = BTreeMap::new();
+        for checkout in storage::read_checkouts(&self.database, &key).await? {
+            by_path
+                .entry(checkout.path.clone())
+                .or_default()
+                .push(checkout);
+        }
+        for (path, rows) in by_path {
+            let closed_long_ago = rows.iter().all(|row| {
+                row.closed_at
+                    .is_some_and(|closed| now - closed >= KEEP_CLOSED_CHECKOUT_SECS)
+            });
+            if !closed_long_ago {
                 continue;
             }
-            match checkout.closed_at {
-                None => {
-                    storage::mark_checkout_closed(&self.database, &key, checkout.pr_number, now)
-                        .await?;
-                    report.closed.push(checkout.pr_number);
-                }
-                Some(closed) if now - closed >= KEEP_CLOSED_CHECKOUT_SECS => {
-                    // Whether it can go is only proven by looking, so any
-                    // doubt, or any failure, leaves it for the user to see in
-                    // the Worktrees list. A user's worktree loses only its row.
-                    let managed = self.host.is_dir(&checkout.path)
-                        && self
-                            .is_managed_worktree(checkout.path.clone())
-                            .await
-                            .unwrap_or(false);
-                    let removal = self.try_remove_pr_worktree(checkout.pr_number).await;
-                    if managed && matches!(removal, Ok(Removal::Removed)) {
-                        report.removed_checkouts.push(checkout.pr_number);
-                    }
-                }
-                Some(_) => {}
+            // Whether it can go is only proven by looking, so any doubt, or
+            // any failure, leaves it for the user to see in the Worktrees
+            // list. An adopted worktree loses only its rows.
+            let made = !rows.iter().any(|row| row.adopted)
+                && self.host.is_dir(&path)
+                && self
+                    .is_managed_worktree(path.clone())
+                    .await
+                    .unwrap_or(false);
+            let removal = self.try_remove_worktree(&path).await;
+            if made && matches!(removal, Ok(Removal::Removed)) {
+                report
+                    .removed_checkouts
+                    .extend(rows.iter().map(|row| row.pr_number));
             }
         }
 
@@ -127,38 +143,29 @@ impl ReviewDesk {
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_support::fixture;
+    use std::path::Path;
+
+    use super::super::stack_support::StackFixture;
+    use super::super::test_support::{fixture, Fixture};
     use super::KEEP_CLOSED_CHECKOUT_SECS;
     use crate::git::objects;
-    use crate::review::checkout_types::CheckoutTarget;
-    use crate::review::requirements::CheckoutStep;
+    use crate::review::checkout_types::{CheckOutOutcome, PruneReport};
 
     #[tokio::test]
-    async fn a_closed_prs_refs_go_at_once_and_its_managed_worktree_after_seven_days() {
+    async fn a_closed_prs_refs_go_at_once_and_its_worktree_after_seven_days() {
         let Some(fixture) = fixture().await else {
             return;
         };
-        let pr = fixture.open_pr(21, "feature", "src/lib.rs");
+        fixture.open_pr(21, "feature", "src/lib.rs");
         let still_open = fixture.open_pr(22, "other", "src/other.rs");
         fixture.desk.fetch_prs(vec![21, 22]).await.unwrap();
-        let target = CheckoutTarget {
-            number: 21,
-            head_ref: pr.head_ref.clone(),
-            head_sha: pr.head_sha.clone(),
-            ..CheckoutTarget::default()
-        };
-        let path = fixture
-            .desk
-            .ensure_pr_worktree(target.clone())
-            .await
-            .unwrap()
-            .path
-            .unwrap();
+        let path = fixture.check_out(21).await.path;
         let link = fixture
             .desk
-            .link_thread("thread-1".into(), target.clone())
+            .link_thread("thread-1".into(), 21)
             .await
-            .unwrap();
+            .unwrap()
+            .link;
         assert_eq!(link.closed_at, None);
         fixture.github.close_pr(21);
         let closed_at = 1_000_000;
@@ -172,7 +179,7 @@ mod tests {
                 .git(&["for-each-ref", "--format=%(refname)", "refs/pingex/"]),
             objects::head_ref(22)
         );
-        assert!(std::path::Path::new(&path).exists());
+        assert!(Path::new(&path).exists());
         let links = crate::storage::read_pr_links(&fixture.desk.database)
             .await
             .unwrap();
@@ -185,9 +192,8 @@ mod tests {
         let week = closed_at + KEEP_CLOSED_CHECKOUT_SECS;
         let removed = fixture.desk.prune_closed_at(week).await.unwrap();
         assert_eq!(removed.removed_checkouts, [21]);
-        assert!(!std::path::Path::new(&path).exists());
-        let state = fixture.desk.checkout_state(target).await.unwrap();
-        assert_eq!(state.step, CheckoutStep::NoCheckout);
+        assert!(!Path::new(&path).exists());
+        assert_eq!(fixture.desk.pr_checkout(21).await.unwrap(), None);
         let _ = still_open;
     }
 
@@ -197,19 +203,7 @@ mod tests {
             return;
         };
         let pr = fixture.open_pr(21, "feature", "src/lib.rs");
-        let target = CheckoutTarget {
-            number: 21,
-            head_ref: pr.head_ref.clone(),
-            head_sha: pr.head_sha.clone(),
-            ..CheckoutTarget::default()
-        };
-        let path = fixture
-            .desk
-            .ensure_pr_worktree(target)
-            .await
-            .unwrap()
-            .path
-            .unwrap();
+        let path = fixture.check_out(21).await.path;
         let day = 24 * 60 * 60;
         fixture.github.close_pr(21);
         fixture.desk.prune_closed_at(0).await.unwrap();
@@ -221,7 +215,7 @@ mod tests {
 
         assert_eq!(closed_again.closed, [21]);
         assert!(closed_again.removed_checkouts.is_empty());
-        assert!(std::path::Path::new(&path).exists());
+        assert!(Path::new(&path).exists());
         let later = fixture.desk.prune_closed_at(14 * day).await.unwrap();
         assert!(later.removed_checkouts.is_empty());
         let week = fixture.desk.prune_closed_at(15 * day).await.unwrap();
@@ -233,18 +227,9 @@ mod tests {
         let Some(fixture) = fixture().await else {
             return;
         };
-        let pr = fixture.open_pr(21, "feature", "src/lib.rs");
+        fixture.open_pr(21, "feature", "src/lib.rs");
         fixture.desk.fetch_prs(vec![21]).await.unwrap();
-        fixture
-            .desk
-            .ensure_pr_worktree(CheckoutTarget {
-                number: 21,
-                head_ref: pr.head_ref.clone(),
-                head_sha: pr.head_sha.clone(),
-                ..CheckoutTarget::default()
-            })
-            .await
-            .unwrap();
+        fixture.check_out(21).await;
 
         // GitHub still lists #21 as open; the sync that ran just before said
         // otherwise, and that answer is the one pruning acts on.
@@ -268,18 +253,9 @@ mod tests {
         let Some(fixture) = fixture().await else {
             return;
         };
-        let pr = fixture.open_pr(21, "feature", "src/lib.rs");
+        fixture.open_pr(21, "feature", "src/lib.rs");
         fixture.desk.fetch_prs(vec![21]).await.unwrap();
-        fixture
-            .desk
-            .ensure_pr_worktree(CheckoutTarget {
-                number: 21,
-                head_ref: pr.head_ref.clone(),
-                head_sha: pr.head_sha.clone(),
-                ..CheckoutTarget::default()
-            })
-            .await
-            .unwrap();
+        fixture.check_out(21).await;
 
         let report = fixture
             .desk
@@ -302,59 +278,21 @@ mod tests {
         assert_eq!(row.closed_at, None);
     }
 
-    #[tokio::test]
-    async fn pruning_never_removes_a_worktree_that_is_the_users() {
-        let Some(fixture) = fixture().await else {
-            return;
-        };
-        let pr = fixture.open_pr(1, "one", "src/one.rs");
-        let path = fixture
-            .desk
-            .ensure_pr_worktree(CheckoutTarget {
-                number: pr.number,
-                head_ref: pr.head_ref.clone(),
-                head_sha: pr.head_sha.clone(),
-                stack: Some("foo".into()),
-                ..CheckoutTarget::default()
-            })
-            .await
-            .unwrap()
-            .path
-            .unwrap();
-        fixture.github.close_pr(1);
-
-        fixture.desk.prune_closed_at(0).await.unwrap();
-        let week = fixture
-            .desk
-            .prune_closed_at(KEEP_CLOSED_CHECKOUT_SECS)
-            .await
-            .unwrap();
-
-        assert!(week.removed_checkouts.is_empty(), "{week:?}");
-        assert!(std::path::Path::new(&path).exists());
-    }
-
-    /// A managed worktree seven days after its PR closed, once `prepare` has
-    /// run in it: its path, and what pruning then reported.
+    /// PR `number`'s worktree seven days after the PR closed, once `prepare`
+    /// has run in it: its path, and what pruning then reported.
     async fn prune_after_a_week(
-        fixture: &super::super::test_support::Fixture,
+        fixture: &Fixture,
         number: u32,
-        prepare: impl FnOnce(&std::path::Path),
-    ) -> (String, crate::review::checkout_types::PruneReport) {
-        let pr = fixture.open_pr(number, "feature", "src/lib.rs");
-        let path = fixture
-            .desk
-            .ensure_pr_worktree(CheckoutTarget {
-                number: pr.number,
-                head_ref: pr.head_ref.clone(),
-                head_sha: pr.head_sha.clone(),
-                ..CheckoutTarget::default()
-            })
-            .await
-            .unwrap()
-            .path
-            .unwrap();
-        prepare(std::path::Path::new(&path));
+        mine: bool,
+        prepare: impl FnOnce(&Path),
+    ) -> (String, PruneReport) {
+        if mine {
+            fixture.open_my_pr(number, "feature", "src/lib.rs");
+        } else {
+            fixture.open_pr(number, "feature", "src/lib.rs");
+        }
+        let path = fixture.check_out(i64::from(number)).await.path;
+        prepare(Path::new(&path));
         fixture.github.close_pr(i64::from(number));
         fixture.desk.prune_closed_at(0).await.unwrap();
         let report = fixture
@@ -366,23 +304,35 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pruning_removes_a_clean_managed_worktree_and_its_branch() {
+    async fn pruning_removes_a_clean_worktree_and_its_pr_branch() {
         let Some(fixture) = fixture().await else {
             return;
         };
-        let (path, report) = prune_after_a_week(&fixture, 41, |_| {}).await;
+        let (path, report) = prune_after_a_week(&fixture, 41, false, |_| {}).await;
 
         assert_eq!(report.removed_checkouts, [41]);
-        assert!(!std::path::Path::new(&path).exists());
+        assert!(!Path::new(&path).exists());
         assert_eq!(fixture.repo.git(&["branch", "--list", "pr/41"]), "");
     }
 
     #[tokio::test]
-    async fn pruning_keeps_a_managed_worktree_with_unpushed_commits() {
+    async fn pruning_removes_my_prs_worktree_too_and_keeps_its_branch() {
         let Some(fixture) = fixture().await else {
             return;
         };
-        let (path, report) = prune_after_a_week(&fixture, 42, |dir| {
+        let (path, report) = prune_after_a_week(&fixture, 45, true, |_| {}).await;
+
+        assert_eq!(report.removed_checkouts, [45]);
+        assert!(!Path::new(&path).exists());
+        assert_ne!(fixture.repo.git(&["branch", "--list", "feature"]), "");
+    }
+
+    #[tokio::test]
+    async fn pruning_keeps_my_prs_worktree_with_unpushed_commits() {
+        let Some(fixture) = fixture().await else {
+            return;
+        };
+        let (path, report) = prune_after_a_week(&fixture, 46, true, |dir| {
             std::fs::write(dir.join("measure.txt"), "1.2s").unwrap();
             fixture.repo.git_in(dir, &["add", "measure.txt"]);
             fixture.repo.git_in(dir, &["commit", "-q", "-m", "measure"]);
@@ -390,7 +340,23 @@ mod tests {
         .await;
 
         assert!(report.removed_checkouts.is_empty(), "{report:?}");
-        let dir = std::path::Path::new(&path);
+        assert!(Path::new(&path).join("measure.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn pruning_keeps_a_worktree_with_unpushed_commits() {
+        let Some(fixture) = fixture().await else {
+            return;
+        };
+        let (path, report) = prune_after_a_week(&fixture, 42, false, |dir| {
+            std::fs::write(dir.join("measure.txt"), "1.2s").unwrap();
+            fixture.repo.git_in(dir, &["add", "measure.txt"]);
+            fixture.repo.git_in(dir, &["commit", "-q", "-m", "measure"]);
+        })
+        .await;
+
+        assert!(report.removed_checkouts.is_empty(), "{report:?}");
+        let dir = Path::new(&path);
         assert!(dir.join("measure.txt").exists());
         assert_eq!(
             fixture.repo.git_in(dir, &["log", "-1", "--format=%s"]),
@@ -399,47 +365,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pruning_keeps_a_managed_worktree_with_untracked_output() {
+    async fn pruning_keeps_a_worktree_with_untracked_output() {
         let Some(fixture) = fixture().await else {
             return;
         };
-        let (path, report) = prune_after_a_week(&fixture, 43, |dir| {
+        let (path, report) = prune_after_a_week(&fixture, 43, false, |dir| {
             std::fs::write(dir.join("results.csv"), "1,2").unwrap();
         })
         .await;
 
         assert!(report.removed_checkouts.is_empty(), "{report:?}");
-        assert!(std::path::Path::new(&path).join("results.csv").exists());
+        assert!(Path::new(&path).join("results.csv").exists());
     }
 
     #[tokio::test]
-    async fn pruning_keeps_a_managed_worktree_whose_last_head_it_cannot_find() {
+    async fn pruning_keeps_a_worktree_whose_last_head_it_cannot_find() {
         let Some(fixture) = fixture().await else {
             return;
         };
         let pr = fixture.open_pr(44, "feature", "src/lib.rs");
-        let target = CheckoutTarget {
-            number: pr.number,
-            head_ref: pr.head_ref.clone(),
-            head_sha: pr.head_sha.clone(),
-            ..CheckoutTarget::default()
-        };
-        let path = fixture
-            .desk
-            .ensure_pr_worktree(target.clone())
-            .await
-            .unwrap()
-            .path
-            .unwrap();
+        let path = fixture.check_out(44).await.path;
         // The PR moved to a commit this repository never fetched.
-        fixture
-            .desk
-            .checkout_state(CheckoutTarget {
-                head_sha: "a".repeat(40),
-                ..target
-            })
-            .await
-            .unwrap();
+        fixture.relist(&crate::review::types::InboxPr {
+            head_sha: "a".repeat(40),
+            ..pr
+        });
+        fixture.check_out(44).await;
         fixture.github.close_pr(44);
         fixture.desk.prune_closed_at(0).await.unwrap();
 
@@ -450,7 +401,69 @@ mod tests {
             .unwrap();
 
         assert!(report.removed_checkouts.is_empty(), "{report:?}");
-        assert!(std::path::Path::new(&path).exists());
+        assert!(Path::new(&path).exists());
+    }
+
+    #[tokio::test]
+    async fn an_adopted_worktree_is_only_forgotten() {
+        let Some(fixture) = fixture().await else {
+            return;
+        };
+        fixture.open_my_pr(47, "feature", "src/lib.rs");
+        let place = fixture.repo.repo.parent().unwrap().join("by-hand");
+        let path = place.to_str().unwrap().to_string();
+        fixture
+            .repo
+            .git(&["worktree", "add", "-q", &path, "feature"]);
+        let CheckOutOutcome::BranchInUse { path: found, .. } = fixture.check_out_now(47).await
+        else {
+            panic!("the branch is in use");
+        };
+        fixture.desk.adopt_worktree(47, found).await.unwrap();
+        fixture.github.close_pr(47);
+        fixture.desk.prune_closed_at(0).await.unwrap();
+
+        let report = fixture
+            .desk
+            .prune_closed_at(KEEP_CLOSED_CHECKOUT_SECS)
+            .await
+            .unwrap();
+
+        assert!(report.removed_checkouts.is_empty(), "{report:?}");
+        assert!(place.exists());
+        assert_eq!(fixture.desk.pr_checkout(47).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn a_stack_worktree_goes_once_every_pr_in_it_has_closed() {
+        let Some(stack) = StackFixture::new().await else {
+            return;
+        };
+        let path = stack.checked_out().await.path;
+        stack.inner.github.close_pr(412);
+        stack.desk().prune_closed_at(0).await.unwrap();
+
+        let some = stack
+            .desk()
+            .prune_closed_at(KEEP_CLOSED_CHECKOUT_SECS)
+            .await
+            .unwrap();
+        assert!(some.removed_checkouts.is_empty(), "{some:?}");
+        assert!(Path::new(&path).exists());
+
+        stack.inner.github.close_pr(415);
+        stack.inner.github.close_pr(418);
+        let day = 24 * 60 * 60;
+        stack.desk().prune_closed_at(day).await.unwrap();
+        let all = stack
+            .desk()
+            .prune_closed_at(day + KEEP_CLOSED_CHECKOUT_SECS)
+            .await
+            .unwrap();
+
+        assert_eq!(all.removed_checkouts, [412, 415, 418]);
+        assert!(!Path::new(&path).exists());
+        assert_ne!(stack.git(&["branch", "--list", "feat/maki"]), "");
     }
 
     #[tokio::test]

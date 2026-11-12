@@ -1,8 +1,8 @@
 //! The git side of PR worktrees: a real worktree on a local branch at a PR's
 //! head, where agents and people can build, run and commit.
 //!
-//! A PR worktree Pingex manages (someone else's PR, or any fork) is locked with
-//! the reason [`PR_WORKTREE_LOCK`]. The lock keeps `git worktree prune` off it
+//! Every PR or stack worktree Pingex makes is locked with the reason
+//! [`PR_WORKTREE_LOCK`]. The lock keeps `git worktree prune` off it
 //! and is how the worktree listing tells it apart
 //! (`WorktreeEntry::is_managed_pr_worktree`), so cleanup and the sidebar need no
 //! second store to keep in step with git. Nothing here discards work: moving a
@@ -20,18 +20,18 @@ use super::run::{
 };
 use crate::util::host::Host;
 
-/// The `git worktree lock` reason that marks a worktree Pingex manages.
+/// The `git worktree lock` reason that marks a worktree Pingex made.
 pub(crate) const PR_WORKTREE_LOCK: &str = "pingex pr worktree";
 /// The reason review checkouts were locked with, before they became PR
 /// worktrees. Adoption replaces it (`ReviewDesk::adopt_legacy`).
 pub(crate) const LEGACY_REVIEW_CHECKOUT_LOCK: &str = "pingex review checkout";
 
-/// Whether a worktree lock reason says Pingex manages the worktree.
+/// Whether a worktree lock reason says Pingex made the worktree.
 pub(crate) fn is_managed_lock(reason: Option<&str>) -> bool {
     matches!(reason, Some(PR_WORKTREE_LOCK | LEGACY_REVIEW_CHECKOUT_LOCK))
 }
 
-/// The local branch of a PR worktree Pingex manages.
+/// The local branch of someone else's PR, or a fork's, in its worktree.
 pub(crate) fn managed_branch(number: i64) -> String {
     format!("pr/{number}")
 }
@@ -164,7 +164,7 @@ pub(crate) fn lock_reason(host: &Host, dir: &Path) -> Result<Option<String>, Str
         .map(|reason| reason.trim().to_string()))
 }
 
-/// Whether Pingex manages the worktree at `dir`.
+/// Whether Pingex made the worktree at `dir`.
 pub(crate) fn is_managed(host: &Host, dir: &Path) -> Result<bool, String> {
     Ok(is_managed_lock(lock_reason(host, dir)?.as_deref()))
 }
@@ -185,15 +185,14 @@ pub(crate) fn is_linked_worktree(host: &Host, dir: &Path) -> Result<bool, String
 }
 
 /// A worktree at `path` on `branch`, at `sha` when the branch is new or merely
-/// behind it. A branch with commits `sha` lacks stays as it is. `managed`
-/// locks the worktree as one Pingex looks after.
+/// behind it. A branch with commits `sha` lacks stays as it is. The worktree
+/// is locked as one Pingex made.
 pub(crate) fn add_pr_worktree(
     host: &Host,
     repo: &Path,
     path: &str,
     branch: &str,
     sha: &str,
-    managed: bool,
 ) -> Result<(), String> {
     let sha = objects::require_sha(sha)?;
     if let Some(parent) = host.parent_str(path) {
@@ -214,10 +213,14 @@ pub(crate) fn add_pr_worktree(
                 let _ = run_git(host, repo, &["branch", "-f", branch, sha], WRITE_TIMEOUT)?;
             }
         }
-        let mut args: Vec<&str> = vec!["worktree", "add", "--quiet"];
-        if managed {
-            args.extend(["--lock", "--reason", PR_WORKTREE_LOCK]);
-        }
+        let mut args: Vec<&str> = vec![
+            "worktree",
+            "add",
+            "--quiet",
+            "--lock",
+            "--reason",
+            PR_WORKTREE_LOCK,
+        ];
         if tip.is_some() {
             args.extend(["--end-of-options", path, branch]);
         } else {

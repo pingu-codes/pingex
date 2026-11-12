@@ -603,11 +603,6 @@ export const commands = {
 } | null>("review_load_draft", { provider, repo, prNumber, window }),
 	reviewDeleteDraft: (provider: string, repo: string, prNumber: number, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("review_delete_draft", { provider, repo, prNumber, window }),
 	reviewStackOverview: (repoDir: string, input: StackInput, window: HomeRoute | null = null) => __TAURI_INVOKE<StackOverview>("review_stack_overview", { repoDir, input, window }),
-	/**
-	 *  A local git branch for each open PR of the stack, and a worktree on the top
-	 *  one unless the stack has one.
-	 */
-	reviewEnsureStackWorktree: (repoDir: string, input: StackInput, window: HomeRoute | null = null) => __TAURI_INVOKE<StackCheckout>("review_ensure_stack_worktree", { repoDir, input, window }),
 	reviewPrsBehind: (repoDir: string, prs: PrBaseInput[], window: HomeRoute | null = null) => __TAURI_INVOKE<PrBehind[]>("review_prs_behind", { repoDir, prs, window }),
 	reviewRestackPlan: (repoDir: string, input: StackInput, from: number | null, window: HomeRoute | null = null) => __TAURI_INVOKE<RestackPlan>("review_restack_plan", { repoDir, input, from, window }),
 	reviewRestack: (repoDir: string, input: StackInput, from: number | null, window: HomeRoute | null = null) => __TAURI_INVOKE<RestackProgress>("review_restack", { repoDir, input, from, window }),
@@ -621,28 +616,82 @@ export const commands = {
 	reviewRenameStackBranch: (repoDir: string, input: StackInput, number: number, to: string, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("review_rename_stack_branch", { repoDir, input, number, to, window }),
 	reviewAddStackBranch: (repoDir: string, input: StackInput, name: string, below: number | null, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("review_add_stack_branch", { repoDir, input, name, below, window }),
 	reviewDeleteMergedBranches: (repoDir: string, input: StackInput, window: HomeRoute | null = null) => __TAURI_INVOKE<string[]>("review_delete_merged_branches", { repoDir, input, window }),
-	reviewCheckoutState: (repoDir: string, target: CheckoutTarget, window: HomeRoute | null = null) => __TAURI_INVOKE<PrCheckout>("review_checkout_state", { repoDir, target, window }),
 	/**
-	 *  Where each of `targets` is on disk, for the inbox and the Stack page. PRs
-	 *  with no location are left out. Changes nothing.
+	 *  Check out PR `number`: its own worktree for a lone PR, the whole stack's
+	 *  for a stack's PR. `BranchInUse` when its git branch is checked out
+	 *  somewhere already; `review_adopt_worktree` then takes that.
 	 */
-	reviewPrCheckouts: (repoDir: string, targets: CheckoutTarget[], window: HomeRoute | null = null) => __TAURI_INVOKE<PrCheckout[]>("review_pr_checkouts", { repoDir, targets, window }),
-	reviewPlanStep: (repoDir: string, target: CheckoutTarget, action: DeskAction, window: HomeRoute | null = null) => __TAURI_INVOKE<StepPlan>("review_plan_step", { repoDir, target, action, window }),
-	reviewEnsurePrWorktree: (repoDir: string, target: CheckoutTarget, window: HomeRoute | null = null) => __TAURI_INVOKE<PrCheckout>("review_ensure_pr_worktree", { repoDir, target, window }),
+	reviewCheckOut: (repoDir: string, number: number, window: HomeRoute | null = null) => __TAURI_INVOKE<CheckOutOutcome>("review_check_out", { repoDir, number, window }),
+	/**  Check out every open PR of GitHub stack `stack` in one worktree. */
+	reviewCheckOutStack: (repoDir: string, stack: number, window: HomeRoute | null = null) => __TAURI_INVOKE<CheckOutOutcome>("review_check_out_stack", { repoDir, stack, window }),
+	/**
+	 *  Make the worktree at `path` PR `number`'s (its stack's, for a stack's
+	 *  PR), as Check out found it. Pingex never switches, fast-forwards or
+	 *  removes an adopted worktree.
+	 */
+	reviewAdoptWorktree: (repoDir: string, number: number, path: string, window: HomeRoute | null = null) => __TAURI_INVOKE<PrCheckout>("review_adopt_worktree", { repoDir, number, path, window }),
+	/**  Put the stack worktree PR `number` is checked out in on its git branch. */
+	reviewSwitchStackBranch: (repoDir: string, number: number, window: HomeRoute | null = null) => __TAURI_INVOKE<PrCheckout>("review_switch_stack_branch", { repoDir, number, window }),
+	/**
+	 *  PR `number`'s worktree, or `None` when it is not checked out. Changes
+	 *  nothing.
+	 */
+	reviewPrCheckout: (repoDir: string, number: number, window: HomeRoute | null = null) => __TAURI_INVOKE<{
+	number: number,
+	/**  The worktree's directory, on the repository's Host. */
+	path: string,
+	/**  The commit checked out there. */
+	headSha: string | null,
+	/**  The git branch checked out there. */
+	gitBranch: string | null,
+	/**  The setup command still to run in a new worktree. */
+	setupPending: string | null,
+	/**  Commits here that the PR's head does not have. */
+	ahead: number,
+	/**  Commits on the PR's head that are not here. */
+	behind: number,
+	/**  Uncommitted or untracked files here. */
+	dirty: boolean,
+	/**
+	 *  Pingex found this worktree rather than made it, so it never switches,
+	 *  fast-forwards or removes it. Otherwise Pingex removes it once its PR
+	 *  (or every PR of its stack) has closed and it holds no work.
+	 */
+	adopted: boolean,
+	/**
+	 *  The worktree is on this PR's own git branch. False when it is on
+	 *  another branch, as a stack's worktree is for all but one of its PRs;
+	 *  `ahead` and `behind` then count from this PR's local branch, and
+	 *  `git_branch` names the one checked out.
+	 */
+	onPrBranch: boolean,
+	/**  The directory is the repository's main clone, not a linked worktree. */
+	mainCheckout: boolean,
+	/**  GitHub's number for the stack whose worktree this is. */
+	stack: number | null,
+} | null>("review_pr_checkout", { repoDir, number, window }),
+	/**
+	 *  Every checked-out PR of `repo_dir`, for the inbox and the Stack page.
+	 *  Changes nothing.
+	 */
+	reviewPrCheckouts: (repoDir: string, window: HomeRoute | null = null) => __TAURI_INVOKE<PrCheckout[]>("review_pr_checkouts", { repoDir, window }),
 	reviewRunCheckoutSetup: (repoDir: string, number: number, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("review_run_checkout_setup", { repoDir, number, window }),
-	/**  Remove PR `number`'s managed worktree. Refused when it holds work. */
+	/**
+	 *  Undo checking PR `number` out: remove the worktree Pingex made for it
+	 *  (its stack's, for a stack's PR). Refused when it holds work.
+	 */
 	reviewRemovePrWorktree: (repoDir: string, number: number, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("review_remove_pr_worktree", { repoDir, number, window }),
 	/**  Push PR `number`'s worktree to the PR's head branch, without forcing. */
 	reviewPushToPr: (repoDir: string, number: number, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("review_push_to_pr", { repoDir, number, window }),
-	/**  The PR of the Pingex-managed worktree at `dir`, if that is what it is. */
+	/**  The lone PR of the worktree Pingex made at `dir`, if that is what it is. */
 	reviewManagedWorktreeAt: (dir: string, window: HomeRoute | null = null) => __TAURI_INVOKE<{
 	/**  The repository's clone, as the desk is keyed. */
 	repoDir: string,
 	number: number,
 } | null>("review_managed_worktree_at", { dir, window }),
 	/**
-	 *  What to tell an agent starting a thread in `dir`, when `dir` is a managed
-	 *  PR worktree or a Stack worktree.
+	 *  What to tell an agent starting a thread in `dir`, when `dir` is a PR
+	 *  worktree or a Stack worktree.
 	 */
 	reviewWorktreeContext: (dir: string, window: HomeRoute | null = null) => __TAURI_INVOKE<{
 	purpose: WorktreePurpose,
@@ -659,12 +708,8 @@ export const commands = {
 	 *  An incomplete sync prunes nothing.
 	 */
 	reviewPruneClosed: (repoDir: string, openNumbers: number[], complete: boolean, window: HomeRoute | null = null) => __TAURI_INVOKE<PruneReport>("review_prune_closed", { repoDir, openNumbers, complete, window }),
-	/**
-	 *  Set the PR worktree policy and "Don't ask again for <repository>",
-	 *  keeping the repository's other settings.
-	 */
-	reviewSetCheckoutPolicy: (repoDir: string, policy: ReviewCheckoutPolicy, skipConfirm: boolean, window: HomeRoute | null = null) => __TAURI_INVOKE<null>("review_set_checkout_policy", { repoDir, policy, skipConfirm, window }),
-	reviewLinkThread: (repoDir: string, threadId: string, target: CheckoutTarget, window: HomeRoute | null = null) => __TAURI_INVOKE<PrLink>("review_link_thread", { repoDir, threadId, target, window }),
+	/**  File `thread_id`, just started in PR `number`'s worktree, under the PR. */
+	reviewLinkThread: (repoDir: string, threadId: string, number: number, window: HomeRoute | null = null) => __TAURI_INVOKE<PrLink>("review_link_thread", { repoDir, threadId, number, window }),
 	reviewPrLinks: (window: HomeRoute | null = null) => __TAURI_INVOKE<PrLink[]>("review_pr_links", { window }),
 	/**
 	 *  File a thread under PR `number` instead (or under none), keeping its
@@ -805,8 +850,6 @@ export const events = {
 };
 
 /* Constants */
-export const DESK_ACTION_STEPS = {"addressReview":"worktree","agentReviewWithTests":"worktree","askAgent":"noCheckout","changesSince":"noCheckout","close":"noCheckout","comment":"noCheckout","diffReview":"noCheckout","fixCi":"worktree","fixInThread":"worktree","markReady":"noCheckout","merge":"noCheckout","openInEditor":"worktree","push":"worktree","read":"noCheckout","resolveConflicts":"worktree","resolveThread":"noCheckout","restack":"worktree","retarget":"noCheckout","runLocally":"worktree","submitReview":"noCheckout","viewWholeFile":"noCheckout","workOnPr":"worktree"} as const;
-
 export const HARNESS_CAPABILITIES = {"claude":["permissionModes","liveToolResults","compact","sideQuestions","readOnlySandbox"],"codex":["goals","revert","collaborationModes","compact","fork","review","sideQuestions","readOnlySandbox","browserUse","steer","backgroundTerminals"],"maki":["permissionModes","liveToolResults"]} as const;
 
 export const HARNESS_INFO = {"claude":{"configDir":".claude","configDirEditable":true,"defaultBinary":"claude","label":"Claude Code","name":"Claude","optional":false,"probesStatus":true},"codex":{"configDir":".codex","configDirEditable":true,"defaultBinary":"codex","label":"Codex","name":"Codex","optional":false,"probesStatus":false},"maki":{"configDir":".config/maki","configDirEditable":false,"defaultBinary":"maki","label":"maki","name":"maki","optional":true,"probesStatus":true}} as const;
@@ -878,8 +921,6 @@ export type AgentReviewRequest = {
 	 */
 	targets: CheckoutTarget[],
 	harness: HarnessKind,
-	/**  The checkout step the agent works at. */
-	step: CheckoutStep,
 	focus: FocusArea[],
 	/**  Findings stay drafts only the reviewer sees until added to the review. */
 	keepDrafts: boolean,
@@ -1215,17 +1256,38 @@ export type CheckLog = {
 	truncated: boolean,
 };
 
-/**  Where a PR's code lives, lowest first. */
-export type CheckoutStep = 
-/**  The PR's commits as fetched refs; the working tree is untouched. */
-"noCheckout" | 
+/**  What Check out did. */
+export type CheckOutOutcome = 
+/**  The PR (or every open PR of its stack) is checked out. */
+{ kind: "checkedOut"; 
+/**  The PR asked for; for a stack, its top open PR. */
+checkout: PrCheckout; 
+/**  A new worktree was made; otherwise it had one. */
+created: boolean; 
+/**  Local git branches made for a stack's PRs. */
+createdBranches: string[]; 
+/**  A stack's git branches left where they were. */
+kept: KeptBranch[]; 
 /**
- *  A worktree on a local branch at the PR's head, where agents and people
- *  can build, run and commit.
+ *  Why the provider's stack tool (`gh stack`) doesn't track the stack
+ *  in the worktree, when it is installed and should.
  */
-"worktree";
+localStackWarning: string | null } | 
+/**
+ *  The git branch the worktree would be on is checked out at `path`
+ *  already. `review_adopt_worktree` makes that the PR's worktree.
+ */
+{ kind: "branchInUse"; 
+/**  The PR whose branch it is. */
+number: number; branch: string; path: string; 
+/**  `path` is the repository's main clone. */
+mainClone: boolean };
 
-/**  The PR a checkout operation is for, as the inbox row has it. */
+/**
+ *  A PR as the desk works on it: its head, whether it is mine and its place
+ *  in a stack. The desk derives it (`ReviewDesk::target_for`); agent review
+ *  requests still carry the heads they were queued for.
+ */
 export type CheckoutTarget = {
 	number: number,
 	/**  The PR's git branch. */
@@ -1240,10 +1302,7 @@ export type CheckoutTarget = {
 	stack: string | null,
 	/**  The `owner/name` the PR's head lives in; `None` when it was deleted. */
 	headRepo?: string | null,
-	/**
-	 *  The git branches of the stack's open PRs, bottom first. A stack shares
-	 *  one worktree, so this PR may be there on one of its neighbours.
-	 */
+	/**  The git branches of the stack's open PRs, bottom first. */
 	stackBranches?: string[],
 };
 
@@ -1413,19 +1472,6 @@ export type DeltaParams = {
 	itemId?: string | null,
 	delta?: string | null,
 };
-
-/**  A desk action that touches a PR's code, or explicitly does not. */
-export type DeskAction = "read" | "comment" | "submitReview" | "resolveThread" | "viewWholeFile" | "changesSince" | "merge" | "close" | "retarget" | "markReady" | 
-/**  An agent review that reads the patch and runs nothing. */
-"diffReview" | 
-/**  Ask an agent about a line or a file. */
-"askAgent" | 
-/**  An agent review with "Run tests" on. */
-"agentReviewWithTests" | "runLocally" | "openInEditor" | 
-/**  Start a thread in the PR's worktree, to build, run, measure or change it. */
-"workOnPr" | "fixInThread" | "addressReview" | "fixCi" | 
-/**  Push to the PR's git branch. */
-"push" | "restack" | "resolveConflicts";
 
 /**
  *  Where an entry sits in the diff: one line, or the range
@@ -2394,15 +2440,17 @@ export type PrBehind = {
 	behind: number | null,
 };
 
-/**  Where a PR's code is now. */
+/**
+ *  A checked-out PR's worktree, as it is on disk now. A PR that is not
+ *  checked out has none.
+ */
 export type PrCheckout = {
 	number: number,
-	step: CheckoutStep,
 	/**  The worktree's directory, on the repository's Host. */
-	path: string | null,
+	path: string,
 	/**  The commit checked out there. */
 	headSha: string | null,
-	/**  The worktree's git branch. */
+	/**  The git branch checked out there. */
 	gitBranch: string | null,
 	/**  The setup command still to run in a new worktree. */
 	setupPending: string | null,
@@ -2413,10 +2461,11 @@ export type PrCheckout = {
 	/**  Uncommitted or untracked files here. */
 	dirty: boolean,
 	/**
-	 *  Pingex looks after this worktree and removes it once its PR has closed
-	 *  and it holds no work. Otherwise it is the user's.
+	 *  Pingex found this worktree rather than made it, so it never switches,
+	 *  fast-forwards or removes it. Otherwise Pingex removes it once its PR
+	 *  (or every PR of its stack) has closed and it holds no work.
 	 */
-	managed: boolean,
+	adopted: boolean,
 	/**
 	 *  The worktree is on this PR's own git branch. False when it is on
 	 *  another branch, as a stack's worktree is for all but one of its PRs;
@@ -2426,6 +2475,8 @@ export type PrCheckout = {
 	onPrBranch: boolean,
 	/**  The directory is the repository's main clone, not a linked worktree. */
 	mainCheckout: boolean,
+	/**  GitHub's number for the stack whose worktree this is. */
+	stack: number | null,
 };
 
 /**
@@ -2552,10 +2603,7 @@ export type PrFreshness = {
 	remoteUpdatedAt: string,
 };
 
-/**
- *  A thread's PR link: the PR it is about and what was checked out when it
- *  started. Only the PR number (and whether the PR is mine) ever changes.
- */
+/**  A thread's PR link: the PR it is about and where it started. Only the PR number (and whether the PR is mine) ever changes. */
 export type PrLink = {
 	threadId: string,
 	/**  The repository's project root path. */
@@ -2563,8 +2611,10 @@ export type PrLink = {
 	prNumber: number,
 	/**  Whether I wrote the PR. */
 	mine: boolean,
-	/**  The checkout step when the thread started. */
-	step: CheckoutStep,
+	/**
+	 *  The worktree the thread started in; `None` on a link from before every
+	 *  PR thread ran in one.
+	 */
 	checkoutPath: string | null,
 	gitBranch: string | null,
 	startSha: string | null,
@@ -2912,9 +2962,6 @@ export type RepositorySettings = {
 	repoKey: string,
 	/**  Run once in a new PR worktree, e.g. `bun install`. */
 	setupCommand: string | null,
-	reviewCheckoutPolicy: ReviewCheckoutPolicy,
-	/**  "Don't ask again for <repository>" on the checkout confirmation. */
-	skipCheckoutConfirm: boolean,
 	/**  Where new worktrees go; `None` for the app default. */
 	worktreeDir: string | null,
 	prSource: PrSource,
@@ -2988,18 +3035,6 @@ export type RestackProgress = {
 };
 
 export type RestackStatus = "waiting" | "replayed" | "unchanged" | "conflict";
-
-/**
- *  When a PR worktree may be created for an action that follows this policy
- *  (`DeskAction::follows_policy`). Named for the step it first governed.
- */
-export type ReviewCheckoutPolicy = 
-/**  Confirm first, unless "Don't ask again" was chosen. */
-"ask" | 
-/**  Create it without asking. */
-"whenNeeded" | 
-/**  Never create one for those actions; they are unavailable. */
-"never";
 
 export type ReviewDraft = {
 	headSha: string,
@@ -3230,21 +3265,6 @@ export type StackBranch = {
 	commitLines: CommitLine[],
 };
 
-/**  What checking out a stack did. */
-export type StackCheckout = {
-	/**  The stack's top PR, as its checkout now stands. */
-	checkout: PrCheckout,
-	/**  A new worktree was made; otherwise the stack already had one. */
-	created: boolean,
-	createdBranches: string[],
-	kept: KeptBranch[],
-	/**
-	 *  Why the provider's stack tool (`gh stack`) doesn't track the stack in
-	 *  the worktree, when it is installed and should.
-	 */
-	localStackWarning: string | null,
-};
-
 /**
  *  A stack as the inbox has it: GitHub's native stack joined with each PR's
  *  inbox facts. Bottom first, merged PRs included (GitHub keeps them in the
@@ -3348,41 +3368,6 @@ export type StatusFile = {
 	state: string,
 	/**  Two-letter porcelain-v2 XY code (e.g. `M.`, `.M`, `A.`); empty for `?`/`!`. */
 	code: string,
-};
-
-/**  What has to be confirmed before stepping up. */
-export type StepConfirm = 
-/**  The PR has no checkout: create a worktree for it. */
-"createWorktree" | 
-/**  Pushing to a git branch someone else owns. Asked every time. */
-"pushToTheirBranch" | 
-/**  The stack's worktree is on another of its git branches: switch it. */
-"switchBranch";
-
-/**  How to get a PR to the step an action needs. */
-export type StepPlan = {
-	current: PrCheckout,
-	/**  The step to move up to, or `None` when the PR already has enough. */
-	stepUp: CheckoutStep | null,
-	/**
-	 *  What to confirm first: the step up, or, with no step up, the push
-	 *  to someone else's git branch.
-	 */
-	confirm: StepConfirm | null,
-	/**
-	 *  The action pushes to someone else's git branch, which is confirmed
-	 *  every time: after the step up when `confirm` was for that.
-	 */
-	confirmPush: boolean,
-	/**  Why the action cannot go ahead (the repository says Never). */
-	refused: string | null,
-	/**  Where a new worktree would go, for the confirmation. */
-	worktreePath: string,
-	/**
-	 *  The action needs the stack's worktree switched to this PR's git branch
-	 *  from `current.git_branch`. `review_ensure_pr_worktree` does the switch.
-	 */
-	switchBranch: boolean,
 };
 
 export type StopReason = "end_turn" | "max_tokens" | "max_turn_requests" | "refusal" | "cancelled" | "error";
@@ -3859,8 +3844,8 @@ export type WorktreeHandoffPreflight = {
 
 export type WorktreePurpose = 
 /**
- *  Someone else's PR or a fork's, on `pr/<n>`, removed by Pingex once the
- *  PR has closed.
+ *  A lone PR's worktree: on its own git branch when it is mine, else on
+ *  `pr/<n>`. The name is from when only the latter were Pingex's.
  */
 { kind: "managedPr"; repoDir: string; number: number } | 
 /**  The one worktree a stack lives in. */
@@ -3901,4 +3886,4 @@ function makeEvent<T>(name: string, serialize?: (payload: T) => unknown, deseria
 
 
 /** Command argument names for explicit Home routing. */
-export const commandArguments = {"addNativeSideQuestion":["parentThreadId","sideThreadId","title","window"],"addProfileProject":["path","host"],"addProject":["path","window"],"addProjectSource":["projectPath","sourcePath","kind","window"],"addSideQuestion":["parentThreadId","sideThreadId","title","inheritedTurns","window"],"addThreadBranch":["parentThreadId","threadId","replacedTurnId","inheritedTurns","window"],"addWorktreeProject":["path","window"],"allowThreadImage":["path","window"],"answerNativeSideQuestion":["parentThreadId","sideThreadId","requestId","window"],"applySessionFocus":["hide","collapseProjects","collapseFolders","window"],"archiveThread":["threadId","window"],"autoNameThread":["threadId","seed","window"],"backgroundTerminalTerminate":["threadId","processId","window"],"backgroundTerminalsClean":["threadId","window"],"backgroundTerminalsList":["threadId","window"],"bootstrap":["window"],"bootstrapProfile":["refresh"],"browserConnect":[],"browserFocusTab":["chromeTabId"],"browserInstallHelper":["reveal"],"browserLabelThread":["threadId","label"],"browserOverview":["threadId"],"browserReleaseTab":["threadId","targetId"],"browserResolveApproval":["id","decision"],"browserRevokeSite":["threadId","site"],"browserSetFullAccess":["threadId","enabled"],"browserSetSettings":["enabled","channel"],"browserStop":["threadId"],"cancelNativeSideQuestion":["parentThreadId","sideThreadId","requestId","window"],"clearWireLog":[],"compactThread":["threadId","window"],"copyText":["text"],"createSidebarFolder":["scope","parentId","name","window"],"createSkill":["name","description","body","cwds","window"],"createThreadSection":["name","color","window"],"createWorkspace":["input","window"],"deleteDraft":["project","window"],"deleteMemory":["homeId","path","projects"],"deleteSidebarFolder":["id","window"],"deleteSkill":["path","cwds","window"],"deleteThread":["threadId","window"],"deleteThreadSection":["sectionId","window"],"disconnectConnection":["clientId","window"],"forkThread":["threadId","beforeTurnId","lastTurnId","cwd","window"],"getQuickShortcut":[],"gitBranches":["dir","limit","window"],"gitCheckoutBranch":["dir","name","force","window"],"gitCommit":["dir","message","window"],"gitContext":["dir","window"],"gitCreateBranch":["dir","name","base","checkout","window"],"gitDiscard":["dir","paths","untrackedPaths","window"],"gitFetch":["dir","window"],"gitFileDiff":["dir","base","path","untracked","maxBytes","window"],"gitPull":["dir","window"],"gitPush":["dir","setUpstream","window"],"gitRecentCommits":["dir","limit","window"],"gitRepoInfo":["dir","window"],"gitSegmentDiff":["repoDir","baseSha","headSha","window"],"gitStage":["dir","paths","window"],"gitStagedFileDiff":["dir","path","maxBytes","window"],"gitStatus":["dir","window"],"gitThreadChanges":["threadId","cwd","scope","window"],"gitUnstage":["dir","paths","window"],"gitWorkingDiff":["repoDir","baseSha","window"],"gitWorktreeAdd":["repoDir","request","window"],"gitWorktreeAddTemp":["repoDir","window"],"gitWorktreeHandoff":["worktreePath","targetDir","commitUncommitted","branchName","window"],"gitWorktreeHandoffPreflight":["worktreePath","targetDir","window"],"gitWorktreeLock":["repoDir","path","reason","window"],"gitWorktreePrune":["repoDir","window"],"gitWorktreeRemove":["repoDir","path","force","window"],"gitWorktreeUnlock":["repoDir","path","window"],"gitWorktrees":["repoDir","window"],"handoffCommand":["threadId","cwd","window"],"handoffLaunchTerminal":["threadId","cwd","window"],"handoffThreadLink":["threadId","cwd","label","window"],"interruptTurn":["threadId","turnId","window"],"invalidateThreadCache":["threadId","window"],"listConnections":["window"],"listHarnessModels":["harness","window"],"listIntegrations":["cwds","forceReload","window"],"listMcpServerStatus":["window"],"listMemories":["projects"],"listModels":["window"],"listProjectFiles":["root","window"],"listProjectSources":["projectPath","window"],"listSkillsFor":["cwds","window"],"listSubagents":["threadId","window"],"listThreadsPage":["cursor","pageSize","archived","projectPath","window"],"listWslDistros":[],"loadDraft":["project","window"],"mcpOauthLogin":["name","window"],"moveThreadToSection":["threadId","sectionId","window"],"moveThreadToWorkspace":["threadId","workspaceId","window"],"openExternalUrl":["url"],"openHomeWindow":["path","host"],"openInZed":["path","window"],"placeSidebarItem":["scope","item","parentId","siblings","window"],"prepareNativeSideQuestion":["parentThreadId","sideThreadId","question","window"],"prepareProfileWorkspace":["sourceHomeKey","workspaceId","targetHomeKey"],"queueAdd":["threadId","input","clientUserMessageId","window"],"queueDelete":["threadId","queuedSubmissionId","window"],"queueList":["threadId","cursor","window"],"queueReorder":["threadId","queuedSubmissionIds","window"],"queueUpdate":["threadId","queuedSubmissionId","input","window"],"quickOpenFullThread":["threadId"],"readAccountRateLimits":["window"],"readCodexServerInfo":["window"],"readConfigSettings":["window"],"readContextBreakdown":["threadId","window"],"readFilePreview":["path","maxBytes","window"],"readHomeOverview":["window"],"readHomeStatus":["id"],"readLaunchState":["window"],"readMemory":["homeId","path"],"readNativeSideQuestion":["parentThreadId","sideThreadId","window"],"readPromptPartsText":["threadId","window"],"readRuntimeSettings":["window"],"readSkill":["path","window"],"readThread":["threadId","window"],"readThreadUsage":["threadId","window"],"readUsageBreakdown":["scope","since","window"],"readWireLog":["window"],"recordUserInputRequest":["threadId","turnId","itemId","item","afterItemId","window"],"refreshConnections":["window"],"registerProfileHome":["harness","host","configDir","binary","label"],"reindexSource":["id","window"],"remotePairingStart":["window"],"remotePairingStatus":["pairingCode","window"],"removeMcpServer":["name","window"],"removeProfileHome":["id"],"removeProject":["path","window"],"removeProjectSource":["id","projectPath","window"],"removeRecentHome":["path","host","window"],"removeSideQuestion":["sideThreadId","window"],"removeStaged":["id","window"],"renameConnection":["clientId","name","window"],"renameProject":["path","name","window"],"renameSidebarFolder":["id","name","window"],"renameThread":["threadId","name","window"],"resetSidebarOrder":["scope","window"],"respondApproval":["requestId","decision","window"],"respondServerRequest":["requestId","result","window"],"respondUserInput":["requestId","answers","threadId","turnId","itemId","item","window"],"revealInFinder":["path","window"],"revertThread":["threadId","beforeTurnId","keptTurnIds","window"],"reviewAbortRestack":["repoDir","stack","window"],"reviewActiveAgentReviews":["window"],"reviewAddPrsOnlyRepository":["slug","window"],"reviewAddRule":["repoDir","rule","window"],"reviewAddStackBranch":["repoDir","input","name","below","window"],"reviewAgentReviewPrompt":["repoDir","id","window"],"reviewAgentReviewStarted":["repoDir","id","threadId","window"],"reviewAgentReviews":["repoDir","window"],"reviewBranchProgress":["threadId","window"],"reviewChangesSince":["repoDir","number","baseSha","headSha","window"],"reviewCheckFresh":["repoDir","number","knownHead","knownUpdatedAt","window"],"reviewCheckLogs":["repoDir","number","window"],"reviewCheckOutThreadCommit":["threadId","start","window"],"reviewCheckoutState":["repoDir","target","window"],"reviewClaimAgentReviews":["window"],"reviewCloneRepository":["parentDir","url","name","host","window"],"reviewClose":["repoDir","number","window"],"reviewContinueRestack":["repoDir","stack","window"],"reviewCreatePr":["repoDir","pr","window"],"reviewDeleteComment":["repoDir","comment","window"],"reviewDeleteDraft":["provider","repo","prNumber","window"],"reviewDeleteMergedBranches":["repoDir","input","window"],"reviewDiff":["repoDir","baseSha","headSha","window"],"reviewDiscardPendingReview":["repoDir","number","window"],"reviewEditComment":["repoDir","comment","body","window"],"reviewEnqueueAgentReview":["repoDir","request","window"],"reviewEnsurePrWorktree":["repoDir","target","window"],"reviewEnsureStackWorktree":["repoDir","input","window"],"reviewFetchPrs":["repoDir","numbers","window"],"reviewFile":["repoDir","sha","path","window"],"reviewFindClones":["slugs","cwds","window"],"reviewFindings":["repoDir","number","window"],"reviewFoldIntoParent":["repoDir","input","number","window"],"reviewForgetPr":["repoDir","number","window"],"reviewGithubAccount":["window"],"reviewInbox":["repoDir","window"],"reviewInspectFolder":["folder","host","window"],"reviewLinkClone":["repoDir","slug","window"],"reviewLinkThread":["repoDir","threadId","target","window"],"reviewListPrs":["repoDir","window"],"reviewLoadDraft":["provider","repo","prNumber","window"],"reviewLocalDiff":["repoDir","base","head","window"],"reviewManagedWorktreeAt":["dir","window"],"reviewMarkActivitySeen":["repoDir","numbers","window"],"reviewMarkReady":["repoDir","number","window"],"reviewMarkSeen":["repoDir","number","sha","window"],"reviewMerge":["repoDir","number","request","window"],"reviewMoveThreadToPr":["threadId","number","window"],"reviewMutePr":["repoDir","number","headSha","window"],"reviewMyRepositories":["window"],"reviewPendingReview":["repoDir","number","window"],"reviewPlanStep":["repoDir","target","action","window"],"reviewPrCheckouts":["repoDir","targets","window"],"reviewPrDetail":["repoDir","number","window"],"reviewPrLinks":["window"],"reviewProviderStatus":["repoDir","window"],"reviewPrsBehind":["repoDir","prs","window"],"reviewPrsOnlyRepositories":["window"],"reviewPruneClosed":["repoDir","openNumbers","complete","window"],"reviewPushStack":["repoDir","input","only","window"],"reviewPushToPr":["repoDir","number","window"],"reviewRecordAgentReviewResult":["repoDir","id","message","error","window"],"reviewRemoveAgentReview":["repoDir","id","window"],"reviewRemoveFromStack":["repoDir","input","number","window"],"reviewRemovePrWorktree":["repoDir","number","window"],"reviewRemovePrsOnlyRepository":["slug","window"],"reviewRemoveRule":["repoDir","id","window"],"reviewRenameStackBranch":["repoDir","input","number","to","window"],"reviewReorderStack":["repoDir","input","order","window"],"reviewReply":["repoDir","number","commentId","body","window"],"reviewRepositoriesRequestingReview":["window"],"reviewRepository":["repoDir","window"],"reviewRepositoryAccount":["repoDir","window"],"reviewRepositorySettings":["repoDir","window"],"reviewRerunAgentReview":["repoDir","id","targets","window"],"reviewRerunFailedChecks":["repoDir","number","window"],"reviewRerunOnNewCommits":["repoDir","heads","window"],"reviewResolveThread":["repoDir","threadId","window"],"reviewRestack":["repoDir","input","from","window"],"reviewRestackPlan":["repoDir","input","from","window"],"reviewRetarget":["repoDir","number","base","window"],"reviewRules":["repoDir","window"],"reviewRunCheckoutSetup":["repoDir","number","window"],"reviewSaveDraft":["provider","repo","prNumber","headSha","payload","window"],"reviewSavePendingReview":["repoDir","number","review","window"],"reviewSaveRepositorySettings":["repoDir","settings","window"],"reviewSetCheckoutPolicy":["repoDir","policy","skipConfirm","window"],"reviewSetFindingState":["repoDir","id","findingState","reason","note","window"],"reviewSetRepositoryAccount":["repoDir","login","window"],"reviewSetViewed":["repoDir","number","files","viewed","window"],"reviewSplitBranch":["repoDir","input","number","split","window"],"reviewStackOverview":["repoDir","input","window"],"reviewStacks":["repoDir","window"],"reviewSubmit":["repoDir","number","event","body","commitId","comments","window"],"reviewSubmitPendingReview":["repoDir","number","window"],"reviewSwitchGithubAccount":["login","window"],"reviewUpdateRule":["repoDir","id","rule","window"],"reviewViewedFiles":["repoDir","number","files","window"],"reviewWorktreeContext":["dir","window"],"revokeConnection":["clientId","window"],"saveDraft":["project","content","window"],"saveMcpServer":["server","window"],"saveProjectInstructions":["projectPath","instructions","window"],"searchProjectFiles":["root","query","limit","window"],"searchThreads":["query","cursor","filter","generation","window"],"searchWorkspace":["projectPath","query","cursor","generation","window"],"selectCodexHome":["path","host","window"],"setCodexBinary":["path","window"],"setIntegrationEnabled":["kind","id","enabled","projectPath","window"],"setMcpEnabled":["name","enabled","window"],"setMemoryToggle":["homeId","key","value","projects"],"setProfileDefaultHome":["id"],"setProjectArchived":["path","archived","window"],"setProjectExpanded":["path","expanded","window"],"setProjectPinned":["path","pinned","window"],"setQuickShortcut":["accelerator"],"setSidebarFolderExpanded":["id","expanded","window"],"setSkillEnabled":["name","enabled","path","window"],"setThreadBranchEditTurn":["threadId","editTurnId","window"],"setThreadPinned":["threadId","pinned","window"],"setThreadsHidden":["threadIds","hidden","window"],"setWireLogging":["enabled","window"],"sideQuestionMode":["parentThreadId","window"],"stageAttachment":["sourcePath","window"],"stageClipboardImage":["filename","mime","bytes","window"],"startReview":["threadId","target","window"],"startThread":["cwd","workspaceId","harness","window"],"startTurn":["threadId","input","options","window"],"steerTurn":["threadId","expectedTurnId","input","clientId","window"],"threadGoalClear":["threadId","window"],"threadGoalGet":["threadId","window"],"threadGoalSet":["threadId","objective","status","tokenBudget","clearTokenBudget","window"],"threadsWithActiveTurns":["window"],"threadsWithUnansweredQuestions":["window"],"unarchiveThread":["threadId","window"],"updateProfileHome":["id","configDir","binary","label"],"updateRuntimeSettings":["codexHome","codexBinary","claudeBinary","claudeConfigDir","codexHost","claudeHost","window"],"updateSubagentPolicy":["threadId","modelPolicy","reasoningEffortPolicy","window"],"updateThreadSection":["sectionId","name","color","window"],"updateTurnSettings":["threadId","turnId","model","effort","speedTier","window"],"updateWorkspace":["input","window"],"writeConfigSetting":["key","value","unset","window"],"writeMemory":["homeId","path","contents","projects"]} as const;
+export const commandArguments = {"addNativeSideQuestion":["parentThreadId","sideThreadId","title","window"],"addProfileProject":["path","host"],"addProject":["path","window"],"addProjectSource":["projectPath","sourcePath","kind","window"],"addSideQuestion":["parentThreadId","sideThreadId","title","inheritedTurns","window"],"addThreadBranch":["parentThreadId","threadId","replacedTurnId","inheritedTurns","window"],"addWorktreeProject":["path","window"],"allowThreadImage":["path","window"],"answerNativeSideQuestion":["parentThreadId","sideThreadId","requestId","window"],"applySessionFocus":["hide","collapseProjects","collapseFolders","window"],"archiveThread":["threadId","window"],"autoNameThread":["threadId","seed","window"],"backgroundTerminalTerminate":["threadId","processId","window"],"backgroundTerminalsClean":["threadId","window"],"backgroundTerminalsList":["threadId","window"],"bootstrap":["window"],"bootstrapProfile":["refresh"],"browserConnect":[],"browserFocusTab":["chromeTabId"],"browserInstallHelper":["reveal"],"browserLabelThread":["threadId","label"],"browserOverview":["threadId"],"browserReleaseTab":["threadId","targetId"],"browserResolveApproval":["id","decision"],"browserRevokeSite":["threadId","site"],"browserSetFullAccess":["threadId","enabled"],"browserSetSettings":["enabled","channel"],"browserStop":["threadId"],"cancelNativeSideQuestion":["parentThreadId","sideThreadId","requestId","window"],"clearWireLog":[],"compactThread":["threadId","window"],"copyText":["text"],"createSidebarFolder":["scope","parentId","name","window"],"createSkill":["name","description","body","cwds","window"],"createThreadSection":["name","color","window"],"createWorkspace":["input","window"],"deleteDraft":["project","window"],"deleteMemory":["homeId","path","projects"],"deleteSidebarFolder":["id","window"],"deleteSkill":["path","cwds","window"],"deleteThread":["threadId","window"],"deleteThreadSection":["sectionId","window"],"disconnectConnection":["clientId","window"],"forkThread":["threadId","beforeTurnId","lastTurnId","cwd","window"],"getQuickShortcut":[],"gitBranches":["dir","limit","window"],"gitCheckoutBranch":["dir","name","force","window"],"gitCommit":["dir","message","window"],"gitContext":["dir","window"],"gitCreateBranch":["dir","name","base","checkout","window"],"gitDiscard":["dir","paths","untrackedPaths","window"],"gitFetch":["dir","window"],"gitFileDiff":["dir","base","path","untracked","maxBytes","window"],"gitPull":["dir","window"],"gitPush":["dir","setUpstream","window"],"gitRecentCommits":["dir","limit","window"],"gitRepoInfo":["dir","window"],"gitSegmentDiff":["repoDir","baseSha","headSha","window"],"gitStage":["dir","paths","window"],"gitStagedFileDiff":["dir","path","maxBytes","window"],"gitStatus":["dir","window"],"gitThreadChanges":["threadId","cwd","scope","window"],"gitUnstage":["dir","paths","window"],"gitWorkingDiff":["repoDir","baseSha","window"],"gitWorktreeAdd":["repoDir","request","window"],"gitWorktreeAddTemp":["repoDir","window"],"gitWorktreeHandoff":["worktreePath","targetDir","commitUncommitted","branchName","window"],"gitWorktreeHandoffPreflight":["worktreePath","targetDir","window"],"gitWorktreeLock":["repoDir","path","reason","window"],"gitWorktreePrune":["repoDir","window"],"gitWorktreeRemove":["repoDir","path","force","window"],"gitWorktreeUnlock":["repoDir","path","window"],"gitWorktrees":["repoDir","window"],"handoffCommand":["threadId","cwd","window"],"handoffLaunchTerminal":["threadId","cwd","window"],"handoffThreadLink":["threadId","cwd","label","window"],"interruptTurn":["threadId","turnId","window"],"invalidateThreadCache":["threadId","window"],"listConnections":["window"],"listHarnessModels":["harness","window"],"listIntegrations":["cwds","forceReload","window"],"listMcpServerStatus":["window"],"listMemories":["projects"],"listModels":["window"],"listProjectFiles":["root","window"],"listProjectSources":["projectPath","window"],"listSkillsFor":["cwds","window"],"listSubagents":["threadId","window"],"listThreadsPage":["cursor","pageSize","archived","projectPath","window"],"listWslDistros":[],"loadDraft":["project","window"],"mcpOauthLogin":["name","window"],"moveThreadToSection":["threadId","sectionId","window"],"moveThreadToWorkspace":["threadId","workspaceId","window"],"openExternalUrl":["url"],"openHomeWindow":["path","host"],"openInZed":["path","window"],"placeSidebarItem":["scope","item","parentId","siblings","window"],"prepareNativeSideQuestion":["parentThreadId","sideThreadId","question","window"],"prepareProfileWorkspace":["sourceHomeKey","workspaceId","targetHomeKey"],"queueAdd":["threadId","input","clientUserMessageId","window"],"queueDelete":["threadId","queuedSubmissionId","window"],"queueList":["threadId","cursor","window"],"queueReorder":["threadId","queuedSubmissionIds","window"],"queueUpdate":["threadId","queuedSubmissionId","input","window"],"quickOpenFullThread":["threadId"],"readAccountRateLimits":["window"],"readCodexServerInfo":["window"],"readConfigSettings":["window"],"readContextBreakdown":["threadId","window"],"readFilePreview":["path","maxBytes","window"],"readHomeOverview":["window"],"readHomeStatus":["id"],"readLaunchState":["window"],"readMemory":["homeId","path"],"readNativeSideQuestion":["parentThreadId","sideThreadId","window"],"readPromptPartsText":["threadId","window"],"readRuntimeSettings":["window"],"readSkill":["path","window"],"readThread":["threadId","window"],"readThreadUsage":["threadId","window"],"readUsageBreakdown":["scope","since","window"],"readWireLog":["window"],"recordUserInputRequest":["threadId","turnId","itemId","item","afterItemId","window"],"refreshConnections":["window"],"registerProfileHome":["harness","host","configDir","binary","label"],"reindexSource":["id","window"],"remotePairingStart":["window"],"remotePairingStatus":["pairingCode","window"],"removeMcpServer":["name","window"],"removeProfileHome":["id"],"removeProject":["path","window"],"removeProjectSource":["id","projectPath","window"],"removeRecentHome":["path","host","window"],"removeSideQuestion":["sideThreadId","window"],"removeStaged":["id","window"],"renameConnection":["clientId","name","window"],"renameProject":["path","name","window"],"renameSidebarFolder":["id","name","window"],"renameThread":["threadId","name","window"],"resetSidebarOrder":["scope","window"],"respondApproval":["requestId","decision","window"],"respondServerRequest":["requestId","result","window"],"respondUserInput":["requestId","answers","threadId","turnId","itemId","item","window"],"revealInFinder":["path","window"],"revertThread":["threadId","beforeTurnId","keptTurnIds","window"],"reviewAbortRestack":["repoDir","stack","window"],"reviewActiveAgentReviews":["window"],"reviewAddPrsOnlyRepository":["slug","window"],"reviewAddRule":["repoDir","rule","window"],"reviewAddStackBranch":["repoDir","input","name","below","window"],"reviewAdoptWorktree":["repoDir","number","path","window"],"reviewAgentReviewPrompt":["repoDir","id","window"],"reviewAgentReviewStarted":["repoDir","id","threadId","window"],"reviewAgentReviews":["repoDir","window"],"reviewBranchProgress":["threadId","window"],"reviewChangesSince":["repoDir","number","baseSha","headSha","window"],"reviewCheckFresh":["repoDir","number","knownHead","knownUpdatedAt","window"],"reviewCheckLogs":["repoDir","number","window"],"reviewCheckOut":["repoDir","number","window"],"reviewCheckOutStack":["repoDir","stack","window"],"reviewCheckOutThreadCommit":["threadId","start","window"],"reviewClaimAgentReviews":["window"],"reviewCloneRepository":["parentDir","url","name","host","window"],"reviewClose":["repoDir","number","window"],"reviewContinueRestack":["repoDir","stack","window"],"reviewCreatePr":["repoDir","pr","window"],"reviewDeleteComment":["repoDir","comment","window"],"reviewDeleteDraft":["provider","repo","prNumber","window"],"reviewDeleteMergedBranches":["repoDir","input","window"],"reviewDiff":["repoDir","baseSha","headSha","window"],"reviewDiscardPendingReview":["repoDir","number","window"],"reviewEditComment":["repoDir","comment","body","window"],"reviewEnqueueAgentReview":["repoDir","request","window"],"reviewFetchPrs":["repoDir","numbers","window"],"reviewFile":["repoDir","sha","path","window"],"reviewFindClones":["slugs","cwds","window"],"reviewFindings":["repoDir","number","window"],"reviewFoldIntoParent":["repoDir","input","number","window"],"reviewForgetPr":["repoDir","number","window"],"reviewGithubAccount":["window"],"reviewInbox":["repoDir","window"],"reviewInspectFolder":["folder","host","window"],"reviewLinkClone":["repoDir","slug","window"],"reviewLinkThread":["repoDir","threadId","number","window"],"reviewListPrs":["repoDir","window"],"reviewLoadDraft":["provider","repo","prNumber","window"],"reviewLocalDiff":["repoDir","base","head","window"],"reviewManagedWorktreeAt":["dir","window"],"reviewMarkActivitySeen":["repoDir","numbers","window"],"reviewMarkReady":["repoDir","number","window"],"reviewMarkSeen":["repoDir","number","sha","window"],"reviewMerge":["repoDir","number","request","window"],"reviewMoveThreadToPr":["threadId","number","window"],"reviewMutePr":["repoDir","number","headSha","window"],"reviewMyRepositories":["window"],"reviewPendingReview":["repoDir","number","window"],"reviewPrCheckout":["repoDir","number","window"],"reviewPrCheckouts":["repoDir","window"],"reviewPrDetail":["repoDir","number","window"],"reviewPrLinks":["window"],"reviewProviderStatus":["repoDir","window"],"reviewPrsBehind":["repoDir","prs","window"],"reviewPrsOnlyRepositories":["window"],"reviewPruneClosed":["repoDir","openNumbers","complete","window"],"reviewPushStack":["repoDir","input","only","window"],"reviewPushToPr":["repoDir","number","window"],"reviewRecordAgentReviewResult":["repoDir","id","message","error","window"],"reviewRemoveAgentReview":["repoDir","id","window"],"reviewRemoveFromStack":["repoDir","input","number","window"],"reviewRemovePrWorktree":["repoDir","number","window"],"reviewRemovePrsOnlyRepository":["slug","window"],"reviewRemoveRule":["repoDir","id","window"],"reviewRenameStackBranch":["repoDir","input","number","to","window"],"reviewReorderStack":["repoDir","input","order","window"],"reviewReply":["repoDir","number","commentId","body","window"],"reviewRepositoriesRequestingReview":["window"],"reviewRepository":["repoDir","window"],"reviewRepositoryAccount":["repoDir","window"],"reviewRepositorySettings":["repoDir","window"],"reviewRerunAgentReview":["repoDir","id","targets","window"],"reviewRerunFailedChecks":["repoDir","number","window"],"reviewRerunOnNewCommits":["repoDir","heads","window"],"reviewResolveThread":["repoDir","threadId","window"],"reviewRestack":["repoDir","input","from","window"],"reviewRestackPlan":["repoDir","input","from","window"],"reviewRetarget":["repoDir","number","base","window"],"reviewRules":["repoDir","window"],"reviewRunCheckoutSetup":["repoDir","number","window"],"reviewSaveDraft":["provider","repo","prNumber","headSha","payload","window"],"reviewSavePendingReview":["repoDir","number","review","window"],"reviewSaveRepositorySettings":["repoDir","settings","window"],"reviewSetFindingState":["repoDir","id","findingState","reason","note","window"],"reviewSetRepositoryAccount":["repoDir","login","window"],"reviewSetViewed":["repoDir","number","files","viewed","window"],"reviewSplitBranch":["repoDir","input","number","split","window"],"reviewStackOverview":["repoDir","input","window"],"reviewStacks":["repoDir","window"],"reviewSubmit":["repoDir","number","event","body","commitId","comments","window"],"reviewSubmitPendingReview":["repoDir","number","window"],"reviewSwitchGithubAccount":["login","window"],"reviewSwitchStackBranch":["repoDir","number","window"],"reviewUpdateRule":["repoDir","id","rule","window"],"reviewViewedFiles":["repoDir","number","files","window"],"reviewWorktreeContext":["dir","window"],"revokeConnection":["clientId","window"],"saveDraft":["project","content","window"],"saveMcpServer":["server","window"],"saveProjectInstructions":["projectPath","instructions","window"],"searchProjectFiles":["root","query","limit","window"],"searchThreads":["query","cursor","filter","generation","window"],"searchWorkspace":["projectPath","query","cursor","generation","window"],"selectCodexHome":["path","host","window"],"setCodexBinary":["path","window"],"setIntegrationEnabled":["kind","id","enabled","projectPath","window"],"setMcpEnabled":["name","enabled","window"],"setMemoryToggle":["homeId","key","value","projects"],"setProfileDefaultHome":["id"],"setProjectArchived":["path","archived","window"],"setProjectExpanded":["path","expanded","window"],"setProjectPinned":["path","pinned","window"],"setQuickShortcut":["accelerator"],"setSidebarFolderExpanded":["id","expanded","window"],"setSkillEnabled":["name","enabled","path","window"],"setThreadBranchEditTurn":["threadId","editTurnId","window"],"setThreadPinned":["threadId","pinned","window"],"setThreadsHidden":["threadIds","hidden","window"],"setWireLogging":["enabled","window"],"sideQuestionMode":["parentThreadId","window"],"stageAttachment":["sourcePath","window"],"stageClipboardImage":["filename","mime","bytes","window"],"startReview":["threadId","target","window"],"startThread":["cwd","workspaceId","harness","window"],"startTurn":["threadId","input","options","window"],"steerTurn":["threadId","expectedTurnId","input","clientId","window"],"threadGoalClear":["threadId","window"],"threadGoalGet":["threadId","window"],"threadGoalSet":["threadId","objective","status","tokenBudget","clearTokenBudget","window"],"threadsWithActiveTurns":["window"],"threadsWithUnansweredQuestions":["window"],"unarchiveThread":["threadId","window"],"updateProfileHome":["id","configDir","binary","label"],"updateRuntimeSettings":["codexHome","codexBinary","claudeBinary","claudeConfigDir","codexHost","claudeHost","window"],"updateSubagentPolicy":["threadId","modelPolicy","reasoningEffortPolicy","window"],"updateThreadSection":["sectionId","name","color","window"],"updateTurnSettings":["threadId","turnId","model","effort","speedTier","window"],"updateWorkspace":["input","window"],"writeConfigSetting":["key","value","unset","window"],"writeMemory":["homeId","path","contents","projects"]} as const;

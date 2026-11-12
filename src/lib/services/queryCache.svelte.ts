@@ -66,7 +66,7 @@ export const READS = {
   gitStagedFileDiff: LOCAL,
   // Keyed by thread id, not a directory.
   reviewBranchProgress: { fresh: 2 * SECOND, expire: 10 * MINUTE, kind: "local" },
-  reviewCheckoutState: LOCAL,
+  reviewPrCheckout: LOCAL,
   reviewPrCheckouts: LOCAL,
   reviewPrDetail: GITHUB,
   reviewListPrs: GITHUB,

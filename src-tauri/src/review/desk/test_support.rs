@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use super::ReviewDesk;
 use crate::git::test_repo::TestRepo;
+use crate::review::checkout_types::{CheckOutOutcome, PrCheckout};
 use crate::review::fake::FakeGitHub;
 use crate::review::types::InboxPr;
 use crate::util::host::Host;
@@ -55,11 +56,67 @@ impl Fixture {
             head_sha: head,
             base_ref: "main".to_string(),
             base_sha: base,
+            head_repo: Some(SLUG.to_string()),
             updated_at: "2026-11-05T10:00:00Z".to_string(),
             ..InboxPr::default()
         };
         self.github.put_pr(pr.clone());
         pr
+    }
+
+    /// `open_pr`, written by the viewer.
+    pub(super) fn open_my_pr(&self, number: u32, branch: &str, path: &str) -> InboxPr {
+        let pr = InboxPr {
+            author: VIEWER.to_string(),
+            ..self.open_pr(number, branch, path)
+        };
+        self.github.put_pr(pr.clone());
+        pr
+    }
+
+    /// Add an empty commit to PR `number`'s git branch on GitHub only, as a
+    /// teammate pushing, wherever that branch is checked out here. Returns
+    /// the new head.
+    pub(super) fn github_moves(&self, number: u32, branch: &str) -> String {
+        let remote = &self.repo.remote;
+        let tip = self
+            .repo
+            .git_in(remote, &["rev-parse", &format!("refs/heads/{branch}")]);
+        let tree = self.repo.git(&["rev-parse", &format!("{tip}^{{tree}}")]);
+        let sha = self
+            .repo
+            .git(&["commit-tree", &tree, "-p", &tip, "-m", "teammate's commit"]);
+        self.repo.git(&[
+            "push",
+            "-q",
+            "origin",
+            &format!("{sha}:refs/heads/{branch}"),
+        ]);
+        self.repo.git_in(
+            remote,
+            &["update-ref", &format!("refs/pull/{number}/head"), &sha],
+        );
+        sha
+    }
+
+    /// List `pr` on the fake GitHub as it is now, e.g. at a new head.
+    pub(super) fn relist(&self, pr: &InboxPr) {
+        self.github.put_pr(pr.clone());
+    }
+
+    /// Sync the inbox, so the desk knows the PRs as GitHub lists them now,
+    /// then check PR `number` out.
+    pub(super) async fn check_out_now(&self, number: i64) -> CheckOutOutcome {
+        self.desk.sync_inbox().await.unwrap();
+        self.desk.check_out(number).await.unwrap()
+    }
+
+    /// `check_out_now`, which must have checked the PR out.
+    pub(super) async fn check_out(&self, number: i64) -> PrCheckout {
+        match self.check_out_now(number).await {
+            CheckOutOutcome::CheckedOut { checkout, .. } => checkout,
+            other => panic!("#{number} was not checked out: {other:?}"),
+        }
     }
 
     /// Add a commit writing `path` to PR `number`'s git branch and publish

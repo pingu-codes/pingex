@@ -1,4 +1,5 @@
-//! The review desk: pull requests, stacks and the checkouts they need.
+//! The review desk: pull requests, stacks and the worktrees they are checked
+//! out in.
 //!
 //! `desk::ReviewDesk` is the service and the backend test seam; the Tauri
 //! commands in `commands` are thin wrappers over it. GitHub sits behind the
@@ -8,8 +9,7 @@
 //!
 //! The wire types in `types` are provider-neutral. Unified patches become
 //! hunks with anchors in `diff`; `feed` derives "since you last looked" from
-//! two inbox snapshots; `requirements` is the table of the checkout step each
-//! desk action needs; `pending` is the typed pending review and how it
+//! two inbox snapshots; `pending` is the typed pending review and how it
 //! becomes one GitHub review; `findings` is the contract an agent review's
 //! final message follows, and its parser.
 
@@ -29,7 +29,6 @@ pub(crate) mod github;
 pub(crate) mod pending;
 pub(crate) mod provider;
 pub(crate) mod repository;
-pub(crate) mod requirements;
 pub(crate) mod stack_commands;
 pub(crate) mod stack_types;
 pub(crate) mod types;

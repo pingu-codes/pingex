@@ -15,16 +15,14 @@ use turso::Database;
 
 use super::{pr_number, ReviewDesk, PROVIDER};
 use crate::git::objects;
-use crate::harness::Capability;
 use crate::review::agent_prompt::{agent_review_prompt, PromptInput, SinceLastRun, FILE_BUDGET};
 use crate::review::agent_review::{
-    AgentReview, AgentReviewRequest, AgentReviewStatus, FocusArea, ReviewRule, MAX_RUNNING,
+    AgentReview, AgentReviewRequest, AgentReviewStatus, ReviewRule, MAX_RUNNING,
 };
 use crate::review::checkout_types::CheckoutTarget;
 use crate::review::findings::{
     findings_from_report, parse_findings_block, DismissReason, Finding, FindingState, ReviewedPr,
 };
-use crate::review::requirements::CheckoutStep;
 use crate::review::types::PrDetail;
 use crate::storage;
 use crate::util::id::unique_suffix;
@@ -36,25 +34,10 @@ static CLAIM: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 /// How many runs the repository listing returns.
 const LISTED: i64 = 50;
 
-/// Whether `request` can run as asked: a harness without a read-only sandbox
-/// only reviews in a worktree, and running tests needs code on disk.
+/// Whether `request` names a PR to review.
 fn check_request(request: &AgentReviewRequest) -> Result<(), String> {
     if request.targets.is_empty() {
         return Err("Pick a pull request to review".to_string());
-    }
-    if request.step == CheckoutStep::NoCheckout
-        && !request
-            .harness
-            .capabilities()
-            .contains(&Capability::ReadOnlySandbox)
-    {
-        return Err(
-            "That harness has no read-only sandbox, so it can only review in a worktree"
-                .to_string(),
-        );
-    }
-    if request.focus.contains(&FocusArea::RunTests) && request.step == CheckoutStep::NoCheckout {
-        return Err("Running tests needs a worktree".to_string());
     }
     Ok(())
 }
@@ -92,6 +75,10 @@ impl ReviewDesk {
             .filed_under()
             .cloned()
             .ok_or_else(|| "Pick a pull request to review".to_string())?;
+        // The agent works in the PR's worktree, so the PR is checked out first.
+        if self.pr_checkout(top.number).await?.is_none() {
+            return Err(format!("Check out #{} before an agent review", top.number));
+        }
         let review = AgentReview {
             id: format!("ar-{}", unique_suffix()),
             repo_dir: self.repo_key(),
@@ -159,14 +146,12 @@ impl ReviewDesk {
             .await?;
         // What the agent is told about its worktree has to be true when it
         // starts: level with the PR's head now, not as the review was queued.
-        let checkout = match (request.step, request.filed_under(), prs.last()) {
-            (CheckoutStep::Worktree, Some(target), Some(pr)) => self
-                .synced_checkout(CheckoutTarget {
-                    head_sha: pr.head_sha.clone(),
-                    ..target.clone()
-                })
+        let checkout = match (request.filed_under(), prs.last()) {
+            (Some(target), Some(pr)) => self
+                .synced_pr_checkout(target.number, Some(pr.head_sha.clone()))
                 .await
-                .ok(),
+                .ok()
+                .flatten(),
             _ => None,
         };
         self.blocking("Writing the review prompt failed", move |desk| {
@@ -306,6 +291,11 @@ impl ReviewDesk {
                 || !moved
                 || latest.request.targets.len() != 1
             {
+                continue;
+            }
+            // A re-run works in the worktree too; a PR no longer checked out
+            // waits until it is.
+            if self.pr_checkout(target.number).await?.is_none() {
                 continue;
             }
             queued.push(
@@ -500,7 +490,6 @@ mod tests {
     };
     use crate::review::checkout_types::CheckoutTarget;
     use crate::review::findings::{DismissReason, FindingSeverity, FindingState};
-    use crate::review::requirements::CheckoutStep;
     use crate::review::types::{InboxPr, PrComment, PrDetail, PrFile, PrReview, PrSummary};
 
     fn target(pr: &InboxPr) -> CheckoutTarget {
@@ -519,7 +508,6 @@ mod tests {
         AgentReviewRequest {
             targets,
             harness: HarnessKind::Claude,
-            step: CheckoutStep::NoCheckout,
             focus: vec![FocusArea::Correctness],
             keep_drafts: true,
             rerun_on_new_commits: false,
@@ -588,6 +576,7 @@ mod tests {
         let mut ids = Vec::new();
         for (number, branch, path) in [(1, "a", "a.rs"), (2, "b", "b.rs"), (3, "c", "c.rs")] {
             let pr = fixture.open_pr(number, branch, path);
+            fixture.check_out(pr.number).await;
             let review = fixture
                 .desk
                 .enqueue_agent_review(request(vec![target(&pr)]))
@@ -622,6 +611,7 @@ mod tests {
             return;
         };
         let pr = fixture.open_pr(7, "feature", "src/one.rs");
+        fixture.check_out(7).await;
         detail(&fixture, &pr);
         let review = fixture
             .desk
@@ -661,6 +651,7 @@ mod tests {
             return;
         };
         let pr = fixture.open_pr(7, "feature", "src/one.rs");
+        fixture.check_out(7).await;
         let review = fixture
             .desk
             .enqueue_agent_review(request(vec![target(&pr)]))
@@ -679,30 +670,49 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_review_needs_a_read_only_sandbox_below_a_worktree_and_tests_need_a_checkout() {
+    async fn an_agent_review_needs_the_pr_checked_out() {
         let Some(fixture) = fixture().await else {
             return;
         };
         let pr = fixture.open_pr(7, "feature", "src/one.rs");
         let mut maki = request(vec![target(&pr)]);
         maki.harness = HarnessKind::Maki;
-        assert!(fixture
-            .desk
-            .enqueue_agent_review(maki.clone())
-            .await
-            .is_err());
-        maki.step = CheckoutStep::Worktree;
-        assert!(fixture.desk.enqueue_agent_review(maki).await.is_ok());
+        maki.focus.push(FocusArea::RunTests);
+        let refused = fixture.desk.enqueue_agent_review(maki.clone()).await;
+        assert!(refused.unwrap_err().contains("Check out #7"));
 
-        let mut tests = request(vec![target(&pr)]);
-        tests.focus.push(FocusArea::RunTests);
-        assert!(fixture
+        fixture.check_out(7).await;
+
+        assert!(fixture.desk.enqueue_agent_review(maki).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_rerun_waits_for_a_pr_that_is_no_longer_checked_out() {
+        let Some(fixture) = fixture().await else {
+            return;
+        };
+        let pr = fixture.open_pr(7, "feature", "src/one.rs");
+        fixture.check_out(7).await;
+        let mut first = request(vec![target(&pr)]);
+        first.rerun_on_new_commits = true;
+        let review = fixture.desk.enqueue_agent_review(first).await.unwrap();
+        fixture.desk.claim_agent_reviews().await.unwrap();
+        fixture
             .desk
-            .enqueue_agent_review(tests.clone())
+            .record_agent_review_result(review.id, Some(FINAL_MESSAGE.into()), None)
             .await
-            .is_err());
-        tests.step = CheckoutStep::Worktree;
-        assert!(fixture.desk.enqueue_agent_review(tests).await.is_ok());
+            .unwrap();
+        fixture.desk.remove_pr_worktree(7).await.unwrap();
+        let mut moved = target(&pr);
+        moved.head_sha = fixture.push_to_pr(7, "feature", "src/two.rs");
+
+        let queued = fixture
+            .desk
+            .rerun_on_new_commits(vec![moved])
+            .await
+            .unwrap();
+
+        assert!(queued.is_empty());
     }
 
     #[tokio::test]
@@ -711,6 +721,7 @@ mod tests {
             return;
         };
         let pr = fixture.open_pr(7, "feature", "src/one.rs");
+        fixture.check_out(7).await;
         detail(&fixture, &pr);
         fixture
             .desk
@@ -735,7 +746,7 @@ mod tests {
         assert!(!prompt.contains("[review] mira-k"), "{prompt}");
         assert!(prompt.contains("+pub fn one() {}"));
         assert!(prompt.contains("- Import order nits"));
-        assert!(prompt.contains("Do not run anything"));
+        assert!(prompt.contains("The working directory is a git worktree of this PR"));
         // The changed file at head, read from the fetched PR ref.
         assert!(prompt.contains("### src/one.rs"));
         assert!(prompt.contains("```json"));
@@ -748,6 +759,7 @@ mod tests {
             return;
         };
         let pr = fixture.open_pr(7, "feature", "src/one.rs");
+        fixture.check_out(7).await;
         detail(&fixture, &pr);
         let mut first = request(vec![target(&pr)]);
         first.rerun_on_new_commits = true;
@@ -818,6 +830,7 @@ mod tests {
         };
         let bottom = fixture.open_pr(1, "a", "a.rs");
         let top = fixture.open_pr(2, "b", "b.rs");
+        fixture.check_out(2).await;
         let review = fixture
             .desk
             .enqueue_agent_review(request(vec![target(&bottom), target(&top)]))
@@ -835,6 +848,7 @@ mod tests {
         };
         let bottom = fixture.open_pr(1, "a", "a.rs");
         let top = fixture.open_pr(2, "b", "b.rs");
+        fixture.check_out(2).await;
         // Comment 501 is on the bottom PR only.
         detail(&fixture, &bottom);
         let mut top_detail = detail(&fixture, &top);

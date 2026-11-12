@@ -9,8 +9,8 @@ use tauri::State;
 use super::desk::ReviewDesk;
 use super::github::GhCli;
 use super::stack_types::{
-    PrBaseInput, PrBehind, PushReport, RestackPlan, RestackProgress, SplitRequest, StackCheckout,
-    StackInput, StackOverview,
+    PrBaseInput, PrBehind, PushReport, RestackPlan, RestackProgress, SplitRequest, StackInput,
+    StackOverview,
 };
 use crate::AppState;
 
@@ -21,21 +21,6 @@ fn desk(window: &crate::HomeWindow, state: &State<'_, AppState>, repo_dir: Strin
     let dir = PathBuf::from(repo_dir);
     let github = Arc::new(GhCli::new(host.clone(), dir.clone(), ctx.database()));
     ReviewDesk::new(host, dir, github, ctx.database()).with_home_dir(runtime.codex_home_str())
-}
-
-/// A local git branch for each open PR of the stack, and a worktree on the top
-/// one unless the stack has one.
-#[tauri::command]
-#[specta::specta]
-pub(crate) async fn review_ensure_stack_worktree(
-    repo_dir: String,
-    input: StackInput,
-    window: crate::HomeWindow,
-    state: State<'_, AppState>,
-) -> Result<StackCheckout, String> {
-    desk(&window, &state, repo_dir)
-        .ensure_stack_worktree(input)
-        .await
 }
 
 #[tauri::command]

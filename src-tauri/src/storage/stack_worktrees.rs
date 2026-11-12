@@ -1,5 +1,5 @@
 //! What worktrees are for: the stack each Stack worktree holds, by path, and
-//! the managed PR worktrees read off `review_checkouts`.
+//! the lone PRs' worktrees read off `review_checkouts`.
 //!
 //! `stack_worktrees` is a cache for listings and worktree context. It is
 //! written when the desk finds or makes a stack's worktree and dropped with
@@ -128,8 +128,7 @@ pub(crate) async fn read_worktree_purposes(
     let connection = db::conn(database)?;
     let managed = db::rows(
         &connection,
-        "SELECT path, repo_key, pr_number FROM review_checkouts
-         WHERE git_branch = 'pr/' || pr_number OR git_branch = 'pr/' || pr_number || '-local'",
+        "SELECT path, repo_key, pr_number FROM review_checkouts WHERE stack_number IS NULL",
         (),
         |row| {
             Ok((
@@ -186,15 +185,7 @@ mod tests {
     }
 
     fn checkout(pr_number: i64, path: &str, branch: &str) -> StoredCheckout {
-        StoredCheckout {
-            pr_number,
-            step: "worktree".into(),
-            path: path.into(),
-            head_sha: None,
-            git_branch: Some(branch.into()),
-            setup_done: false,
-            closed_at: None,
-        }
+        StoredCheckout::new(pr_number, path, branch, "")
     }
 
     #[tokio::test]
@@ -217,7 +208,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_a_pr_branch_makes_a_checkout_managed() {
+    async fn every_lone_pr_has_a_pr_worktree_and_a_stacks_prs_do_not() {
         let dir = tempfile::tempdir().unwrap();
         let database = crate::storage::open(dir.path()).await.unwrap();
         write_checkout(&database, "/repo", &checkout(12, "/wt/pr-12", "pr/12"))
@@ -229,7 +220,10 @@ mod tests {
         write_checkout(
             &database,
             "/repo",
-            &checkout(14, "/wt/pr-14", "pr/14-local"),
+            &StoredCheckout {
+                stack_number: Some(7),
+                ..checkout(14, "/wt/stack", "feat/stacked")
+            },
         )
         .await
         .unwrap();
@@ -242,11 +236,11 @@ mod tests {
             Some(managed(12))
         );
         assert_eq!(
-            read_worktree_purpose(&database, "/wt/pr-14").await.unwrap(),
-            Some(managed(14))
+            read_worktree_purpose(&database, "/wt/mine").await.unwrap(),
+            Some(managed(13))
         );
         assert_eq!(
-            read_worktree_purpose(&database, "/wt/mine").await.unwrap(),
+            read_worktree_purpose(&database, "/wt/stack").await.unwrap(),
             None
         );
     }

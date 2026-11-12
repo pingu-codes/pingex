@@ -1,4 +1,4 @@
-//! Worktree context: what an agent starting in a managed PR worktree or a
+//! Worktree context: what an agent starting in a PR worktree or a
 //! Stack worktree is told about where it is. Pure: the desk reads the purpose
 //! and the branch.
 //!
@@ -63,15 +63,24 @@ pub(crate) fn worktree_context(purpose: &WorktreePurpose, branch: Option<&str>) 
         WorktreePurpose::ManagedPr { number, .. } => {
             let _ = writeln!(
                 out,
-                "This directory is a worktree for pull request #{number}, which is someone else's or comes from a fork. Pingex made it and removes it once the PR has closed and it holds no work."
+                "This directory is the worktree for pull request #{number}."
             );
+            let managed = format!("pr/{number}");
             match branch {
-                Some(branch) => {
-                    let _ = write!(out, "It is on the local branch `{branch}`, which");
+                Some(branch) if branch == managed || branch == format!("{managed}-local") => {
+                    let _ = write!(
+                        out,
+                        "The PR is someone else's or comes from a fork, so it is on the local branch `{branch}`, which has no upstream: commits stay local. Don't push and don't set an upstream: the user pushes to the PR from Pingex."
+                    );
                 }
-                None => out.push_str("Its local branch"),
+                Some(branch) => {
+                    let _ = write!(
+                        out,
+                        "It is on the PR's own git branch `{branch}`, which tracks the PR's branch on GitHub. Don't push unless asked: a push updates the PR."
+                    );
+                }
+                None => out.push_str("It is detached from any branch, so commits made here belong to no branch until one is made."),
             }
-            out.push_str(" has no upstream, so commits stay local. Don't push and don't set an upstream: the user pushes to the PR from Pingex.");
         }
         WorktreePurpose::Stack {
             number,
@@ -233,9 +242,20 @@ mod tests {
             number: 57,
         };
         let text = worktree_context(&purpose, Some("pr/57"));
-        assert!(text.contains("a worktree for pull request #57"));
-        assert!(text.contains("It is on the local branch `pr/57`, which has no upstream"));
+        assert!(text.contains("the worktree for pull request #57"));
+        assert!(text.contains("on the local branch `pr/57`, which has no upstream"));
         assert!(text.contains("Don't push"));
+    }
+
+    #[test]
+    fn my_pr_worktree_says_a_push_updates_the_pr() {
+        let purpose = WorktreePurpose::ManagedPr {
+            repo_dir: "/repo".into(),
+            number: 58,
+        };
+        let text = worktree_context(&purpose, Some("feat/tax"));
+        assert!(text.contains("the PR's own git branch `feat/tax`"));
+        assert!(text.contains("a push updates the PR"));
     }
 
     #[test]

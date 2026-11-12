@@ -7,14 +7,13 @@ use std::sync::Arc;
 use tauri::State;
 
 use super::checkout_types::{
-    BranchProgress, CheckoutTarget, ManagedPrWorktree, PrCheckout, PruneReport, StepPlan,
+    BranchProgress, CheckOutOutcome, ManagedPrWorktree, PrCheckout, PruneReport,
 };
 use super::desk::ReviewDesk;
 use super::github::GhCli;
-use super::requirements::DeskAction;
 use super::worktree_context::WorktreeContext;
 use super::worktree_purpose::WorktreePurpose;
-use crate::storage::{self, PrLink, ReviewCheckoutPolicy};
+use crate::storage::{self, PrLink};
 use crate::AppState;
 
 /// The desk for `repo_dir` on the window's Home, with the Home's directory
@@ -40,55 +39,86 @@ async fn thread_desk(
     Ok(desk(window, state, link.repo_key))
 }
 
+/// Check out PR `number`: its own worktree for a lone PR, the whole stack's
+/// for a stack's PR. `BranchInUse` when its git branch is checked out
+/// somewhere already; `review_adopt_worktree` then takes that.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn review_checkout_state(
+pub(crate) async fn review_check_out(
     repo_dir: String,
-    target: CheckoutTarget,
+    number: i64,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<CheckOutOutcome, String> {
+    desk(&window, &state, repo_dir).check_out(number).await
+}
+
+/// Check out every open PR of GitHub stack `stack` in one worktree.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_check_out_stack(
+    repo_dir: String,
+    stack: i64,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<CheckOutOutcome, String> {
+    desk(&window, &state, repo_dir).check_out_stack(stack).await
+}
+
+/// Make the worktree at `path` PR `number`'s (its stack's, for a stack's
+/// PR), as Check out found it. Pingex never switches, fast-forwards or
+/// removes an adopted worktree.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_adopt_worktree(
+    repo_dir: String,
+    number: i64,
+    path: String,
     window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<PrCheckout, String> {
-    desk(&window, &state, repo_dir).checkout_state(target).await
+    desk(&window, &state, repo_dir)
+        .adopt_worktree(number, path)
+        .await
 }
 
-/// Where each of `targets` is on disk, for the inbox and the Stack page. PRs
-/// with no location are left out. Changes nothing.
+/// Put the stack worktree PR `number` is checked out in on its git branch.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_switch_stack_branch(
+    repo_dir: String,
+    number: i64,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<PrCheckout, String> {
+    desk(&window, &state, repo_dir)
+        .switch_stack_branch(number)
+        .await
+}
+
+/// PR `number`'s worktree, or `None` when it is not checked out. Changes
+/// nothing.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn review_pr_checkout(
+    repo_dir: String,
+    number: i64,
+    window: crate::HomeWindow,
+    state: State<'_, AppState>,
+) -> Result<Option<PrCheckout>, String> {
+    desk(&window, &state, repo_dir).pr_checkout(number).await
+}
+
+/// Every checked-out PR of `repo_dir`, for the inbox and the Stack page.
+/// Changes nothing.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn review_pr_checkouts(
     repo_dir: String,
-    targets: Vec<CheckoutTarget>,
     window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<Vec<PrCheckout>, String> {
-    desk(&window, &state, repo_dir).pr_checkouts(targets).await
-}
-
-#[tauri::command]
-#[specta::specta]
-pub(crate) async fn review_plan_step(
-    repo_dir: String,
-    target: CheckoutTarget,
-    action: DeskAction,
-    window: crate::HomeWindow,
-    state: State<'_, AppState>,
-) -> Result<StepPlan, String> {
-    desk(&window, &state, repo_dir)
-        .plan_step(target, action)
-        .await
-}
-
-#[tauri::command]
-#[specta::specta]
-pub(crate) async fn review_ensure_pr_worktree(
-    repo_dir: String,
-    target: CheckoutTarget,
-    window: crate::HomeWindow,
-    state: State<'_, AppState>,
-) -> Result<PrCheckout, String> {
-    desk(&window, &state, repo_dir)
-        .ensure_pr_worktree(target)
-        .await
+    desk(&window, &state, repo_dir).pr_checkouts().await
 }
 
 #[tauri::command]
@@ -104,7 +134,8 @@ pub(crate) async fn review_run_checkout_setup(
         .await
 }
 
-/// Remove PR `number`'s managed worktree. Refused when it holds work.
+/// Undo checking PR `number` out: remove the worktree Pingex made for it
+/// (its stack's, for a stack's PR). Refused when it holds work.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn review_remove_pr_worktree(
@@ -130,7 +161,7 @@ pub(crate) async fn review_push_to_pr(
     desk(&window, &state, repo_dir).push_to_pr(number).await
 }
 
-/// The PR of the Pingex-managed worktree at `dir`, if that is what it is.
+/// The lone PR of the worktree Pingex made at `dir`, if that is what it is.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn review_managed_worktree_at(
@@ -149,8 +180,8 @@ pub(crate) async fn review_managed_worktree_at(
     Ok(managed.then_some(ManagedPrWorktree { repo_dir, number }))
 }
 
-/// What to tell an agent starting a thread in `dir`, when `dir` is a managed
-/// PR worktree or a Stack worktree.
+/// What to tell an agent starting a thread in `dir`, when `dir` is a PR
+/// worktree or a Stack worktree.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn review_worktree_context(
@@ -186,36 +217,32 @@ pub(crate) async fn review_prune_closed(
         .await
 }
 
-/// Set the PR worktree policy and "Don't ask again for <repository>",
-/// keeping the repository's other settings.
-#[tauri::command]
-#[specta::specta]
-pub(crate) async fn review_set_checkout_policy(
-    repo_dir: String,
-    policy: ReviewCheckoutPolicy,
-    skip_confirm: bool,
-    window: crate::HomeWindow,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let database = state.ctx(&window).database();
-    let mut settings = storage::read_repository_settings(&database, &repo_dir).await?;
-    settings.review_checkout_policy = policy;
-    settings.skip_checkout_confirm = skip_confirm;
-    storage::write_repository_settings(&database, &settings).await
-}
-
+/// File `thread_id`, just started in PR `number`'s worktree, under the PR.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn review_link_thread(
     repo_dir: String,
     thread_id: String,
-    target: CheckoutTarget,
+    number: i64,
     window: crate::HomeWindow,
     state: State<'_, AppState>,
 ) -> Result<PrLink, String> {
-    desk(&window, &state, repo_dir)
-        .link_thread(thread_id, target)
-        .await
+    let created = desk(&window, &state, repo_dir)
+        .link_thread(thread_id.clone(), number)
+        .await?;
+    // The thread's start tips were taken before the worktree caught up with
+    // the PR: take them again, from where it starts now.
+    if created.moved {
+        let ctx = state.ctx(&window);
+        storage::delete_tip_snapshots(&ctx.database(), &thread_id).await?;
+        crate::changes::snapshot::record_start_tips(
+            &ctx,
+            &thread_id,
+            created.link.checkout_path.clone(),
+        )
+        .await;
+    }
+    Ok(created.link)
 }
 
 #[tauri::command]

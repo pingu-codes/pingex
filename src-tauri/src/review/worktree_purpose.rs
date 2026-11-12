@@ -1,8 +1,7 @@
-//! What a worktree is for, when Pingex knows: a managed PR worktree or a
+//! What a worktree is for, when Pingex knows: a lone PR's worktree or a
 //! Stack worktree.
 //!
-//! A managed PR worktree is known by its `review_checkouts` row and its
-//! `pr/<n>` branch. A Stack worktree is known by a `stack_worktrees` row,
+//! A PR worktree is known by its `review_checkouts` row. A Stack worktree is known by a `stack_worktrees` row,
 //! written whenever the desk finds or makes one. That row is a cache for
 //! listings and for worktree context: where a stack lives is still decided by
 //! the git branch checked out there (`ReviewDesk::stack_worktree`), so a reader
@@ -19,8 +18,8 @@ use super::stack_types::StackInput;
     rename_all_fields = "camelCase"
 )]
 pub(crate) enum WorktreePurpose {
-    /// Someone else's PR or a fork's, on `pr/<n>`, removed by Pingex once the
-    /// PR has closed.
+    /// A lone PR's worktree: on its own git branch when it is mine, else on
+    /// `pr/<n>`. The name is from when only the latter were Pingex's.
     ManagedPr { repo_dir: String, number: i64 },
     /// The one worktree a stack lives in.
     Stack {

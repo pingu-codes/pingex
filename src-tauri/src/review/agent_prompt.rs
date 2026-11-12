@@ -7,7 +7,6 @@ use std::fmt::Write;
 use super::agent_review::{AgentReviewRequest, FocusArea};
 use super::checkout_types::PrCheckout;
 use super::findings::Finding;
-use super::requirements::CheckoutStep;
 use super::types::PrDetail;
 
 /// Full file contents at head go in until this many bytes; the rest are
@@ -214,9 +213,6 @@ pub(crate) fn agent_review_prompt(input: &PromptInput<'_>) -> String {
 
 /// Where the agent is and what it may do there.
 fn workspace_note(input: &PromptInput<'_>) -> String {
-    if input.request.step == CheckoutStep::NoCheckout {
-        return "This is a diff review: read the patch, the conversation and the files below. Do not run anything and do not edit files.\n".to_string();
-    }
     let mut note = String::from("The working directory is a git worktree of this PR");
     if let Some(branch) = input
         .checkout

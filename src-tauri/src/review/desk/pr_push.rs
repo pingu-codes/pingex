@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use super::steps::is_managed_branch;
+use super::check_out::is_managed_branch;
 use super::ReviewDesk;
 use crate::git::run::{redact_git_error, run_git_network};
 use crate::git::{checkouts as git, objects};
@@ -84,18 +84,7 @@ impl ReviewDesk {
 #[cfg(test)]
 mod tests {
     use super::super::test_support::{fixture, Fixture, SLUG};
-    use crate::review::checkout_types::CheckoutTarget;
     use crate::review::types::{InboxPr, PrDetail, PrSummary};
-
-    fn target(pr: &InboxPr) -> CheckoutTarget {
-        CheckoutTarget {
-            number: pr.number,
-            head_ref: pr.head_ref.clone(),
-            head_sha: pr.head_sha.clone(),
-            head_repo: Some(SLUG.to_string()),
-            ..CheckoutTarget::default()
-        }
-    }
 
     /// PR `pr` on the fake GitHub, with its head in `head_repo`.
     fn put_detail(fixture: &Fixture, pr: &InboxPr, head_repo: Option<&str>, can_modify: bool) {
@@ -118,13 +107,7 @@ mod tests {
 
     /// A worktree for `pr` holding one new commit: its path and that commit.
     async fn worktree_with_a_commit(fixture: &Fixture, pr: &InboxPr) -> (String, String) {
-        let path = fixture
-            .desk
-            .ensure_pr_worktree(target(pr))
-            .await
-            .unwrap()
-            .path
-            .unwrap();
+        let path = fixture.check_out(pr.number).await.path;
         let dir = std::path::Path::new(&path);
         std::fs::write(dir.join("fix.rs"), "fixed").unwrap();
         fixture.repo.git_in(dir, &["add", "fix.rs"]);

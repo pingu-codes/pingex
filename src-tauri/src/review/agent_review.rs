@@ -9,7 +9,6 @@
 use serde::{Deserialize, Serialize};
 
 use super::checkout_types::CheckoutTarget;
-use super::requirements::CheckoutStep;
 use crate::harness::HarnessKind;
 
 /// How many agent reviews run at once, across every repository of a Home.
@@ -55,8 +54,6 @@ pub(crate) struct AgentReviewRequest {
     /// The review is filed under the last.
     pub(crate) targets: Vec<CheckoutTarget>,
     pub(crate) harness: HarnessKind,
-    /// The checkout step the agent works at.
-    pub(crate) step: CheckoutStep,
     pub(crate) focus: Vec<FocusArea>,
     /// Findings stay drafts only the reviewer sees until added to the review.
     pub(crate) keep_drafts: bool,

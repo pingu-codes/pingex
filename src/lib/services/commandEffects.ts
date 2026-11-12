@@ -84,7 +84,6 @@ export const EFFECTS: Record<AnnouncedCommand, CommandEffect> = {
   reviewChangesSince: READ,
   reviewCheckFresh: READ,
   reviewCheckLogs: READ,
-  reviewCheckoutState: READ,
   reviewDiff: READ,
   reviewFile: READ,
   reviewFindClones: READ,
@@ -98,7 +97,7 @@ export const EFFECTS: Record<AnnouncedCommand, CommandEffect> = {
   reviewManagedWorktreeAt: READ,
   reviewMyRepositories: READ,
   reviewPendingReview: READ,
-  reviewPlanStep: READ,
+  reviewPrCheckout: READ,
   reviewPrCheckouts: READ,
   reviewPrDetail: READ,
   reviewPrLinks: READ,
@@ -137,14 +136,16 @@ export const EFFECTS: Record<AnnouncedCommand, CommandEffect> = {
   reviewContinueRestack: GITHUB,
   reviewDeleteComment: GITHUB,
   reviewEditComment: GITHUB,
-  // Fetches the PR heads it makes branches of.
-  reviewEnsureStackWorktree: GITHUB,
+  // Check out fetches the PR heads it makes worktrees and branches of.
+  reviewAdoptWorktree: GITHUB,
+  reviewCheckOut: GITHUB,
+  reviewCheckOutStack: GITHUB,
+  reviewSwitchStackBranch: GITHUB,
   reviewPushToPr: GITHUB,
   reviewRerunFailedChecks: GITHUB,
   reviewRestack: GITHUB,
 
   reviewCheckOutThreadCommit: GIT,
-  reviewEnsurePrWorktree: GIT,
   reviewRemovePrWorktree: GIT,
   reviewRunCheckoutSetup: GIT,
 
@@ -171,7 +172,6 @@ export const EFFECTS: Record<AnnouncedCommand, CommandEffect> = {
   reviewSaveDraft: PROFILE,
   reviewSavePendingReview: PROFILE,
   reviewSaveRepositorySettings: PROFILE,
-  reviewSetCheckoutPolicy: PROFILE,
   reviewSetFindingState: PROFILE,
   reviewSetViewed: PROFILE,
   reviewUpdateRule: PROFILE,
@@ -180,9 +180,8 @@ export const EFFECTS: Record<AnnouncedCommand, CommandEffect> = {
   reviewMoveThreadToPr: { changes: ["profile"], stale: ["reviewBranchProgress"] },
   reviewLinkClone: { changes: ["profile"], stale: ["reviewBranchProgress", "reviewProviderStatus"] },
   reviewFetchPrs: { changes: ["prRefs"] },
-  // Runs after every complete inbox sync: closed PRs' refs, links and
-  // managed worktrees.
-  reviewPruneClosed: { changes: ["prRefs", "profile"], stale: ["reviewCheckoutState", "reviewPrCheckouts"] },
+  // Runs after every inbox sync: closed PRs' refs, links and worktrees.
+  reviewPruneClosed: { changes: ["prRefs", "profile"], stale: ["reviewPrCheckout", "reviewPrCheckouts"] },
   reviewCloneRepository: { changes: ["clone"] },
 };
 

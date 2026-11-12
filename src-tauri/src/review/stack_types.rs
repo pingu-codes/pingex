@@ -3,8 +3,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::checkout_types::PrCheckout;
-
 /// A stack as the inbox has it: GitHub's native stack joined with each PR's
 /// inbox facts. Bottom first, merged PRs included (GitHub keeps them in the
 /// listing).
@@ -101,21 +99,6 @@ pub(crate) struct StackOverview {
 pub(crate) struct KeptBranch {
     pub(crate) branch: String,
     pub(crate) reason: String,
-}
-
-/// What checking out a stack did.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct StackCheckout {
-    /// The stack's top PR, as its checkout now stands.
-    pub(crate) checkout: PrCheckout,
-    /// A new worktree was made; otherwise the stack already had one.
-    pub(crate) created: bool,
-    pub(crate) created_branches: Vec<String>,
-    pub(crate) kept: Vec<KeptBranch>,
-    /// Why the provider's stack tool (`gh stack`) doesn't track the stack in
-    /// the worktree, when it is installed and should.
-    pub(crate) local_stack_warning: Option<String>,
 }
 
 /// One PR as GitHub has it, for counting how far behind its base it is.

@@ -78,7 +78,7 @@ pub use questions::{
 };
 pub(crate) use repository_settings::{
     read_repository_account, read_repository_settings, write_repository_account,
-    write_repository_settings, PrSource, RepositorySettings, ReviewCheckoutPolicy,
+    write_repository_settings, PrSource, RepositorySettings,
 };
 pub(crate) use review::{
     delete_review_draft, read_inbox_snapshot, read_inbox_snapshot_any_case, read_review_draft,
@@ -91,10 +91,10 @@ pub(crate) use review_agent::{
     set_agent_review_thread, set_finding_state, update_review_rule, write_findings,
 };
 pub(crate) use review_checkouts::{
-    adopt_checkout, delete_checkout, delete_pr_link, mark_checkout_closed, mark_checkout_open,
-    mark_checkout_setup_done, mark_pr_links_closed, move_pr_link, read_checkout,
-    read_checkout_at_path, read_checkouts, read_pr_link, read_pr_links, set_pr_link_mine,
-    update_checkout_head, write_checkout, write_pr_link, PrLink, StoredCheckout,
+    adopt_checkout, delete_checkout, delete_checkouts_at, delete_pr_link, mark_checkout_closed,
+    mark_checkout_open, mark_checkout_setup_done, mark_pr_links_closed, move_pr_link,
+    read_checkout, read_checkout_at_path, read_checkouts, read_pr_link, read_pr_links,
+    set_pr_link_mine, update_checkout_head, write_checkout, write_pr_link, PrLink, StoredCheckout,
 };
 pub(crate) use review_repositories::{
     add_prs_only_repository, prs_only_repositories, remove_prs_only_repository,

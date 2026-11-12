@@ -216,6 +216,8 @@ CREATE TABLE IF NOT EXISTS review_inbox_snapshots (
      setup_done INTEGER NOT NULL DEFAULT 0,
      closed_at INTEGER,
      updated_at INTEGER NOT NULL,
+     adopted INTEGER NOT NULL DEFAULT 0,
+     stack_number INTEGER,
      PRIMARY KEY (repo_key, pr_number)
  );
  CREATE TABLE IF NOT EXISTS review_pr_links (
@@ -438,7 +440,7 @@ CREATE TABLE IF NOT EXISTS review_inbox_snapshots (
 /// Columns added after their table shipped. Re-running these on an up-to-date
 /// database fails harmlessly ("duplicate column"), which is the only expected
 /// error, so the result is ignored.
-const ADDED_COLUMNS: [&str; 17] = [
+const ADDED_COLUMNS: [&str; 18] = [
     "ALTER TABLE repository_settings ADD COLUMN github_login TEXT",
     "ALTER TABLE harness_threads ADD COLUMN plan_exit_mode TEXT",
     "ALTER TABLE harness_threads ADD COLUMN permission_mode TEXT",
@@ -456,6 +458,7 @@ const ADDED_COLUMNS: [&str; 17] = [
     "ALTER TABLE projects ADD COLUMN worktree INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE harness_threads ADD COLUMN native_session_id TEXT",
     "ALTER TABLE stack_worktrees ADD COLUMN local_stack INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE review_checkouts ADD COLUMN stack_number INTEGER",
 ];
 
 pub(super) async fn initialize(database: &Database, codex_home: &Path) -> Result<(), String> {
@@ -490,6 +493,27 @@ pub(super) async fn initialize(database: &Database, codex_home: &Path) -> Result
         let _ = connection
             .execute(
                 "UPDATE user_input_answers SET answered_at = created_at WHERE answered_at IS NULL",
+                (),
+            )
+            .await;
+    }
+
+    // Before PR worktrees were all Pingex's own, only a `pr/<n>` worktree (or
+    // a review checkout, which becomes one) was made and removed by Pingex.
+    // Every other stored worktree was found on disk: adopted.
+    if connection
+        .execute(
+            "ALTER TABLE review_checkouts ADD COLUMN adopted INTEGER NOT NULL DEFAULT 0",
+            (),
+        )
+        .await
+        .is_ok()
+    {
+        let _ = connection
+            .execute(
+                "UPDATE review_checkouts SET adopted = 1
+                 WHERE step <> 'review_checkout'
+                   AND COALESCE(git_branch, '') NOT IN ('pr/' || pr_number, 'pr/' || pr_number || '-local')",
                 (),
             )
             .await;
@@ -564,6 +588,42 @@ mod tests {
         assert_eq!(store.projects.len(), 2);
         assert_eq!(store.projects[0].path, "/tmp/one");
         assert!(store.pinned_threads.is_empty());
+    }
+
+    #[tokio::test]
+    async fn stored_worktrees_pingex_did_not_make_become_adopted() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = crate::storage::open(directory.path()).await.unwrap();
+        let connection = db::conn(&database).unwrap();
+        connection
+            .execute("ALTER TABLE review_checkouts DROP COLUMN adopted", ())
+            .await
+            .unwrap();
+        for (number, step, branch) in [
+            (1, "worktree", "pr/1"),
+            (2, "worktree", "feat/mine"),
+            (3, "review_checkout", ""),
+            (4, "worktree", "pr/4-local"),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO review_checkouts(repo_key, pr_number, step, path, git_branch, updated_at)
+                     VALUES ('/repo', ?, ?, '/wt', NULLIF(?, ''), 0)",
+                    turso::params![number, step, branch],
+                )
+                .await
+                .unwrap();
+        }
+
+        initialize(&database, directory.path()).await.unwrap();
+
+        let adopted: Vec<(i64, bool)> = crate::storage::read_checkouts(&database, "/repo")
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| (row.pr_number, row.adopted))
+            .collect();
+        assert_eq!(adopted, [(1, false), (2, true), (3, false), (4, false)]);
     }
 
     #[tokio::test]

@@ -1,9 +1,10 @@
 //! Checking out a whole stack: a local git branch for each open PR, tracking
-//! GitHub's, and one worktree on the top one.
+//! GitHub's, and one worktree, on the top one when it is new.
 //!
 //! One worktree, not one per PR: a restack rebases every git branch inside one
-//! directory, and git refuses a branch checked out in another worktree. Switching
-//! PR switches that worktree (`ensure_pr_worktree`).
+//! directory, and git refuses a branch checked out in another worktree. Each
+//! open PR gets a row naming that worktree and the stack; switching PR
+//! switches the worktree's branch (`switch_stack_branch`).
 //!
 //! Nothing here moves work. A local git branch that has diverged from GitHub,
 //! or is checked out and behind it, stays where it is and is reported. Safe to
@@ -17,21 +18,25 @@ use std::path::Path;
 
 use super::ReviewDesk;
 use crate::git::{checkouts as checkouts_git, stack as git};
-use crate::review::checkout_types::CheckoutTarget;
+use crate::review::checkout_types::{CheckOutOutcome, PrCheckout};
 use crate::review::provider::LocalStack;
-use crate::review::stack_types::{KeptBranch, StackCheckout, StackInput, StackInputPr};
+use crate::review::stack_types::{KeptBranch, StackInput, StackInputPr};
 use crate::review::worktree_context::{stack_position, worktree_context, WorktreeContext};
 use crate::review::worktree_purpose::WorktreePurpose;
-use crate::storage;
+use crate::storage::{self, StoredCheckout};
 
 impl ReviewDesk {
-    /// Make every open PR's local git branch, then give the stack a worktree
-    /// unless it has one.
-    pub(crate) async fn ensure_stack_worktree(
+    /// Check out every open PR of `input`: make their local git branches,
+    /// then give the stack a worktree unless it has one. A stack whose git
+    /// branch is checked out somewhere Pingex doesn't know of is
+    /// `BranchInUse`.
+    pub(super) async fn check_out_stack_input(
         &self,
         input: StackInput,
-    ) -> Result<StackCheckout, String> {
-        let top = stack_target(&input)?;
+    ) -> Result<CheckOutOutcome, String> {
+        let Some(top) = input.open_prs().last().map(|pr| (*pr).clone()) else {
+            return Err("This stack has no open pull requests".to_string());
+        };
         // A stopped restack leaves its worktree detached, where it can't be
         // found by branch, and needs every git branch left free.
         if let Some(run) = self.stored_restack(input.number).await? {
@@ -40,46 +45,164 @@ impl ReviewDesk {
                 run.worktree
             ));
         }
-        let tracked_input = input.clone();
-        let (created_branches, kept, has_worktree) = self
-            .blocking("Checking out the stack failed", move |desk| {
-                let open = input.open_prs();
-                desk.ensure_heads(&open)?;
-                let (created, kept) =
-                    git::locked(&desk.host, desk.dir(), || desk.local_branches(&open))?;
-                let remote = desk.remote()?;
-                for pr in &open {
-                    checkouts_git::track_remote_branch(
+        let existing = self.stack_row(&input).await?;
+        if existing.is_none() {
+            let moving = input.clone();
+            let in_use = self
+                .blocking("Reading worktrees failed", move |desk| {
+                    let open = moving.open_prs();
+                    let branches: Vec<&str> = open.iter().map(|pr| pr.head_ref.as_str()).collect();
+                    desk.branch_in_use(&branches)
+                })
+                .await?;
+            if let Some(found) = in_use {
+                let number = input
+                    .open_prs()
+                    .iter()
+                    .find(|pr| pr.head_ref == found.branch)
+                    .map_or(top.number, |pr| pr.number);
+                return Ok(found.outcome(number));
+            }
+        }
+        let (created_branches, kept) = self.stack_branches(&input).await?;
+        let (path, adopted, setup_done, created) = match existing {
+            Some(row) => (row.path, row.adopted, row.setup_done, false),
+            None => {
+                let path = self.new_worktree_path(&top.head_ref).await?;
+                let (moving_path, moving_top) = (path.clone(), top.clone());
+                self.blocking("Creating the worktree failed", move |desk| {
+                    checkouts_git::add_pr_worktree(
                         &desk.host,
                         desk.dir(),
-                        &pr.head_ref,
-                        &remote,
-                    )?;
-                }
-                Ok((created, kept, desk.stack_worktree(&input)?.is_some()))
-            })
-            .await?;
-        let checkout = if has_worktree {
-            self.synced_checkout(top).await?
+                        &moving_path,
+                        &moving_top.head_ref,
+                        &moving_top.head_sha,
+                    )
+                })
+                .await?;
+                let setup = storage::read_repository_settings(&self.database, &self.repo_key())
+                    .await?
+                    .setup_command;
+                (path, false, setup.is_none(), true)
+            }
+        };
+        let rows = stack_rows(&input, &path, adopted, setup_done);
+        if created {
+            self.write_rows_or_undo(&rows, &path, None).await?;
         } else {
-            self.ensure_pr_worktree(top).await?
-        };
-        let (local_stack, local_stack_warning) = match checkout.path.clone() {
-            Some(path) => self.track_locally(path, tracked_input.clone()).await,
-            None => (false, None),
-        };
-        if let Some(path) = checkout.path.as_deref() {
-            let purpose = WorktreePurpose::stack(&self.repo_key(), &tracked_input)
-                .tracked_locally(local_stack);
-            self.record_stack_worktree(path, &purpose).await?;
+            for row in &rows {
+                storage::write_checkout(&self.database, &self.repo_key(), row).await?;
+            }
         }
-        Ok(StackCheckout {
+        let checkout = self
+            .settle_stack(&input, &path, adopted, top.number)
+            .await?;
+        let (local_stack, local_stack_warning) = if adopted {
+            (false, None)
+        } else {
+            self.track_locally(path.clone(), input.clone()).await
+        };
+        let purpose = WorktreePurpose::stack(&self.repo_key(), &input).tracked_locally(local_stack);
+        self.record_stack_worktree(&path, &purpose).await?;
+        Ok(CheckOutOutcome::CheckedOut {
             checkout,
-            created: !has_worktree,
+            created,
             created_branches,
             kept,
             local_stack_warning,
         })
+    }
+
+    /// Make `input`'s worktree at `path`, found on one of its git branches,
+    /// the stack's, as adopted. Returns PR `number`'s checkout.
+    pub(super) async fn adopt_stack_worktree(
+        &self,
+        input: StackInput,
+        number: i64,
+        path: String,
+    ) -> Result<PrCheckout, String> {
+        self.stack_branches(&input).await?;
+        let rows = stack_rows(&input, &path, true, true);
+        for row in &rows {
+            storage::write_checkout(&self.database, &self.repo_key(), row).await?;
+        }
+        let purpose = WorktreePurpose::stack(&self.repo_key(), &input);
+        self.record_stack_worktree(&path, &purpose).await?;
+        self.settle_stack(&input, &path, true, number).await
+    }
+
+    /// The stack's worktree as stored: a row of one of its open PRs whose
+    /// directory is there, on that PR's own git branch for a row from before
+    /// rows named their stack.
+    async fn stack_row(&self, input: &StackInput) -> Result<Option<StoredCheckout>, String> {
+        for pr in input.open_prs() {
+            let Some(row) = self.live_row(pr.number).await? else {
+                continue;
+            };
+            let ours = match row.stack_number {
+                Some(stack) => stack == input.number,
+                None => row.git_branch.as_deref() == Some(pr.head_ref.as_str()),
+            };
+            if ours {
+                return Ok(Some(row));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Make or catch up every open PR's local git branch, tracking GitHub's.
+    async fn stack_branches(
+        &self,
+        input: &StackInput,
+    ) -> Result<(Vec<String>, Vec<KeptBranch>), String> {
+        let moving = input.clone();
+        self.blocking("Checking out the stack failed", move |desk| {
+            let open = moving.open_prs();
+            desk.ensure_heads(&open)?;
+            let (created, kept) =
+                git::locked(&desk.host, desk.dir(), || desk.local_branches(&open))?;
+            let remote = desk.remote()?;
+            for pr in &open {
+                checkouts_git::track_remote_branch(&desk.host, desk.dir(), &pr.head_ref, &remote)?;
+            }
+            Ok((created, kept))
+        })
+        .await
+    }
+
+    /// Bring the stack worktree at `path` level with GitHub for the PR whose
+    /// branch it is on, unless it is adopted, and return PR `number`'s
+    /// checkout.
+    async fn settle_stack(
+        &self,
+        input: &StackInput,
+        path: &str,
+        adopted: bool,
+        number: i64,
+    ) -> Result<PrCheckout, String> {
+        if !adopted {
+            let moving_path = path.to_string();
+            let current = self
+                .blocking("Reading the worktree failed", move |desk| {
+                    checkouts_git::branch_of(&desk.host, Path::new(&moving_path))
+                })
+                .await
+                .ok()
+                .flatten();
+            if let Some(pr) = input
+                .open_prs()
+                .into_iter()
+                .find(|pr| Some(&pr.head_ref) == current.as_ref())
+            {
+                self.synced_pr_checkout(pr.number, Some(pr.head_sha.clone()))
+                    .await?;
+            }
+        }
+        let row = self
+            .live_row(number)
+            .await?
+            .ok_or_else(|| "The stack's worktree is gone".to_string())?;
+        self.describe(row).await
     }
 
     /// Have the provider's stack tool track `input`'s stack in the worktree at
@@ -168,7 +291,7 @@ impl ReviewDesk {
     }
 
     /// What to tell an agent starting in the worktree at `path`, when it is a
-    /// managed PR worktree or a Stack worktree now. The stored purpose is
+    /// PR worktree or a Stack worktree now. The stored purpose is
     /// checked against git, so a worktree since put to other use gets none.
     pub(crate) async fn worktree_context(
         &self,
@@ -180,11 +303,22 @@ impl ReviewDesk {
         if !self.host.is_dir(&path) {
             return Ok(None);
         }
+        // A PR's worktree holds it while it is on the PR's git branch.
+        let pr_branch = match &purpose {
+            WorktreePurpose::ManagedPr { number, .. } => {
+                storage::read_checkout(&self.database, &self.repo_key(), *number)
+                    .await?
+                    .and_then(|row| row.git_branch)
+            }
+            WorktreePurpose::Stack { .. } => None,
+        };
         self.blocking("Reading the worktree failed", move |desk| {
             let dir = Path::new(&path);
             let branch = checkouts_git::branch_of(&desk.host, dir)?;
             let fits = match &purpose {
-                WorktreePurpose::ManagedPr { .. } => checkouts_git::is_managed(&desk.host, dir)?,
+                WorktreePurpose::ManagedPr { .. } => {
+                    pr_branch.is_none() || branch.is_none() || branch == pr_branch
+                }
                 WorktreePurpose::Stack { .. } => {
                     checkouts_git::is_linked_worktree(&desk.host, dir)?
                         && purpose.holds_on(branch.as_deref())
@@ -223,22 +357,24 @@ impl ReviewDesk {
     }
 }
 
-/// The top open PR, as what the stack's worktree is created for.
-fn stack_target(input: &StackInput) -> Result<CheckoutTarget, String> {
-    let open = input.open_prs();
-    let Some(top) = open.last() else {
-        return Err("This stack has no open pull requests".to_string());
-    };
-    Ok(CheckoutTarget {
-        number: top.number,
-        head_ref: top.head_ref.clone(),
-        head_sha: top.head_sha.clone(),
-        mine: false,
-        stack: Some(input.name.clone()),
-        // A stack's PRs are in its repository.
-        head_repo: None,
-        stack_branches: open.iter().map(|pr| pr.head_ref.clone()).collect(),
-    })
+/// A row per open PR of `input`, all checked out in the stack's worktree at
+/// `path`, each on its own git branch.
+fn stack_rows(
+    input: &StackInput,
+    path: &str,
+    adopted: bool,
+    setup_done: bool,
+) -> Vec<StoredCheckout> {
+    input
+        .open_prs()
+        .into_iter()
+        .map(|pr: &StackInputPr| StoredCheckout {
+            setup_done,
+            adopted,
+            stack_number: Some(input.number),
+            ..StoredCheckout::new(pr.number, path, &pr.head_ref, &pr.head_sha)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -246,9 +382,9 @@ mod tests {
     use std::path::Path;
 
     use super::super::stack_support::StackFixture;
-    use crate::review::checkout_types::StepConfirm;
+    use crate::review::checkout_types::{CheckOutOutcome, PrCheckout};
     use crate::review::fake::{LocalStackTool, TrackedLocally};
-    use crate::review::requirements::DeskAction;
+    use crate::review::stack_types::KeptBranch;
     use crate::review::worktree_context::StackPosition;
     use crate::review::worktree_purpose::WorktreePurpose;
     use crate::storage;
@@ -272,17 +408,40 @@ mod tests {
         Some(stack)
     }
 
+    struct Checked {
+        checkout: PrCheckout,
+        created: bool,
+        created_branches: Vec<String>,
+        kept: Vec<KeptBranch>,
+        warning: Option<String>,
+    }
+
+    fn checked(outcome: CheckOutOutcome) -> Checked {
+        match outcome {
+            CheckOutOutcome::CheckedOut {
+                checkout,
+                created,
+                created_branches,
+                kept,
+                local_stack_warning,
+            } => Checked {
+                checkout,
+                created,
+                created_branches,
+                kept,
+                warning: local_stack_warning,
+            },
+            other => panic!("not checked out: {other:?}"),
+        }
+    }
+
     #[tokio::test]
-    async fn checking_out_a_stack_makes_tracking_branches_and_one_worktree_on_top() {
+    async fn checking_out_a_stack_pr_checks_out_the_whole_stack_in_one_worktree_on_top() {
         let Some(stack) = remote_only().await else {
             return;
         };
 
-        let result = stack
-            .desk()
-            .ensure_stack_worktree(stack.input())
-            .await
-            .unwrap();
+        let result = checked(stack.check_out(412).await);
 
         assert!(result.created);
         assert_eq!(
@@ -290,15 +449,45 @@ mod tests {
             vec!["feat/driver", "feat/claude", "feat/maki"]
         );
         assert!(result.kept.is_empty());
+        assert_eq!(result.checkout.number, 418, "the stack's top PR");
         assert_eq!(result.checkout.git_branch.as_deref(), Some("feat/maki"));
+        assert_eq!(result.checkout.stack, Some(7));
         assert!(result.checkout.on_pr_branch);
-        assert!(!result.checkout.managed);
+        assert!(!result.checkout.adopted);
         for branch in ["feat/driver", "feat/claude", "feat/maki"] {
             assert_eq!(stack.tip(branch), stack.remote_tip(branch));
             assert_eq!(upstream(&stack, branch), "origin");
         }
         let worktrees = stack.git(&["worktree", "list", "--porcelain"]);
         assert_eq!(worktrees.matches("worktree ").count(), 2, "{worktrees}");
+        let path = result.checkout.path;
+        assert!(path.ends_with("worktrees/repo/feat-maki"), "{path}");
+        assert_eq!(
+            crate::git::checkouts::lock_reason(&Host::Native, Path::new(&path))
+                .unwrap()
+                .as_deref(),
+            Some(crate::git::checkouts::PR_WORKTREE_LOCK)
+        );
+        for number in [412, 415, 418] {
+            let lower = stack.desk().pr_checkout(number).await.unwrap().unwrap();
+            assert_eq!(lower.path, path);
+            assert_eq!(lower.on_pr_branch, number == 418);
+            assert_eq!((lower.ahead, lower.behind), (0, 0));
+        }
+    }
+
+    #[tokio::test]
+    async fn checking_out_the_stack_by_its_number_does_the_same() {
+        let Some(stack) = remote_only().await else {
+            return;
+        };
+        stack.desk().sync_inbox().await.unwrap();
+
+        let result = checked(stack.desk().check_out_stack(7).await.unwrap());
+
+        assert!(result.created);
+        assert_eq!(result.checkout.git_branch.as_deref(), Some("feat/maki"));
+        assert!(stack.desk().check_out_stack(8).await.is_err());
     }
 
     #[tokio::test]
@@ -306,12 +495,7 @@ mod tests {
         let Some(stack) = remote_only().await else {
             return;
         };
-        let result = stack
-            .desk()
-            .ensure_stack_worktree(stack.input())
-            .await
-            .unwrap();
-        let path = result.checkout.path.unwrap();
+        let path = stack.checked_out().await.path;
 
         let context = stack
             .desk()
@@ -351,14 +535,10 @@ mod tests {
         let Some(stack) = remote_only().await else {
             return;
         };
-        let result = stack
-            .desk()
-            .ensure_stack_worktree(stack.input())
-            .await
-            .unwrap();
-        let path = result.checkout.path.unwrap();
+        let result = checked(stack.check_out(418).await);
+        let path = result.checkout.path;
 
-        assert_eq!(result.local_stack_warning, None);
+        assert_eq!(result.warning, None);
         assert_eq!(
             stack.inner.github.tracked_locally(),
             vec![TrackedLocally {
@@ -385,13 +565,9 @@ mod tests {
             .inner
             .github
             .set_local_stack_tool(LocalStackTool::Tracks);
-        let result = stack
-            .desk()
-            .ensure_stack_worktree(stack.input())
-            .await
-            .unwrap();
-        let path = result.checkout.path.unwrap();
-        assert_eq!(result.local_stack_warning, None);
+        let result = checked(stack.check_out(418).await);
+        let path = result.checkout.path;
+        assert_eq!(result.warning, None);
 
         // A read of the stack doesn't ask gh stack, and keeps its word.
         let read = WorktreePurpose::stack(&stack.desk().repo_key(), &stack.input());
@@ -436,19 +612,19 @@ mod tests {
             .set_local_stack_tool(LocalStackTool::Fails(
                 "gh stack could not import the stack".into(),
             ));
-        let result = stack
-            .desk()
-            .ensure_stack_worktree(stack.input())
-            .await
-            .unwrap();
+        let result = checked(stack.check_out(418).await);
 
         assert!(result.created);
         assert_eq!(
-            result.local_stack_warning.as_deref(),
+            result.warning.as_deref(),
             Some("gh stack doesn't track this stack: gh stack could not import the stack")
         );
-        let path = result.checkout.path.unwrap();
-        let context = stack.desk().worktree_context(path).await.unwrap().unwrap();
+        let context = stack
+            .desk()
+            .worktree_context(result.checkout.path)
+            .await
+            .unwrap()
+            .unwrap();
         assert!(!context.text.contains("`gh stack` tracks"));
     }
 
@@ -461,19 +637,15 @@ mod tests {
             .inner
             .github
             .set_local_stack_tool(LocalStackTool::SwitchesTo("feat/claude".into()));
-        let result = stack
-            .desk()
-            .ensure_stack_worktree(stack.input())
-            .await
-            .unwrap();
-        let path = result.checkout.path.unwrap();
+        let result = checked(stack.check_out(418).await);
+        let path = result.checkout.path;
 
         assert_eq!(
             stack.git_in(Path::new(&path), &["branch", "--show-current"]),
             "feat/maki"
         );
         assert_eq!(
-            result.local_stack_warning.as_deref(),
+            result.warning.as_deref(),
             Some("gh stack moved the worktree off `feat/maki`; it is back on it")
         );
     }
@@ -502,43 +674,81 @@ mod tests {
         let Some(stack) = remote_only().await else {
             return;
         };
-        let first = stack
-            .desk()
-            .ensure_stack_worktree(stack.input())
-            .await
-            .unwrap();
+        let first = stack.checked_out().await;
 
-        let second = stack
-            .desk()
-            .ensure_stack_worktree(stack.input())
-            .await
-            .unwrap();
+        let second = checked(stack.check_out(415).await);
 
         assert!(!second.created);
         assert!(second.created_branches.is_empty());
-        assert_eq!(second.checkout.path, first.checkout.path);
+        assert_eq!(second.checkout.path, first.path);
     }
 
     #[tokio::test]
-    async fn an_existing_worktree_is_kept_on_its_branch_and_missing_branches_are_filled_in() {
+    async fn a_stack_branch_checked_out_by_hand_is_offered_for_adoption_and_kept_as_it_is() {
         let Some(stack) = StackFixture::new().await else {
             return;
         };
         let worktree = stack.worktree_on("feat/driver");
         stack.git(&["branch", "-q", "-D", "feat/maki"]);
 
-        let result = stack
+        let CheckOutOutcome::BranchInUse {
+            number,
+            branch,
+            path,
+            main_clone,
+        } = stack.check_out(418).await
+        else {
+            panic!("the stack's branch is in use");
+        };
+        assert_eq!(
+            (number, branch.as_str(), main_clone),
+            (412, "feat/driver", false)
+        );
+        assert_eq!(stack.desk().pr_checkout(418).await.unwrap(), None);
+
+        let adopted = stack
             .desk()
-            .ensure_stack_worktree(stack.input())
+            .adopt_worktree(418, path.clone())
             .await
             .unwrap();
 
-        assert!(!result.created);
-        assert_eq!(result.created_branches, vec!["feat/maki"]);
+        assert!(adopted.adopted);
+        assert_eq!(adopted.stack, Some(7));
+        assert!(!adopted.on_pr_branch);
+        assert!(
+            stack.tip("feat/maki").len() == 40,
+            "missing branches are filled in"
+        );
         assert_eq!(
             stack.git_in(&worktree, &["branch", "--show-current"]),
             "feat/driver"
         );
+        // Pingex doesn't switch it, and checking out again keeps it.
+        assert!(stack.desk().switch_stack_branch(418).await.is_err());
+        let again = checked(stack.check_out(415).await);
+        assert_eq!(again.checkout.path, path);
+        assert!(!again.created);
+        assert!(stack.inner.github.tracked_locally().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_stack_branch_in_the_main_clone_is_offered_and_never_switched() {
+        let Some(stack) = StackFixture::new().await else {
+            return;
+        };
+        stack.git(&["switch", "-q", "feat/maki"]);
+
+        let CheckOutOutcome::BranchInUse {
+            path, main_clone, ..
+        } = stack.check_out(412).await
+        else {
+            panic!("the stack's branch is in use");
+        };
+        assert!(main_clone);
+        stack.desk().adopt_worktree(412, path).await.unwrap();
+
+        assert!(stack.desk().switch_stack_branch(412).await.is_err());
+        assert_eq!(stack.git(&["branch", "--show-current"]), "feat/maki");
     }
 
     #[tokio::test]
@@ -551,13 +761,10 @@ mod tests {
         stack.git(&["commit", "-q", "--allow-empty", "-m", "mine"]);
         stack.git(&["switch", "-q", "main"]);
         let local = stack.tip("feat/claude");
-        stack.teammate_pushes(415, "feat/claude");
+        let head = stack.teammate_pushes(415, "feat/claude");
+        stack.relist(415, &head);
 
-        let result = stack
-            .desk()
-            .ensure_stack_worktree(stack.input())
-            .await
-            .unwrap();
+        let result = checked(stack.check_out(418).await);
 
         assert_eq!(result.kept.len(), 1);
         assert_eq!(result.kept[0].branch, "feat/claude");
@@ -571,12 +778,9 @@ mod tests {
             return;
         };
         let head = stack.teammate_pushes(412, "feat/driver");
+        stack.relist(412, &head);
 
-        let result = stack
-            .desk()
-            .ensure_stack_worktree(stack.input())
-            .await
-            .unwrap();
+        let result = checked(stack.check_out(418).await);
 
         assert!(result.kept.is_empty());
         assert_eq!(stack.tip("feat/driver"), head);
@@ -593,9 +797,10 @@ mod tests {
 
         assert!(stack
             .desk()
-            .ensure_stack_worktree(stack.input())
+            .check_out_stack_input(stack.input())
             .await
             .is_err());
+        assert!(stack.desk().check_out_stack(7).await.is_err());
     }
 
     #[tokio::test]
@@ -603,11 +808,7 @@ mod tests {
         let Some(stack) = remote_only().await else {
             return;
         };
-        stack
-            .desk()
-            .ensure_stack_worktree(stack.input())
-            .await
-            .unwrap();
+        stack.checked_out().await;
         let moved = stack.advance_main("main.rs", "the base moved\n");
 
         stack.desk().restack(stack.input(), None).await.unwrap();
@@ -618,91 +819,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_plan_asks_before_switching_the_stack_worktree_to_another_pr() {
-        let Some(stack) = remote_only().await else {
-            return;
-        };
-        stack
-            .desk()
-            .ensure_stack_worktree(stack.input())
-            .await
-            .unwrap();
-
-        let plan = stack
-            .desk()
-            .plan_step(stack.target(412), DeskAction::WorkOnPr)
-            .await
-            .unwrap();
-
-        assert_eq!(plan.step_up, None);
-        assert_eq!(plan.confirm, Some(StepConfirm::SwitchBranch));
-        assert!(plan.switch_branch);
-        assert_eq!(plan.current.git_branch.as_deref(), Some("feat/maki"));
-        assert!(!plan.current.on_pr_branch);
-    }
-
-    #[tokio::test]
     async fn checking_out_a_stack_is_refused_while_a_restack_is_stopped() {
         let Some(stack) = remote_only().await else {
             return;
         };
-        stack
-            .desk()
-            .ensure_stack_worktree(stack.input())
-            .await
-            .unwrap();
+        stack.checked_out().await;
         // main and #415 both change claude.rs, so the restack stops there.
         stack.advance_main("claude.rs", "main's version\n");
         stack.desk().restack(stack.input(), None).await.unwrap();
 
-        let refused = stack.desk().ensure_stack_worktree(stack.input()).await;
+        let refused = stack.desk().check_out(418).await;
 
         assert!(refused.unwrap_err().contains("restack"));
     }
 
     #[tokio::test]
-    async fn a_read_never_asks_to_switch() {
+    async fn switching_to_a_lower_pr_switches_the_stack_worktree() {
         let Some(stack) = remote_only().await else {
             return;
         };
-        stack
-            .desk()
-            .ensure_stack_worktree(stack.input())
-            .await
-            .unwrap();
-
-        let plan = stack
-            .desk()
-            .plan_step(stack.target(412), DeskAction::Read)
-            .await
-            .unwrap();
-
-        assert!(!plan.switch_branch);
-        assert_eq!(plan.confirm, None);
-    }
-
-    #[tokio::test]
-    async fn working_on_a_lower_pr_switches_the_stack_worktree_and_records_it() {
-        let Some(stack) = remote_only().await else {
-            return;
-        };
-        let path = stack
-            .desk()
-            .ensure_stack_worktree(stack.input())
-            .await
-            .unwrap()
-            .checkout
-            .path
-            .unwrap();
+        let path = stack.checked_out().await.path;
         let (lower, top) = (stack.tip("feat/driver"), stack.tip("feat/maki"));
 
-        let state = stack
-            .desk()
-            .ensure_pr_worktree(stack.target(412))
-            .await
-            .unwrap();
+        let state = stack.desk().switch_stack_branch(412).await.unwrap();
 
-        assert_eq!(state.path.as_deref(), Some(path.as_str()));
+        assert_eq!(state.path, path);
         assert_eq!(state.git_branch.as_deref(), Some("feat/driver"));
         assert!(state.on_pr_branch);
         assert_eq!(
@@ -711,11 +852,8 @@ mod tests {
         );
         assert_eq!(stack.tip("feat/driver"), lower);
         assert_eq!(stack.tip("feat/maki"), top);
-        let row = storage::read_checkout(&stack.desk().database, &stack.desk().repo_key(), 412)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(row.path, path);
+        let top = stack.desk().pr_checkout(418).await.unwrap().unwrap();
+        assert!(!top.on_pr_branch);
     }
 
     #[tokio::test]
@@ -723,22 +861,15 @@ mod tests {
         let Some(stack) = remote_only().await else {
             return;
         };
-        let path = stack
-            .desk()
-            .ensure_stack_worktree(stack.input())
-            .await
-            .unwrap()
-            .checkout
-            .path
-            .unwrap();
+        let path = stack.checked_out().await.path;
         stack.git(&["branch", "-q", "-D", "feat/driver"]);
         let head = stack.teammate_pushes(412, "feat/driver");
-        let target = stack.target(412);
-        assert_eq!(target.head_sha, head);
+        stack.relist(412, &head);
+        stack.desk().sync_inbox().await.unwrap();
 
         let switched = tokio::time::timeout(
             std::time::Duration::from_secs(30),
-            stack.desk().ensure_pr_worktree(target),
+            stack.desk().switch_stack_branch(412),
         )
         .await
         .expect("the switch finishes")
@@ -746,21 +877,6 @@ mod tests {
 
         assert_eq!(switched.git_branch.as_deref(), Some("feat/driver"));
         assert_eq!(stack.git_in(Path::new(&path), &["rev-parse", "HEAD"]), head);
-    }
-
-    #[tokio::test]
-    async fn the_main_clone_is_never_switched_as_a_stack_worktree() {
-        let Some(stack) = StackFixture::new().await else {
-            return;
-        };
-        stack.git(&["switch", "-q", "feat/maki"]);
-
-        let result = stack.desk().ensure_pr_worktree(stack.target(412)).await;
-
-        assert_eq!(stack.git(&["branch", "--show-current"]), "feat/maki");
-        if let Ok(state) = result {
-            assert!(!state.main_checkout, "{state:?}");
-        }
     }
 
     #[tokio::test]
@@ -777,19 +893,17 @@ mod tests {
         stack.git(&["switch", "-q", "feat/claude"]);
 
         let restacked = stack.desk().restack(stack.input(), None).await;
-        let added = stack
+        let _ = stack
             .desk()
             .add_stack_branch(stack.input(), "feat/extra".into(), None)
             .await;
 
         assert!(restacked.is_err(), "{restacked:?}");
-        assert_eq!(stack.git(&["branch", "--show-current"]), "feat/claude");
         let after: Vec<String> = ["feat/driver", "feat/claude", "feat/maki"]
             .iter()
             .map(|branch| stack.tip(branch))
             .collect();
         assert_eq!(after, tips);
-        let _ = added;
         assert_eq!(stack.git(&["branch", "--show-current"]), "feat/claude");
     }
 
@@ -798,17 +912,10 @@ mod tests {
         let Some(stack) = remote_only().await else {
             return;
         };
-        let path = stack
-            .desk()
-            .ensure_stack_worktree(stack.input())
-            .await
-            .unwrap()
-            .checkout
-            .path
-            .unwrap();
+        let path = stack.checked_out().await.path;
         std::fs::write(Path::new(&path).join("scratch.txt"), "dirty\n").unwrap();
 
-        let refused = stack.desk().ensure_pr_worktree(stack.target(412)).await;
+        let refused = stack.desk().switch_stack_branch(412).await;
 
         assert!(refused.is_err());
         assert_eq!(
@@ -822,14 +929,7 @@ mod tests {
         let Some(stack) = remote_only().await else {
             return;
         };
-        let path = stack
-            .desk()
-            .ensure_stack_worktree(stack.input())
-            .await
-            .unwrap()
-            .checkout
-            .path
-            .unwrap();
+        let path = stack.checked_out().await.path;
         let dir = Path::new(&path);
         // Stop a rebase at a conflict in maki.rs.
         stack.git(&["switch", "-q", "-c", "side", "feat/claude"]);
@@ -838,8 +938,24 @@ mod tests {
         assert!(!crate::git::test_repo::git_ok(dir, &["rebase", "side"]));
         assert!(crate::git::stack::rebase_in_progress(&Host::Native, dir));
 
-        let refused = stack.desk().ensure_pr_worktree(stack.target(412)).await;
+        let refused = stack.desk().switch_stack_branch(412).await;
 
         assert!(refused.unwrap_err().contains("rebase"));
+    }
+
+    #[tokio::test]
+    async fn undoing_a_stack_check_out_removes_its_worktree_and_every_row() {
+        let Some(stack) = remote_only().await else {
+            return;
+        };
+        let path = stack.checked_out().await.path;
+
+        stack.desk().remove_pr_worktree(415).await.unwrap();
+
+        assert!(!Path::new(&path).exists());
+        for number in [412, 415, 418] {
+            assert_eq!(stack.desk().pr_checkout(number).await.unwrap(), None);
+        }
+        assert_ne!(stack.git(&["branch", "--list", "feat/maki"]), "");
     }
 }

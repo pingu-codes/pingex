@@ -542,14 +542,11 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         // unified mode cannot express `skip_serializing_if`, so we do not use it.
         .disable_serde_phases()
         .typ::<harness::Capability>()
-        .typ::<review::requirements::CheckoutStep>()
-        .typ::<review::requirements::DeskAction>()
         .typ::<claude::modes::ClaudeModeSettings>()
         .constant("HARNESS_CAPABILITIES", harness::declared_capabilities())
         .constant("HARNESS_KINDS", harness::HarnessKind::ALL)
         .constant("HARNESS_INFO", harness::harness_info())
         .constant("HARNESS_MODES", harness::harness_modes())
-        .constant("DESK_ACTION_STEPS", review::requirements::action_steps())
         .commands(tauri_specta::collect_commands![
             // Projects and the bootstrap payload
             profiles::bootstrap_profile,
@@ -763,9 +760,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             review::commands::review_save_draft,
             review::commands::review_load_draft,
             review::commands::review_delete_draft,
-            // Review desk: checkout steps and PR links on threads
+            // Review desk: checking PRs out, stacks and PR links on threads
             review::stack_commands::review_stack_overview,
-            review::stack_commands::review_ensure_stack_worktree,
             review::stack_commands::review_prs_behind,
             review::stack_commands::review_restack_plan,
             review::stack_commands::review_restack,
@@ -779,17 +775,18 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             review::stack_commands::review_rename_stack_branch,
             review::stack_commands::review_add_stack_branch,
             review::stack_commands::review_delete_merged_branches,
-            review::checkout_commands::review_checkout_state,
+            review::checkout_commands::review_check_out,
+            review::checkout_commands::review_check_out_stack,
+            review::checkout_commands::review_adopt_worktree,
+            review::checkout_commands::review_switch_stack_branch,
+            review::checkout_commands::review_pr_checkout,
             review::checkout_commands::review_pr_checkouts,
-            review::checkout_commands::review_plan_step,
-            review::checkout_commands::review_ensure_pr_worktree,
             review::checkout_commands::review_run_checkout_setup,
             review::checkout_commands::review_remove_pr_worktree,
             review::checkout_commands::review_push_to_pr,
             review::checkout_commands::review_managed_worktree_at,
             review::checkout_commands::review_worktree_context,
             review::checkout_commands::review_prune_closed,
-            review::checkout_commands::review_set_checkout_policy,
             review::checkout_commands::review_link_thread,
             review::checkout_commands::review_pr_links,
             review::checkout_commands::review_move_thread_to_pr,

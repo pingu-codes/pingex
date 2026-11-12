@@ -1,5 +1,7 @@
-//! Per-repository settings: where worktrees go, the setup command, when a
-//! PR worktree may be created, and which remote feeds the inbox.
+//! Per-repository settings: where worktrees go, the setup command, and which
+//! remote feeds the inbox. The `review_checkout_policy` and
+//! `skip_checkout_confirm` columns are left from when PR worktrees could be
+//! made without an explicit Check out; nothing reads them.
 //!
 //! Keyed by `repo_key`: the project's root path as stored for projects, or
 //! the GitHub `owner/name` of a PRs-only repository, which has no folder. A
@@ -10,38 +12,6 @@ use turso::{params, Database};
 
 use super::db;
 use crate::util::time::unix_secs;
-
-/// When a PR worktree may be created for an action that follows this policy
-/// (`DeskAction::follows_policy`). Named for the step it first governed.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum ReviewCheckoutPolicy {
-    /// Confirm first, unless "Don't ask again" was chosen.
-    #[default]
-    Ask,
-    /// Create it without asking.
-    WhenNeeded,
-    /// Never create one for those actions; they are unavailable.
-    Never,
-}
-
-impl ReviewCheckoutPolicy {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Ask => "ask",
-            Self::WhenNeeded => "when_needed",
-            Self::Never => "never",
-        }
-    }
-
-    fn parse(value: &str) -> Self {
-        match value {
-            "when_needed" => Self::WhenNeeded,
-            "never" => Self::Never,
-            _ => Self::Ask,
-        }
-    }
-}
 
 /// Which remote's GitHub repository feeds the inbox.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
@@ -82,9 +52,6 @@ pub(crate) struct RepositorySettings {
     pub(crate) repo_key: String,
     /// Run once in a new PR worktree, e.g. `bun install`.
     pub(crate) setup_command: Option<String>,
-    pub(crate) review_checkout_policy: ReviewCheckoutPolicy,
-    /// "Don't ask again for <repository>" on the checkout confirmation.
-    pub(crate) skip_checkout_confirm: bool,
     /// Where new worktrees go; `None` for the app default.
     pub(crate) worktree_dir: Option<String>,
     pub(crate) pr_source: PrSource,
@@ -108,19 +75,16 @@ pub(crate) async fn read_repository_settings(
     let connection = db::conn(database)?;
     let stored = db::one(
         &connection,
-        "SELECT setup_command, review_checkout_policy, skip_checkout_confirm, worktree_dir,
-                pr_source, updated_at
+        "SELECT setup_command, worktree_dir, pr_source, updated_at
          FROM repository_settings WHERE repo_key = ?",
         params![repo_key],
         |row| {
             Ok(RepositorySettings {
                 repo_key: repo_key.to_string(),
                 setup_command: db::opt_text(row, 0)?,
-                review_checkout_policy: ReviewCheckoutPolicy::parse(&db::text(row, 1)?),
-                skip_checkout_confirm: db::flag(row, 2)?,
-                worktree_dir: db::opt_text(row, 3)?,
-                pr_source: PrSource::parse(&db::text(row, 4)?),
-                updated_at: db::int(row, 5)?,
+                worktree_dir: db::opt_text(row, 1)?,
+                pr_source: PrSource::parse(&db::text(row, 2)?),
+                updated_at: db::int(row, 3)?,
             })
         },
     )
@@ -139,21 +103,17 @@ pub(crate) async fn write_repository_settings(
     let connection = db::conn(database)?;
     db::exec(
         &connection,
-        "INSERT INTO repository_settings(repo_key, setup_command, review_checkout_policy,
-             skip_checkout_confirm, worktree_dir, pr_source, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        "INSERT INTO repository_settings(repo_key, setup_command, worktree_dir, pr_source,
+             updated_at)
+         VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(repo_key) DO UPDATE SET
              setup_command = excluded.setup_command,
-             review_checkout_policy = excluded.review_checkout_policy,
-             skip_checkout_confirm = excluded.skip_checkout_confirm,
              worktree_dir = excluded.worktree_dir,
              pr_source = excluded.pr_source,
              updated_at = excluded.updated_at",
         params![
             settings.repo_key.as_str(),
             non_blank(&settings.setup_command),
-            settings.review_checkout_policy.as_str(),
-            i64::from(settings.skip_checkout_confirm),
             non_blank(&settings.worktree_dir),
             settings.pr_source.as_str(),
             unix_secs()
@@ -262,10 +222,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(settings.repo_key, "/code/pingex");
-        assert_eq!(settings.review_checkout_policy, ReviewCheckoutPolicy::Ask);
         assert_eq!(settings.pr_source, PrSource::Origin);
         assert_eq!(settings.setup_command, None);
-        assert!(!settings.skip_checkout_confirm);
     }
 
     #[tokio::test]
@@ -275,8 +233,6 @@ mod tests {
         let settings = RepositorySettings {
             repo_key: "/code/pingex".into(),
             setup_command: Some("bun install".into()),
-            review_checkout_policy: ReviewCheckoutPolicy::WhenNeeded,
-            skip_checkout_confirm: true,
             worktree_dir: Some("~/worktrees/pingex".into()),
             pr_source: PrSource::Upstream,
             updated_at: 0,
@@ -288,16 +244,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(stored.setup_command.as_deref(), Some("bun install"));
-        assert_eq!(
-            stored.review_checkout_policy,
-            ReviewCheckoutPolicy::WhenNeeded
-        );
         assert_eq!(stored.pr_source, PrSource::Upstream);
-        assert!(stored.skip_checkout_confirm && stored.updated_at > 0);
+        assert!(stored.updated_at > 0);
 
         let cleared = RepositorySettings {
             setup_command: Some("  ".into()),
-            review_checkout_policy: ReviewCheckoutPolicy::Never,
             ..stored
         };
         write_repository_settings(&database, &cleared)
@@ -307,6 +258,5 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(stored.setup_command, None);
-        assert_eq!(stored.review_checkout_policy, ReviewCheckoutPolicy::Never);
     }
 }
