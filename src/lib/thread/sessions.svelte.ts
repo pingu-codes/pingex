@@ -82,11 +82,12 @@ export function openSession(id: string): ThreadSession {
   return session;
 }
 
-/** A session for a thread that does not exist yet. It joins the registry
- *  once the view creates the thread and `attach`es its id. */
-export function draftSession(cwd: string): ThreadSession {
+/** A session for a thread that does not exist yet. `start` creates the thread
+ *  when work needs one (`ThreadSession.live`); the session joins the registry
+ *  once it `attach`es the new id. */
+export function draftSession(cwd: string, start?: (owner: ThreadSession) => Promise<string>): ThreadSession {
   listen();
-  const session = new ThreadSession(null, cwd);
+  const session = new ThreadSession(null, cwd, start);
   drafts.set(session, new Set());
   session.onIdle = () => {
     drafts.delete(session);

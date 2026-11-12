@@ -1,12 +1,10 @@
-import { nameNewThread } from "$lib/app/appData.svelte";
 import { openDialog } from "$lib/app/dialogs.svelte";
 import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
 import { getThreadGoal, setThreadGoal, setThreadGoalBudget, setThreadGoalStatus } from "$lib/services/api";
 import { commands } from "$lib/services/homeRouting";
-import { requestAutoName } from "$lib/thread/autoName";
+import { nameFromOpening } from "$lib/thread/draftThread.svelte";
 import GoalBudgetDialog from "$lib/thread/GoalBudgetDialog.svelte";
 import { parseTokenBudget } from "$lib/thread/goalBudget";
-import { messageTitle } from "$lib/thread/messageText";
 import type { ThreadSession } from "$lib/thread/threadSession.svelte";
 import { toastError } from "$lib/toaster";
 import { errorMessage } from "$lib/utils/errors";
@@ -16,8 +14,6 @@ export interface GoalContext {
   /** The session on show. Each command reads it once and sticks with it, so a
    *  thread switch mid-request cannot land the answer on the wrong thread. */
   session: () => ThreadSession;
-  /** The thread id to set a goal on, creating the thread from a draft first. */
-  ensureLiveThread: (owner: ThreadSession) => Promise<string>;
   /** Give a typed command line back to the composer after it failed. */
   restoreText: (text: string) => void;
 }
@@ -154,16 +150,13 @@ export function goalCommands(context: GoalContext) {
     }
     if (fresh) session.starting = true;
     try {
-      const id = await context.ensureLiveThread(session);
+      const id = await session.live();
       // No notice: the goal banner confirms it, and the goal's first turn would
       // clear a notice the moment it appeared.
       session.setGoal(await setThreadGoal(id, objective));
       // A goal-only thread has no turn to name it from, so the objective titles
       // it: shown at once, then refined by the namer.
-      if (fresh) {
-        nameNewThread(id, messageTitle([{ type: "text", text: objective }]));
-        requestAutoName(id, "seed", objective);
-      }
+      if (fresh) nameFromOpening(id, [{ type: "text", text: objective }]);
       return true;
     } catch (cause) {
       session.streamError = errorMessage(cause);

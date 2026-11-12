@@ -3,7 +3,6 @@
   import { Collapsible } from "@skeletonlabs/skeleton-svelte";
   import { onDestroy, untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import { nameNewThread } from "$lib/app/appData.svelte";
   import { openDialog } from "$lib/app/dialogs.svelte";
   import BrowserApprovalCard from "$lib/browser/BrowserApprovalCard.svelte";
   import { approvalsFor, labelBrowserThread } from "$lib/browser/browserStore.svelte";
@@ -14,22 +13,21 @@
   import Composer from "$lib/composer/Composer.svelte";
   import type { SlashCommandId } from "$lib/composer/slashCommands";
   import RightPanel, { type PanelView } from "$lib/panels/RightPanel.svelte";
-  import { linkExpectedThread } from "$lib/review/prLinks.svelte";
-  import { forkThread, gitWorktreeAdd, isPromptPartsTextUnsupported, startThread, startTurn } from "$lib/services/api";
+  import { isPromptPartsTextUnsupported } from "$lib/services/api";
   import { approvals, elicitations, turnPlans, userInputRequests } from "$lib/services/codexEvents.svelte";
   import { commands } from "$lib/services/homeRouting";
   import { processes } from "$lib/services/processes.svelte";
   import { invalidate, query } from "$lib/services/queryCache.svelte";
   import ApprovalCard from "$lib/thread/ApprovalCard.svelte";
-  import { requestAutoName } from "$lib/thread/autoName";
   import { contextStats as deriveContextStats } from "$lib/thread/contextUsage";
+  import { type DraftLocation, DraftThread, editAsBranch, startThreadWith } from "$lib/thread/draftThread.svelte";
   import ElicitationCard from "$lib/thread/ElicitationCard.svelte";
   import FloatingMenu from "$lib/thread/FloatingMenu.svelte";
   import { collectFileChanges } from "$lib/thread/fileChanges";
   import GoalBanner from "$lib/thread/GoalBanner.svelte";
   import { goalCommands } from "$lib/thread/goalCommands";
   import { cwdBelongsTo } from "$lib/thread/handoff";
-  import { messageText, messageTitle } from "$lib/thread/messageText";
+  import { messageText } from "$lib/thread/messageText";
   import { isPendingEditTurn, versionsForTurn } from "$lib/thread/messageVersions";
   import { planText } from "$lib/thread/planText";
   import QuestionCard from "$lib/thread/QuestionCard.svelte";
@@ -37,7 +35,7 @@
   import { queuedText } from "$lib/thread/queueEntries";
   import ReasoningBlock from "$lib/thread/ReasoningBlock.svelte";
   import SystemPromptSection from "$lib/thread/SystemPromptSection.svelte";
-  import { attachSession, draftSession, openSession, releaseSession } from "$lib/thread/sessions.svelte";
+  import { openSession, releaseSession } from "$lib/thread/sessions.svelte";
   import TurnPlanCard from "$lib/thread/TurnPlanCard.svelte";
   import type { ThreadSession } from "$lib/thread/threadSession.svelte";
   import { upsertItem } from "$lib/thread/threadStream";
@@ -53,12 +51,11 @@
   import UserMessageBubble from "$lib/thread/UserMessageBubble.svelte";
   import { estimateCost } from "$lib/thread/usageCost";
   import WorkItem from "$lib/thread/WorkItem.svelte";
-  import { splitWorktreeContext, withWorktreeContext } from "$lib/thread/worktreeContext";
+  import { splitWorktreeContext } from "$lib/thread/worktreeContext";
   import { toastError } from "$lib/toaster";
   import type {
     BootstrapData,
     FileUpdateChange,
-    GitRepoInfo,
     PromptPart,
     QueuedSubmission,
     ReviewTarget,
@@ -71,7 +68,6 @@
     TurnOptions,
     UserInputPart,
     WorktreeBranchRequest,
-    WorktreeContext,
   } from "$lib/types";
   import { can, harnessKind } from "$lib/utils/capabilities";
   import { errorMessage } from "$lib/utils/errors";
@@ -121,13 +117,24 @@
     onSelectVersion?: (threadId: string) => void;
   } = $props();
 
+  /** Where an unsent draft will start, and how it becomes a thread. */
+  const draft = new DraftThread({
+    threadId: () => threadId,
+    cwd: () => cwd,
+    projectPath: () => projectPath,
+    workspaceId: () => workspaceId,
+    session: () => session,
+    onCreated: (id, createdCwd, inTempWorktree) => onThreadCreated?.(id, createdCwd, inTempWorktree),
+  });
+
   /**
    * The session for the thread on show — its transcript, queue and stream state,
    * which outlive this view while the thread has work in flight. A draft gets a
-   * session of its own that joins the registry once the thread exists.
+   * session of its own that creates the thread when work needs one, and joins
+   * the registry once it exists.
    */
   function bind(id: string | null): ThreadSession {
-    return id ? openSession(id) : draftSession(cwd);
+    return id ? openSession(id) : draft.session();
   }
   let session = $state.raw<ThreadSession>(bind(untrack(() => threadId)));
   $effect(() => {
@@ -220,48 +227,9 @@
   let composer = $state<ReturnType<typeof Composer> | null>(null);
   /** Model the composer will run turns on — priced for the usage estimate. */
   let activeModel = $state<string | null>(null);
-  type NewThreadLocation = "project" | "temporary" | "permanent";
-  let newThreadLocation = $state<NewThreadLocation>("project");
-  let newThreadCwd = $state("");
-  let repoInfo = $state<GitRepoInfo | null>(null);
-  /** Where new worktrees branch from. */
-  const repoDir = $derived(repoInfo?.root ?? (projectPath || cwd));
-
-  $effect(() => {
-    if (threadId) return;
-    const dir = projectPath || cwd;
-    commands
-      .gitRepoInfo(dir)
-      .then((info) => {
-        repoInfo = info;
-      })
-      .catch(() => {
-        repoInfo = null;
-      });
-  });
-
-  /** What the draft's directory is for, when it is a managed PR worktree or a
-   *  Stack worktree, and what to tell the agent about it. */
-  let draftWorktreeContext = $state<WorktreeContext | null>(null);
-  $effect(() => {
-    if (threadId || !cwd) return;
-    const dir = cwd;
-    commands
-      .reviewWorktreeContext(dir)
-      .then((context) => {
-        if (dir === cwd) draftWorktreeContext = context;
-      })
-      .catch(() => {
-        draftWorktreeContext = null;
-      });
-  });
-  /** Offered only when the thread really starts in that worktree. */
-  const offeredWorktreeContext = $derived(
-    !threadId && !workspaceId && newThreadLocation === "project" ? draftWorktreeContext : null,
-  );
-
   const notGitRepo = "This project is not a Git repository";
-  const newThreadLocations = $derived<SegmentedOption<NewThreadLocation>[]>([
+  const repoInfo = $derived(draft.repoInfo);
+  const newThreadLocations = $derived<SegmentedOption<DraftLocation>[]>([
     { value: "project", label: "Project" },
     {
       value: "temporary",
@@ -277,29 +245,16 @@
     },
   ]);
 
-  function chooseNewThreadLocation(location: NewThreadLocation) {
+  function chooseNewThreadLocation(location: DraftLocation) {
     if (location === "permanent") {
       openDialog(CreateWorktreeDialog, {
         codexHome,
-        repoDir,
-        submit: async (path: string, branch: WorktreeBranchRequest) => {
-          await gitWorktreeAdd(repoDir, path, branch);
-          newThreadLocation = "permanent";
-          newThreadCwd = path;
-        },
+        repoDir: draft.repoDir,
+        submit: (path: string, branch: WorktreeBranchRequest) => draft.addWorktree(path, branch),
       });
       return;
     }
-    newThreadLocation = location;
-    newThreadCwd = cwd;
-  }
-
-  async function ensureNewThreadCwd(): Promise<string> {
-    if (newThreadLocation === "project") return cwd;
-    if (newThreadLocation === "permanent") return newThreadCwd;
-    const path = await commands.gitWorktreeAddTemp(repoDir);
-    newThreadCwd = path;
-    return path;
+    draft.startIn(location);
   }
 
   // Follow the transcript as it streams: `revision` moves on every applied event.
@@ -319,95 +274,21 @@
     transcript.restore(id);
   });
 
-  /**
-   * The thread id to run work on, creating the thread first when this view is
-   * still an unsent draft. Callers own `starting` around it: it leaves the draft
-   * running under its new id either way.
-   */
-  async function ensureLiveThread(owner = session): Promise<string> {
-    if (owner.id) return owner.id;
-    const workspace = workspaceId;
-    const harness = composer?.harnessChoice() ?? null;
-    const createdCallback = onThreadCreated;
-    const temporary = newThreadLocation === "temporary";
-    const newCwd = await ensureNewThreadCwd();
-    const created = await startThread(newCwd, workspace, harness);
-    await linkExpectedThread(created.id, newCwd);
-    if (!attachSession(owner, created.id)) throw new Error("Thread creation was interrupted.");
-    if (owner.thread) {
-      owner.thread.harness = created.harness ?? null;
-      owner.thread.speedTier = created.speedTier;
-    }
-    if (owner === session && owner.mounted > 0) createdCallback?.(created.id, created.cwd ?? newCwd, temporary);
-    return created.id;
-  }
-
-  /** Send from the composer. A draft becomes a real thread (and gets its name)
-   *  first; from there the session owns queueing, the optimistic bubble and the
-   *  turn. Returns whether the message is accounted for. */
-  async function send(input: UserInputPart[], options?: TurnOptions): Promise<boolean> {
-    let outgoing = input;
-    if (!session.id && !session.activeTurn && !session.starting) {
-      session.starting = true;
-      // Read before the thread exists: the offer is a draft's.
-      const context = composer?.includeWorktreeContext() ? offeredWorktreeContext : null;
-      try {
-        const id = await ensureLiveThread();
-        // Name the thread off its opening message before the turn is even started:
-        // nothing else can title it until its rollout persists, so waiting here is
-        // what leaves the sidebar reading "Untitled thread" for the whole turn.
-        nameNewThread(id, messageTitle(input));
-        const text = messageText(input);
-        if (text.trim()) requestAutoName(id, "seed", text);
-        // After the title and the naming seed, which are the user's words only.
-        if (context) outgoing = withWorktreeContext(input, context.text);
-      } catch (cause) {
-        fail(cause);
-        return false;
-      } finally {
-        session.starting = false;
-      }
-    }
-    const sent = session.send(outgoing, options);
+  /** Send from the composer; a draft becomes its thread first. Returns
+   *  whether the message is accounted for. */
+  function send(input: UserInputPart[], options?: TurnOptions): Promise<boolean> {
+    const sent = draft.send(session, input, options);
     // The optimistic bubble is already in the transcript; follow it.
     transcript.follow(true);
     return sent;
   }
 
-  /** Editing a past user message forks the thread to just before that turn and
-   *  sends the edit on the fork, so the original and every later edit survive
-   *  as versions the bubble can page between. The fork's session is primed and
-   *  sent to before the view moves there, so the edit is already streaming when
-   *  the remounted view picks the session up. */
+  /** Editing a past user message sends the edit on a new Branch, so the
+   *  original and every later edit survive as Versions the bubble can page
+   *  between. The Branch is already streaming when the view moves there. */
   async function submitEdit(turn: Turn, parts: UserInputPart[]) {
-    if (!thread || !liveThreadId || turn.id.startsWith("local-") || activeTurn) return;
-    const threadIdAtEdit = liveThreadId;
-    const index = thread.turns.findIndex((candidate) => candidate.id === turn.id);
-    if (index === -1) return;
-    session.streamError = null;
-    session.starting = true;
-    try {
-      const forked = await forkThread(threadIdAtEdit, turn.id);
-      onDataChanged?.(await commands.addThreadBranch(threadIdAtEdit, forked.id, turn.id, index));
-      const forkSession = openSession(forked.id);
-      try {
-        await forkSession.load();
-        const sent = await forkSession.send(parts, composer?.turnOptions());
-        if (!sent) throw new Error(forkSession.streamError ?? "Could not send the edited message");
-        const editTurnId = forkSession.thread?.turns.at(-1)?.id;
-        if (editTurnId && !editTurnId.startsWith("local-")) {
-          commands.setThreadBranchEditTurn(forked.id, editTurnId).catch(() => {});
-        }
-      } finally {
-        // Retained while its turn runs; the view that opens it takes it over.
-        releaseSession(forkSession);
-      }
-      onSelectVersion?.(forked.id);
-    } catch (cause) {
-      fail(cause);
-    } finally {
-      session.starting = false;
-    }
+    const branch = await editAsBranch(session, turn, parts, (data) => onDataChanged?.(data));
+    if (branch) onSelectVersion?.(branch);
   }
 
   const threadApprovals = $derived(approvals.list.filter((approval) => approval.threadId === liveThreadId));
@@ -552,14 +433,11 @@
     session.streamError = null;
     const dir = workDir;
     try {
-      const created = await startThread(dir, workspaceId, harnessKind(thread?.harness));
-      await startTurn(created.id, input, options);
-      // Adopting the new thread re-drives the load effect, so the view swaps to it.
-      onThreadCreated?.(created.id, created.cwd ?? dir);
-      // The plan itself is this thread's opening message, so it names it.
-      nameNewThread(created.id, messageTitle(input));
-      const plan = messageText(input);
-      if (plan.trim()) requestAutoName(created.id, "seed", plan);
+      await startThreadWith({ cwd: dir, workspaceId, harness: harnessKind(thread?.harness) }, input, {
+        options,
+        // Adopting the new thread re-drives the load effect, so the view swaps to it.
+        afterTurn: (created) => onThreadCreated?.(created.id, created.cwd ?? dir),
+      });
     } catch (cause) {
       fail(cause);
     } finally {
@@ -577,8 +455,7 @@
   );
 
   function review(target: ReviewTarget) {
-    const owner = session;
-    return owner.review(target, () => ensureLiveThread(owner));
+    return session.review(target);
   }
 
   /** `/diff` — the Changes page, on the working tree. */
@@ -640,7 +517,6 @@
 
   const goals = goalCommands({
     session: () => session,
-    ensureLiveThread: (owner) => ensureLiveThread(owner),
     restoreText: (text) => composer?.restoreText(text),
   });
 
@@ -948,16 +824,16 @@
             <span class="px-2 text-surface-500">Start in</span>
             <Segmented
               label="Start in"
-              value={newThreadLocation}
+              value={draft.location}
               options={newThreadLocations}
               onChange={chooseNewThreadLocation}
             />
-            {#if newThreadLocation === "permanent"}
+            {#if draft.location === "permanent"}
               <span
                 class="min-w-0 flex-1 truncate px-2 text-right font-mono text-[10px] text-surface-500"
-                title={newThreadCwd}
+                title={draft.worktreePath}
               >
-                {newThreadCwd}
+                {draft.worktreePath}
               </span>
             {/if}
           {/if}
@@ -976,7 +852,7 @@
       history={messageHistory}
       projectKey={projectPath || cwd}
       {threadId}
-      worktreeContext={offeredWorktreeContext}
+      worktreeContext={draft.worktreeContext}
       threadHarness={harnessKind(thread?.harness) ?? (threadId ? "codex" : null)}
       onSend={send}
       onInterrupt={() => session.interrupt()}
@@ -993,6 +869,10 @@
       runningSpeedTier={session.runningSpeedTier}
       onSubagentPolicyChange={changeSubagentPolicy}
       onModelChange={(modelId) => (activeModel = modelId)}
+      onDraftChoices={(choices) => {
+        draft.harness = choices.harness;
+        draft.includeWorktreeContext = choices.worktreeContext;
+      }}
       onLiveSettingsChange={(settings) => {
         if (session.activeTurn) void session.updateLiveSettings(settings);
       }}

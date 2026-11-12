@@ -1,7 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { appData, trackNewThread } from "$lib/app/appData.svelte";
 import { loadPrefs, savePrefs } from "$lib/composer/composerPrefs";
 import type { BootstrapData, ThreadDetail, Turn } from "$lib/types";
 import { errorMessage } from "$lib/utils/errors";
@@ -609,25 +608,19 @@ describe("ThreadView inline message editing", () => {
     await user.click(screen.getByRole("button", { name: "Send" }));
   }
 
-  it("forks before the edited turn, sends on the fork and opens it", async () => {
+  it("sends the edit on a new Branch and opens it", async () => {
     mocks.forkThread.mockResolvedValue({ id: "fork-1" });
     mocks.startTurn.mockResolvedValue({ id: "turn-2", status: "inProgress" });
 
     await edit("Do different work");
 
     await vi.waitFor(() => expect(onSelectVersion).toHaveBeenCalledWith("fork-1"));
-    expect(mocks.forkThread).toHaveBeenCalledWith("thread-1", "turn-1");
-    // First turn edited: the fork inherited nothing.
-    expect(mocks.addThreadBranch).toHaveBeenCalledWith("thread-1", "fork-1", "turn-1", 0);
     expect(onDataChanged).toHaveBeenCalledWith(branchData);
     expect(mocks.startTurn).toHaveBeenCalledWith(
       "fork-1",
       [{ type: "text", text: "Do different work" }],
       expect.anything(),
     );
-    expect(mocks.setThreadBranchEditTurn).toHaveBeenCalledWith("fork-1", "turn-2");
-    // Nothing was rewound: the original stays as it was.
-    expect(mocks.revertThread).not.toHaveBeenCalled();
     expect(mocks.openDialog).not.toHaveBeenCalled();
     expect(screen.getByText("Final answer")).toBeVisible();
   });
@@ -661,19 +654,6 @@ describe("ThreadView inline message editing", () => {
       { type: "text", text: "Do different work" },
       { type: "skill", name: "deploy" },
     ]);
-  });
-
-  it("reports a failed fork without sending or moving", async () => {
-    mocks.forkThread.mockRejectedValue(new Error("fork refused"));
-
-    await edit("Do different work");
-
-    await vi.waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("fork refused"));
-    expect(mocks.addThreadBranch).not.toHaveBeenCalled();
-    expect(mocks.startTurn).not.toHaveBeenCalled();
-    expect(onSelectVersion).not.toHaveBeenCalled();
-    expect(screen.getByText("Do the work")).toBeVisible();
-    expect(screen.getByText("Final answer")).toBeVisible();
   });
 
   it("cancels an in-place edit with Escape without forking", async () => {
@@ -932,7 +912,7 @@ describe("ThreadView workspace starts", () => {
     expect(await screen.findByRole("radio", { name: "Permanent worktree" })).toBeEnabled();
   });
 
-  it("starts new workspace threads with the workspace id and keeps the hub fixed", async () => {
+  it("keeps a workspace draft on its hub and sends the composer's settings with the first message", async () => {
     const user = userEvent.setup();
     render(ThreadView, {
       threadId: null,
@@ -946,7 +926,6 @@ describe("ThreadView workspace starts", () => {
     expect(screen.queryByRole("radio", { name: "Temporary worktree" })).not.toBeInTheDocument();
     await user.type(message, "Coordinate the release{Enter}");
 
-    expect(mocks.startThread).toHaveBeenCalledWith("/workspace/hub", "workspace-1", null);
     // No per-turn overrides beyond the resolved pair the transcript labels
     // replies with and the collaboration mode every turn restates.
     expect(mocks.startTurn).toHaveBeenCalledWith(
@@ -997,45 +976,17 @@ describe("ThreadView worktree context", () => {
     mocks.reviewWorktreeContext.mockResolvedValue(null);
   });
 
-  it("tells the agent about a stack worktree in the first message, after the user's words", async () => {
-    const user = userEvent.setup();
-    render(ThreadView, { threadId: null, cwd: "/wt/billing" });
-    expect(await screen.findByRole("button", { name: "Include worktree context" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-
-    await user.type(box(), "Fix the tax rounding{Enter}");
-
-    await vi.waitFor(() => expect(mocks.startTurn).toHaveBeenCalled());
-    expect(firstMessage()).toEqual([
-      { type: "text", text: "Fix the tax rounding" },
-      { type: "text", text: `\n\n<worktree_context>\n${stackContext.text}\n</worktree_context>` },
-    ]);
-    // The thread is named from what the user typed alone.
-    expect(mocks.requestAutoName).toHaveBeenCalledWith("thread-9", "seed", "Fix the tax rounding");
-  });
-
   it("sends nothing extra once the option is switched off", async () => {
     const user = userEvent.setup();
     render(ThreadView, { threadId: null, cwd: "/wt/switched-off" });
-    await user.click(await screen.findByRole("button", { name: "Include worktree context" }));
+    const pill = await screen.findByRole("button", { name: "Include worktree context" });
+    // On by default.
+    expect(pill).toHaveAttribute("aria-pressed", "true");
+    await user.click(pill);
 
     await user.type(box(), "Fix the tax rounding{Enter}");
 
     await vi.waitFor(() => expect(mocks.startTurn).toHaveBeenCalled());
-    expect(firstMessage()).toEqual([{ type: "text", text: "Fix the tax rounding" }]);
-  });
-
-  it("offers nothing in a directory that is not a PR or stack worktree", async () => {
-    mocks.reviewWorktreeContext.mockResolvedValue(null);
-    const user = userEvent.setup();
-    render(ThreadView, { threadId: null, cwd: "/projects/example" });
-
-    await user.type(box(), "Fix the tax rounding{Enter}");
-
-    await vi.waitFor(() => expect(mocks.startTurn).toHaveBeenCalled());
-    expect(screen.queryByRole("button", { name: "Include worktree context" })).not.toBeInTheDocument();
     expect(firstMessage()).toEqual([{ type: "text", text: "Fix the tax rounding" }]);
   });
 
@@ -1047,111 +998,6 @@ describe("ThreadView worktree context", () => {
     await user.click(await screen.findByRole("radio", { name: "Temporary worktree" }));
 
     expect(screen.queryByRole("button", { name: "Include worktree context" })).not.toBeInTheDocument();
-  });
-});
-
-describe("ThreadView thread naming", () => {
-  beforeEach(() => {
-    resetSessions();
-    mocks.handlers = [];
-    mocks.readThread.mockReset();
-    mocks.startThread.mockReset();
-    mocks.startTurn.mockReset();
-    mocks.requestAutoName.mockReset();
-    mocks.startThread.mockResolvedValue({ id: "thread-2", cwd: "/projects/example" });
-    mocks.startTurn.mockResolvedValue({ id: "turn-2", status: "inProgress" });
-  });
-
-  const emit = (method: string, params: Record<string, unknown>) => {
-    for (const handler of [...mocks.handlers]) handler({ method, params });
-  };
-
-  it("names a brand-new thread from its opening message", async () => {
-    const user = userEvent.setup();
-    render(ThreadView, { threadId: null, cwd: "/projects/example" });
-
-    await user.type(
-      screen.getByRole("textbox", { name: "Message Codex… (@ to attach files, / for commands)" }),
-      "Refactor the sidebar grouping{Enter}",
-    );
-
-    expect(mocks.requestAutoName).toHaveBeenCalledWith("thread-2", "seed", "Refactor the sidebar grouping");
-  });
-
-  it("titles the sidebar entry without waiting for the turn to start", async () => {
-    // A turn that never starts stands in for the seconds one normally takes:
-    // the title must not be held back by it.
-    mocks.startTurn.mockReturnValue(new Promise(() => {}));
-    appData.data = {
-      codexHome: "/home/.codex",
-      codexBinary: "codex",
-      projects: [
-        {
-          name: "example",
-          path: "/projects/example",
-          kind: "folder",
-          workspaceId: null,
-          archived: false,
-          instructions: "",
-          sources: [],
-          pinned: false,
-          expanded: true,
-          threads: [],
-        },
-      ],
-      account: null,
-      sideQuestions: [],
-      threadBranches: [],
-      subagents: [],
-      unfiledThreads: [],
-      sections: [],
-      sectionsSupported: false,
-      sidebarLayout: { folders: [], placements: [] },
-    };
-    const user = userEvent.setup();
-    render(ThreadView, {
-      threadId: null,
-      cwd: "/projects/example",
-      // What the app shell does with a draft that has become a real thread.
-      onThreadCreated: (id: string, cwd: string) => trackNewThread(id, cwd),
-    });
-
-    await user.type(
-      screen.getByRole("textbox", { name: "Message Codex… (@ to attach files, / for commands)" }),
-      "Refactor the sidebar grouping{Enter}",
-    );
-
-    await waitFor(() => {
-      expect(appData.data?.projects[0].threads[0]?.title).toBe("Refactor the sidebar grouping");
-    });
-    expect(mocks.requestAutoName).toHaveBeenCalledWith("thread-2", "seed", "Refactor the sidebar grouping");
-  });
-
-  it("re-names off the exchange once the opening turn completes, and only then", async () => {
-    mocks.readThread.mockResolvedValue(
-      detail({
-        id: "turn-1",
-        status: "inProgress",
-        items: [{ id: "user-1", type: "userMessage", content: [{ type: "text", text: "Do the work" }] }],
-      }),
-    );
-    render(ThreadView, { threadId: "thread-1", cwd: "/projects/example" });
-    await screen.findByText("Do the work");
-    expect(mocks.requestAutoName).not.toHaveBeenCalled();
-
-    emit("turn/completed", { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } });
-    expect(mocks.requestAutoName).toHaveBeenCalledWith("thread-1", "reply");
-  });
-
-  it("leaves an established thread's title alone as later turns complete", async () => {
-    mocks.readThread.mockResolvedValue(
-      detail({ id: "turn-1", status: "completed", items: [] }, { id: "turn-2", status: "inProgress", items: [] }),
-    );
-    render(ThreadView, { threadId: "thread-1", cwd: "/projects/example" });
-    await screen.findByRole("textbox", { name: "Message Codex… (@ to attach files, / for commands)" });
-
-    emit("turn/completed", { threadId: "thread-1", turn: { id: "turn-2", status: "completed" } });
-    expect(mocks.requestAutoName).not.toHaveBeenCalled();
   });
 });
 

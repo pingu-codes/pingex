@@ -374,11 +374,26 @@ describe("session events while no view is mounted", () => {
     expect(mocks.invalidateThreadCache).toHaveBeenCalledWith("thread-a");
   });
 
-  it("names the thread off its opening exchange when that turn ends", async () => {
+  it("names the thread off its opening exchange when that turn ends, and only then", async () => {
     await leaveWorking("thread-a");
+    expect(mocks.requestAutoName).not.toHaveBeenCalled();
     mocks.activeTurns.list = [];
     emit("turn/completed", { threadId: "thread-a", turn: { id: "thread-a-turn", status: "completed" } });
     expect(mocks.requestAutoName).toHaveBeenCalledWith("thread-a", "reply");
+  });
+
+  it("leaves an established thread's title alone as later turns complete", async () => {
+    mocks.readThread.mockResolvedValueOnce(
+      detail("thread-b", [
+        { id: "turn-1", status: "completed", items: [] },
+        { id: "turn-2", status: "inProgress", items: [] },
+      ]),
+    );
+    mocks.activeTurns.list = ["thread-b"];
+    openSession("thread-b");
+    await settle();
+    emit("turn/completed", { threadId: "thread-b", turn: { id: "turn-2", status: "completed" } });
+    expect(mocks.requestAutoName).not.toHaveBeenCalled();
   });
 
   it("ignores events for threads it does not hold", async () => {
@@ -688,9 +703,9 @@ describe("session operation lifetime", () => {
   });
 
   it("owns draft creation failure without issuing a review", async () => {
-    const session = draftSession("/repo");
     const request = deferred<string>();
-    const reviewing = session.review({ type: "uncommittedChanges" }, () => request.promise);
+    const session = draftSession("/repo", () => request.promise);
+    const reviewing = session.review({ type: "uncommittedChanges" });
     releaseSession(session);
     expect(session.working()).toBe(true);
     request.reject(new Error("creation failed"));
@@ -755,13 +770,13 @@ describe("operation recovery", () => {
 });
 
 it("rejects draft attachment when creation resolves after registry disconnect", async () => {
-  const session = draftSession("/repo");
   const request = deferred<string>();
-  const reviewing = session.review({ type: "uncommittedChanges" }, async () => {
+  const session = draftSession("/repo", async (owner) => {
     const id = await request.promise;
-    if (!attachSession(session, id)) throw new Error("interrupted");
+    if (!attachSession(owner, id)) throw new Error("interrupted");
     return id;
   });
+  const reviewing = session.review({ type: "uncommittedChanges" });
   emit("disconnected", null);
   request.resolve("late-draft");
   await reviewing;
@@ -770,12 +785,12 @@ it("rejects draft attachment when creation resolves after registry disconnect", 
 });
 
 it("does not invalidate an idle draft for a disconnect before its first review", async () => {
-  const session = draftSession("/repo");
-  emit("disconnected", null);
-  await session.review({ type: "uncommittedChanges" }, async () => {
-    expect(attachSession(session, "new-draft")).toBe(true);
+  const session = draftSession("/repo", async (owner) => {
+    expect(attachSession(owner, "new-draft")).toBe(true);
     return "new-draft";
   });
+  emit("disconnected", null);
+  await session.review({ type: "uncommittedChanges" });
   expect(mocks.startReview).toHaveBeenCalledWith("new-draft", { type: "uncommittedChanges" });
   expect(session.activeTurn?.id).toBe("review");
 });

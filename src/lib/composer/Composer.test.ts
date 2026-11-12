@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import Composer from "$lib/composer/Composer.svelte";
 import { type ComposerPrefs, loadPrefs, loadScopedPrefs, savePrefs } from "$lib/composer/composerPrefs";
 import { placeCaretBeside } from "$lib/composer/richInput";
-import type { SubagentPolicy } from "$lib/types";
+import type { SubagentPolicy, WorktreeContext } from "$lib/types";
 
 // The preview skill fixtures carry no `enabled` flag, which the picker filters on.
 vi.mock("$lib/services/api", async (importOriginal) => ({
@@ -125,6 +125,7 @@ function setup({
   onImplementFresh?: ((input: unknown, options?: unknown) => void) | undefined;
   onGoal?: ((objective: string, edit: boolean) => Promise<boolean>) | undefined;
   threadHarness?: "codex" | "claude" | null;
+  worktreeContext?: WorktreeContext | null;
   /** Stored prefs to render with; `null` leaves the store empty. */
   prefs?: Partial<ComposerPrefs> | null;
 } = {}) {
@@ -135,6 +136,7 @@ function setup({
   const onInterrupt = vi.fn();
   const onCommand = vi.fn();
   const onSubagentPolicyChange = vi.fn();
+  const onDraftChoices = vi.fn();
   const onImplementFresh = "onImplementFresh" in props ? props.onImplementFresh : vi.fn();
   const onGoal = "onGoal" in props ? props.onGoal : vi.fn().mockResolvedValue(true);
   const { rerender, component } = render(Composer, {
@@ -143,6 +145,7 @@ function setup({
     onInterrupt,
     onCommand,
     onSubagentPolicyChange,
+    onDraftChoices,
     onImplementFresh,
     onGoal,
   });
@@ -153,6 +156,7 @@ function setup({
     onInterrupt,
     onCommand,
     onSubagentPolicyChange,
+    onDraftChoices,
     onImplementFresh,
     onGoal,
     textarea: screen.getByRole("textbox", {
@@ -305,7 +309,8 @@ describe("Composer", () => {
 
   it("picks the harness for a draft from the menu", async () => {
     const user = userEvent.setup();
-    setup({ projectKey: "/repo" });
+    const { onDraftChoices } = setup({ projectKey: "/repo" });
+    expect(onDraftChoices).toHaveBeenLastCalledWith({ harness: null, worktreeContext: true });
 
     const trigger = screen.getByRole("button", { name: "Choose harness" });
     expect(trigger).toHaveTextContent("Codex");
@@ -315,6 +320,25 @@ describe("Composer", () => {
     await waitFor(() => expect(trigger).toHaveTextContent("Claude Code"));
     expect(loadScopedPrefs("/repo", null).harness).toBe("claude");
     expect(loadScopedPrefs("/repo", null).model).toBeNull();
+    // The draft holds the choice it will start on.
+    expect(onDraftChoices).toHaveBeenLastCalledWith({ harness: "claude", worktreeContext: true });
+  });
+
+  it("tells the draft when its Worktree context is switched off", async () => {
+    const user = userEvent.setup();
+    const { onDraftChoices } = setup({
+      worktreeContext: {
+        purpose: { kind: "managedPr", repoDir: "/repo", number: 7 },
+        text: "This directory is a worktree for pull request #7.",
+      },
+    });
+
+    const pill = screen.getByRole("button", { name: "Include worktree context" });
+    expect(pill).toHaveAttribute("aria-pressed", "true");
+    await user.click(pill);
+
+    expect(pill).toHaveAttribute("aria-pressed", "false");
+    expect(onDraftChoices).toHaveBeenLastCalledWith({ harness: null, worktreeContext: false });
   });
 
   it("hides the harness menu on an existing thread", () => {

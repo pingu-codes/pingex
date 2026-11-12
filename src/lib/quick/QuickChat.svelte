@@ -5,11 +5,12 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import ModelPopover from "$lib/composer/ModelPopover.svelte";
   import { applyQuickEvent, emptyQuickResponse, type QuickResponse } from "$lib/quick/quickChat";
-  import { listModels, startThread, startTurn } from "$lib/services/api";
+  import { listModels } from "$lib/services/api";
   import { type CodexEvent, setThreadHandler, startCodexListeners } from "$lib/services/codexEvents.svelte";
   import { commands } from "$lib/services/homeRouting";
   import { isTauri } from "$lib/services/tauri";
   import { requestAutoName } from "$lib/thread/autoName";
+  import { startThreadWith } from "$lib/thread/draftThread.svelte";
   import type { Model, Project } from "$lib/types";
   import { dragRegion } from "$lib/utils/dragRegion";
   import { errorMessage } from "$lib/utils/errors";
@@ -93,15 +94,14 @@
     sending = true;
     error = null;
     try {
-      const started = await startThread(selectedPath);
-      threadId = started.id;
-      response = emptyQuickResponse(started.id);
-      await startTurn(
-        started.id,
-        [{ type: "text", text: trimmed }],
-        modelId ? { model: modelId, effort: effort ?? undefined } : undefined,
-      );
-      requestAutoName(started.id, "seed", trimmed);
+      await startThreadWith({ cwd: selectedPath }, [{ type: "text", text: trimmed }], {
+        options: modelId ? { model: modelId, effort: effort ?? undefined } : undefined,
+        // Before the turn, so its first events already find the thread.
+        beforeTurn: (started) => {
+          threadId = started.id;
+          response = emptyQuickResponse(started.id);
+        },
+      });
       text = "";
     } catch (cause) {
       error = errorMessage(cause);
