@@ -171,13 +171,20 @@
     return values.filter(Boolean).join(" ").toLowerCase().includes(query.trim().toLowerCase());
   }
 
+  /**
+   * The name Codex knows a server by. Plugin integration IDs are
+   * `<pluginId>/<name>`; runtime MCP names drop the package ID.
+   */
+  function runtimeName(server: McpServerSummary): string {
+    const owner = setting("mcp", server.name)?.pluginId;
+    return owner ? server.name.slice(owner.length + 1) : server.name;
+  }
+
   function liveFor(server: McpServerSummary): McpServerStatus | undefined {
     const owner = setting("mcp", server.name)?.pluginId;
-    if (!owner) return statuses[server.name];
-    // Plugin integration IDs include the package ID; runtime MCP names do not.
+    const live = statuses[runtimeName(server)];
     // A different plugin can win the runtime name collision.
-    const live = statuses[server.name.slice(owner.length + 1)];
-    return live?.pluginId === owner ? live : undefined;
+    return !owner || live?.pluginId === owner ? live : undefined;
   }
 
   async function toggleEnabled(server: McpServerSummary) {
@@ -197,13 +204,15 @@
    * we stay pending until it reports back, since there is nothing to poll.
    */
   async function signIn(server: McpServerSummary) {
-    signingIn[server.name] = true;
+    // Keyed by runtime name: that is what the completion notification carries.
+    const name = runtimeName(server);
+    signingIn[name] = true;
     const started = await actions.run(async () => {
-      await commands.mcpOauthLogin(server.name);
+      await commands.mcpOauthLogin(name);
       // In browser preview there is no completion event, so reflect it now.
       await refreshStatus();
     });
-    if (!started) delete signingIn[server.name];
+    if (!started) delete signingIn[name];
   }
 
   async function toggleSkill(skill: SkillSummary) {
@@ -374,7 +383,7 @@
             {checking}
             busy={updating}
             open={Boolean(expanded[server.name])}
-            signingIn={Boolean(signingIn[server.name])}
+            signingIn={Boolean(signingIn[runtimeName(server)])}
             onOpenChange={(open) => (expanded[server.name] = open)}
             onToggle={() => toggleEnabled(server)}
             onEdit={() => editServer(server)}

@@ -42,7 +42,7 @@ vi.mock("$lib/services/homeRouting", () => ({
 import { closeAllDialogs } from "$lib/app/dialogs.svelte";
 import DialogHost from "$lib/components/DialogHost.svelte";
 import IntegrationsSection from "$lib/integrations/IntegrationsSection.svelte";
-import { skillsStatus } from "$lib/services/codexEvents.svelte";
+import { mcpStatus, skillsStatus } from "$lib/services/codexEvents.svelte";
 
 /** The section plus the host its add/edit dialogs open in. */
 function renderWithDialogs() {
@@ -181,6 +181,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   closeAllDialogs();
   skillsStatus.nonce = 0;
+  mcpStatus.nonce = 0;
+  mcpStatus.lastLoginServer = null;
   listIntegrations.mockResolvedValue(fixture());
   listMcpServerStatus.mockResolvedValue(statuses());
 });
@@ -448,6 +450,43 @@ describe("IntegrationsSection", () => {
 
     await user.click(within(linear).getByRole("button", { name: /Sign in/ }));
     expect(mcpOauthLogin).toHaveBeenCalledWith("linear");
+  });
+
+  it("signs in a plugin server under its runtime name and clears the wait on completion", async () => {
+    const user = userEvent.setup();
+    const data = fixture();
+    data.plugins = [{ id: "demo@local", name: "Demo", scope: "local", description: null, enabled: true }];
+    data.pluginsSupported = true;
+    data.mcpServers.push({
+      ...data.mcpServers[1],
+      name: "demo@local/honeycomb",
+      transport: "plugin",
+      url: null,
+      bearerTokenEnvVar: null,
+      enabled: true,
+      scope: "plugin",
+    });
+    data.settings["mcp:demo@local/honeycomb"] = {
+      inheritedEnabled: true,
+      overrideEnabled: null,
+      pluginId: "demo@local",
+    };
+    listIntegrations.mockResolvedValue(data);
+    listMcpServerStatus.mockResolvedValue({
+      ...statuses(),
+      honeycomb: { name: "honeycomb", serverInfo: null, tools: {}, authStatus: "notLoggedIn", pluginId: "demo@local" },
+    });
+    mcpOauthLogin.mockResolvedValue(undefined);
+    render(IntegrationsSection, {});
+    const row = (await screen.findByText("demo@local/honeycomb")).closest("[id^='mcp-row-']") as HTMLElement;
+
+    await user.click(within(row).getByRole("button", { name: /Sign in/ }));
+    expect(mcpOauthLogin).toHaveBeenCalledWith("honeycomb");
+    expect(within(row).getByRole("button", { name: /Waiting for browser/ })).toBeInTheDocument();
+
+    mcpStatus.lastLoginServer = "honeycomb";
+    mcpStatus.nonce += 1;
+    await waitFor(() => expect(within(row).getByRole("button", { name: /Sign in/ })).toBeInTheDocument());
   });
 
   it("toggles a skill through Codex rather than assuming it took", async () => {
