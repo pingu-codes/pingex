@@ -117,6 +117,12 @@ could see it: what a replayed running total exceeds the stored rows by,
 booked unattributed under `turn_id = "_opening"`.
 _Avoid_: backfill, catch-up row, legacy usage
 
+**Draft**:
+A thread view's unsent conversation. It has a place to start (a project, a
+temporary or permanent worktree, a workspace) but no thread until its first
+message, `/review` or `/goal` creates one (`thread/draftThread.svelte.ts`).
+_Avoid_: new thread (it is not one yet), pending thread
+
 **Version**:
 One of the texts a user message has had. Editing a message never rewrites
 it: the edit becomes a new Version, shown under the message as `‹ 2 / 3 ›`,
@@ -309,6 +315,20 @@ head when they are showing. It fetches the PR's refs before any read by SHA,
 and a submission posts the Pending review, then marks the head as the Seen
 head, then re-reads the PR (`review/prUnderReview.svelte.ts`).
 _Avoid_: review session (a session is a harness's), review page state
+
+**Stack under work**:
+One Stack open on the Stack page, from reading it to restacking, pushing and
+editing it. It asks before any change and re-reads after each one, and a
+stopped restack stays until it is continued or aborted
+(`stack/stackUnderWork.svelte.ts`).
+_Avoid_: stack session, stack page state
+
+**Diff reading**:
+Reading a page of diffs file by file: which file is being read, the folds, the
+viewed marks, the selected lines, and keeping the reader's place when the
+layout moves. The review page and the Changes page share it
+(`review/diffReading.svelte.ts`).
+_Avoid_: file navigation, scroll state
 
 **PR link**:
 What a thread records about the pull request it is about: the repository and
