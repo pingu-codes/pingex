@@ -10,7 +10,6 @@
   import { ChevronLeft, MessageSquareText, RefreshCw, Send, X } from "@lucide/svelte";
   import { onDestroy, untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import { dialogStack } from "$lib/app/dialogs.svelte";
   import { place } from "$lib/app/places";
   import ChangesRail from "$lib/changes/ChangesRail.svelte";
   import {
@@ -26,17 +25,10 @@
   import type { MenuEntry } from "$lib/components/actionMenu";
   import DiffBlock from "$lib/components/DiffBlock.svelte";
   import Segmented from "$lib/components/Segmented.svelte";
-  import FileDiff, { type Composer } from "$lib/review/FileDiff.svelte";
+  import { DiffReading } from "$lib/review/diffReading.svelte";
+  import FileDiff from "$lib/review/FileDiff.svelte";
   import FileRail from "$lib/review/FileRail.svelte";
-  import {
-    type DiffSide,
-    type FileCounts,
-    fileInView,
-    type LineRange,
-    rangeText,
-    reviewKey,
-    selectLine,
-  } from "$lib/review/reviewPage";
+  import { type FileCounts, type LineRange, rangeText } from "$lib/review/reviewPage";
   import { activeTurns } from "$lib/services/codexEvents.svelte";
   import { commands } from "$lib/services/homeRouting";
   import { invalidate, query } from "$lib/services/queryCache.svelte";
@@ -199,9 +191,6 @@
 
   // --- files ------------------------------------------------------------------
 
-  let scroller = $state<HTMLElement | null>(null);
-  let currentPath = $state<string | null>(null);
-
   function fileId(path: string): string {
     return selectedKey ? `${selectedKey}\u0000${path}` : path;
   }
@@ -213,40 +202,30 @@
 
   const viewedPaths = $derived(new Set(files.filter((file) => isViewed(file.path)).map((file) => file.path)));
 
-  function setViewed(path: string, value: boolean) {
-    const file = listed.get(path);
-    if (!file || !repo || !segment) return;
-    const key = viewedKey(repo.root, segment, file);
-    if (value) {
-      viewed.add(key);
-      collapsed.add(fileId(path));
-    } else {
-      viewed.delete(key);
-      collapsed.delete(fileId(path));
-    }
-  }
-
-  function isOpen(path: string): boolean {
-    return !collapsed.has(fileId(path));
-  }
-
-  function toggle(path: string, event: MouseEvent) {
-    if (event.altKey) {
-      for (const file of files) collapsed.add(fileId(file.path));
-      collapsed.delete(fileId(path));
-      return;
-    }
-    if (isOpen(path)) collapsed.add(fileId(path));
-    else collapsed.delete(fileId(path));
-  }
-
-  function jumpTo(path: string) {
-    currentPath = path;
-    collapsed.delete(fileId(path));
-    queueMicrotask(() => {
-      scroller?.querySelector(`[data-file="${CSS.escape(path)}"]`)?.scrollIntoView?.({ block: "start" });
-    });
-  }
+  // Folds and viewed marks are the page's, per segment; a note on lines waits
+  // to go to the agent.
+  const reading = new DiffReading({
+    files: () => files,
+    folds: {
+      has: (path) => collapsed.has(fileId(path)),
+      add: (path) => collapsed.add(fileId(path)),
+      delete: (path) => collapsed.delete(fileId(path)),
+    },
+    viewed: {
+      has: isViewed,
+      set(targets, value) {
+        if (!repo || !segment) return;
+        for (const target of targets) {
+          const file = listed.get(target.path);
+          if (!file) continue;
+          const key = viewedKey(repo.root, segment, file);
+          if (value) viewed.add(key);
+          else viewed.delete(key);
+        }
+      },
+    },
+    addEntry: addNote,
+  });
 
   // Opened on a file: go to it once its segment's files are on the page.
   let jumped = false;
@@ -254,30 +233,8 @@
     const path = untrack(() => initialPath);
     if (jumped || !path || !files.some((file) => file.path === path)) return;
     jumped = true;
-    untrack(() => jumpTo(path));
+    untrack(() => reading.jumpTo(path));
   });
-
-  let frame = 0;
-  function onScroll() {
-    frame ||= requestAnimationFrame(() => {
-      frame = 0;
-      if (!scroller) return;
-      const elements = scroller.querySelectorAll<HTMLElement>("[data-file]");
-      const box = scroller.getBoundingClientRect();
-      const index = fileInView(
-        elements.length,
-        (at) => {
-          const rect = elements[at].getBoundingClientRect();
-          return { top: rect.top, bottom: rect.bottom, open: isOpen(elements[at].dataset.file ?? "") };
-        },
-        box.top,
-        box.bottom,
-      );
-      const path = elements[index]?.dataset.file;
-      if (path) currentPath = path;
-    });
-  }
-  onDestroy(() => cancelAnimationFrame(frame));
 
   function absolute(path: string): string {
     if (!repo) return path;
@@ -299,13 +256,13 @@
   }
 
   function onFileMenu(file: PrFile, id: string) {
+    reading.hold(file.path);
     switch (id) {
       case "viewed":
-        setViewed(file.path, !isViewed(file.path));
+        reading.setViewed([file], !isViewed(file.path));
         break;
       case "others":
-        for (const other of files) collapsed.add(fileId(other.path));
-        collapsed.delete(fileId(file.path));
+        reading.toggle(file.path, true);
         break;
       case "editor":
         commands.openInZed(absolute(file.path)).catch(toastFailure);
@@ -321,27 +278,14 @@
 
   // --- notes ------------------------------------------------------------------
 
-  let selection = $state<LineRange | null>(null);
-  let composer = $state<Composer | null>(null);
-
-  function onSelectLine(file: PrFile, side: DiffSide, line: number, extend: boolean) {
-    composer = null;
-    selection = selectLine(selection, file.path, side, line, extend);
-  }
-
-  function compose(mode: Composer["mode"]) {
-    if (selection) composer = { range: selection, mode };
-  }
-
   function segmentWords(at: ChangeSegment): string {
     if (at.kind === "uncommitted") return "uncommitted changes";
     const branch = at.branch ? `branch \`${at.branch}\`` : at.label;
     return at.prNumber !== null ? `${branch} (#${at.prNumber})` : branch;
   }
 
-  function addNote(body: string, replacement: string | null) {
-    if (!composer || !repo || !segment) return;
-    const range = composer.range;
+  function addNote(range: LineRange, body: string, replacement: string | null) {
+    if (!repo || !segment) return;
     const file = files.find((candidate) => candidate.path === range.path);
     notes = [
       ...notes,
@@ -360,8 +304,6 @@
         replacement,
       },
     ];
-    composer = null;
-    selection = null;
   }
 
   function removeNote(id: string) {
@@ -405,47 +347,20 @@
     }
   }
 
-  /** The review page's keys, where they mean something here: j/k walk the
-   *  segments, [ and ] the files, v marks viewed, c comments, ⌘↵ sends. */
-  function onKeydown(event: KeyboardEvent) {
-    if (dialogStack.length > 0 || event.defaultPrevented) return;
-    if (event.key === "Escape" && (selection || composer)) {
-      composer = null;
-      selection = null;
-      return;
-    }
-    const command = reviewKey(event);
-    if (!command) return;
-    const index = files.findIndex((file) => file.path === currentPath);
-    switch (command) {
-      case "nextPr":
-      case "previousPr": {
-        const segments = allSegments(overview);
-        const at = segments.findIndex((ref) => segmentKey(ref.repo.root, ref.segment.id) === selectedKey);
-        const next = segments[at + (command === "nextPr" ? 1 : -1)];
-        if (next) wanted = segmentKey(next.repo.root, next.segment.id);
-        break;
-      }
-      case "nextFile":
-      case "previousFile": {
-        const next = files[Math.min(files.length - 1, Math.max(0, index + (command === "nextFile" ? 1 : -1)))];
-        if (next) jumpTo(next.path);
-        break;
-      }
-      case "toggleViewed":
-        if (files[index]) setViewed(files[index].path, !isViewed(files[index].path));
-        break;
-      case "comment":
-        compose("comment");
-        break;
-      case "submit":
-        void sendNotes();
-        break;
-      default:
-        return;
-    }
-    event.preventDefault();
+  function walkSegments(step: 1 | -1) {
+    const segments = allSegments(overview);
+    const at = segments.findIndex((ref) => segmentKey(ref.repo.root, ref.segment.id) === selectedKey);
+    const next = segments[at + step];
+    if (next) wanted = segmentKey(next.repo.root, next.segment.id);
   }
+
+  /** The review page's keys, where they mean something here: j/k walk the
+   *  segments and ⌘↵ sends; [ and ], v, c and Escape are the reading's. */
+  const pageKeys = {
+    nextPr: () => walkSegments(1),
+    previousPr: () => walkSegments(-1),
+    submit: () => void sendNotes(),
+  };
 
   const scopes = [
     { value: "branch" as const, label: "Branch", title: "Each git branch against its base, as its PR shows it" },
@@ -454,12 +369,7 @@
 </script>
 
 <div class="relative h-full min-h-0 text-xs [container:review/size]">
-  <div
-    bind:this={scroller}
-    data-diff-pane
-    onscroll={onScroll}
-    class="flex h-full flex-col overflow-x-hidden overflow-y-auto"
-  >
+  <div {@attach reading.attach} data-diff-pane class="flex h-full flex-col overflow-x-hidden overflow-y-auto">
     <header class="flex shrink-0 flex-col gap-2.5 border-b border-surface-200-800 px-5 py-3">
       <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div class="flex min-w-64 flex-1 items-center gap-2">
@@ -560,10 +470,10 @@
         {#if segment && files.length > 0}
           <FileRail
             {files}
-            {currentPath}
+            currentPath={reading.currentPath}
             countsByPath={new Map()}
             viewed={viewedPaths}
-            onJump={jumpTo}
+            onJump={(path) => reading.jumpTo(path)}
             bind:collapsedDirs
           />
         {/if}
@@ -602,22 +512,22 @@
               {@const fileViewed = viewedPaths.has(file.path)}
               <FileDiff
                 {file}
-                open={isOpen(file.path)}
+                open={reading.isOpen(file.path)}
                 viewed={fileViewed}
                 counts={NO_COUNTS}
                 threads={[]}
                 pending={notesByPath.get(file.path) ?? []}
-                {selection}
-                {composer}
+                selection={reading.selection}
+                composer={reading.composer}
                 menuEntries={fileViewed ? fileMenus.viewed : fileMenus.unviewed}
                 onMenu={(id) => onFileMenu(file, id)}
-                onToggle={(event) => toggle(file.path, event)}
-                onViewed={(value) => setViewed(file.path, value)}
-                onSelectLine={(side, line, extend) => onSelectLine(file, side, line, extend)}
-                onCompose={compose}
+                onToggle={(event) => reading.toggle(file.path, event.altKey)}
+                onViewed={(value) => reading.setViewed([file], value)}
+                onSelectLine={(side, line, extend) => reading.selectLine(file.path, side, line, extend)}
+                onCompose={(mode) => reading.compose(mode)}
                 addLabel="Add note"
-                onAddEntry={addNote}
-                onCancelComposer={() => (composer = null)}
+                onAddEntry={(body, replacement) => reading.add(body, replacement)}
+                onCancelComposer={() => reading.compose(null)}
                 onRemoveEntry={removeNote}
               />
             {:else}
@@ -635,5 +545,5 @@
   </div>
 </div>
 
-<svelte:window onkeydown={onKeydown} />
+<svelte:window onkeydown={(event) => reading.onKeydown(event, pageKeys)} />
 <svelte:document onvisibilitychange={() => (visible = document.visibilityState === "visible")} />

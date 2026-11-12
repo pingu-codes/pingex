@@ -65,6 +65,21 @@ test("sends notes on lines back to the agent as one message", async ({ page }) =
   await expect(page.getByText("Guard against a negative amount.").first()).toBeVisible();
 });
 
+test("] and v walk the files as on the review page: the rail follows, and a viewed file folds", async ({ page }) => {
+  // Wide enough for the file rail beside the segments.
+  await page.setViewportSize({ width: 1500, height: 800 });
+  await openChanges(page);
+  const current = page.getByRole("navigation", { name: "Changed files" }).locator('[aria-current="true"]');
+  await expect(current).toHaveText("charge.ts");
+
+  await page.keyboard.press("]");
+  await expect(current).toHaveText("plan.md");
+
+  await page.keyboard.press("v");
+  await expect(page.getByRole("checkbox", { name: "Viewed notes/plan.md" })).toBeChecked();
+  await expect(page.getByRole("button", { name: "Toggle notes/plan.md" })).toHaveAttribute("aria-expanded", "false");
+});
+
 test("opens on the file chosen in the overview, and Back returns to the thread", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /Custom frontend skeleton/ }).click();

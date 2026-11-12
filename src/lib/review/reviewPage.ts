@@ -1,6 +1,7 @@
 // Pure helpers for the one-page review (`ReviewPage.svelte`): the rows a
-// file's diff renders, line-range selection, the file tree and its counts,
-// where the page was left, Up next, and the keyboard map.
+// file's diff renders, line ranges, the file tree's counts, where the page was
+// left, Up next, and Ask agent. Reading the page of diffs (the current file,
+// folds, selection, keys) is `diffReading.svelte.ts`'s.
 
 import { place } from "$lib/app/places";
 import type { CommentThread } from "$lib/review/review";
@@ -100,25 +101,6 @@ export function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[
  *  the range, all on one side of one file. */
 export type LineRange = { path: string; side: DiffSide; anchor: number; start: number; end: number };
 
-/** Select one line, or with `extend` grow the current selection to it. A
- *  selection never spans files or sides; extending across starts afresh. */
-export function selectLine(
-  current: LineRange | null,
-  path: string,
-  side: DiffSide,
-  number: number,
-  extend: boolean,
-): LineRange {
-  if (extend && current && current.path === path && current.side === side) {
-    return {
-      ...current,
-      start: Math.min(current.anchor, number),
-      end: Math.max(current.anchor, number),
-    };
-  }
-  return { path, side, anchor: number, start: number, end: number };
-}
-
 export function inRange(range: LineRange | null, path: string, side: DiffSide, number: number): boolean {
   return !!range && range.path === path && range.side === side && number >= range.start && number <= range.end;
 }
@@ -176,33 +158,6 @@ export function fileCounts(threads: CommentThread[], path: string, findings = 0)
     unresolved: own.filter((thread) => !thread.resolved).length,
     findings,
   };
-}
-
-/** A file's place on the page, in the same coordinates as the view. */
-export type FileBox = { top: number; bottom: number; open: boolean };
-
-/** A file with less than this still showing is finished: about two diff rows. */
-const READ_MARGIN = 40;
-
-/**
- * The file being read, as an index into `count` files in page order: the first
- * open file showing, or the first file showing when all of those are collapsed.
- * -1 when none is. `box` reads layout, so a binary search asks about few files.
- */
-export function fileInView(count: number, box: (index: number) => FileBox, viewTop: number, viewBottom: number) {
-  let first = 0;
-  let end = count;
-  while (first < end) {
-    const middle = (first + end) >> 1;
-    if (box(middle).bottom > viewTop + READ_MARGIN) end = middle;
-    else first = middle + 1;
-  }
-  for (let index = first; index < count; index += 1) {
-    const at = box(index);
-    if (at.top >= viewBottom) break;
-    if (at.open) return index;
-  }
-  return first < count && box(first).top < viewBottom ? first : -1;
 }
 
 /** A file's viewed key: its blob id at the head, or a hash of its patch when
@@ -264,61 +219,6 @@ export function queueNeighbour(queue: InboxPr[], current: number, step: 1 | -1):
   const numbers = [...new Set([...queue.map((pr) => pr.number), current])].sort((a, b) => a - b);
   const at = numbers.indexOf(current) + step;
   return queue.find((pr) => pr.number === numbers[at]) ?? null;
-}
-
-// --- the keyboard ------------------------------------------------------------
-
-/** A page-level review command a key runs. */
-export type ReviewKeyCommand =
-  | "nextPr"
-  | "previousPr"
-  | "nextFile"
-  | "previousFile"
-  | "nextUnresolved"
-  | "toggleViewed"
-  | "comment"
-  | "submit"
-  | "find"
-  | "findNext"
-  | "findPrevious"
-  | "help";
-
-/** The review page's shortcuts, as the Shortcuts card lists them. */
-export const REVIEW_SHORTCUTS: { keys: string[]; label: string }[] = [
-  { keys: ["j", "k"], label: "Next / previous PR" },
-  { keys: ["]", "["], label: "Next / previous file" },
-  { keys: ["n"], label: "Next unresolved thread" },
-  { keys: ["v"], label: "Viewed and collapse" },
-  { keys: ["c"], label: "Comment on selected lines" },
-  { keys: ["⌘↵"], label: "Submit review" },
-  { keys: ["⌘F"], label: "Find on this tab" },
-  { keys: ["?"], label: "Shortcuts" },
-];
-
-/** The command `event` presses, or `null`. Keys typed into a field are the
- *  field's, except ⌘↵ which submits from anywhere. */
-export function reviewKey(event: KeyboardEvent): ReviewKeyCommand | null {
-  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") return "submit";
-  if ((event.metaKey || event.ctrlKey) && !event.altKey) {
-    const key = event.key.toLowerCase();
-    // With Shift, ⌘F is the sidebar's thread search.
-    if (key === "f" && !event.shiftKey) return "find";
-    if (key === "g") return event.shiftKey ? "findPrevious" : "findNext";
-  }
-  if (event.metaKey || event.ctrlKey || event.altKey) return null;
-  const target = event.target as HTMLElement | null;
-  if (target?.closest?.("input, textarea, select, [contenteditable='true']")) return null;
-  const map: Record<string, ReviewKeyCommand> = {
-    j: "nextPr",
-    k: "previousPr",
-    "]": "nextFile",
-    "[": "previousFile",
-    n: "nextUnresolved",
-    v: "toggleViewed",
-    c: "comment",
-    "?": "help",
-  };
-  return map[event.key] ?? null;
 }
 
 // --- Ask agent ---------------------------------------------------------------

@@ -244,18 +244,6 @@ describe("ReviewPage", () => {
     );
   });
 
-  it("moves between files with ] and marks the current one viewed with v", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await opened();
-
-    await user.keyboard("]");
-    await user.keyboard("v");
-    expect(screen.getByRole("checkbox", { name: "Viewed docs/review.md" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "Viewed src/lib/loader.ts" })).not.toBeChecked();
-    expect(screen.getByText("Viewed 1 of 2")).toBeInTheDocument();
-  });
-
   describe("find on this tab", () => {
     const findInput = () => screen.getByRole("textbox", { name: "Find on this tab" });
     async function search(user: ReturnType<typeof userEvent.setup>, query: string) {

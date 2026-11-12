@@ -11,11 +11,13 @@
   panel, and Findings join the review through `PendingReviewStore.add`.
 
   What is read when, and in which order, is the PR under review's
-  (`prUnderReview.svelte.ts`); the page lays it out and keeps the reader's place.
+  (`prUnderReview.svelte.ts`); reading its files (the current file, folds,
+  selected lines, keys, keeping the reader's place) is `diffReading.svelte.ts`'s.
+  The page lays them out.
 -->
 <script lang="ts">
   import { ArrowUp, ChevronLeft, PanelRightOpen } from "@lucide/svelte";
-  import { type Snippet, tick, untrack } from "svelte";
+  import { type Snippet, untrack } from "svelte";
   import { dialogStack, openDialog } from "$lib/app/dialogs.svelte";
   import type { PrMove } from "$lib/app/navigation.svelte";
   import type { MenuEntry } from "$lib/components/actionMenu";
@@ -25,7 +27,8 @@
   import { stepHint } from "$lib/review/actions";
   import ChecksTab from "$lib/review/ChecksTab.svelte";
   import ConversationTab from "$lib/review/ConversationTab.svelte";
-  import FileDiff, { type Composer, type LineSlot } from "$lib/review/FileDiff.svelte";
+  import { DiffReading, type PageKeys } from "$lib/review/diffReading.svelte";
+  import FileDiff, { type LineSlot } from "$lib/review/FileDiff.svelte";
   import FileRail from "$lib/review/FileRail.svelte";
   import FindBar from "$lib/review/FindBar.svelte";
   import type { PendingReviewStore } from "$lib/review/pendingReview.svelte";
@@ -41,19 +44,15 @@
     entryLocation,
     type FileCounts,
     fileCounts,
-    fileInView,
     groupBy,
-    type LineRange,
     prPlace,
     queueNeighbour,
     type ReviewFilter,
     rangeAnchor,
     rangeText,
     reuseUnchanged,
-    reviewKey,
     sameFields,
     sameItems,
-    selectLine,
     threadShown,
     upNext,
   } from "$lib/review/reviewPage";
@@ -143,13 +142,10 @@
   const NO_THREADS: CommentThread[] = [];
   const NO_PENDING: PendingEntry[] = [];
   const NO_COUNTS: FileCounts = { comments: 0, unresolved: 0, findings: 0 };
-  /** A chosen current file survives scrolling by less than a diff row. */
-  const HOLD_SLOP = 20;
 
   // svelte-ignore state_referenced_locally -- the page is keyed by PR.
   const review = new PrUnderReview({ repoDir, number, pending, viewer: () => viewer });
-  const { files: reviewFiles } = review;
-  const { viewed, collapsed } = reviewFiles;
+  const { viewed } = review.files;
   const detail = $derived(review.detail);
   // How far GitHub's head is behind GitHub's base tip, for the header badge.
   const behindQuery = query("reviewPrsBehind", () =>
@@ -175,9 +171,6 @@
     left.filter = filter;
     left.collapsedDirs = collapsedDirs;
   });
-  let selection = $state<LineRange | null>(null);
-  let composer = $state<Composer | null>(null);
-  let currentPath = $state<string | null>(null);
   let helpOpen = $state(false);
   /** Below the rail's width the Your review panel is an overlay, shown on demand. */
   let reviewOpen = $state(false);
@@ -201,6 +194,18 @@
   const queue = $derived(upNext(inbox, number));
   const people = $derived(inbox ? peopleByLogin(inbox) : new Map<string, GitHubPerson>());
   const files = $derived<PrFile[]>(review.shownFiles);
+  // Viewed marks are GitHub's; a note on lines joins the pending review.
+  const reading = new DiffReading({
+    files: () => files,
+    folds: review.files.collapsed,
+    viewed: { has: (path) => viewed.has(path), set: (targets, value) => review.setViewed(targets, value) },
+    addEntry(range, body, replacement) {
+      const anchor = rangeAnchor(range);
+      if (replacement !== null) pending.add({ kind: "suggestion", anchor, body, replacement });
+      else pending.add({ kind: "comment", anchor, body });
+    },
+    showFiles: () => (tab = "files"),
+  });
   const threads = $derived(commentThreads(detail?.comments ?? []));
   const shownThreads = $derived(threads.filter((thread) => threadShown(thread, filter)));
   // Shares `threads` with the Files tab, so a reply or resolve shows in both.
@@ -248,7 +253,6 @@
     const next = detail;
     if (!next) return;
     untrack(() => {
-      currentPath ??= next.files[0]?.path ?? null;
       if (opened) return;
       opened = true;
       if (!review.opensOnSince) land();
@@ -293,88 +297,13 @@
     topbarHidden = topbarHeight > 0 && scroller.scrollTop >= topbarHeight;
     // "Changes since" is a different, shorter page and doesn't come back.
     if (changes === "all") left.scrollTop = scroller.scrollTop;
-    scheduleCurrentFile();
   }
 
-  // The current file follows the page. Measured in a frame, where a read costs
-  // no layout the frame would not do anyway and no Svelte flush is half done.
-  let currentFileFrame = 0;
-  /** Where the page was when the reader chose the current file, or null. */
-  let heldAt: number | null = null;
-  let lastScrollTop = 0;
-
-  function scheduleCurrentFile() {
-    currentFileFrame ||= requestAnimationFrame(updateCurrentFile);
-  }
-
-  function updateCurrentFile() {
-    currentFileFrame = 0;
-    if (!scroller) return;
-    const top = scroller.scrollTop;
-    const movedDown = top > lastScrollTop;
-    lastScrollTop = top;
-    if (heldAt !== null && Math.abs(top - heldAt) <= HOLD_SLOP && !(currentPath && collapsed.has(currentPath))) return;
-    heldAt = null;
-    const elements = scroller.querySelectorAll<HTMLElement>("[data-file]");
-    const view = scroller.getBoundingClientRect();
-    // Short files at the end never reach the top: the end of the page is theirs.
-    const atEnd = movedDown && top + scroller.clientHeight >= scroller.scrollHeight - 1;
-    const index = atEnd
-      ? elements.length - 1
-      : fileInView(
-          elements.length,
-          (at) => {
-            const box = elements[at].getBoundingClientRect();
-            return { top: box.top, bottom: box.bottom, open: !collapsed.has(elements[at].dataset.file ?? "") };
-          },
-          view.top,
-          view.bottom,
-        );
-    const path = elements[index]?.dataset.file;
-    if (path) currentPath = path;
-  }
-
-  // What is in view also changes when a file folds or the list changes.
+  // Another tab's page leaves no files to measure: measure again on coming back.
   $effect(() => {
-    void files;
     void tab;
-    void collapsed.size;
-    untrack(scheduleCurrentFile);
-    return () => {
-      cancelAnimationFrame(currentFileFrame);
-      currentFileFrame = 0;
-    };
+    reading.measure();
   });
-
-  /** The reader chose this file: it stays current until the page moves on. */
-  function holdCurrent(path: string) {
-    currentPath = path;
-    heldAt = scroller?.scrollTop ?? 0;
-  }
-
-  /** Where a file's top sits from the top of the view. Forces layout: call it
-   *  from an event or after `tick`, not on scroll. */
-  function fileOffset(path: string): number | null {
-    const element = scroller?.querySelector(`[data-file="${CSS.escape(path)}"]`);
-    if (!scroller || !element) return null;
-    return element.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
-  }
-
-  /** Fold or unfold files and keep the reader's place. WebKit has no scroll
-   *  anchoring, so otherwise folding a file whose header is above the view
-   *  drops the reader files further down. That file's header comes back to the
-   *  top of the view; any other file stays where it is on screen. */
-  async function keepingPlace(change: () => void) {
-    const path = currentPath;
-    const before = path ? fileOffset(path) : null;
-    change();
-    if (path === null || before === null) return;
-    await tick();
-    const after = fileOffset(path);
-    if (scroller && after !== null) {
-      scroller.scrollTop += after - (before < 0 && collapsed.has(path) ? 0 : before);
-    }
-  }
 
   /** At once, not smoothly: a smooth scroll would mount every file it passes. */
   function scrollToTop() {
@@ -388,29 +317,6 @@
   }
 
   // --- files ---------------------------------------------------------------
-
-  function setViewed(targets: PrFile[], value: boolean) {
-    void keepingPlace(() => review.setViewed(targets, value));
-  }
-
-  function toggle(file: PrFile, event: MouseEvent) {
-    holdCurrent(file.path);
-    void keepingPlace(() => {
-      if (event.altKey) reviewFiles.openOnly(files, file.path);
-      else reviewFiles.toggle(file.path);
-    });
-  }
-
-  function jumpTo(path: string) {
-    currentPath = path;
-    reviewFiles.setOpen(path, true);
-    tab = "files";
-    queueMicrotask(() => {
-      document.querySelector(`[data-file="${CSS.escape(path)}"]`)?.scrollIntoView?.({ block: "start" });
-      // After the scroll: a file near the end can't reach the top of the view.
-      holdCurrent(path);
-    });
-  }
 
   // Every file's menu is one of two, so marking one file viewed rebuilds none.
   const fileMenus = $derived({ viewed: fileMenu(true), unviewed: fileMenu(false) });
@@ -436,20 +342,20 @@
   }
 
   function onFileMenu(file: PrFile, id: string) {
-    holdCurrent(file.path);
+    reading.hold(file.path);
     const index = files.indexOf(file);
     switch (id) {
       case "ask":
         askAgent({ path: file.path, side: null, startLine: null, line: null, text: file.patch, askOnly: false });
         break;
       case "viewed":
-        setViewed([file], !viewed.has(file.path));
+        reading.setViewed([file], !viewed.has(file.path));
         break;
       case "above":
-        setViewed(files.slice(0, index + 1), true);
+        reading.setViewed(files.slice(0, index + 1), true);
         break;
       case "others":
-        void keepingPlace(() => reviewFiles.openOnly(files, file.path));
+        reading.toggle(file.path, true);
         break;
       case "whole":
         if (detail) {
@@ -472,30 +378,12 @@
 
   // --- lines and the pending review ----------------------------------------
 
-  function onSelectLine(file: PrFile, side: DiffSide, line: number, extend: boolean) {
-    holdCurrent(file.path);
-    composer = null;
-    selection = selectLine(selection, file.path, side, line, extend);
-  }
-
-  function compose(mode: Composer["mode"]) {
-    if (selection) composer = { range: selection, mode };
-  }
-
-  function addEntry(body: string, replacement: string | null) {
-    if (!composer) return;
-    const anchor = rangeAnchor(composer.range);
-    if (replacement !== null) pending.add({ kind: "suggestion", anchor, body, replacement });
-    else pending.add({ kind: "comment", anchor, body });
-    composer = null;
-    selection = null;
-  }
-
   function askAgent(request: Omit<AskAgentRequest, "number" | "title">) {
     onAskAgent?.({ ...request, number, title: detail?.summary.title ?? "" });
   }
 
   function askAboutSelection(file: PrFile) {
+    const selection = reading.selection;
     if (!selection) return;
     askAgent({
       path: selection.path,
@@ -642,8 +530,7 @@
   function revealFindMatch(match: FindMatch) {
     const { path, id, row } = match.unit;
     if (!path) return;
-    holdCurrent(path);
-    if (id !== PATH_UNIT) reviewFiles.setOpen(path, true);
+    reading.hold(path, { open: id !== PATH_UNIT });
     findRow = row ? { path, row } : null;
   }
 
@@ -656,58 +543,28 @@
     if (unresolved.length === 0) return;
     lastUnresolved = (lastUnresolved + 1) % unresolved.length;
     const thread = unresolved[lastUnresolved];
-    jumpTo(thread.path);
+    reading.jumpTo(thread.path);
     queueMicrotask(() => {
       document.getElementById(`thread-${thread.key}`)?.scrollIntoView?.({ block: "center" });
-      holdCurrent(thread.path);
+      reading.hold(thread.path);
     });
   }
 
-  function onKeydown(event: KeyboardEvent) {
-    if (dialogStack.length > 0 || event.defaultPrevented) return;
-    const command = reviewKey(event);
-    if (!command) return;
-    const index = files.findIndex((file) => file.path === currentPath);
-    const current = files[index];
-    event.preventDefault();
-    switch (command) {
-      case "nextPr":
-      case "previousPr": {
-        const next = queueNeighbour(queue, number, command === "nextPr" ? 1 : -1);
-        if (next) onOpenPr?.(next.number, "walk");
-        break;
-      }
-      case "nextFile":
-      case "previousFile": {
-        const next = files[Math.min(files.length - 1, Math.max(0, index + (command === "nextFile" ? 1 : -1)))];
-        if (next) jumpTo(next.path);
-        break;
-      }
-      case "nextUnresolved":
-        nextUnresolved();
-        break;
-      case "toggleViewed":
-        if (current) setViewed([current], !viewed.has(current.path));
-        break;
-      case "comment":
-        compose("comment");
-        break;
-      case "submit":
-        void review.submit();
-        break;
-      case "find":
-        openFind();
-        break;
-      case "findNext":
-        findBar?.next();
-        break;
-      case "findPrevious":
-        findBar?.previous();
-        break;
-      case "help":
-        helpOpen = !helpOpen;
-        break;
-    }
+  // The keys reading the files doesn't take.
+  const pageKeys: PageKeys = {
+    nextPr: () => walkQueue(1),
+    previousPr: () => walkQueue(-1),
+    nextUnresolved,
+    submit: () => void review.submit(),
+    find: openFind,
+    findNext: () => findBar?.next(),
+    findPrevious: () => findBar?.previous(),
+    help: () => (helpOpen = !helpOpen),
+  };
+
+  function walkQueue(step: 1 | -1) {
+    const next = queueNeighbour(queue, number, step);
+    if (next) onOpenPr?.(next.number, "walk");
   }
 
   const TABS = $derived([
@@ -723,7 +580,7 @@
   ]);
 </script>
 
-<svelte:window onkeydown={onKeydown} />
+<svelte:window onkeydown={(event) => reading.onKeydown(event, pageKeys)} />
 
 <!-- A size container: the page lays out by its own width, so it also fits beside the Stack page's
      tree, and the sticky rails measure the page's height (100cqh). -->
@@ -731,6 +588,7 @@
   <!-- One scroller for the topbar and the panes, so the topbar scrolls away with the code. -->
   <div
     bind:this={scroller}
+    {@attach reading.attach}
     data-diff-pane
     onscroll={onPageScroll}
     class="flex h-full flex-col overflow-x-hidden overflow-y-auto"
@@ -759,8 +617,8 @@
       onShowChanges={(value) => review.showChanges(value)}
       {viewedCount}
       fileCount={files.length}
-      onExpandAll={() => keepingPlace(() => reviewFiles.expandAll())}
-      onCollapseAll={() => keepingPlace(() => reviewFiles.collapseAll(files))}
+      onExpandAll={() => reading.foldAll(false)}
+      onCollapseAll={() => reading.foldAll(true)}
       {reviewOpen}
       onToggleReview={() => (reviewOpen = !reviewOpen)}
       pendingCount={pending.entries.length}
@@ -798,7 +656,14 @@
     {:else}
       <div class="relative flex flex-1">
         {#if tab === "files"}
-          <FileRail {files} {currentPath} {countsByPath} {viewed} onJump={jumpTo} bind:collapsedDirs />
+          <FileRail
+            {files}
+            currentPath={reading.currentPath}
+            {countsByPath}
+            {viewed}
+            onJump={(path) => reading.jumpTo(path)}
+            bind:collapsedDirs
+          />
 
           <section aria-label="Diffs" data-find-root class="flex min-w-0 flex-1 flex-col gap-2.5 px-5 py-4">
             {#if changes === "since" && since}
@@ -821,22 +686,22 @@
             {#each files as file (file.path)}
               <FileDiff
                 {file}
-                open={!collapsed.has(file.path)}
+                open={reading.isOpen(file.path)}
                 viewed={viewed.has(file.path)}
                 counts={countsByPath.get(file.path) ?? NO_COUNTS}
                 threads={threadsByPath.get(file.path) ?? NO_THREADS}
                 pending={pendingByPath.get(file.path) ?? NO_PENDING}
-                {selection}
-                {composer}
+                selection={reading.selection}
+                composer={reading.composer}
                 menuEntries={viewed.has(file.path) ? fileMenus.viewed : fileMenus.unviewed}
                 onMenu={(id) => onFileMenu(file, id)}
-                onToggle={(event) => toggle(file, event)}
-                onViewed={(value) => setViewed([file], value)}
-                onSelectLine={(side, line, extend) => onSelectLine(file, side, line, extend)}
-                onCompose={compose}
+                onToggle={(event) => reading.toggle(file.path, event.altKey)}
+                onViewed={(value) => reading.setViewed([file], value)}
+                onSelectLine={(side, line, extend) => reading.selectLine(file.path, side, line, extend)}
+                onCompose={(mode) => reading.compose(mode)}
                 onAskAgent={() => askAboutSelection(file)}
-                onAddEntry={addEntry}
-                onCancelComposer={() => (composer = null)}
+                onAddEntry={(body, replacement) => reading.add(body, replacement)}
+                onCancelComposer={() => reading.compose(null)}
                 onRemoveEntry={(id) => pending.remove(id)}
                 afterLine={lineAnnotations}
                 annotated={annotatedLines?.get(file.path)}
@@ -857,7 +722,13 @@
             {#if !detail}
               <div class="placeholder h-40 animate-pulse rounded-xl"></div>
             {:else if tab === "conversation"}
-              <ConversationTab pr={detail} {conversation} {people} onJump={jumpTo} {threadCard} />
+              <ConversationTab
+                pr={detail}
+                {conversation}
+                {people}
+                onJump={(path) => reading.jumpTo(path)}
+                {threadCard}
+              />
             {:else if tab === "checks"}
               <ChecksTab
                 checks={detail.checks}
@@ -908,7 +779,7 @@
               {busy}
               stale={review.stale}
               onSubmit={() => review.submit()}
-              onJump={(entry) => jumpTo(entryLocation(entry).path)}
+              onJump={(entry) => reading.jumpTo(entryLocation(entry).path)}
               upNext={queue}
               {onOpenPr}
               {agentReview}
