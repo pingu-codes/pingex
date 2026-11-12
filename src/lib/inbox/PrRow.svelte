@@ -1,11 +1,12 @@
 <!--
   One pull request in the inbox: state ring, or the author on someone else's
   PR, number and title, review and CI badges, unresolved threads, reviewers
-  (ringed by how they reviewed) and one primary action. Row actions
-  and shortcut hints (↵ R T) fade in on hover and focus; unseen activity is
+  (ringed by how they reviewed), the primary action and when it last changed
+  (the dates on hover; the branch on hovering the number). A row whose action
+  would only be "Open" has no button: the row opens it. Row actions and
+  shortcut hints (↵ R T) fade in on hover and focus; unseen activity is
   bold with a dot and "N new". In a stack the ring holds the PR's position
-  and a rail joins it to the rows above and below. The primary action sits in
-  a fixed-width slot, so the badges line up whatever it says. A click opens the PR; ⌘-click or X toggles the
+  and a rail joins it to the rows above and below. A click opens the PR; ⌘-click or X toggles the
   row's selection and ⇧-click selects a range. The badges sit under the
   title until the inbox is wide enough for one line. Every action goes to
   `onAction` by id.
@@ -14,6 +15,7 @@
   import { Ellipsis, MessageSquare, Sparkles, SquarePen, UserCheck } from "@lucide/svelte";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
   import type { MenuEntry } from "$lib/components/actionMenu";
+  import TooltipAnchor from "$lib/components/TooltipAnchor.svelte";
   import TooltipButton from "$lib/components/TooltipButton.svelte";
   import { RING_CLASS, TONE_CLASS } from "$lib/inbox/badges";
   import {
@@ -27,6 +29,7 @@
     type PeopleFilter,
     type PersonFacet,
     type PrimaryAction,
+    prTimes,
     reviewBadge,
     reviewers,
     stateTone,
@@ -93,6 +96,7 @@
   const reviewing = $derived(reviewers(pr));
   const assigned = $derived(assigneesOf(pr));
   const authorChosen = $derived(chosen.authors.includes(pr.author));
+  const times = $derived(prTimes(pr));
 
   function toggle(facet: PersonFacet, login: string) {
     return onPerson ? () => onPerson(facet, login) : undefined;
@@ -187,7 +191,12 @@
           <span class="flex size-3.5 shrink-0 items-center justify-center">
             <WorktreeBadge variant="icon" {checkout} known={checkoutKnown} />
           </span>
-          <span class="font-mono text-[11px] text-surface-500">#{pr.number}</span>
+          <TooltipAnchor
+            class="shrink-0 font-mono text-[11px] text-surface-500"
+            label="{pr.headRef} → {pr.baseRef}"
+            placement="top-start"
+            >#{pr.number}</TooltipAnchor
+          >
           <span
             class="min-w-0 truncate {unseen ? "font-semibold" : "font-medium"} {pr.isDraft
               ? "text-surface-600-400"
@@ -293,14 +302,15 @@
           {/if}
         </span>
       </div>
-      <span class="flex shrink-0 items-center gap-2.5">
-        <span class="flex w-[70px] items-center justify-end gap-0.5">
-          <!-- Keyboard focus swaps the hover actions for their shortcuts, in about the same space. -->
-          <span class="hidden items-center gap-1 pr-1 group-focus-visible/pr:inline-flex" aria-hidden="true">
-            <kbd class="kbd">↵</kbd><kbd class="kbd">R</kbd><kbd class="kbd">T</kbd>
-          </span>
+      <!-- A fixed-width slot, so the badges line up whatever the action says. The hover actions sit against the primary action, or against the time when the row has none. -->
+      <span class="flex shrink-0 items-center justify-end gap-1 @5xl/inbox:w-56">
+        <!-- Keyboard focus swaps the hover actions for their shortcuts, in about the same space. -->
+        <span class="hidden items-center gap-1 pr-1 group-focus-visible/pr:inline-flex" aria-hidden="true">
+          <kbd class="kbd">↵</kbd><kbd class="kbd">R</kbd><kbd class="kbd">T</kbd>
+        </span>
+        <span class="flex items-center gap-0.5 group-focus-visible/pr:hidden">
           <TooltipButton
-            class="row-action size-[22px] group-hover/pr:opacity-100 group-focus/pr:opacity-100 group-focus-visible/pr:hidden"
+            class="row-action size-[22px] group-hover/pr:opacity-100 group-focus/pr:opacity-100"
             aria-label="New thread"
             label="New thread on this PR (T)"
             onclick={() => onAction("newThread")}
@@ -308,33 +318,41 @@
             <SquarePen size={12} />
           </TooltipButton>
           <TooltipButton
-            class="row-action size-[22px] group-hover/pr:opacity-100 group-focus/pr:opacity-100 group-focus-visible/pr:hidden"
+            class="row-action size-[22px] group-hover/pr:opacity-100 group-focus/pr:opacity-100"
             aria-label="Start agent review"
             label="Start agent review (R)"
             onclick={() => onAction("agentReview")}
           >
             <Sparkles size={12} />
           </TooltipButton>
-          <button
-            {...buttonProps}
-            type="button"
-            class="row-action size-[22px] group-hover/pr:opacity-100 group-focus/pr:opacity-100"
-          >
-            <Ellipsis size={13} />
-          </button>
         </span>
-        <span class="flex w-36 justify-end">
+        <button
+          {...buttonProps}
+          type="button"
+          class="row-action size-[22px] group-hover/pr:opacity-100 group-focus/pr:opacity-100"
+        >
+          <Ellipsis size={13} />
+        </button>
+        <!-- The row itself opens the PR, so "Open" gets no button. -->
+        {#if primary.id !== "open"}
           <button
             type="button"
-            class="btn btn-sm max-w-full min-w-0 text-[11px] {primary.id === "open" || primary.id === "agentReview"
+            class="btn btn-sm ml-1 max-w-36 min-w-0 text-[11px] {primary.id === "agentReview"
               ? "hover:preset-tonal"
               : "preset-tonal"}"
             onclick={() => onAction(`primary:${primary.id}`)}
           >
             <span class="truncate">{primary.label}</span>
           </button>
-        </span>
+        {/if}
       </span>
+      <TooltipAnchor
+        class="w-14 shrink-0 text-right text-[11px] text-surface-500 tabular-nums"
+        label={`Updated ${times.updated}\nOpened ${times.opened}`}
+        multiline
+        placement="top-end"
+        >{times.label}</TooltipAnchor
+      >
     </div>
   {/snippet}
 </ActionMenu>

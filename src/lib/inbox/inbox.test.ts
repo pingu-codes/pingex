@@ -7,6 +7,7 @@ import {
   personLabel,
   personOptions,
   primaryAction,
+  prTimes,
   rangeSelection,
   reviewers,
   sectionOrder,
@@ -198,6 +199,25 @@ describe("the primary action", () => {
     expect(primaryAction(row(409)).label).toBe("Start review");
     expect(primaryAction(row(409), { agentReview: "running" }).label).toBe("Review");
     expect(primaryAction(row(420)).label).toBe("Open");
+  });
+});
+
+describe("prTimes", () => {
+  const now = Date.parse("2026-11-12T12:00:00Z");
+  const times = (updatedAt: string) => prTimes({ createdAt: "2026-10-01T09:30:00Z", updatedAt }, now);
+
+  it("says how long ago the PR last changed", () => {
+    expect(times("2026-11-12T11:59:30Z").label).toBe("just now");
+    expect(times("2026-11-12T11:15:00Z").label).toBe("45m ago");
+    expect(times("2026-11-12T09:00:00Z").label).toBe("3h ago");
+    expect(times("2026-11-05T12:00:00Z").label).toBe("7d ago");
+  });
+
+  it("gives the full dates for the hover", () => {
+    const { opened, updated } = times("2026-11-05T12:00:00Z");
+    expect(opened).toContain("2026");
+    expect(updated).toContain("2026");
+    expect(opened).not.toBe(updated);
   });
 });
 

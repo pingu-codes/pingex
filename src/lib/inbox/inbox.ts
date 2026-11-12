@@ -9,6 +9,7 @@
 import { ACTION_LABELS } from "$lib/review/actions";
 import { stackName } from "$lib/stack/stack";
 import type { FeedEntry, GitHubPerson, Inbox, InboxCounts, InboxPr, PrStack, PrTriage, StackListing } from "$lib/types";
+import { relativeTime } from "$lib/utils/format";
 
 export type InboxFilter = "needsMe" | "mine" | "reviewRequested" | "everyone";
 
@@ -414,6 +415,18 @@ export function primaryAction(
     return action("startReview", "Start review");
   }
   return action("open", "Open");
+}
+
+/** When the PR last changed, as the row's right edge shows it ("3h ago"),
+ *  and the full dates behind it for the hover. `now` is in milliseconds. */
+export function prTimes(pr: Pick<InboxPr, "createdAt" | "updatedAt">, now = Date.now()) {
+  const date = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  const updated = Date.parse(pr.updatedAt) / 1000;
+  return {
+    label: relativeTime(updated, { granularity: "minute", suffix: " ago", now: now / 1000 }),
+    updated: date(pr.updatedAt),
+    opened: date(pr.createdAt),
+  };
 }
 
 // --- Feed -------------------------------------------------------------------
